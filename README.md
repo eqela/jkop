@@ -1,5 +1,5 @@
-Jkop - Software application framework for the Sling programming language
-========================================================================
+Jkop - A universal software development framework
+=================================================
 
 Copyright (c) 2016 Job and Esther Technologies, Inc.
 
