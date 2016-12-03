@@ -1,0 +1,175 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is SpriteScene is EntityScene imports cape:
+
+var entities as array<Entity>
+var pointerListeners = new vector<PointerListener>
+var keyListeners = new vector<KeyListener>
+var highestIndex = -1
+var capturedPointerListener as PointerListener
+
+func cleanup override
+{
+	base.cleanup()
+	removeAllEntities()
+}
+
+func tick(gameTime as TimeValue, delta as double) override
+{
+	base.tick(gameTime, delta)
+	foreach(entity in entities) {
+		if(entity == null) {
+			continue
+		}
+		entity.tick(gameTime, delta)
+	}
+}
+
+func onKeyEvent(event as KeyEvent) override
+{
+	foreach(keyListener in keyListeners) {
+		keyListener.onKeyEvent(event)
+		if(event.isConsumed) {
+			break
+		}
+	}
+}
+
+func onPointerEvent(event as PointerEvent) override
+{
+	base.onPointerEvent(event)
+	if(capturedPointerListener != null) {
+		if(capturedPointerListener.onPointerEvent(event) == false) {
+			capturedPointerListener = null
+		}
+		event.consume()
+		return
+	}
+	foreach(pointerListener in pointerListeners) {
+		if(event.isConsumed) {
+			break
+		}
+		if(pointerListener.onPointerEvent(event)) {
+			event.consume()
+			capturedPointerListener = pointerListener
+			break
+		}
+	}
+}
+
+func grow
+{
+	var nsz as int
+	if(entities == null) {
+		nsz = 1024
+	}
+	else {
+		nsz = SIZE(entities) * 2
+	}
+	var v = new Entity[nsz]
+	if(entities != null) {
+		var osz = SIZE(entities)
+		for(var n=0 ; n<osz; n++) {
+			v[n] = entities[n]
+		}
+	}
+	entities = v
+}
+
+func addEntity(entity as Entity)
+{
+	if(entity == null) {
+		return
+	}
+	var thisIndex = highestIndex + 1
+	var count = 0
+	if(entities != null) {
+		count = SIZE(entities)
+	}
+	if(thisIndex >= count) {
+		grow()
+	}
+	entity.setScene(this)
+	entities[thisIndex] = entity
+	entity.index = thisIndex
+	highestIndex = thisIndex
+	if(entity is PointerListener) {
+		pointerListeners += entity as! PointerListener
+	}
+	if(entity is KeyListener) {
+		keyListeners += entity as! KeyListener
+	}
+	entity.initialize()
+}
+
+func removeEntity(entity as Entity)
+{
+	if(entity == null) {
+		return
+	}
+	var eidx = entity.index
+	if(eidx < 0) {
+		return
+	}
+	if(entity is PointerListener) {
+		Vector.removeValue(pointerListeners, entity as! PointerListener)
+	}
+	if(entity is KeyListener) {
+		Vector.removeValue(keyListeners, entity as! KeyListener)
+	}
+	entity.cleanup()
+	entity.setScene(null)
+	entity.index = -1
+	if(highestIndex == eidx) {
+		entities[eidx] = null
+	}
+	else {
+		var n = entities[highestIndex]
+		entities[eidx] = n
+		if(n != null) {
+			n.index = eidx
+		}
+		entities[highestIndex] = null
+	}
+	highestIndex --
+}
+
+func removeAllEntities()
+{
+	if(entities == null) {
+		return
+	}
+	var esz = SIZE(entities)
+	for(var n=0 ; n<esz; n++) {
+		var e = entities[n]
+		if(e == null) {
+			continue
+		}
+		e.cleanup()
+		e.setScene(null)
+		e.index = -1
+	}
+	entities = null
+}

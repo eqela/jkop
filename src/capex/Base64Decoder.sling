@@ -1,0 +1,122 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape:
+
+IFNDEF("target_android")
+{
+	func appendByte(buffer as buffer, byte as uint8) static as buffer
+	{
+		var nbyte as buffer = Buffer.allocate(1);
+		Buffer.setByte(nbyte, 0, byte);
+		return(Buffer.append(buffer, nbyte, Buffer.getSize(nbyte)));
+	}
+
+	func fromLookupChar(ascii as char) static as int
+	{
+		var c as int = 0;
+		if(ascii == 43) {
+			c = 62;
+		}
+		else if(ascii == 47) {
+			c = 63;
+		}
+		else if(ascii >= 48 && ascii <= 57) {
+			c = ascii + 4 as int;
+		}
+		else if(ascii >= 65 && ascii <= 90) {
+			c = ascii - 65 as int;
+		}
+		else if(ascii >= 97 && ascii <= 122) {
+			c = ascii - 71 as int;
+		}
+		return(c);
+	}
+}
+
+func decode(text as string) static as buffer
+{
+	if(text == null) {
+		return(null);
+	}
+	IFDEF("target_android") {
+		var bytes as buffer;
+		var blen as long = 0;
+		lang "java" {{{
+			bytes = android.util.Base64.decode(text, android.util.Base64.DEFAULT);
+			if(bytes != null) {
+				blen = cape.Buffer.getSize(bytes);
+			}
+		}}}
+		if(bytes == null || blen < 1) {
+			return(null);
+		}
+		return(Buffer.resize(bytes, blen));
+	}
+	ELSE {
+		var data as buffer = MALLOC(0);
+		var iter = String.iterate(text);
+		var done = false;
+		if(iter != null) {
+			var ch as char = 0 as char;
+			while((ch = iter.getNextChar()) > 0) {
+				var c1 = 0;
+				var c2 = 0;
+				var c3 = 0;
+				var c4 = 0;
+				var byte1 as uint8 = 0;
+				var byte2 as uint8 = 0;
+				var byte3 as uint8 = 0;
+				c1 = fromLookupChar(ch);
+				c2 = fromLookupChar(ch = iter.getNextChar());
+				byte1 = ((c1 << 2) + (c2 >> 4)) as uint8;
+				data = appendByte(data, byte1);
+				ch = iter.getNextChar();
+				if(ch == '=') {
+					done = true;
+				}
+				else {
+					c3 = fromLookupChar(ch);
+				}
+				byte2 = (((c2 & 0x0F) << 4) + (c3 >> 2));
+				data = appendByte(data, byte2);
+				if(!done) {
+					ch = iter.getNextChar();
+					if(ch == '=') {
+						done = true;
+					}
+					else {
+						c4 = fromLookupChar(ch);
+					}
+					byte3 = (((c3 & 0x03) << 6) + c4);
+					data = appendByte(data, byte3);
+				}
+				if(done) {
+					break;
+				}
+			}
+		}
+		return(data);
+	}
+}

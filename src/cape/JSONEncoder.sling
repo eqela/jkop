@@ -1,0 +1,237 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+var isNewLine static as bool = true
+
+func print(line as string, indent as int, startline as bool, endline as bool, sb as StringBuilder, niceFormatting as bool) private static
+{
+	if(startline && isNewLine == false) {
+		if(niceFormatting) {
+			sb.append('\n')
+		}
+		else {
+			sb.append(' ')
+		}
+		isNewLine = true
+	}
+	if(isNewLine && niceFormatting) {
+		for(var n = 0; n<indent; n++) {
+			sb.append('\t')
+		}
+	}
+	sb.append(line)
+	if(endline) {
+		if(niceFormatting) {
+			sb.append('\n')
+		}
+		else {
+			sb.append(' ')
+		}
+		isNewLine = true
+	}
+	else {
+		isNewLine = false
+	}
+}
+
+func encodeArray(cc as array<object>, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	print("[", indent, false, true, sb, niceFormatting)
+	var first = true
+	foreach(o in cc) {
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeObject(o, indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("]", indent, true, false, sb, niceFormatting)
+}
+
+func encodeDynamicVector(cc as DynamicVector, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	print("[", indent, false, true, sb, niceFormatting)
+	var first = true
+	var it = cc.iterate()
+	while(it != null) {
+		var o = it.next()
+		if(o == null) {
+			break
+		}
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeObject(o, indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("]", indent, true, false, sb, niceFormatting)
+}
+
+func encodeVector(cc as vector<object>, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	print("[", indent, false, true, sb, niceFormatting)
+	var first = true
+	foreach(o in cc) {
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeObject(o, indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("]", indent, true, false, sb, niceFormatting)
+}
+
+func encodeMap(map as map<string,object>, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	print("{", indent, false, true, sb, niceFormatting)
+	var first = true
+	var keys as vector<string> = Map.getKeys(map)
+	foreach(key in keys) {
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeString(key, indent+1, sb, niceFormatting)
+		sb.append(" : ")
+		encodeObject(map[key], indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("}", indent, true, false, sb, niceFormatting)
+}
+
+func encodeDynamicMap(map as DynamicMap, indent as int, sb as StringBuilder, niceFormatting as bool) static
+{
+	print("{", indent, false, true, sb, niceFormatting)
+	var first = true
+	var keys as vector<string> = map.getKeys()
+	foreach(key in keys) {
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeString(key, indent+1, sb, niceFormatting)
+		sb.append(" : ")
+		encodeObject(map.get(key), indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("}", indent, true, false, sb, niceFormatting)
+}
+
+func encodeKeyValueList(list as KeyValueListForStrings, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	print("{", indent, false, true, sb, niceFormatting)
+	var first = true
+	var it as Iterator<KeyValuePair<string,string>> = list.iterate()
+	while(it != null) {
+		var pair = it.next()
+		if(pair == null) {
+			break
+		}
+		if(first == false) {
+			print(",", indent, false, true, sb, niceFormatting)
+		}
+		encodeString(pair.key, indent+1, sb, niceFormatting)
+		sb.append(" : ")
+		encodeString(pair.value, indent+1, sb, niceFormatting)
+		first = false
+	}
+	print("}", indent, true, false, sb, niceFormatting)
+}
+
+func encodeString(s as string, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	var mysb = new StringBuilder()
+	mysb.append('"')
+	var it = new CharacterIteratorForString(s)
+	while(true) {
+		var c = it.getNextChar()
+		if(c < 1) {
+			break
+		}
+		if(c == '"') {
+			mysb.append('\\')
+		}
+		else if(c == '\\') {
+			mysb.append('\\')
+		}
+		mysb.append(c)
+	}
+	mysb.append('"')
+	print(mysb.toString(), indent, false, false, sb, niceFormatting)
+}
+
+func encodeObject(o as object, indent as int, sb as StringBuilder, niceFormatting as bool) private static
+{
+	if(o == null) {
+		encodeString("", indent, sb, niceFormatting)
+	}
+	else if(o is array<object>) {
+		encodeArray(o as! array<object>, indent, sb, niceFormatting)
+	}
+	else if(o is vector<object>) {
+		encodeVector(o as! vector<object>, indent, sb, niceFormatting)
+	}
+	/*
+	else if(o is map<string,object>) {
+		encodeMap(o as! map<string,object>, indent, sb, niceFormatting)
+	}
+	*/
+	else if(o is DynamicMap) {
+		encodeDynamicMap(o as! DynamicMap, indent, sb, niceFormatting)
+	}
+	else if(o is string) {
+		encodeString(o as! string, indent, sb, niceFormatting)
+	}
+	else if(o is StringObject) {
+		encodeString((o as! StringObject).toString(), indent, sb, niceFormatting)
+	}
+	else if(o is ArrayObject<object>) {
+		var aa as array<object> = (o as! ArrayObject<object>).toArray()
+		encodeArray(aa, indent, sb, niceFormatting)
+	}
+	else if(o is VectorObject<object>) {
+		var vv as vector<object> = (o as! VectorObject<object>).toVector()
+		encodeVector(vv, indent, sb, niceFormatting)
+	}
+	else if(o is DynamicVector) {
+		var vv as vector<object> = (o as! VectorObject<object>).toVector()
+		encodeDynamicVector(vv, indent, sb, niceFormatting)
+	}
+	else if(o is KeyValueListForStrings) {
+		encodeKeyValueList(o as! KeyValueListForStrings, indent, sb, niceFormatting)
+	}
+	else if(o is IntegerObject || o is BooleanObject || o is DoubleObject || o is CharacterObject) {
+		encodeString(String.asString(o), indent, sb, niceFormatting)
+	}
+	else {
+		encodeString("", indent, sb, niceFormatting)
+	}
+}
+
+func encode(o as object, niceFormatting as bool = true) static as string
+{
+	var sb = new StringBuilder()
+	encodeObject(o, 0, sb, niceFormatting)
+	return(sb.toString())
+}

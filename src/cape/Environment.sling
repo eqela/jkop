@@ -1,0 +1,255 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func getPathSeparator static as char
+{
+	IFDEF("target_cs") {
+		return(lang "cs" char {{{ System.IO.Path.DirectorySeparatorChar }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" char {{{ java.io.File.separatorChar }}})
+	}
+	ELSE {
+		if(OS.isWindows()) {
+			return('\\')
+		}
+		return('/')
+	}
+}
+
+func isAbsolutePath(path as string) static as bool
+{
+	if(path == null) {
+		return(false)
+	}
+	var sep = getPathSeparator()
+	var c0 = String.getChar(path, 0)
+	if(c0 == sep) {
+		return(true)
+	}
+	if(Character.isAlpha(c0) && OS.isWindows() && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\') {
+		return(true)
+	}
+	return(false)
+}
+
+func getVariables static as map<string,string>
+{
+	ERROR("Not implemented")
+	return(null)
+}
+
+func getVariable(key as string) static as string
+{
+	if(key == null) {
+		return(null)
+	}
+	IFDEF("target_cs") {
+		var v as string
+		lang "cs" {{{
+			v = System.Environment.GetEnvironmentVariable(key);
+		}}}
+		return(v)
+	}
+	IFDEF("target_java") {
+		var v as string
+		lang "java" {{{
+			v = java.lang.System.getenv(key);
+		}}}
+		return(v)
+	}
+	ELSE {
+		var vars = getVariables()
+		if(vars == null) {
+			return(null)
+		}
+		return(Map.get(vars, key))
+	}
+}
+
+func setVariable(key as string, val as string) static
+{
+	ERROR("Not implemented")
+}
+
+func unsetVariable(key as string) static
+{
+	ERROR("Not implemented")
+}
+
+func setCurrentDirectory(dir as File) static
+{
+	ERROR("Not implemented")
+}
+
+func getCurrentDirectory static as File
+{
+	IFDEF("target_cs") {
+		return(FileInstance.forPath(lang "cs" string {{{ System.IO.Directory.GetCurrentDirectory() }}}))
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(new FileInvalid())
+	}
+}
+
+func findInPath(command as string) static private as File
+{
+	var path = getVariable("PATH")
+	if(String.isEmpty(path)) {
+		return(null)
+	}
+	var separator = ':'
+	if(OS.isWindows()) {
+		separator = ';'
+	}
+	foreach(dir in String.split(path, separator)) {
+		var pp = FileInstance.forPath(dir).entry(command).asExecutable()
+		if(pp.isFile()) {
+			return(pp)
+		}
+	}
+	return(null)
+}
+
+func findCommand(command as string) static as File
+{
+	if(command == null) {
+		return(null)
+	}
+	return(findInPath(command))
+}
+
+func getTemporaryDirectory static as File
+{
+	IFDEF("target_cs") {
+		return(FileInstance.forPath(lang "cs" string {{{ System.IO.Path.GetTempPath() }}}))
+	}
+	ELSE IFDEF("target_objc") {
+		return(FileInstance.forPath("/tmp"))
+	}
+	/*
+	// Android
+	func forTemporaryDirectory(context as !"android.content.Context") static as File
+	{
+		var v = new this()
+		lang "java" {{{
+			v.path = context.getCacheDir().getPath();
+		}}}
+		return(v)
+	}
+	*/
+	ELSE {
+		ERROR("Not implemented")
+		return(new FileInvalid())
+	}
+}
+
+func getHomeDirectory static as File
+{
+	IFDEF("target_cs") {
+		var v as string = null
+		lang "cs" {{{
+			var hd = System.Environment.GetEnvironmentVariable("HOMEDRIVE");
+			if(hd != null) {
+				var hp = System.Environment.GetEnvironmentVariable("HOMEPATH");
+				if(hp != null) {
+					v = hd + System.IO.Path.DirectorySeparatorChar + hp;
+				}
+			}
+		}}}
+		if(v == null) {
+			lang "cs" {{{
+				var h = System.Environment.GetEnvironmentVariable("HOME");
+				if(h != null) {
+					v = h;
+				}
+			}}}
+		}
+		if(v == null) {
+			lang "cs" {{{
+				v = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+			}}}
+		}
+		return(FileInstance.forPath(v))
+	}
+	/*
+	// Android
+	func forHomeDirectory(context as !"android.content.Context") static as File
+	{
+		var v = new this()
+		lang "java" {{{
+			v.path = context.getFilesDir().getPath();
+		}}}
+		return(v)
+	}
+	*/
+	ELSE IFDEF("target_objc") {
+		return(FileInstance.forPath("~"))
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(new FileInvalid())
+	}
+}
+
+func getAppDirectory static as File
+{
+	IFDEF("target_cs") {
+		return(FileInstance.forPath(lang "cs" string {{{ System.AppDomain.CurrentDomain.BaseDirectory }}}))
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(new FileInvalid())
+	}
+}
+
+IFDEF("target_html") {
+	func getPageURL static as string
+	{
+		var url as string
+		lang "js" {{{
+			url = window.location.href;
+		}}}
+		return(url)
+	}
+
+	func getQueryString static as string
+	{
+		var url as string
+		lang "js" {{{
+			url = window.location.href;
+		}}}
+		if(cape.String.isEmpty(url)) {
+			return(null)
+		}
+		var q = cape.String.indexOf(url, '?')
+		if(q < 0) {
+			return(null)
+		}
+		return(cape.String.getSubString(url, q+1))
+	}
+}

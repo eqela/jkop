@@ -1,0 +1,483 @@
+
+/*
+ * This file is part of Sympathy
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
+class is MySQLDatabase imports cape imports capex:
+
+IFDEF("target_mono") {
+	depend "dll:System.Data.dll"
+}
+
+class Statement is SQLStatement
+{
+	func forSql(sql as string) static as this
+	{
+		if(String.isEmpty(sql)) {
+			return(null)
+		}
+		var v = new this()
+		v.sql = SQLAdoNet.convertSQLString(sql)
+		return(v)
+	}
+
+	var pcounter = 0
+	var sql public as string
+	var params as vector<!"MySql.Data.MySqlClient.MySqlParameter">
+
+	func getParamArray as array<!"MySql.Data.MySqlClient.MySqlParameter">
+	{
+		if(params == null) {
+			return(null)
+		}
+		var arr = new !"MySql.Data.MySqlClient.MySqlParameter"[Vector.getSize(params)]
+		var i = 0
+		var iter as Iterator<!"MySql.Data.MySqlClient.MySqlParameter"> = Vector.iterate(params)
+		loop {
+			var n = iter.next() as !"MySql.Data.MySqlClient.MySqlParameter"
+			if(n == null) {
+				break
+			}
+			arr[i] = n
+			i++
+		}
+		return(arr)
+	}
+
+	func addToParams(param as !"MySql.Data.MySqlClient.MySqlParameter")
+	{
+		if(params == null) {
+			params = new vector<!"MySql.Data.MySqlClient.MySqlParameter">
+		}
+		params += param
+	}
+
+	func getNextParamName as string
+	{
+		pcounter ++
+		return("@p" .. String.forInteger(pcounter))
+	}
+
+	func addParamString(val as string) as SQLStatement
+	{
+		var vv = val
+		if(vv == null) {
+			vv = ""
+		}
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.String);
+			param.Value = vv;
+			addToParams(param);
+		}}}
+		return(this)
+	}
+
+	func addParamInteger(val as int) as SQLStatement
+	{
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Int32);
+			param.Value = val;
+			addToParams(param);
+		}}}
+		return(this)
+	}
+
+	func addParamDouble(val as double) as SQLStatement
+	{
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Double);
+			param.Value = val;
+			addToParams(param);
+		}}}
+		return(this)
+	}
+
+	func addParamBlob(val as buffer) as SQLStatement
+	{
+		if(val == null) {
+			return(this)
+		}
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Binary);
+			param.Value = val;
+			addToParams(param);
+		}}}
+		return(this)
+	}
+
+	func resetStatement
+	{
+		params = null
+		pcounter = 0
+	}
+
+	func getError as string
+	{
+		return(null)
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var reader public as !"MySql.Data.MySqlClient.MySqlDataReader"
+
+	dtor
+	{
+		close()
+	}
+
+	func close override
+	{
+		if(reader != null) {
+			reader.Close()
+			reader = null
+		}
+	}
+
+	func nextValues(values as vector<object>) override as bool
+	{
+		if(values == null) {
+			return(false)
+		}
+		if(step() == false) {
+			return(false)
+		}
+		cape.Vector.clear(values)
+		var cols = getColumnCount()
+		var n as int
+		for(n = 0; n < cols; n++) {
+			var o = getColumnObject(n)
+			if(o == null) {
+				o = ""
+			}
+			values += o
+		}
+		return(true)
+	}
+
+	func step override as bool
+	{
+		lang "cs" {{{
+			if(reader == null) {
+				return(false);
+			}
+			if(reader.Read() == false) {
+				close();
+				return(false);
+			}
+		}}}
+		return(true)
+	}
+
+	func getColumnCount override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.FieldCount;
+			}
+		}}}
+		return(v)
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		var v = new vector<string>
+		var n as int
+		var c = getColumnCount()
+		for(n = 0; n < c; n++) {
+			var nn = getColumnName(n)
+			if(nn == null) {
+				nn = ""
+			}
+			v += nn
+		}
+		return(v)
+	}
+
+	func getColumnName(n as int) override as string
+	{
+		var v as string = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetName(n);
+			}
+			if(v == null) {
+				v = "";
+			}
+		}}}
+		return(v)
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		if(reader == null) {
+			return(null)
+		}
+		var v as string = null
+		lang "cs" {{{
+			if(reader.GetFieldType(n) == typeof(byte[])) {
+				var b = (byte[])reader.GetValue(n);
+				return(cape.Buffer.asObject(b));
+			}
+			var o = reader.GetValue(n);
+			if(o == null) {
+				return(null);
+			}
+			v = o.ToString(); //reader.GetString(n);
+			if(v == null) {
+				return(null);
+			}
+		}}}
+		return(v)
+	}
+
+	func getColumnInt(n as int) override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetInt32(n);
+			}
+		}}}
+		return(v)
+	}
+
+	func getColumnDouble(n as int) override as double
+	{
+		var v as double = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetDouble(n);
+			}
+		}}}
+		return(v)
+	}
+
+	func getColumnBuffer(n as int) override as buffer
+	{
+		var v as buffer = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = (byte[])reader.GetValue(n);
+			}
+		}}}
+		return(v)
+	}
+
+	func next override as cape.DynamicMap
+	{
+		if(step() == false) {
+			return(null)
+		}
+		var names = getColumnNames()
+		if(names == null || cape.Vector.getSize(names) < 1) {
+			return(null)
+		}
+		var v = new cape.DynamicMap()
+		var n as int
+		for(n = 0; n < cape.Vector.getSize(names); n++) {
+			v.set(cape.Vector.get(names, n), getColumnObject(n))
+		}
+		return(v)
+	}
+}
+
+var connectionString as string
+
+func initialize(serverAddress as string, username as string, password as string, database as string) override as bool
+{
+	setDatabaseName(database)
+	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Password=" .. password
+	Log.debug(getLogger(), "MySQL connection string: `" .. connectionString .. "'")
+	return(true)
+}
+
+func close override
+{
+	connectionString = null
+}
+
+func prepare(sql as string) override as SQLStatement
+{
+	return(Statement.forSql(sql))
+}
+
+func execute(stmt as SQLStatement) override as bool
+{
+	var ss = stmt as Statement
+	if(ss == null) {
+		return(false)
+	}
+	var v = true
+	var error as string = null
+	lang "cs" {{{
+		try {
+			MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			v = false;
+			error = e.ToString();
+		}
+	}}}
+	if(error != null) {
+		Log.error(getLogger(), error)
+	}
+	return(v)
+}
+
+func query(stmt as SQLStatement) override as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if(ss == null) {
+		return(null)
+	}
+	var v as ResultSet = null
+	var error as string = null
+	var rdr as !"MySql.Data.MySqlClient.MySqlDataReader"
+	lang "cs" {{{
+		try {
+			rdr = MySql.Data.MySqlClient.MySqlHelper.ExecuteReader(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			error = e.ToString();
+		}
+		if(rdr != null) {
+			v = new ResultSet();
+			v.reader = rdr;
+		}
+	}}}
+	if(error != null) {
+		Log.error(getLogger(), error)
+	}
+	return(v)
+}
+
+func close(callback as function) override
+{
+	close()
+	if(callback != null) {
+		callback()
+	}
+}
+
+func execute(stmt as SQLStatement, callback as function<void, bool>) override #dotnetasync
+{
+	var ss = stmt as Statement
+	if(ss == null) {
+		if(callback != null) {
+			callback(false)
+		}
+		return
+	}
+	var v = true
+	var error as string = null
+	lang "cs" {{{
+		try {
+			await MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQueryAsync(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			v = false;
+			error = e.ToString();
+		}
+	}}}
+	if(error != null) {
+		Log.error(getLogger(), error)
+	}
+	if(callback != null) {
+		callback(v)
+	}
+}
+
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override #dotnetasync
+{
+	var ss = stmt as Statement
+	if(ss == null) {
+		if(callback != null) {
+			callback(null)
+		}
+		return
+	}
+	var v as ResultSet = null
+	var error as string = null
+	var rdr as !"MySql.Data.MySqlClient.MySqlDataReader"
+	lang "cs" {{{
+		try {
+			rdr = await MySql.Data.MySqlClient.MySqlHelper.ExecuteReaderAsync(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			error = e.ToString();
+		}
+		if(rdr != null) {
+			v = new ResultSet();
+			v.reader = rdr;
+		}
+	}}}
+	if(error != null) {
+		Log.error(getLogger(), error)
+	}
+	if(callback != null) {
+		callback(v)
+	}
+}
+
+func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override
+{
+	query(stmt, func(it as SQLResultSetIterator) {
+		if(callback != null) {
+			if(it != null) {
+				var v = it.next()
+				it.close()
+				callback(v)
+				return
+			}
+			callback(null)
+		}
+	})
+}
+
+func tableExists(table as string, callback as function<void, bool>) override
+{
+	var databaseName = getDatabaseName()
+	if(table == null || databaseName == null) {
+		callback(false)
+		return
+	}
+	var stmt = prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	if(stmt == null) {
+		callback(false)
+		return
+	}
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	querySingleRow(stmt, func(sr as DynamicMap) {
+		if(sr == null) {
+			callback(false)
+			return
+		}
+		if(String.equals(table, sr.getString("TABLE_NAME")) == false) {
+			callback(false)
+			return
+		}
+		callback(true)
+	})
+}

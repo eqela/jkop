@@ -1,0 +1,220 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape:
+
+var data as KeyValueList<string,string>;
+var mapData as DynamicMap;
+
+func forFile(file as File) static as this
+{
+	var v = new this();
+	if(v.read(file) == false) {
+		v = null;
+	}
+	return(v);
+}
+
+func forMap(map as DynamicMap) static as this
+{
+	var v = new this();
+	v.setDataAsMap(map);
+	return(v);
+}
+
+func readFileAsMap(file as File) static as DynamicMap
+{
+	var cf = forFile(file);
+	if(cf == null) {
+		return(null);
+	}
+	return(cf.getDataAsMap());
+}
+
+ctor
+{
+	data = new KeyValueList<string,string>();
+}
+
+func clear
+{
+	data.clear();
+	mapData = null;
+}
+
+func setDataAsMap(map as DynamicMap) as this
+{
+	clear();
+	var keys = map.iterateKeys();
+	while(keys != null) {
+		var key = keys.next();
+		if(key == null) {
+			break;
+		}
+		data.add(key, map.getString(key));
+	}
+	return(this);
+}
+
+func getDataAsMap as DynamicMap
+{
+	if(mapData == null) {
+		mapData = new DynamicMap();
+		var it = data.iterate();
+		while(it != null) {
+			var kvp = it.next();
+			if(kvp == null) {
+				break;
+			}
+			mapData.set(kvp.key, kvp.value);
+		}
+	}
+	return(mapData);
+}
+
+func getStringValue(key as string) as string
+{
+	var map = getDataAsMap();
+	if(map == null) {
+		return(null);
+	}
+	return(map.getString(key));
+}
+
+func getIntValue(key as string, defval as int = 0) as int
+{
+	var map = getDataAsMap();
+	if(map == null) {
+		return(defval);
+	}
+	return(map.getInteger(key, defval));
+}
+
+func getDoubleValue(key as string, defval as double = 0.0) as double
+{
+	var map = getDataAsMap();
+	if(map == null) {
+		return(defval);
+	}
+	return(map.getDouble(key, defval));
+}
+
+/*
+public KeyValueList get_values(String filter = null) {
+	var v = new KeyValueList();
+	foreach(KeyValuePair kv in data) {
+		var key = kv.get_key();
+		var oi = key.chr((int)'[');
+		if(oi > 0 && key.has_suffix("]")) {
+			var rkey = key.substring(0, oi);
+			var cond = key.substring(oi+1, key.get_length()-oi-2);
+			if(cond.has_suffix("*") && filter != null && filter.has_prefix(cond.substring(0, cond.get_length()-1))) {
+				v.append(rkey, kv.get_value());
+			}
+			else if(filter != null && filter.equals(cond)) {
+				v.append(rkey, kv.get_value());
+			}
+		}
+		else {
+			v.append(key, kv.get_value());
+		}
+	}
+	return(v);
+}
+*/
+
+func iterate as Iterator<KeyValuePair<string,string>>
+{
+	if(data == null) {
+		return(null);
+	}
+	return(data.iterate());
+}
+
+func read(file as File) virtual as bool
+{
+	if(file == null) {
+		return(false);
+	}
+	var reader = file.read();
+	if(reader == null) {
+		return(false);
+	}
+	var ins = new PrintReader(reader);
+	var line as string;
+	var tag as string;
+	while((line = ins.readLine()) != null) {
+		line = String.strip(line);
+		if(String.isEmpty(line) || String.startsWith(line, "#")) {
+			continue;
+		}
+		if(String.endsWith(line, "{")) {
+			if(tag == null) {
+				tag = String.strip(String.getSubString(line, 0, String.getLength(line)-1));
+			}
+			continue;
+		}
+		if(line == "}") {
+			tag = null;
+			continue;
+		}
+		var sp = String.split(line, ':', 2);
+		if(sp == null) {
+			continue;
+		}
+		var key = String.strip(Vector.get(sp, 0));
+		var val = String.strip(Vector.get(sp, 1));
+		if(String.startsWith(val, "\"") && String.endsWith(val, "\"")) {
+			val = String.getSubString(val, 1, String.getLength(val)-2);
+		}
+		if(String.isEmpty(key)) {
+			continue;
+		}
+		if(tag != null) {
+			key = key .. "[" .. tag .. "]";
+		}
+		data.add(key, val);
+	}
+	return(true);
+}
+
+func write(outfile as File) virtual as bool
+{
+	if(outfile == null || data == null) {
+		return(false);
+	}
+	var os = PrintWriterWrapper.forWriter(outfile.write());
+	if(os == null) {
+		return(false);
+	}
+	var it = data.iterate();
+	while(it != null) {
+		var kvp = it.next();
+		if(kvp == null) {
+			break;
+		}
+		os.println(kvp.key .. ": " .. kvp.value);
+	}
+	return(true);
+}

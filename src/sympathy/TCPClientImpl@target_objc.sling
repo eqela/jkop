@@ -1,0 +1,213 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPClient is ConnectedSocket implements !"NSStreamDelegate" imports cape:
+
+var inputStream as !"NSInputStream*";
+var outputStream as !"NSOutputStream*";
+var ctx as LoggingContext;
+var address as string;
+var recvBufferSize as int = 32 * 1024;
+var recvBuffer as buffer;
+var outputQueue as vector<buffer>;
+var outputQueueMaxSize as int = 1024 * 1024;
+
+func setRecvBufferSize(sz as int)
+{
+	recvBufferSize = sz;
+	if(recvBuffer != null) {
+		recvBuffer = malloc(sz);
+	}
+}
+
+func start(actx as LoggingContext, address as string, port as int) as bool
+{
+	if(connection == null) {
+		return(false);
+	}
+	this.address = address;
+	ctx = actx;
+	lang "objc" {{{
+		CFReadStreamRef readStream;
+		CFWriteStreamRef writeStream;
+		CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)address, port, &readStream, &writeStream); 
+		inputStream = (__bridge_transfer NSInputStream *)readStream;
+		outputStream = (__bridge_transfer NSOutputStream *)writeStream;
+		[inputStream setDelegate:self];
+		[outputStream setDelegate:self];
+		[inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[inputStream open];
+		[outputStream open];
+	}}}
+	recvBuffer = malloc(recvBufferSize);
+	connection.initialize(ctx, this);
+	return(true);
+}
+
+func stop
+{
+	close();
+}
+
+func close
+{
+	if(inputStream != null) {
+		lang "objc" {{{
+			[inputStream close];
+			[inputStream setDelegate:nil];
+			[inputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		}}}
+		inputStream = null;
+	}
+	if(outputStream != null) {
+		lang "objc" {{{
+			[outputStream close];
+			[outputStream setDelegate:nil];
+			[outputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		}}}
+		outputStream = null;
+	}
+	var p = connection;
+	connection = null;
+	if(p != null) {
+		p.close();
+	}
+	address = null;
+	recvBuffer = null;
+}
+
+func read(buffer as buffer) as int
+{
+	var v as int;
+	lang "objc" {{{
+		v = (int)[inputStream read:[buffer mutableBytes] maxLength:[buffer length]];
+	}}}
+	return(v);
+}
+
+func write(buffer as buffer, size as int) as int
+{
+	var v as int;
+	var sz = size;
+	if(sz < 0) {
+		lang "objc" {{{
+			sz = [buffer length];
+		}}}
+	}
+	if(lang "objc" bool {{{ outputStream.hasSpaceAvailable }}} == false) {
+		if(outputQueue == null) {
+			outputQueue = new vector<buffer>;
+		}
+		if(sizeof(outputQueue) > outputQueueMaxSize) {
+			Log.error(ctx, "Output stream has no space available, and output queue max size has been exceeded.");
+			return(-1);
+		}
+		outputQueue += Buffer.getSubBuffer(buffer, 0, sz);
+		return(sz);
+	}
+	lang "objc" {{{
+		v = (int)[outputStream write:[buffer bytes] maxLength:sz];
+	}}}
+	return(v);
+}
+
+func onStreamError(error as string)
+{
+	var p = connection;
+	if(p != null) {
+		p.onError(error);
+	}
+	close();
+}
+
+func onStreamOpened
+{
+	if(connection != null) {
+		connection.onOpened();
+	}
+}
+
+func onBytesAvailable
+{
+	var x = read(recvBuffer);
+	if(x < 0) {
+		close();
+	}
+	else if(connection != null) {
+		connection.onDataReceived(recvBuffer, x);
+	}
+}
+
+func onSpaceAvailable
+{
+	if(outputQueue != null) {
+		var oq = outputQueue;
+		outputQueue = null;
+		foreach(buffer as buffer in oq) {
+			write(buffer, -1);
+		}
+	}
+	// FIXME
+}
+
+func onStreamClosed
+{
+	if(connection != null) {
+		connection.onClosed();
+	}
+}
+
+lang "objc" {{{
+	- (void) stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
+	{
+		if(streamEvent == NSStreamEventNone) {
+			[ctx message:@"WARNING" text:@"NSStreamEventNone"];
+		}
+		else if(streamEvent == NSStreamEventOpenCompleted) {
+			[ctx message:@"DEBUG" text:@"NSStreamEventOpenCompleted"];
+			if(theStream == outputStream) {
+				[self onStreamOpened];
+			}
+		}
+		else if(streamEvent == NSStreamEventHasBytesAvailable) {
+			[ctx message:@"DEBUG" text:@"NSStreamEventHasBytesAvailable"];
+			[self onBytesAvailable];
+		}
+		else if(streamEvent == NSStreamEventHasSpaceAvailable) {
+			[ctx message:@"DEBUG" text:@"NSStreamEventHasSpaceAvailable"];
+			[self onSpaceAvailable];
+		}
+		else if(streamEvent == NSStreamEventErrorOccurred) {
+			[self onStreamError:[[theStream streamError] localizedDescription]];
+		}
+		else if(streamEvent == NSStreamEventEndEncountered) {
+			[ctx message:@"DEBUG" text:@"NSStreamEventEndEncountered"];
+			[self onStreamClosed];
+		}
+		else {
+			[ctx message:@"INFO" text:@"Unknown stream event"];
+		}
+	}
+}}}

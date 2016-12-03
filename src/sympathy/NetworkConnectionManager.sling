@@ -1,0 +1,260 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class abstract imports cape:
+
+class ConnectionPool protected
+{
+	var connections public as array<NetworkConnection>
+	var nConnection public as int = 0
+
+	func initialize(logContext as LoggingContext, maxConnections as int) as bool
+	{
+		connections = new NetworkConnection[maxConnections]
+		return(true)
+	}
+
+	func add(logContext as LoggingContext, conn as NetworkConnection) as int
+	{
+		if(nConnection >= SIZE(connections)) {
+			Log.error(logContext, "Maximum number of connections exceeded.")
+			return(-1)
+		}
+		connections[nConnection] = conn
+		var v = nConnection
+		nConnection ++
+		Log.debug(logContext, "Added connection to connection pool: Now " .. String.forInteger(nConnection) .. " connections")
+		return(v)
+	}
+
+	func remove(logContext as LoggingContext, index as int) as bool
+	{
+		if(index < 0 || index >= nConnection) {
+			return(false)
+		}
+		if(connections[index] == null) {
+			return(false)
+		}
+		var last = nConnection - 1
+		if(last == index) {
+			connections[index] = null
+			nConnection --
+		}
+		else {
+			connections[index] = connections[last]
+			connections[last] = null
+			var ci = connections[index]
+			ci.setStorageIndex(index)
+			nConnection --
+		}
+		Log.debug(logContext, "Removed connection from connection pool: Now " .. String.forInteger(nConnection) .. " connections")
+		return(true)
+	}
+}
+
+class ConnectionIterator is Iterator<NetworkConnection>
+{
+	prop pool as ConnectionPool
+	var current = -1
+
+	func next as NetworkConnection
+	{
+		if(pool == null) {
+			return(null)
+		}
+		var nn = current + 1
+		if(nn >= pool.nConnection) {
+			return(null)
+		}
+		var connection = pool.connections[nn] as NetworkConnection
+		if(connection == null) {
+			return(null)
+		}
+		current = nn
+		return(connection)
+	}
+}
+
+var logContext protected as LoggingContext
+var ioManager protected as IOManager
+prop maxConnections = 100000
+prop recvBufferSize = 32768
+var connections protected as ConnectionPool
+var recvBuffer as buffer
+
+func createConnectionObject abstract as NetworkConnection
+
+func setLogContext(ctx as LoggingContext) as this
+{
+	logContext = ctx
+	return(this)
+}
+
+func getLogContext as LoggingContext
+{
+	return(logContext)
+}
+
+func setIoManager(io as IOManager) as this
+{
+	this.ioManager = io
+	return(this)
+}
+
+func getIoManager as IOManager
+{
+	return(ioManager)
+}
+
+func iterateConnections as Iterator<NetworkConnection>
+{
+	return(new ConnectionIterator().setPool(connections))
+}
+
+func forEachConnection(function as function<void,NetworkConnection>)
+{
+	var it = iterateConnections()
+	if(it == null) {
+		return
+	}
+	while(true) {
+		var cc = it.next()
+		if(cc == null) {
+			break
+		}
+		function(cc)
+	}
+}
+
+func isInitialized as bool
+{
+	if(connections == null) {
+		return(false)
+	}
+	return(true)
+}
+
+func initialize(ioManager as IOManager, logContext as LoggingContext = null) as bool
+{
+	if(ioManager == null) {
+		return(false)
+	}
+	setLogContext(logContext)
+	setIoManager(ioManager)
+	return(initialize())
+}
+
+func initialize virtual as bool
+{
+	if(connections != null) {
+		Log.error(logContext, "Already initialized")
+		return(false)
+	}
+	if(ioManager == null) {
+		Log.error(logContext, "No IO manager configured for connection server")
+		return(false)
+	}
+	recvBuffer = MALLOC(recvBufferSize)
+	if(recvBuffer == null) {
+		Log.error(logContext, "Failed to allocate recv buffer")
+		return(false)
+	}
+	connections = new ConnectionPool()
+	if(connections.initialize(logContext, maxConnections) == false) {
+		Log.error(logContext, "Failed to initialize connection pool")
+		connections = null
+		recvBuffer = null
+		return(false)
+	}
+	return(true)
+}
+
+func cleanup virtual
+{
+	connections = null
+}
+
+func onNewSocket(socket as ConnectedSocket)
+{
+	if(socket == null) {
+		return
+	}
+	var connection = createConnectionObject()
+	if(connection == null) {
+		Log.error(logContext, "Failed to create TCP server connection object instance for incoming connection")
+		socket.close()
+		return
+	}
+	if(connection.doInitialize(logContext, socket, this) == false) {
+		Log.error(logContext, "Failed to initialize the new connection instance. Closing connection.")
+		socket.close()
+		return
+	}
+	if(addConnection(connection) == false) {
+		Log.error(logContext, "Failed to add a new connection instance. Closing connection.")
+		connection.close()
+		return
+	}
+	connection.onOpened()
+}
+
+func addConnection(connection as NetworkConnection) as bool
+{
+	if(connection == null || ioManager == null) {
+		return(false)
+	}
+	var es = ioManager.add(connection.getSocket())
+	if(es == null) {
+		return(false)
+	}
+	connection.setIoEntry(es)
+	var idx = connections.add(logContext, connection)
+	if(idx < 0) {
+		return(false)
+	}
+	connection.setStorageIndex(idx)
+	return(true)
+}
+
+func onConnectionClosed(connection as NetworkConnection)
+{
+	if(connection == null) {
+		return
+	}
+	var es = connection.getIoEntry()
+	if(es != null) {
+		es.remove()
+		connection.setIoEntry(null)
+	}
+	var si = connection.getStorageIndex()
+	if(si >= 0) {
+		connections.remove(logContext, si)
+		connection.setStorageIndex(-1)
+	}
+}
+
+func getReceiveBuffer as buffer
+{
+	return(recvBuffer)
+}

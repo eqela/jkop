@@ -1,0 +1,445 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+**
+** The Buffer class provides convenience methods for dealing with data buffers
+** (arbitrary sequences of bytes).
+**
+
+class:
+
+class MyBufferObject is BufferObject<T> private
+{
+	prop buffer as buffer
+
+	func toBuffer as buffer
+	{
+		return(buffer)
+	}
+}
+
+**
+** Returns the given array as a BufferObject (which is an object type)
+** that can be used wherever an object or a class instance is required.
+**
+
+func asObject(buffer as buffer) static as BufferObject
+{
+	var v = new MyBufferObject()
+	v.setBuffer(buffer)
+	return(v)
+}
+
+func asBuffer(obj as object) static as buffer
+{
+	if(obj == null) {
+		return(null)
+	}
+	if(obj is BufferObject) {
+		return((obj as! BufferObject).toBuffer())
+	}
+	return(null)
+}
+
+func forInt8Array(buf as int8[]) static as buffer
+{
+	IFDEF("target_cs") {
+		return(lang "cs" buffer {{{ (byte[])(System.Array)buf }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" buffer {{{ buf }}})
+	}
+	ELSE {
+		return(null)
+	}
+}
+
+func toInt8Array(buf as buffer) static as int8[]
+{
+	IFDEF("target_cs") {
+		return(lang "cs" int8[] {{{ (sbyte[])(System.Array)buf }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" int8[] {{{ buf }}})
+	}
+	ELSE {
+		return(null)
+	}
+}
+
+func getSubBuffer(buffer as buffer, offset as long, size as long, alwaysNewBuffer as bool = false) static as buffer
+{
+	if(alwaysNewBuffer == false && offset == 0 && size < 0) {
+		return(buffer)
+	}
+	var bsz = getSize(buffer)
+	var sz = size
+	if(sz < 0) {
+		sz = bsz - offset
+	}
+	if(alwaysNewBuffer == false && offset == 0 && sz == bsz) {
+		return(buffer)
+	}
+	if(sz < 1) {
+		return(null)
+	}
+	var v = MALLOC(sz)
+	copyFrom(v, buffer, offset, 0, sz)
+	return(v)
+}
+
+func getInt8(buffer as buffer #used, offset as long #used) static as uint8
+{
+	IFDEF("target_cs") {
+		return(lang "cs" uint8 {{{ buffer[offset] }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" uint8 {{{ buffer[(int)offset] }}})
+	}
+	ELSE IFDEF("target_objc") {
+		var v as uint8
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 1)];
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_js") {
+		return(lang "js" uint8 {{{ buffer[offset] }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+IFDEF("target_cs") {
+	lang "cs" {{{
+		static ushort reverse16(ushort value) {
+			return((ushort)((value & 0xFFU) << 8 | (value & 0xFF00U) >> 8));
+		}
+
+		static uint reverse32(uint value) {
+			return((uint)((value & 0x000000FFU) << 24 | (value & 0x0000FF00U) << 8 |
+				(value & 0x00FF0000U) >> 8 | (value & 0xFF000000U) >> 24));
+		}
+	}}}
+}
+
+func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, size as long) static
+{
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			System.Array.Copy(src, soffset, array, doffset, size);
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			java.lang.System.arraycopy(src, (int)soffset, array, (int)doffset, (int)size);
+		}}}
+	}
+	ELSE IFDEF("target_objc") {
+		lang "objc" {{{
+			[array replaceBytesInRange:NSMakeRange(doffset, size) withBytes:[src bytes]+soffset length:size];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getInt16LE(buffer as buffer, offset as long) static as uint16
+{
+	IFDEF("target_cs") {
+		/*
+		// FIXME: This doesn't translate nicely. The hex digits should be preserved as hex digits.
+		#static $uint16 reverse16($uint16 value) {
+			return(($uint16)((value & 0xFF) << 8 | (value & 0xFF00) >> 8))
+		}
+
+		#static $uint32 reverse32($uint32 value) {
+			return(($uint32)(value & 0x000000FF) << 24 | (value & 0x0000FF00) << 8 |
+				(value & 0x00FF0000) >> 8 | (value & 0xFF000000) >> 24)
+		}
+		*/
+		var v as uint16 = 0
+		lang "cs" {{{
+			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian == false) {
+				v = reverse16(v);
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_objc") {
+		var v as uint16
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 2)];
+			v = CFSwapInt16LittleToHost(v);
+		}}}
+		return(v)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getInt16BE(buffer as buffer, offset as long) static as uint16
+{
+	IFDEF("target_cs") {
+		var v as uint16 = 0
+		lang "cs" {{{
+			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian) {
+				v = reverse16(v);
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_objc") {
+		var v as uint16
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 2)];
+			v = CFSwapInt16BigToHost(v);
+		}}}
+		return(v)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getInt32LE(buffer as buffer, offset as long) static as uint32
+{
+	IFDEF("target_cs") {
+		var v as uint32 = 0
+		lang "cs" {{{
+			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian == false) {
+				v = reverse32(v);
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_objc") {
+		var v as uint32
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 4)];
+			v = CFSwapInt32LittleToHost(v);
+		}}}
+		return(v)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getInt32BE(buffer as buffer, offset as long) static as uint32
+{
+	IFDEF("target_cs") {
+		var v as uint32 = 0
+		lang "cs" {{{
+			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian) {
+				v = reverse32(v);
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_objc") {
+		var v as uint32
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 4)];
+			v = CFSwapInt32BigToHost(v);
+		}}}
+		return(v)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getSize(buffer as buffer #used) static as long
+{
+	if(buffer == null) {
+		return(0)
+	}
+	IFDEF("target_objc") {
+		return(lang "objc" int {{{ [buffer length] }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" int {{{ buffer.length }}})
+	}
+	ELSE IFDEF("target_cs") {
+		return(lang "cs" int {{{ buffer.Length }}})
+	}
+	ELSE IFDEF("target_js") {
+		return(lang "js" int {{{ buffer.byteLength }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getByte(buffer as buffer, offset as long) static as uint8
+{
+	return(getInt8(buffer, offset))
+	/*
+	IFDEF("target_objc") {
+		return(@lang "objc" $int {{{ ((uint8_t*)[buffer bytes])[offset] }}})
+	}
+	ELSE {
+		@ERROR("Not implemented")
+		return(0)
+	}
+	*/
+}
+
+func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used) static
+{
+	IFDEF("target_objc") {
+		lang "objc" {{{
+			((uint8_t*)[buffer mutableBytes])[offset] = value;
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			buffer[(int)offset] = value;
+		}}}
+	}
+	ELSE IFDEF("target_cs") {
+		lang "cs" {{{
+			buffer[offset] = value;
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			buffer[offset] = value;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func allocate(size as long) static as buffer
+{
+	return(MALLOC(size))
+}
+
+func resize(buffer as buffer, newSize as long) static as buffer
+{
+	if(buffer == null) {
+		return(allocate(newSize))
+	}
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			System.Array.Resize(ref buffer, (int)newSize);
+		}}}
+		return(buffer)
+	}
+	IFDEF("target_java") {
+		var nbuf as buffer = allocate(newSize)
+		lang "java" {{{
+			System.arraycopy(buffer, 0, nbuf, 0, (int)cape.Buffer.getSize(buffer));
+		}}}
+		return(nbuf)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(null)
+	}
+}
+
+func append(original as buffer, toAppend as buffer, size as long = -1) static as buffer
+{
+	if(toAppend == null || size == 0) {
+		return(original)
+	}
+	var sz = size
+	var os = getSize(original)
+	var oas = getSize(toAppend)
+	if(sz >= 0) {
+		oas = sz
+	}
+	var nl = os + oas
+	var nb = resize(original, nl)
+	copyFrom(nb, toAppend, 0, os,  oas)
+	return(nb)
+}
+
+func forHexString(str as string) static as buffer
+{
+	if(str == null || String.getLength(str) % 2 != 0) {
+		return(null)
+	}
+	var sb as StringBuilder
+	var b = allocate(String.getLength(str) / 2)
+	var n as int
+	var it = String.iterate(str)
+	while(it != null) {
+		var c = it.getNextChar()
+		if(c < 1) {
+			break
+		}
+		if(sb == null) {
+			sb = new StringBuilder()
+		}
+		if((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c<= '9')) {
+			sb.append(c)
+			if(sb.count() == 2) {
+				setByte(b, n++, String.toIntegerFromHex(sb.toString()))
+				sb.clear()
+			}
+		}
+		else {
+			return(null)
+		}
+	}
+	return(b)
+}
+
+func readFrom(reader as Reader) static as buffer
+{
+	if(reader == null) {
+		return(null)
+	}
+	var v as buffer
+	var tmp = MALLOC(1024)
+	while(true) {
+		var r = reader.read(tmp)
+		if(r < 1) {
+			break
+		}
+		v = append(v, tmp, r)
+		if(v == null) {
+			break
+		}
+	}
+	return(v)
+}

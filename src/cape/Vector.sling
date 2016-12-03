@@ -1,0 +1,405 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func asVector <T> (obj as object) static as vector<T>
+{
+	var vo = obj as VectorObject<T>
+	if(vo == null) {
+		return(null)
+	}
+	return(vo.toVector())
+}
+
+func forIterator <T> (iterator as Iterator<T>) static as vector<T>
+{
+	if(iterator == null) {
+		return(null)
+	}
+	var v = new vector<T>
+	loop {
+		var o = iterator.next()
+		if(o == null) {
+			break
+		}
+		v += o
+	}
+	return(v)
+}
+
+func forArray <T> (array as array<T>) static as vector<T>
+{
+	if(array == null) {
+		return(null)
+	}
+	var v = new vector<T>
+	for(var n = 0; n<SIZE(array); n++) {
+		v += array[n]
+	}
+	return(v)
+}
+
+/*
+// FIXME: Must have compiler support for expanding runtime generics for Java
+func toArray<T> (vector as vector<T>) static as array<T>
+{
+	return(Array.forVector(vector))
+}
+*/
+
+func append <T> (vector as vector<T> #used, object as T #used) static
+{
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			vector.Add(@object);
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			vector.add(object);
+		}}}
+	}
+	ELSE IFDEF("target_objc") {
+		lang "objc" {{{
+			[vector addObject:object];
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			vector.push(object);
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getSize <T> (vector as vector<T> #used) static as int
+{
+	if(vector == null) {
+		return(0)
+	}
+	IFDEF("target_cs") {
+		return(lang "cs" int {{{ vector.Count }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" int {{{ vector.size() }}})
+	}
+	ELSE IFDEF("target_objc") {
+		return(lang "objc" int {{{ [vector count] }}})
+	}
+	ELSE IFDEF("target_js") {
+		return(lang "js" int {{{ vector.length }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(0)
+	}
+}
+
+func getAt <T> (vector as vector<T>, index as int) static as T
+{
+	return(get(vector, index))
+}
+
+func get <T> (vector as vector<T> #used, index as int #used) static as T
+{
+	if(index < 0 || index >= getSize(vector)) {
+		return(DEFAULT(T))
+	}
+	IFDEF("target_cs") {
+		return(lang "cs" T {{{ vector[index] }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" T {{{ vector.get(index) }}})
+	}
+	ELSE IFDEF("target_objc") {
+		return(lang "objc" T {{{ [vector objectAtIndex:index] }}})
+	}
+	ELSE IFDEF("target_js") {
+		return(lang "js" T {{{ vector[index] }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(null)
+	}
+}
+
+func set <T> (vector as vector<T> #used, index as int #used, val as T #used) static
+{
+	if(index < 0 || index >= getSize(vector)) {
+		return
+	}
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			vector[index] = val;
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			vector.set(index, val);
+		}}}
+	}
+	ELSE IFDEF("target_objc") {
+		lang "objc" {{{
+			[vector replaceObjectAtIndex:index withObject:val];
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			vector.splice(index, 1, val);
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func remove <T> (vector as vector<T>, index as int) static as T
+{
+	if(index < 0 || index >= getSize(vector)) {
+		return(DEFAULT(T))
+	}
+	IFDEF("target_cs") {
+		var t as T = lang "cs" T {{{ vector[index] }}}
+		lang "cs" {{{
+			vector.RemoveAt(index);
+		}}}
+		return(t)
+	}
+	ELSE IFDEF("target_java") {
+		return(lang "java" T {{{ vector.remove(index) }}})
+	}
+	ELSE IFDEF("target_objc") {
+		var t as T = vector[index]
+		lang "objc" {{{
+			[vector removeObjectAtIndex:index];
+		}}}
+		return(t)
+	}
+	ELSE IFDEF("target_js") {
+		return(lang "js" T {{{ vector.splice(index, 1) }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(DEFAULT(T))
+	}
+}
+
+func popFirst <T> (vector as vector<T>) static as T
+{
+	if(vector == null || getSize(vector) < 1) {
+		return(DEFAULT(T))
+	}
+	var v = get(vector, 0)
+	removeFirst(vector)
+	return(v)
+}
+
+func removeFirst <T> (vector as vector<T>) static
+{
+	if(vector == null || getSize(vector) < 1) {
+		return
+	}
+	remove(vector, 0)
+}
+
+func popLast <T> (vector as vector<T>) static as T
+{
+	if(vector == null || getSize(vector) < 1) {
+		return(DEFAULT(T))
+	}
+	var v = get(vector, getSize(vector)-1)
+	removeLast(vector)
+	return(v)
+}
+
+func removeLast <T> (vector as vector<T>) static
+{
+	if(vector == null) {
+		return
+	}
+	var sz = getSize(vector)
+	if(sz < 1) {
+		return
+	}
+	remove(vector, sz - 1)
+}
+
+func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
+{
+	var n as int #used
+	for(n = 0; n < SIZE(vector); n++) {
+		IFDEF("target_cs") {
+			lang "cs" {{{
+				if(object.Equals(vector[n], value)) {
+					remove(vector, n);
+					return(n);
+				}
+			}}}
+		}
+		ELSE IFDEF("target_js") {
+			lang "js" {{{
+				if(Object.is(vector[n], value)) {
+					this.remove(vector, n);
+					return(n);
+				}
+			}}}
+		}
+		ELSE {
+			if(vector[n] == value) {
+				remove(vector, n)
+				return(n)
+			}
+		}
+	}
+	return(-1)
+}
+
+func clear <T> (vector as vector<T> #used) static
+{
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			vector.Clear();
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			vector.clear();
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			vector.splice(0, vector.length);
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func isEmpty <T> (vector as vector<T> #used) static as bool
+{
+	IFDEF("target_cs") {
+		return(vector == null || lang "cs" bool {{{ vector.Count < 1 }}})
+	}
+	ELSE IFDEF("target_java") {
+		return(vector == null || lang "java" bool {{{ vector.isEmpty() }}})
+	}
+	ELSE IFDEF("target_objc") {
+		return(vector == null || lang "objc" bool {{{ [vector count] < 1 }}})
+	}
+	ELSE IFDEF("target_js") {
+		return(vector == null || lang "js" bool {{{ vector.length < 1 }}})
+	}
+	ELSE {
+		ERROR("not implemented!")
+		return(false)
+	}
+}
+
+func removeRange <T> (vector as vector<T> #used, index as int #used, count as int #used) static
+{
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			vector.RemoveRange(index, count);
+		}}}
+	}
+	ELSE IFDEF("target_java") {
+		lang "java" {{{
+			vector.subList(index, index+count).clear();
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			vector.splice(index, count);
+		}}}
+	}
+	ELSE {
+		ERROR("not implemented!")
+	}
+}
+
+class VectorIterator <T> is Iterator<T>
+{
+	var vector public as vector<T>
+	var index = 0
+	var increment = 1
+
+	ctor(vector as vector<T>, increment as int)
+	{
+		this.vector = vector
+		this.increment = increment
+		if(increment < 0 && vector != null) {
+			index = Vector.getSize(vector) - 1
+		}
+	}
+
+	func next as T
+	{
+		if(vector == null) {
+			return(DEFAULT(T))
+		}
+		if(index < 0 || index >= Vector.getSize(vector)) {
+			return(DEFAULT(T))
+		}
+		var v = vector[index]
+		index += increment
+		return(v)
+	}
+}
+
+func iterate <T> (vector as vector<T>) static as Iterator<T>
+{
+	return(new VectorIterator<T>(vector, 1))
+}
+
+func iterateReverse <T> (vector as vector<T>) static as Iterator<T>
+{
+	return(new VectorIterator<T>(vector, -1))
+}
+
+func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
+{
+	if(vector == null) {
+		return
+	}
+	IFDEF("target_cs") {
+		lang "cs" {{{
+			vector.Sort((a,b) => { return(comparer(a,b)); });
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func sortReverse <T> (vector as vector<T>, comparer as function<int,T,T>) static
+{
+	var cc final = comparer
+	sort(vector, func(a as T, b as T) as int {
+		return(-cc(a,b))
+	})
+}

@@ -1,0 +1,438 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class abstract imports cape:
+
+prop logger as cape.LoggingContext = null;
+
+// Generic methods (shared for both synchronous and asynchoronous APIs)
+func prepare(sql as string) abstract as SQLStatement;
+func getDatabaseTypeId abstract as string;
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement;
+func prepareDeleteTableStatement(table as string) abstract as SQLStatement;
+func prepareCreateIndexStatement(table as string, column as string, unique as bool) abstract as SQLStatement;
+
+// Asynchronous API
+func close(callback as function) abstract;
+func execute(stmt as SQLStatement, callback as function<void, bool>) abstract;
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) abstract;
+func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) abstract;
+func tableExists(table as string, callback as function<void, bool>) abstract;
+func queryAllTableNames(callback as function<void, vector>) abstract;
+
+// Synchronous API
+func close abstract;
+func execute(stmt as SQLStatement) abstract as bool;
+func query(stmt as SQLStatement) abstract as SQLResultSetIterator;
+func querySingleRow(stmt as SQLStatement) abstract as DynamicMap;
+func tableExists(table as string) abstract as bool;
+func queryAllTableNames abstract as vector;
+
+func ensureTableExists(table as SQLTableInfo) virtual as bool
+{
+	if(table == null) {
+		return(false);
+	}
+	var name = table.getName();
+	if(cape.String.isEmpty(name)) {
+		return(false);
+	}
+	if(tableExists(name)) {
+		return(true);
+	}
+	if(execute(prepareCreateTableStatement(name, table.getColumns())) == false) {
+		return(false);
+	}
+	foreach(cii as SQLTableColumnIndexInfo in table.getIndexes()) {
+		if(execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())) == false) {
+			execute(prepareDeleteTableStatement(name));
+		}
+	}
+	return(true);
+}
+
+func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) virtual
+{
+	var v = ensureTableExists(table);
+	if(callback != null) {
+		callback(v);
+	}
+}
+
+func createColumnSelectionString(columns as array<string>) private as string
+{
+	if(columns == null || SIZE(columns) < 1) {
+		return("*")
+	}
+	var sb = new StringBuilder()
+	var first = true
+	foreach(column in columns) {
+		if(first == false) {
+			sb.append(", ")
+		}
+		sb.append(column)
+		first = false
+	}
+	return(sb.toString())
+}
+
+func createOrderByString(order as array<SQLOrderingRule>) private as string
+{
+	if(order == null || SIZE(order) < 1) {
+		return(null)
+	}
+	var sb = new StringBuilder()
+	sb.append(" ORDER BY ")
+	var first = true
+	foreach(rule in order) {
+		if(first == false) {
+			sb.append(", ")
+		}
+		sb.append(rule.getColumn())
+		sb.append(' ')
+		if(rule.getDescending()) {
+			sb.append("DESC")
+		}
+		else {
+			sb.append("ASC")
+		}
+		first = false
+	}
+	return(sb.toString())
+}
+
+func prepareQueryAllStatement(table as string) as SQLStatement
+{
+	return(prepareQueryAllStatement(table, null, null))
+}
+
+func prepareQueryAllStatement(table as string, columns as array<string>) as SQLStatement
+{
+	return(prepareQueryAllStatement(table, columns, null))
+}
+
+func prepareQueryAllStatement(table as string, columns as array<string>, order as array<SQLOrderingRule>) virtual as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.append("SELECT ")
+	sb.append(createColumnSelectionString(columns))
+	sb.append(" FROM ")
+	sb.append(table)
+	sb.append(createOrderByString(order))
+	sb.append(";")
+	return(prepare(sb.toString()))
+}
+
+func prepareCountRecordsStatement(table as string, criteria as map<string,string>) virtual as SQLStatement
+{
+	var sb = new StringBuilder();
+	sb.append("SELECT COUNT(*) AS count FROM ")
+	sb.append(table);
+	var first = true;
+	var keys as vector<string>;
+	if(criteria != null) {
+		keys = Map.getKeys(criteria) as vector<string>;
+		foreach(key in keys) {
+			if(first) {
+				sb.append(" WHERE ");
+				first = false;
+			}
+			else {
+				sb.append(" AND ");
+			}
+			sb.append(key as string);
+			sb.append(" = ?");
+		}
+	}
+	sb.append(';');
+	var sql = sb.toString();
+	var stmt = prepare(sql);
+	if(stmt == null) {
+		return(null);
+	}
+	if(keys != null) {
+		foreach(key in keys) {
+			var val = Map.get(criteria, key);
+			if(val == null) {
+				val = null;
+			}
+			stmt.addParamString(val as string);
+		}
+	}
+	return(stmt);
+}
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>) virtual as SQLStatement
+{
+	return(prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null))
+}
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int) virtual as SQLStatement
+{
+	return(prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null))
+}
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int) virtual as SQLStatement
+{
+	return(prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null))
+}
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int, columns as array<string>) virtual as SQLStatement
+{
+	return(prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null))
+}
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int, columns as array<string>, order as array<SQLOrderingRule>) virtual as SQLStatement
+{
+	var sb = new StringBuilder();
+	sb.append("SELECT ")
+	sb.append(createColumnSelectionString(columns))
+	sb.append(" FROM ");
+	sb.append(table);
+	var first = true;
+	var keys as vector<string>;
+	if(criteria != null) {
+		keys = Map.getKeys(criteria) as vector<string>;
+		foreach(key in keys) {
+			if(first) {
+				sb.append(" WHERE ");
+				first = false;
+			}
+			else {
+				sb.append(" AND ");
+			}
+			sb.append(key as string);
+			sb.append(" = ?");
+		}
+	}
+	sb.append(createOrderByString(order))
+	if(limit > 0) {
+		sb.append(" LIMIT ");
+		sb.append(String.forInteger(limit));
+	}
+	if(offset > 0) {
+		sb.append(" OFFSET ");
+		sb.append(String.forInteger(offset));
+	}
+	sb.append(';');
+	var sql = sb.toString();
+	var stmt = prepare(sql);
+	if(stmt == null) {
+		return(null);
+	}
+	if(keys != null) {
+		foreach(key in keys) {
+			var val = Map.get(criteria, key);
+			if(val == null) {
+				val = null;
+			}
+			stmt.addParamString(val as string);
+		}
+	}
+	return(stmt);
+}
+
+func prepareQueryDistinctValuesStatement(table as string, column as string) virtual as SQLStatement
+{
+	if(String.isEmpty(table) || String.isEmpty(column)) {
+		return(null)
+	}
+	var sb = new StringBuilder()
+	sb.append("SELECT DISTINCT ")
+	sb.append(column)
+	sb.append(" FROM ")
+	sb.append(table)
+	sb.append(";")
+	return(prepare(sb.toString()))
+}
+
+func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLStatement
+{
+	if(String.isEmpty(table) || data == null || data.getCount() < 1) {
+		return(null);
+	}
+	var sb = new StringBuilder();
+	sb.append("INSERT INTO ");
+	sb.append(table);
+	sb.append(" ( ");
+	var first = true;
+	var keys = data.getKeys();
+	foreach(key in keys) {
+		if(first == false) {
+			sb.append(',');
+		}
+		sb.append(key as string);
+		first = false;
+	}
+	sb.append(" ) VALUES ( ");
+	first = true;
+	foreach(key in keys) {
+		if(first == false) {
+			sb.append(',');
+		}
+		sb.append('?');
+		first = false;
+	}
+	sb.append(" );");
+	var stmt = prepare(sb.toString());
+	if(stmt == null) {
+		return(null);
+	}
+	foreach(key in keys) {
+		var o = data.get(key);
+		if(o is string || o is StringObject) {
+			stmt.addParamString(String.asString(o));
+		}
+		else if(o is IntegerObject) {
+			stmt.addParamInteger(Integer.asInteger(o));
+		}
+		else if(o is DoubleObject) {
+			stmt.addParamDouble(Double.asDouble(o));
+		}
+		else if(o is BufferObject) {
+			stmt.addParamBlob((o as! BufferObject).toBuffer())
+		}
+		else if(o is buffer) {
+			stmt.addParamBlob(o as buffer);
+		}
+		else {
+			var s = o as string;
+			if(s == null) {
+				s = "";
+			}
+			stmt.addParamString(s);
+		}
+	}
+	return(stmt);
+}
+
+func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
+{
+	if(String.isEmpty(table) || data == null || data.getCount() < 1) {
+		return(null);
+	}
+	var sb = new StringBuilder();
+	sb.append("UPDATE ");
+	sb.append(table);
+	sb.append(" SET ");
+	var params = new vector<object>;
+	var first = true;
+	var keys as Iterator<string> = data.iterateKeys()
+	while(keys != null) {
+		var key = keys.next();
+		if(key == null) {
+			break;
+		}
+		if(first == false) {
+			sb.append(", ");
+		}
+		sb.append(key);
+		sb.append(" = ?");
+		first = false;
+		params += data.get(key);
+	}
+	if(criteria != null && criteria.getCount() > 0) {
+		sb.append(" WHERE ");
+		first = true;
+		var criterias as Iterator<string> = criteria.iterateKeys();
+		while(criterias != null) {
+			var criterium = criterias.next()
+			if(criterium == null) {
+				break
+			}
+			if(first == false) {
+				sb.append(" AND ");
+			}
+			sb.append(criterium);
+			sb.append(" = ?");
+			first = false;
+			params += criteria.get(criterium);
+		}
+	}
+	sb.append(';');
+	var stmt = prepare(sb.toString());
+	if(stmt == null) {
+		return(null);
+	}
+	foreach(o in params) {
+		if(o is buffer) {
+			stmt.addParamBlob(Buffer.asBuffer(o));
+		}
+		else {
+			var s = String.asString(o);
+			if(s == null) {
+				s = "";
+			}
+			stmt.addParamString(s);
+		}
+	}
+	return(stmt);
+}
+
+func prepareDeleteStatement(table as string, criteria as DynamicMap) virtual as SQLStatement
+{
+	if(String.isEmpty(table)) {
+		return(null);
+	}
+	var sb = new StringBuilder();
+	sb.append("DELETE FROM ");
+	sb.append(table);
+	var params = new vector<object>;
+	if(criteria != null && criteria.getCount() > 0) {
+		sb.append(" WHERE ");
+		var first = true;
+		var criterias as Iterator<string> = criteria.iterateKeys();
+		while(criterias != null) {
+			var criterium = criterias.next()
+			if(criterium == null) {
+				break
+			}
+			if(first == false) {
+				sb.append(" AND ");
+			}
+			sb.append(criterium);
+			sb.append(" = ?");
+			first = false;
+			params += criteria.get(criterium);
+		}
+	}
+	sb.append(';');
+	var stmt = prepare(sb.toString());
+	if(stmt == null) {
+		return(null);
+	}
+	foreach(o in params) {
+		if(o is buffer) {
+			stmt.addParamBlob(Buffer.asBuffer(o));
+		}
+		else {
+			var s = String.asString(o);
+			if(s == null) {
+				s = "";
+			}
+			stmt.addParamString(s);
+		}
+	}
+	return(stmt);
+}

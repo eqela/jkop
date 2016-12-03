@@ -1,0 +1,128 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient imports cape:
+
+func query(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	if(String.isEmpty(method) || String.isEmpty(url)) {
+		callback(null, null, null)
+		return
+	}
+	if(String.startsWith(url, "http://") == false && String.startsWith(url, "https://") == false) {
+		callback(null, null, null)
+		return
+	}
+	send(method, url, requestHeaders, body, callback)
+}
+
+func getXMLHttpRequestObject as !"XMLHttpRequest"
+{
+	var xhr as !"XMLHttpRequest" #used
+	lang "js" {{{
+		if(typeof XMLHttpRequest === "undefined") {
+			XMLHttpRequest = function() {
+				try {
+					return new ActiveXObject('Msxml2.XMLHTTP.6.0');
+				}
+				catch(e) {}
+				try {
+					return new ActiveXObject('Msxml2.XMLHTTP.3.0');
+				}
+				catch(e) {}
+				try {
+					return new ActiveXObject('Microsoft.XMLHTTP');
+				}
+				catch(e) {}
+				throw new Error('This browser does not support XMLHttpRequest.');
+			}
+		}
+		xhr = new XMLHttpRequest();
+	}}}
+	return(xhr)
+}
+
+func onResponseReceived(status as string, responseHeaders as string, body as string, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	var nhdrs = new KeyValueList<string,string>()
+	var hdrs = String.split(responseHeaders, ';')
+	if(hdrs != null) {
+		var i as int
+		for(i = 0; i < Vector.getSize(hdrs); i++) {
+			var s = Vector.get(hdrs, i) as string
+			if(String.isEmpty(s) == false) {
+				var ss = String.split(s, ':')
+				if(ss != null) {
+					var k = Vector.get(ss, 0) as string
+					var v = Vector.get(ss, 1) as string
+					if(String.isEmpty(k) || String.isEmpty(v)) {
+						continue
+					}
+					nhdrs.add(k, v)
+				}
+			}
+		}
+	}
+	callback(status, nhdrs, String.toUTF8Buffer(body))
+}
+
+func send(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	var xhr = getXMLHttpRequestObject()
+	lang "js" {{{
+		xhr.open(method, url, true);
+		xhr.onreadystatechange = function() {
+			if(xhr.readyState == 4) {
+				this.onResponseReceived(""+xhr.status, xhr.getAllResponseHeaders(), xhr.responseText, callback);
+			}
+		}.bind(this);
+	}}}
+	if(requestHeaders != null) {
+		var iter = requestHeaders.iterate()
+		loop {
+			var kv = iter.next() as KeyValuePair<string,string>
+			if(kv == null) {
+				break;
+			}
+			var k #used = kv.key
+			var v #used = kv.value
+			lang "js" {{{
+				xhr.setRequestHeader(k, v);
+			}}}
+		}
+	}
+	if(body != null) {
+		var sb = String.forUTF8Buffer(body)
+		if(sb != null) {
+			lang "js" {{{
+				xhr.send(sb);
+			}}}
+		}
+	}
+	else {
+		lang "js" {{{
+			xhr.send();
+		}}}
+	}
+}

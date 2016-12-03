@@ -1,0 +1,313 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+class MyProcess is Process is ProcessWithIO
+{
+	var process public as !"System.Diagnostics.Process"
+	var exitCode = 0
+	var stdin as Writer
+	var stdout as Reader
+	var stderr as Reader
+
+	dtor
+	{
+		close()
+	}
+
+	func close
+	{
+		lang "cs" {{{
+			if(process != null) {
+				exitCode = process.ExitCode;
+				process.Close();
+				process = null;
+			}
+		}}}
+	}
+
+	func getStandardInput as Writer
+	{
+		if(stdin == null) {
+			var stream as !"System.IO.Stream"
+			lang "cs" {{{
+				stream = process.StandardInput.BaseStream;
+			}}}
+			stdin = DotNetStreamWriter.forStream(stream)
+		}
+		return(stdin)
+	}
+
+	func getStandardOutput as Reader
+	{
+		if(stdout == null) {
+			var stream as !"System.IO.Stream"
+			lang "cs" {{{
+				stream = process.StandardOutput.BaseStream;
+			}}}
+			stdout = DotNetStreamReader.forStream(stream)
+		}
+		return(stdout)
+	}
+
+	func getStandardError as Reader
+	{
+		if(stderr == null) {
+			var stream as !"System.IO.Stream"
+			lang "cs" {{{
+				stream = process.StandardError.BaseStream;
+			}}}
+			stderr = DotNetStreamReader.forStream(stream)
+		}
+		return(stderr)
+	}
+
+	func getId as string
+	{
+		var id = 0
+		lang "cs" {{{
+			if(process != null) {
+				id = process.Id;
+			}
+		}}}
+		return(String.forInteger(id))
+	}
+
+	func isRunning as bool
+	{
+		var v = false
+		lang "cs" {{{
+			if(process != null) {
+				try {
+					int x = process.ExitCode;
+				}
+				catch {
+					v = true;
+				}
+			}
+		}}}
+		return(v)
+	}
+
+	func getExitStatus as int
+	{
+		if(isRunning()) {
+			return(-1)
+		}
+		lang "cs" {{{
+			if(process != null) {
+				int v;
+				try {
+					v = process.ExitCode;
+				}
+				catch {
+					v = -1;
+				}
+				exitCode = v;
+			}
+		}}}
+		close()
+		return(exitCode)
+	}
+
+	func sendInterrupt
+	{
+	}
+
+	func killRequest
+	{
+		killForce()
+	}
+
+	func killForce
+	{
+		lang "cs" {{{
+			if(process != null) {
+				try {
+					process.Kill();
+				}
+				catch {
+				}
+			}
+		}}}
+	}
+
+	func kill(timeout as int)
+	{
+		killForce()
+		lang "cs" {{{
+			if(process != null) {
+				process.WaitForExit(timeout);
+			}
+		}}}
+	}
+
+	func waitForExit as int
+	{
+		lang "cs" {{{
+			if(process != null) {
+				process.WaitForExit();
+			}
+		}}}
+		return(getExitStatus())
+	}
+}
+
+func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver, withIO as bool, errorBuffer as StringBuilder) static as Process
+{
+	var ff = launcher.getFile()
+	if(ff == null) {
+		return(null)
+	}
+	var sb = new StringBuilder()
+	foreach(param in launcher.getParams()) {
+		if(sb.count() > 0) {
+			sb.append(' ')
+		}
+		sb.append('"')
+		sb.append(param)
+		sb.append('"')
+	}
+	var sbs = sb.toString()
+	if(sbs == null) {
+		sbs = ""
+	}
+	var np = new MyProcess()
+	var cwdp as string
+	var cwd = launcher.getCwd()
+	if(cwd != null) {
+		cwdp = cwd.getPath()
+	}
+	lang "cs" {{{
+		System.Diagnostics.ProcessStartInfo pi = new System.Diagnostics.ProcessStartInfo();
+		pi.CreateNoWindow = true;
+		pi.UseShellExecute = false;
+		pi.FileName = ff.getPath();
+		if(withIO) {
+			pi.RedirectStandardOutput = true;
+			pi.RedirectStandardError = true;
+			pi.RedirectStandardInput = true;
+		}
+		else if(pipeHandler != null) {
+			pi.RedirectStandardOutput = true;
+			pi.RedirectStandardError = true;
+		}
+		pi.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
+		pi.Arguments = sbs;
+		pi.WorkingDirectory = cwdp;
+	}}}
+	var env = launcher.getEnv()
+	if(env != null && Map.count(env) > 0) {
+		var keys as vector<string> = Map.getKeys(env)
+		foreach(key in keys) {
+			var val = env[key]
+			if(val == null) {
+				val = ""
+			}
+			lang "cs" {{{
+				pi.EnvironmentVariables[key] = val;
+			}}}
+		}
+	}
+	lang "cs" {{{
+		try {
+			np.process = System.Diagnostics.Process.Start(pi);
+		}
+		catch(System.Exception e) {
+			if(errorBuffer != null) {
+				errorBuffer.append(e.ToString());
+			}
+			np = null;
+		}
+	}}}
+	if(np == null) {
+		// Log.error("Failed to start process: `%s'".printf().add(fn), logger)
+		return(null)
+	}
+	if(wait) {
+		var output as string = null
+		if(pipeHandler != null) {
+			lang "cs" {{{
+				try {
+					var bb0 = new byte[1024];
+					var bb1 = new byte[1024];
+					System.IO.Stream sro = np.process.StandardOutput.BaseStream;
+					System.IO.Stream sre = np.process.StandardError.BaseStream;
+					var tasks = new System.Threading.Tasks.Task<int>[2];
+					tasks[0] = sro.ReadAsync(bb0, 0, 1024);
+					tasks[1] = sro.ReadAsync(bb1, 0, 1024);
+					while(true) {
+						var tt = System.Threading.Tasks.Task.WaitAny(tasks);
+						if(tt == 0) {
+							if(tasks[0].Result < 1) {
+								break;
+							}
+							pipeHandler.onBufferData(bb0, tasks[0].Result);
+							tasks[0] = sro.ReadAsync(bb0, 0, 1024);
+						}
+						else if(tt == 1) {
+							if(tasks[1].Result < 1) {
+								break;
+							}
+							pipeHandler.onBufferData(bb1, tasks[1].Result);
+							tasks[1] = sro.ReadAsync(bb1, 0, 1024);
+						}
+						else {
+							break;
+						}
+					}
+				}
+				catch(System.Exception e) {
+					if(errorBuffer != null) {
+						errorBuffer.append(e.ToString());
+					}
+				}
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				try {
+					System.IO.StreamReader sro = np.process.StandardOutput;
+					output = sro.ReadToEnd();
+					System.IO.StreamReader sre = np.process.StandardError;
+					output += sre.ReadToEnd();
+				}
+				catch(System.Exception e) {
+					if(errorBuffer != null) {
+						errorBuffer.append(e.ToString());
+					}
+				}
+			}}}
+		}
+		np.waitForExit()
+		if(output != null) {
+			lang "cs" {{{
+				System.Console.WriteLine(output);
+			}}}
+		}
+		np.close()
+	}
+	return(np)
+}

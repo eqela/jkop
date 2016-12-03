@@ -1,0 +1,98 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient imports cape:
+
+depend "plist:{ \"NSAppTransportSecurity\" : { \"NSAllowsArbitraryLoads\" : \"true\" } }"
+
+class MyRequestListener implements !"NSURLConnectionDelegate"
+{
+	prop callback as function<void, string, KeyValueList<string,string>, buffer>
+	var responseData as buffer #used
+	var responseCode as string #used
+
+	lang "objc" {{{
+		- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
+			// A response has been received, this is where we initialize the instance var you created
+			// so that we can append data to it in the didReceiveData method
+			// Furthermore, this method is called each time there is a redirect so reinitializing it
+			// also serves to clear it
+			NSLog(@"Receiving HTTP response ..");
+			responseCode = @"200"; // FIXME: Not always this ..
+			// FIXME: HTTP Headers ..
+			responseData = [[NSMutableData alloc] init];
+		}
+		
+		- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
+			NSLog(@"HTTP data received");
+			[responseData appendData:data];
+		}
+		
+		- (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse*)cachedResponse {
+			return nil;
+		}
+		
+		- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
+			NSLog(@"Finished receiving HTTP response");
+			callback(responseCode, nil, responseData);
+		}
+		
+		- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
+			NSLog(@"HTTP connection failed: %@", error);
+			callback(nil, nil, nil);
+		}
+	}}}
+}
+
+var requestListener as MyRequestListener
+
+func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	lang "objc" {{{
+		NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];
+		request.HTTPMethod = method;
+	}}}
+	if(headers != null) {
+		var iter = headers.iterate()
+		loop {
+			var nh as KeyValuePair<string,string> = iter.next()
+			if(nh == null) {
+				break
+			}
+			var key #used = nh.key
+			var value #used = nh.value
+			lang "objc" {{{
+				[request setValue:value forHTTPHeaderField:key];
+			}}}
+		}
+	}
+	if(requestListener == null) {
+		requestListener = new MyRequestListener()
+	}
+	requestListener.setCallback(callback)
+	lang "objc" {{{
+		request.HTTPBody = body;
+		NSURLConnection *conn = [[NSURLConnection alloc] initWithRequest:request delegate:requestListener];
+	}}}
+}
