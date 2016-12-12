@@ -27,36 +27,36 @@ class is NetworkServer imports cape:
 /*
 class PortInfo
 {
-	prop port as int;
-	prop socket as TCPSocket;
-	prop sslCertificate as File;
-	prop sslPrivateKey as File;
+	prop port as int
+	prop socket as TCPSocket
+	prop sslCertificate as File
+	prop sslPrivateKey as File
 }
-var listenPorts as vector<PortInfo>;
-var virtualHosts as vector<string>;
-var listeners as vector<object>;
+var listenPorts as vector<PortInfo>
+var virtualHosts as vector<string>
+var listeners as vector<object>
 */
 
-prop writeBufferSize = 1024 * 512;
-prop smallBodyLimit = 32 * 1024;
-prop timeoutDelay = 30;
-prop maintenanceTimerDelay = 60;
-prop serverName as string;
-prop enableCaching = true;
-prop allowCORS = true;
-var cache as ContentCache;
-var timeoutTimer as IOManagerTimer;
-var maintenanceTimer as IOManagerTimer;
+prop writeBufferSize = 1024 * 512
+prop smallBodyLimit = 32 * 1024
+prop timeoutDelay = 30
+prop maintenanceTimerDelay = 60
+prop serverName as string
+prop enableCaching = true
+prop allowCORS = true
+var cache as ContentCache
+var timeoutTimer as IOManagerTimer
+var maintenanceTimer as IOManagerTimer
 
 ctor
 {
-	setPort(8080);
-	setServerName(VALUE("sling_project_title") .. "/" .. VALUE("sling_project_version"));
+	setPort(8080)
+	setServerName(VALUE("sling_project_title") .. "/" .. VALUE("sling_project_version"))
 }
 
 func createConnectionObject override as NetworkConnection
 {
-	return(new HTTPServerConnection());
+	return(new HTTPServerConnection())
 }
 
 func onRefresh virtual
@@ -65,33 +65,33 @@ func onRefresh virtual
 
 func onTimeoutTimer as bool
 {
-	var cfc as vector<HTTPServerConnection>;
-	var now = SystemClock.asSeconds();
+	var cfc as vector<HTTPServerConnection>
+	var now = SystemClock.asSeconds()
 	forEachConnection(func(connection as NetworkConnection) {
-		var httpc = connection as HTTPServerConnection;
+		var httpc = connection as HTTPServerConnection
 		if(httpc == null) {
-			return;
+			return
 		}
 		if((httpc.getResponses() >= httpc.getRequests() || httpc.getIsWaitingForBodyReceiver()) && now - httpc.getLastActivity() >= timeoutDelay) {
 			if(cfc == null) {
-				cfc = new vector<HTTPServerConnection>;
+				cfc = new vector<HTTPServerConnection>
 			}
-			cfc += httpc;
+			cfc += httpc
 		}
-	});
+	})
 	foreach(wsc in cfc) {
-		wsc.close();
+		wsc.close()
 	}
-	return(true);
+	return(true)
 }
 
 func onMaintenanceTimer as bool
 {
 	if(cache != null) {
-		cache.onMaintenance();
+		cache.onMaintenance()
 	}
-	onMaintenance();
-	return(true);
+	onMaintenance()
+	return(true)
 }
 
 func onMaintenance virtual
@@ -101,107 +101,107 @@ func onMaintenance virtual
 func startTimer(delay as long, handler as function<bool>) as IOManagerTimer
 {
 	if(ioManager == null) {
-		return(null);
+		return(null)
 	}
-	return(ioManager.startTimer(delay, handler));
+	return(ioManager.startTimer(delay, handler))
 }
 
 func initialize override as bool
 {
 	if(base.initialize() == false) {
-		return(false);
+		return(false)
 	}
 	if(timeoutDelay < 1) {
-		Log.debug(logContext, VALUE("__THIS__") .. ": Timeout timer disabled");
+		Log.debug(logContext, VALUE("__THIS__") .. ": Timeout timer disabled")
 	}
 	else {
-		Log.debug(logContext, VALUE("__THIS__") .. ": Starting a timeout timer with a " .. String.forInteger(timeoutDelay) .. " second delay.");
-		timeoutTimer = ioManager.startTimer((timeoutDelay as long) * 1000000, onTimeoutTimer);
+		Log.debug(logContext, VALUE("__THIS__") .. ": Starting a timeout timer with a " .. String.forInteger(timeoutDelay) .. " second delay.")
+		timeoutTimer = ioManager.startTimer((timeoutDelay as long) * 1000000, onTimeoutTimer)
 		if(timeoutTimer == null) {
-			Log.error(logContext, VALUE("__THIS__") .. ": Failed to start timeout timer");
+			Log.error(logContext, VALUE("__THIS__") .. ": Failed to start timeout timer")
 		}
 	}
 	if(maintenanceTimerDelay < 1) {
-		Log.debug(logContext, "Maintenance timer disabled");
+		Log.debug(logContext, "Maintenance timer disabled")
 	}
 	else {
-		Log.debug(logContext, VALUE("__THIS__") .. ": Starting a maintenance timer with a " .. String.forInteger(maintenanceTimerDelay) .. " second delay.");
-		maintenanceTimer = ioManager.startTimer((maintenanceTimerDelay as long) * 1000000, onMaintenanceTimer);
+		Log.debug(logContext, VALUE("__THIS__") .. ": Starting a maintenance timer with a " .. String.forInteger(maintenanceTimerDelay) .. " second delay.")
+		maintenanceTimer = ioManager.startTimer((maintenanceTimerDelay as long) * 1000000, onMaintenanceTimer)
 		if(maintenanceTimer == null) {
-			Log.error(logContext, VALUE("__THIS__") .. ": Failed to start maintenance timer");
+			Log.error(logContext, VALUE("__THIS__") .. ": Failed to start maintenance timer")
 		}
 	}
-	Log.info(logContext, VALUE("__THIS__") .. ": initialized: `" .. getServerName() .. "'");
-	return(true);
+	Log.info(logContext, VALUE("__THIS__") .. ": initialized: `" .. getServerName() .. "'")
+	return(true)
 }
 
 func cleanup override
 {
-	base.cleanup();
+	base.cleanup()
 	if(maintenanceTimer != null) {
-		maintenanceTimer.stop();
-		maintenanceTimer = null;
+		maintenanceTimer.stop()
+		maintenanceTimer = null
 	}
 	if(timeoutTimer != null) {
-		timeoutTimer.stop();
-		timeoutTimer = null;
+		timeoutTimer.stop()
+		timeoutTimer = null
 	}
 }
 
 func createOptionsResponse(req as HTTPServerRequest) virtual as HTTPServerResponse
 {
-	return(new HTTPServerResponse().setStatus("200").addHeader("Content-Length", "0"));
+	return(new HTTPServerResponse().setStatus("200").addHeader("Content-Length", "0"))
 }
 
 func onRequest(req as HTTPServerRequest) virtual
 {
-	req.sendResponse(HTTPServerResponse.forHTTPNotFound());
+	req.sendResponse(HTTPServerResponse.forHTTPNotFound())
 }
 
 func handleIncomingRequest(req as HTTPServerRequest)
 {
 	if(req == null) {
-		return;
+		return
 	}
 	if(cache != null) {
 		// FIXME: Check for for HTTP headers that would prevent caching
-		var cid = req.getCacheId();
+		var cid = req.getCacheId()
 		if(cid != null) {
-			var resp = cache.get(cid) as HTTPServerResponse;
+			var resp = cache.get(cid) as HTTPServerResponse
 			if(resp != null) {
-				req.sendResponse(resp);
-				return;
+				req.sendResponse(resp)
+				return
 			}
 		}
 	}
 	if(req.getMethod() == "OPTIONS") {
-		var resp = createOptionsResponse(req);
+		var resp = createOptionsResponse(req)
 		if(resp != null) {
-			req.sendResponse(resp);
-			return;
+			req.sendResponse(resp)
+			return
 		}
 	}
-	onRequest(req);
+	onRequest(req)
 }
 
 func sendResponse(connection as HTTPServerConnection, req as HTTPServerRequest, resp as HTTPServerResponse)
 {
 	if(connection == null) {
-		return;
+		return
 	}
 	if(allowCORS) {
-		resp.enableCORS(req);
+		resp.enableCORS(req)
 	}
 	if(enableCaching && resp.getCacheTtl() > 0) {
-		var cid = req.getCacheId();
+		var cid = req.getCacheId()
 		if(cid != null) {
 			if(cache == null) {
-				cache = new ContentCache();
+				cache = new ContentCache()
 			}
-			cache.set(cid, resp, resp.getCacheTtl());
+			cache.set(cid, resp, resp.getCacheTtl())
 		}
 	}
-	connection.sendResponse(req, resp);
+	connection.sendResponse(req, resp)
 }
 
 func onRequestComplete(request as HTTPServerRequest, resp as HTTPServerResponse, bytesSent as int, remoteAddress as string) virtual
