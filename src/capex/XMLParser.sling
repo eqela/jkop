@@ -26,331 +26,332 @@ class imports cape:
 
 func parseAsTreeObject(xml as string, ignoreWhiteSpace as bool = true) static as DynamicMap
 {
-	var root as DynamicMap;
-	var stack = new Stack<DynamicMap>();
-	var pp = forString(xml);
-	pp.setIgnoreWhiteSpace(ignoreWhiteSpace);
+	var root as DynamicMap
+	var stack = new Stack<DynamicMap>()
+	var pp = forString(xml)
+	pp.setIgnoreWhiteSpace(ignoreWhiteSpace)
 	while(true) {
-		var o = pp.next();
+		var o = pp.next()
 		if(o == null) {
-			break;
+			break
 		}
 		if(o is StartElement) {
-			var nn = new DynamicMap();
-			nn.set("name", (o as! StartElement).getName());
-			nn.set("attributes", (o as! StartElement).getParams());
+			var nn = new DynamicMap()
+			nn.set("name", (o as! StartElement).getName())
+			nn.set("attributes", (o as! StartElement).getParams())
 			if(root == null) {
-				root = nn;
-				stack.push(nn);
+				root = nn
+				stack.push(nn)
 			}
 			else {
-				var current = stack.peek();
+				var current = stack.peek()
 				if(current == null) {
-					current = root;
+					current = root
 				}
-				var children = current.getDynamicVector("children");
+				var children = current.getDynamicVector("children")
 				if(children == null) {
-					children = new DynamicVector();
-					current.set("children", children);
+					children = new DynamicVector()
+					current.set("children", children)
 				}
-				children.append(nn);
-				stack.push(nn);
+				children.append(nn)
+				stack.push(nn)
 			}
 		}
 		else if(o is EndElement) {
-			stack.pop();
+			stack.pop()
 		}
 		else if(o is CharacterData) {
-			var current = stack.peek();
+			var current = stack.peek()
 			if(current != null) {
-				var children = current.getDynamicVector("children");
+				var children = current.getDynamicVector("children")
 				if(children == null) {
-					children = new DynamicVector();
-					current.set("children", children);
+					children = new DynamicVector()
+					current.set("children", children)
 				}
 				children.append((o as! CharacterData).getData())
 			}
 		}
 	}
-	return(root);
+	return(root)
 }
 
 class StartElement public
 {
-	prop name as string;
-	prop params as DynamicMap;
+	prop name as string
+	prop params as DynamicMap
 
 	func getParam(pname as string) as string
 	{
 		if(params == null) {
-			return(null);
+			return(null)
 		}
-		return(params.getString(pname));
+		return(params.getString(pname))
 	}
 }
 
 class EndElement public
 {
-	prop name as string;
+	prop name as string
 }
 
 class CharacterData public
 {
-	prop data as string;
+	prop data as string
 }
 
 class Comment public
 {
-	prop text as string;
+	prop text as string
 }
 
-var it as CharacterIterator;
-var nextQueue as object;
-var cdataStart = "![CDATA[";
-var commentStart = "!--";
-var tag as StringBuilder = null;
-var def as StringBuilder = null;
-var cdata as StringBuilder = null;
-var comment as StringBuilder = null;
-prop ignoreWhiteSpace as bool = false;
+var it as CharacterIterator
+var nextQueue as object
+var cdataStart = "![CDATA["
+var commentStart = "!--"
+var tag as StringBuilder = null
+var def as StringBuilder = null
+var cdata as StringBuilder = null
+var comment as StringBuilder = null
+prop ignoreWhiteSpace as bool = false
 
 func forFile(file as File) static as this
 {
 	if(file == null) {
-		return(null);
+		return(null)
 	}
-	var reader = file.read();
+	var reader = file.read()
 	if(reader == null) {
-		return(null);
+		return(null)
 	}
-	var v = new this();
-	v.it = new CharacterIteratorForReader(reader);
-	return(v);
+	var v = new this()
+	v.it = new CharacterIteratorForReader(reader)
+	return(v)
 }
 
 func forString(string as string) static as this
 {
 	if(string == null) {
-		return(null);
+		return(null)
 	}
-	var v = new this();
-	v.it = new CharacterIteratorForString(string);
-	return(v);
+	var v = new this()
+	v.it = new CharacterIteratorForString(string)
+	return(v)
 }
 
 func forIterator(it as CharacterIterator) static as this
 {
 	if(it == null) {
-		return(null);
+		return(null)
 	}
-	var v = new this();
-	v.it = it;
-	return(v);
+	var v = new this()
+	v.it = it
+	return(v)
 }
 
 func onTagString(tagstring as string) private as object
 {
 	if(String.charAt(tagstring, 0) == '/') {
-		return(new EndElement().setName(String.subString(tagstring, 1)));
+		return(new EndElement().setName(String.subString(tagstring, 1)))
 	}
-	var element = new StringBuilder();
-	var params = new DynamicMap();
-	var it = new CharacterIteratorForString(tagstring);
-	var c as char;
+	var element = new StringBuilder()
+	var params = new DynamicMap()
+	var it = new CharacterIteratorForString(tagstring)
+	var c as char
 	// element name
 	while((c = it.getNextChar()) > 0) {
 		if(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/') {
 			if(element.count() > 0) {
-				break;
+				break
 			}
 		}
 		else {
-			element.append(c);
+			element.append(c)
 		}
 	}
 	// parameters
 	while(c > 0 && c != '/') {
-		var pname = new StringBuilder();
-		var pval = new StringBuilder();
+		var pname = new StringBuilder()
+		var pval = new StringBuilder()
 		while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-			c = it.getNextChar();
+			c = it.getNextChar()
 		}
 		while(c > 0 && c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '=') {
-			pname.append(c);
-			c = it.getNextChar();
+			pname.append(c)
+			c = it.getNextChar()
 		}
 		while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-			c = it.getNextChar();
+			c = it.getNextChar()
 		}
 		if(c != '=') {
 			; // error; but we will try to survive it anyway.
 		}
 		else {
-			c = it.getNextChar();
+			c = it.getNextChar()
 			while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-				c = it.getNextChar();
+				c = it.getNextChar()
 			}
 			if(c != '"') {
 				; // should not be as per spec; try to deal with it anyway.
 				while(c > 0 && c != ' ' && c != '\t' && c != '\n' && c != '\r') {
-					pval.append(c);
-					c = it.getNextChar();
+					pval.append(c)
+					c = it.getNextChar()
 				}
 				while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-					c = it.getNextChar();
+					c = it.getNextChar()
 				}
 			}
 			else {
-				c = it.getNextChar();
+				c = it.getNextChar()
 				while(c > 0 && c != '"') {
-					pval.append(c);
-					c = it.getNextChar();
+					pval.append(c)
+					c = it.getNextChar()
 				}
 				if(c != '"') {
 					; // error; but ignore it.
 				}
 				else {
-					c = it.getNextChar();
+					c = it.getNextChar()
 				}
 				while(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-					c = it.getNextChar();
+					c = it.getNextChar()
 				}
 			}
 		}
-		var pnamestr = pname.toString();
-		var pvalstr = pval.toString();
-		params.set(pnamestr, pvalstr);
+		var pnamestr = pname.toString()
+		var pvalstr = pval.toString()
+		params.set(pnamestr, pvalstr)
 	}
-	var els = element.toString();
+	var els = element.toString()
 	if(c == '/') {
-		nextQueue = new EndElement().setName(els);
+		nextQueue = new EndElement().setName(els)
 	}
-	return(new StartElement().setName(els).setParams(params));
+	return(new StartElement().setName(els).setParams(params))
 }
 
 func isOnlyWhiteSpace(str as string) private as bool
 {
 	if(str == null) {
-		return(true);
+		return(true)
 	}
 	foreach(c in String.toCharArray(str)) {
 		if(c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+			; // all good
 		}
 		else {
-			return(false);
+			return(false)
 		}
 	}
-	return(true);
+	return(true)
 }
 
 func next as object
 {
 	if(nextQueue != null) {
-		var v = nextQueue;
-		nextQueue = null;
-		return(v);
+		var v = nextQueue
+		nextQueue = null
+		return(v)
 	}
 	while(it.hasEnded() == false) {
-		var nxb = it.getNextChar();
+		var nxb = it.getNextChar()
 		if(nxb < 1) {
-			continue;
+			continue
 		}
 		if(tag != null) {
 			if(nxb == '>') {
-				var ts = tag.toString();
-				tag = null;
-				return(onTagString(ts));
+				var ts = tag.toString()
+				tag = null
+				return(onTagString(ts))
 			}
-			tag.append(nxb);
+			tag.append(nxb)
 			if(nxb == '[' && tag.count() == String.getLength(cdataStart) && String.equals(cdataStart, tag.toString())) {
-				tag = null;
-				cdata = new StringBuilder();
+				tag = null
+				cdata = new StringBuilder()
 			}
 			else if(nxb == '-' && tag.count() == String.getLength(commentStart) && String.equals(commentStart, tag.toString())) {
-				tag = null;
-				comment = new StringBuilder();
+				tag = null
+				comment = new StringBuilder()
 			}
 		}
 		else if(cdata != null) {
-			var c0 as char = nxb;
-			var c1 as char;
-			var c2 as char;
+			var c0 as char = nxb
+			var c1 as char
+			var c2 as char
 			if(c0 == ']') {
-				c1 = it.getNextChar();
+				c1 = it.getNextChar()
 				if(c1 == ']') {
-					c2 = it.getNextChar();
+					c2 = it.getNextChar()
 					if(c2 == '>') {
-						var dd = cdata.toString();
-						cdata = null;
-						return(new CharacterData().setData(dd));
+						var dd = cdata.toString()
+						cdata = null
+						return(new CharacterData().setData(dd))
 					}
 					else {
-						it.moveToPreviousChar();
-						it.moveToPreviousChar();
-						cdata.append(c0);
+						it.moveToPreviousChar()
+						it.moveToPreviousChar()
+						cdata.append(c0)
 					}
 				}
 				else {
-					it.moveToPreviousChar();
-					cdata.append(c0);
+					it.moveToPreviousChar()
+					cdata.append(c0)
 				}
 			}
 			else {
-				cdata.append(c0);
+				cdata.append(c0)
 			}
 		}
 		else if(comment != null) {
-			var c0 as char = nxb;
-			var c1 as char;
-			var c2 as char;
+			var c0 as char = nxb
+			var c1 as char
+			var c2 as char
 			if(c0 == '-') {
-				c1 = it.getNextChar();
+				c1 = it.getNextChar()
 				if(c1 == '-') {
-					c2 = it.getNextChar();
+					c2 = it.getNextChar()
 					if(c2 == '>') {
-						var ct = comment.toString();
-						comment = null;
-						return(new Comment().setText(ct));
+						var ct = comment.toString()
+						comment = null
+						return(new Comment().setText(ct))
 					}
 					else {
-						it.moveToPreviousChar();
-						it.moveToPreviousChar();
-						comment.append(c0);
+						it.moveToPreviousChar()
+						it.moveToPreviousChar()
+						comment.append(c0)
 					}
 				}
 				else {
-					it.moveToPreviousChar();
-					comment.append(c0);
+					it.moveToPreviousChar()
+					comment.append(c0)
 				}
 			}
 			else {
-				comment.append(c0);
+				comment.append(c0)
 			}
 		}
 		else {
 			if(nxb == '<') {
 				if(def != null) {
-					var cd = def.toString();
-					def = null;
+					var cd = def.toString()
+					def = null
 					if(ignoreWhiteSpace && cd != null) {
 						if(isOnlyWhiteSpace(cd)) {
-							cd = null;
+							cd = null
 						}
 					}
 					if(cd != null) {
-						it.moveToPreviousChar();
-						return(new CharacterData().setData(cd));
+						it.moveToPreviousChar()
+						return(new CharacterData().setData(cd))
 					}
 				}
-				tag = new StringBuilder();
+				tag = new StringBuilder()
 			}
 			else {
 				if(def == null) {
-					def = new StringBuilder();
+					def = new StringBuilder()
 				}
-				def.append(nxb);
+				def.append(nxb)
 			}
 		}
 	}
-	return(null);
+	return(null)
 }
