@@ -50,6 +50,15 @@ func prepareResources(resources as array<string>, callback as function)
 			}
 		}
 	}
+	var onLoad #used = func {
+		logDebug("Resource loaded")
+		onResourceLoadingComplete()
+	}
+	var onError #used = func {
+		logError("Failed to load resource")
+		onResourceLoadingComplete()
+	}
+	var style as object
 	foreach(path in resources) {
 		var pp = path
 		var slash = String.lastIndexOf(pp, '/')
@@ -64,14 +73,6 @@ func prepareResources(resources as array<string>, callback as function)
 		var ext = String.getSubString(pp, dot+1)
 		pp = String.getSubString(pp, 0, dot)
 		if(String.equalsIgnoreCase(ext, "png") || String.equalsIgnoreCase(ext, "jpg") || String.equalsIgnoreCase(ext, "gif")) {
-			var onLoad #used = func {
-				logDebug("Image loaded")
-				onResourceLoadingComplete()
-			}
-			var onError #used = func {
-				logError("Failed to load image")
-				onResourceLoadingComplete()
-			}
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
 			var imgo = new ImageForHTML()
 			var image as object
@@ -84,6 +85,24 @@ func prepareResources(resources as array<string>, callback as function)
 			imgo.image = image
 			imageCache[pp] = imgo
 		}
+		else if(String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf")) {
+			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
+			if(HTMLDOM.doesBrowserSupportFontLoading()) {
+				var head = HTMLDOM.getDocumentHead()
+				if(style == null) {
+					style = HTMLDOM.createElement("style")
+					HTMLDOM.appendChild(head, style)
+				}
+				HTMLDOM.appendChild(style, HTMLDOM.createTextNode("@font-face { font-family: " .. pp .. "; src: url('" .. path .. "')}"))
+				lang "js" {{{
+					document.fonts.load("12px " + pp).then(onLoad, onError);
+				}}}
+			}
+			else {
+				logWarning("Browser does not support font loading: `" .. path .. "'")
+				onResourceLoadingComplete()
+			}
+		}
 		else {
 			logWarning("Unsupported resource file type `" .. ext .. "': `" .. path .. "'")
 			onResourceLoadingComplete()
@@ -94,6 +113,12 @@ func prepareResources(resources as array<string>, callback as function)
 func getResourceImage(id as string) as Image
 {
 	return(Map.getValue(imageCache, id))
+}
+
+func getImageForBuffer(buffer as buffer, mimeType as string) as Image
+{
+	ERROR("Not implemented")
+	return(null)
 }
 
 func logError(message as string)
