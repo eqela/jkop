@@ -1,0 +1,112 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is CustomContainerWidget imports cape imports cave:
+
+func forContext(context as GuiApplicationContext) static as this
+{
+	var v = new this(context)
+	return(v)
+}
+
+prop widgetCellSize as int = -1
+prop minimumCols as int = 2
+prop maximumCols as int = 0
+prop widgetSpacing = 0
+prop widgetMargin = 0
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+}
+
+func computeWidgetLayout(widthConstraint as int) override
+{
+	var rows as int
+	var cols as int
+	var children = Widget.getChildren(this)
+	if(children == null) {
+		return
+	}
+	var childCount = Vector.getSize(children)
+	if(childCount < 1) {
+		return
+	}
+	var wcs = widgetCellSize
+	if(wcs < 1) {
+		wcs = context.getWidthValue("25mm")
+	}
+	var adjustWcs = false
+	var mywidth = widthConstraint - widgetMargin - widgetMargin
+	if(widthConstraint < 0) {
+		cols = childCount
+	}
+	else {
+		cols = Math.floor((mywidth + widgetSpacing) / (wcs + widgetSpacing)) as int
+		if(minimumCols > 0 && cols < minimumCols) {
+			cols = minimumCols
+			adjustWcs = true
+		}
+		else if(childCount >= cols) {
+			adjustWcs = true
+		}
+	}
+	if(adjustWcs) {
+		wcs = ((mywidth + widgetSpacing) / cols) - widgetSpacing
+	}
+	if(maximumCols > 0 && cols > maximumCols) {
+		cols = maximumCols
+	}
+	rows = Math.floor(childCount / cols) as int
+	if(childCount % cols > 0) {
+		rows ++
+	}
+	Widget.setLayoutSize(this,
+		widgetMargin + cols * wcs + (cols - 1) * widgetSpacing + widgetMargin,
+		widgetMargin + rows * wcs + (rows - 1) * widgetSpacing + widgetMargin
+	)
+	var cx = 0
+	var x = widgetMargin
+	var y = widgetMargin
+	foreach(child in children) {
+		Widget.move(child, x, y)
+		Widget.layout(child, wcs)
+		Widget.resizeHeight(child, wcs)
+		x += wcs
+		x += widgetSpacing
+		cx ++
+		if(cx >= cols) {
+			cx = 0
+			y += wcs
+			y += widgetSpacing
+			x = widgetMargin
+		}
+	}
+}
+
+func addWidget(widget as Widget) as this
+{
+	Widget.addChild(this, widget)
+	return(this)
+}

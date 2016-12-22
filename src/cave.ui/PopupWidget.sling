@@ -1,0 +1,162 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget imports cave:
+
+func forContentWidget(context as GuiApplicationContext, widget as Widget) static as this
+{
+	var v = new this(context)
+	v.setWidgetContent(widget)
+	return(v)
+}
+
+var widgetContext as GuiApplicationContext
+var widgetContainerBackgroundColor as CanvasWidget
+var widgetContent as Widget
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	widgetContext = ctx
+}
+
+func setWidgetContainerBackgroundColor(color as Color)
+{
+	if(color != null) {
+		widgetContainerBackgroundColor = CanvasWidget.forColor(widgetContext, color)
+	}
+}
+
+func setWidgetContent(widget as Widget)
+{
+	if(widget != null) {
+		widgetContent = widget
+	}
+}
+
+func getWidgetContainerBackgroundColor as CanvasWidget
+{
+	return(widgetContainerBackgroundColor)
+}
+
+func getWidgetContent as Widget
+{
+	return(widgetContent)
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	if(widgetContainerBackgroundColor == null) {
+		widgetContainerBackgroundColor = CanvasWidget.forColor(widgetContext, Color.forRGBADouble(0, 0, 0, 0.8))
+		Widget.setWidgetClickHandler(widgetContainerBackgroundColor, func {
+			; // no action
+		})
+	}
+	addWidget(widgetContainerBackgroundColor)
+	if(widgetContent != null) {
+		addWidget(AlignWidget.forWidget(widgetContext, widgetContent, 0.5, 0.5))
+	}
+}
+
+var animationDestY as int
+
+func onWidgetHeightChanged(height as int) override
+{
+	base.onWidgetHeightChanged(height)
+	animationDestY = Widget.getY(widgetContent)
+}
+
+func computeWidgetLayout(widthConstraint as int) override
+{
+	base.computeWidgetLayout(widthConstraint)
+	animationDestY = Widget.getY(widgetContent)
+}
+
+func showPopup(widget as Widget) virtual
+{
+	var parentLayer as LayerWidget
+	IFDEF("target_html")
+	{
+		var div = HTMLDOM.createElement("div")
+		HTMLDOM.setStyle(div, "position", "fixed")
+		HTMLDOM.setStyle(div, "bottom", "0px")
+		HTMLDOM.setStyle(div, "top", "0px")
+		HTMLDOM.setStyle(div, "left", "0px")
+		HTMLDOM.setStyle(div, "right", "0px")
+		HTMLDOM.setStyle(div, "width", "100%")
+		HTMLDOM.setStyle(div, "height", "100%")
+		HTMLDOM.setStyle(div, "z-index", "999")
+		HTMLDOM.appendToBody(div)
+		parentLayer = new LayerWidget(context)
+		Widget.addToDomElement(parentLayer, div)
+	}
+	ELSE
+	{
+		var parent = Widget.getParent(widget)
+		while(parent != null) {
+			if(parent is LayerWidget) {
+				parentLayer = parent as! LayerWidget
+			}
+			parent = Widget.getParent(parent)
+		}
+		if(parentLayer == null) {
+			return
+		}
+	}
+	parentLayer.addWidget(this)
+	Widget.setAlpha(widgetContainerBackgroundColor, 0)
+	Widget.setAlpha(widgetContent, 0)
+	animationDestY = Widget.getY(widgetContent)
+	var ay final = context.getHeightValue("3mm")
+	Widget.move(widgetContent, Widget.getX(widgetContent), (animationDestY + ay) as int)
+	var anim = WidgetAnimation.forDuration(context, 300)
+	anim.addCallback(func(completion as double) {
+		var bgf = completion * 1.5
+		if(bgf > 1.0) {
+			bgf = 1.0
+		}
+		Widget.setAlpha(widgetContainerBackgroundColor, bgf)
+		Widget.setAlpha(widgetContent, completion)
+		Widget.move(widgetContent, Widget.getX(widgetContent), (animationDestY + ((1.0 - completion) * ay)) as int)
+	})
+	anim.setEndListener(func {
+		; // do nothing
+	})
+	anim.start()
+}
+
+func hidePopup virtual
+{
+	var anim = WidgetAnimation.forDuration(context, 300)
+	anim.addFadeOut(this, true)
+	IFDEF("target_html")
+	{
+		var parent = HTMLDOM.getParentElement(HTMLDOM.getParentElement(this.element))
+		anim.setEndListener(func {
+			HTMLDOM.remove(parent)
+		})
+	}
+	anim.start()
+}

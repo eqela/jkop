@@ -1,0 +1,648 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ScreenAwareWidget imports cape imports cave imports cave.ui:
+
+IFDEF("target_android")
+{
+	depend "gradle:com.google.android.gms:play-services-maps:9.0.0"
+	depend "gradle:com.google.android.gms:play-services-location:9.0.0"
+	depend "androidPermission:android.permission.INTERNET"
+	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
+	basetype !"com.google.android.gms.maps.MapView" type extends
+	basetype !"com.google.android.gms.maps.OnMapReadyCallback" type implements
+	basetype Widget type isAlso
+	basetype ResizeAwareWidget type implements
+	var created = false
+	var gmap as !"com.google.android.gms.maps.GoogleMap"
+
+	func onWidgetResized
+	{
+		var thisWidth #used = Widget.getWidth(this)
+		var thisHeight #used = Widget.getHeight(this)
+		var thisX #used = Widget.getX(this)
+		var thisY #used = Widget.getY(this)
+		lang "java" {{{
+			if(thisWidth > 0 && thisHeight > 0) {
+				int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+				int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+				msw = android.view.View.MeasureSpec.makeMeasureSpec(thisWidth, android.view.View.MeasureSpec.EXACTLY);
+				msh = android.view.View.MeasureSpec.makeMeasureSpec(thisHeight, android.view.View.MeasureSpec.EXACTLY);
+				measure(msw, msh);
+				layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
+			}
+		}}}
+	}
+
+	func onMapReady(map as !"com.google.android.gms.maps.GoogleMap")
+	{
+		gmap = map
+		lang "java" {{{
+			com.google.android.gms.maps.UiSettings settings = map.getUiSettings();
+			settings.setAllGesturesEnabled(true);
+			settings.setCompassEnabled(true);
+			settings.setIndoorLevelPickerEnabled(true);
+			settings.setMapToolbarEnabled(true);
+			settings.setMyLocationButtonEnabled(false);
+			settings.setRotateGesturesEnabled(true);
+			settings.setScrollGesturesEnabled(true);
+			settings.setTiltGesturesEnabled(true);
+			settings.setZoomControlsEnabled(true);
+			settings.setZoomGesturesEnabled(true);
+			map.setBuildingsEnabled(true);
+			map.setIndoorEnabled(true);
+			map.setMyLocationEnabled(false);
+			if(zoomInCenter) {
+				com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
+					.target(new com.google.android.gms.maps.model.LatLng(centerLat, centerLon))
+					.zoom(defaultZoomLevel)
+					.bearing(0)
+					.tilt(45)
+					.build();
+				map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
+			}
+			map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
+				public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
+					onMapClicked(loc.latitude, loc.longitude);
+				}
+			});
+		}}}
+		if(mapInitialized == false) {
+			mapInitialized = true
+		}
+		placeQueuedMarkers()
+		if(coordinateQueue != null) {
+			doZoomToCoordinates()
+		}
+	}
+}
+
+IFDEF("target_html")
+{
+	basetype Widget type extends
+	basetype capex.GeoCoder type implements
+	import capex
+
+	var mapCounter static = 0
+	var sdkIncluded static = false
+	var sdkLoaded static = false
+	var mapViewWaiting static as this
+	var addressQueryWaiting static as string
+	var addressQueryWaitingListener static as GeoCoderLocationListener
+	var myId as string
+	var mapObject as object #used
+
+	func initializeHtmlWidget
+	{
+		myId = "GoogleMapWidget" .. String.forInteger(mapCounter++)
+		HTMLDOM.setAttribute(element, "id", myId)
+		if(sdkLoaded) {
+			context.startTimer(0, func {
+				initializeMapForWidget()
+			})
+		}
+		else {
+			if(sdkIncluded) {
+				PRINT("Google Maps SDK included but not yet loaded. Cannot proceed.")
+				return
+			}
+			mapViewWaiting = this
+			var googleScript = HTMLDOM.createElement("script")
+			HTMLDOM.setAttribute(googleScript, "src", "https://maps.googleapis.com/maps/api/js?key=" .. capex.URLEncoder.encode(webApiKey) .. "&callback=CaveGoogleMapsMapWidget.onGoogleMapLoaded")
+			HTMLDOM.setAttribute(googleScript, "async", "")
+			HTMLDOM.setAttribute(googleScript, "defer", "")
+			HTMLDOM.appendChild(HTMLDOM.getDocumentBody(), googleScript)
+			sdkIncluded = true
+		}
+	}
+
+	func onGoogleMapLoaded static
+	{
+		sdkLoaded = true
+		var vv = mapViewWaiting
+		mapViewWaiting = null
+		if(vv != null) {
+			vv.initializeMapForWidget()
+			if(addressQueryWaiting != null) {
+				vv.queryLocation(addressQueryWaiting, addressQueryWaitingListener)
+				addressQueryWaiting = null
+				addressQueryWaitingListener = null
+			}
+		}
+	}
+
+	func physicalAddressForResults(results as object) as PhysicalAddress
+	{
+		var v = new PhysicalAddress()
+		lang "js" {{{
+			var result = results[0];
+			v.setCompleteAddress(result.formatted_address);
+			var comps = result.address_components;
+			for(var n=0; n<comps.length; n++) {
+				var comp = comps[n];
+				var types = comp.types;
+				for(var m=0; m<types.length; m++) {
+					var type = types[m];
+					if(type === "street_number") {
+						v.setStreetAddressDetail(comp.long_name);
+					}
+					else if(type === "route") {
+						v.setStreetAddress(comp.long_name);
+					}
+					else if(type === "sublocality") {
+						v.setSubLocality(comp.long_name);
+					}
+					else if(type === "locality") {
+						v.setLocality(comp.long_name);
+					}
+					else if(type === "country") {
+						v.setCountry(comp.long_name);
+						v.setCountryCode(comp.short_name);
+					}
+					else if(type === "postal_code") {
+						v.setPostalCode(comp.long_name);
+					}
+					else if(type === "administrative_area_level_1") {
+						v.setAdministrativeArea(comp.long_name);
+					}
+					else if(type === "administrative_area_level_2") {
+						v.setSubAdministrativeArea(comp.long_name);
+					}
+				}
+			}
+		}}}
+		return(v)
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+	{
+		if(listener == null) {
+			return(false)
+		}
+		var error #used = cape.Error.forCode("geocoding_failed")
+		var thisObject #used = this
+		lang "js" {{{
+			var geoCoder = new google.maps.Geocoder();
+			geoCoder.geocode({'location': { lat: latitude, lng : longitude }}, function(results, status) {
+				if(status != "OK" || !results) {
+					listener.onQueryAddressErrorReceived(error);
+				}
+				else {
+					console.log(JSON.stringify(results, null, 4));
+					var pa = thisObject.physicalAddressForResults(results);
+					pa.setLatitude(latitude);
+					pa.setLongitude(longitude);
+					listener.onQueryAddressCompleted(pa);
+				}
+			});
+		}}}
+		return(true)
+	}
+
+	func queryLocation(address as string, listener as GeoCoderLocationListener) as bool
+	{
+		if(listener == null) {
+			return(false)
+		}
+		if(sdkLoaded == false) {
+			addressQueryWaiting = address
+			addressQueryWaitingListener = listener
+			return(true)
+		}
+		var error #used = cape.Error.forCode("geocoding_failed")
+		var thisObject #used = this
+		var r #used = new GeoLocation()
+		lang "js" {{{
+			var geoCoder = new google.maps.Geocoder();
+			geoCoder.geocode({'address': address }, function(results, status) {
+				if(status != "OK" || !results) {
+					listener.onQueryLocationErrorReceived(error);
+				}
+				else {
+					console.log(JSON.stringify(results, null, 4));
+					r.setLatitude(results[0].geometry.location.lat());
+					r.setLongitude(results[0].geometry.location.lng());
+					listener.onQueryLocationCompleted(r);
+				}
+			});
+		}}}
+		return(true)
+	}
+
+	func initializeMapForWidget private
+	{
+		if(mapInitialized) {
+			return
+		}
+		var thisObject #used = this
+		lang "js" {{{
+			var map = new google.maps.Map(document.getElementById(this.myId), {
+				zoom: this.defaultZoomLevel,
+				center: { lat: this.centerLat, lng: this.centerLon }
+			});
+			this.mapObject = map;
+			google.maps.event.addListener(map, 'click', function(evt) {
+				thisObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng())
+			});
+		}}}
+		mapInitialized = true
+		placeQueuedMarkers()
+		if(coordinateQueue != null) {
+			doZoomToCoordinates()
+		}
+	}
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"GMSMapView" type extends
+	basetype !"GMSMapViewDelegate" type implements
+	basetype capex.GeoCoder type implements
+	basetype Widget type isAlso
+	depend "objc-header-h:<GoogleMaps/GoogleMaps.h>"
+	depend "objc-framework:GoogleMapsBase"
+	depend "objc-framework:GoogleMaps"
+	depend "objc-framework:GoogleMapsCore"
+	depend "objc-framework:Accelerate"
+	depend "objc-framework:CoreData"
+	depend "objc-framework:CoreGraphics"
+	depend "objc-framework:CoreLocation"
+	depend "objc-framework:CoreText"
+	depend "objc-framework:GLKit"
+	depend "objc-framework:ImageIO"
+	depend "ldlib:c++"
+	depend "ldlib:z"
+	depend "objc-framework:OpenGLES"
+	depend "objc-framework:QuartzCore"
+	depend "objc-framework:SystemConfiguration"
+	depend "objc-framework:UIKit"
+	depend "objc-framework:Security"
+	var googleMapsApiInitialized static = false
+
+	lang "objc" {{{
+		- (void)mapView:(GMSMapView *)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate
+		{
+			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
+		}
+	}}}
+
+	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", listener as capex.GeoCoderAddressListener)
+	{
+		var addLine1 as string
+		var addLine2 as string
+		lang "objc" {{{
+			addLine1 = resp.firstResult.addressLine1;
+			addLine2 = resp.firstResult.addressLine2;
+		}}}
+		var sb = new StringBuilder()
+		if(addLine1 != null) {
+			sb.append(addLine1)
+		}
+		if(cape.String.isEmpty(addLine2) == false) {
+			if(sb.count() > 0) {
+				sb.append(' ')
+			}
+			sb.append(addLine2)
+		}
+		var v = new capex.PhysicalAddress()
+		v.setCompleteAddress(sb.toString())
+		if(listener != null) {
+			listener.onQueryAddressCompleted(v)
+		}
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as capex.GeoCoderAddressListener) as bool
+	{
+		var thisObject #used = this
+		lang "objc" {{{
+			GMSGeocoder* gc = [GMSGeocoder geocoder];
+			[gc reverseGeocodeCoordinate:CLLocationCoordinate2DMake(latitude, longitude) completionHandler:^(GMSReverseGeocodeResponse *resp, NSError *error) {
+				[thisObject onGeoCoderAddress:resp listener:listener];
+			}];
+		}}}
+		return(true)
+	}
+
+	func queryLocation(address as string, listener as capex.GeoCoderLocationListener) as bool
+	{
+		return(true)
+	}
+}
+
+class MyMapMarker is MapMarker
+{
+	prop lat as double
+	prop lon as double
+	prop label as string
+	prop title as string
+	prop icon as Image
+	var markerObject public as object
+	prop removed = false
+
+	func move(lat as double, lon as double)
+	{
+		this.lat = lat
+		this.lon = lon
+		if(markerObject != null) {
+			IFDEF("target_html") {
+				lang "js" {{{
+					this.markerObject.setPosition({ lat: lat, lng: lon });
+				}}}
+			}
+			ELSE IFDEF("target_android") {
+				lang "java" {{{
+					com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(this.lat, this.lon);
+					((com.google.android.gms.maps.model.Marker)markerObject).setPosition(pos);
+				}}}
+			}
+			ELSE IFDEF("target_iosoc") {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setPosition:CLLocationCoordinate2DMake(lat, lon)];
+				}}}
+			}
+		}
+	}
+
+	func remove
+	{
+		IFDEF("target_html") {
+			if(markerObject != null) {
+				lang "js" {{{
+					this.markerObject.setMap(null);
+				}}}
+			}
+		}
+		removed = true
+	}
+}
+
+func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
+{
+	IFDEF("target_iosoc") {
+		if(googleMapsApiInitialized == false) {
+			lang "objc" {{{
+				[GMSServices provideAPIKey:iosApiKey];
+			}}}
+			googleMapsApiInitialized = true
+		}
+	}
+	var v = new this(context)
+	v.setWebApiKey(webApiKey)
+	return(v)
+}
+
+prop webApiKey as string
+prop centerLat as double = 0.0
+prop centerLon as double = 0.0
+prop defaultZoomLevel = 14
+prop zoomInCenter as bool = true
+prop streetViewEnabled as bool
+var context as GuiApplicationContext
+var mapClickHandler as function<void,double,double>
+var markerQueue as vector<MyMapMarker>
+var coordinateQueue as vector<DynamicMap>
+var mapInitialized = false
+
+ctor(context as GuiApplicationContext) private
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		lang "java" {{{
+			setBackgroundColor(0xff000000);
+		}}}
+	}
+	this.context = context
+}
+
+func onWidgetAddedToScreen(screen as ScreenForWidget)
+{
+	IFDEF("target_html") {
+		initializeHtmlWidget()
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			self.delegate = self;
+			GMSUISettings* settings = [self settings];
+			[settings setAllGesturesEnabled:YES];
+			[settings setCompassButton:YES];
+			[settings setIndoorPicker:YES];
+			[settings setMyLocationButton:YES];
+			[settings setRotateGestures:YES];
+			[settings setScrollGestures:YES];
+			[settings setTiltGestures:YES];
+			[settings setZoomGestures:YES];
+		}}}
+		if(zoomInCenter) {
+			lang "objc" {{{
+				GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:self->centerLat longitude:self->centerLon zoom:self->defaultZoomLevel
+					bearing:0 viewingAngle:45];
+				[self animateToCameraPosition:camera];
+			}}}
+		}
+		placeQueuedMarkers()
+		if(coordinateQueue != null) {
+			doZoomToCoordinates()
+		}
+	}
+	ELSE IFDEF("target_android") {
+		var thisObject #used = this
+		if(created == false) {
+			created = true
+			lang "java" {{{
+				onCreate(new android.os.Bundle());
+				onResume();
+				getMapAsync(thisObject);
+			}}}
+		}
+	}
+}
+
+func onWidgetRemovedFromScreen(screen as ScreenForWidget)
+{
+}
+
+func onMapClicked(lat as double, lon as double) private
+{
+	if(mapClickHandler != null) {
+		mapClickHandler(lat, lon)
+	}
+}
+
+func addMapClickHandler(handler as function<void,double,double>)
+{
+	mapClickHandler = handler
+}
+
+func addMapMarker(lat as double, lon as double, label as string, title as string, icon as Image = null) as MapMarker
+{
+	var v = new MyMapMarker()
+	v.setLat(lat)
+	v.setLon(lon)
+	v.setLabel(label)
+	v.setTitle(title)
+	v.setIcon(icon)
+	if(mapInitialized) {
+		doAddMapMarker(v)
+	}
+	else {
+		if(markerQueue == null) {
+			markerQueue = new vector<MyMapMarker>
+		}
+		markerQueue += v
+	}
+	return(v)
+}
+
+func placeQueuedMarkers
+{
+	foreach(marker in markerQueue) {
+		if(marker.getRemoved() == false) {
+			doAddMapMarker(marker)
+		}
+	}
+	markerQueue = null
+}
+
+func doAddMapMarker(marker as MyMapMarker) private
+{
+	var markerSize #used = context.getHeightValue("10mm") as int
+	IFDEF("target_html") {
+		var ico #used = marker.getIcon() as ImageForHTML
+		lang "js" {{{
+			var mkropt = { position: { lat: marker.getLat(), lng: marker.getLon() },
+				map: this.mapObject,
+				title : marker.getTitle(),
+				label : marker.getLabel()
+			};
+			if(ico != null) {
+				var icon = { url: ico.getSource(),
+					scaledSize: { width: markerSize, height: markerSize}
+				};
+				mkropt.icon = icon;
+			}
+			var mo = new google.maps.Marker(mkropt);
+			marker.markerObject = mo;
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
+			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
+				.position(pos)
+				.title(marker.getTitle())
+				.visible(true);
+			cave.Image ico = marker.getIcon();
+			if(ico != null) {
+				cave.ImageForAndroid ic = (cave.ImageForAndroid)ico.scaleToSize(markerSize, markerSize);
+				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getAndroidBitmap()));
+			}
+			else {
+				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
+			}
+			marker.markerObject = gmap.addMarker(mkropt);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			GMSMarker* mm = [GMSMarker markerWithPosition:CLLocationCoordinate2DMake([marker getLat], [marker getLon])]; 
+			mm.title = [marker getTitle];
+			// mm.label = [marker getLabel];
+			mm.map = self;
+			marker->markerObject = mm;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func moveToCenter(lat as double, lon as double)
+{
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:lat longitude:lon zoom:self->defaultZoomLevel
+				bearing:0 viewingAngle:45];
+			[self animateToCameraPosition:camera];
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			this.mapObject.setCenter({ "lat" : lat, "lng" : lon })
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
+				.target(new com.google.android.gms.maps.model.LatLng(lat, lon))
+				.zoom(defaultZoomLevel)
+				.bearing(0)
+				.tilt(45)
+				.build();
+			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func zoomToCoordinates(coors as vector<DynamicMap>)
+{
+	if(mapInitialized) {
+		coordinateQueue = coors
+		doZoomToCoordinates()
+	}
+	else {
+		coordinateQueue = coors
+	}
+}
+
+func doZoomToCoordinates
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			com.google.android.gms.maps.model.LatLngBounds.Builder llbounds = new com.google.android.gms.maps.model.LatLngBounds.Builder();
+			for(cape.DynamicMap coor : coordinateQueue) {
+				double lat = (double)coor.getDouble("lat");
+				double lon = (double)coor.getDouble("lon");
+				com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(lat, lon);
+				llbounds.include(pos);
+			}
+			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(),200));
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			var bounds = new google.maps.LatLngBounds();
+			for(var bound of this.coordinateQueue) {
+				var latlon = new google.maps.LatLng({ lat: bound.getDouble("lat"), lng: bound.getDouble("lon")});
+				bounds.extend(latlon);
+			}
+			this.mapObject.fitBounds(bounds);
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}

@@ -1,0 +1,765 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+IFDEF("target_iosoc")
+{
+	modifier #typedef
+	basetype !"UIView" type extends
+	depend "objc-header-h:<UIKit/UIKit.h>"
+	depend "objc-header-m:<objc/runtime.h>"
+}
+
+IFDEF("target_android")
+{
+	modifier #typedef
+	basetype !"android.view.View" type extends
+}
+
+IFDEF("target_html")
+{
+	import cave
+	import cape
+
+	var element public as object
+
+	ctor
+	{
+		element = createElement()
+		lang "js" {{{
+			this.element.widgetObject = this;
+		}}}
+		prepareElement(element)
+	}
+
+	func createElement virtual as object
+	{
+		return(HTMLDOM.createElement("div"))
+	}
+
+	func prepareElement(element as object) virtual
+	{
+		HTMLDOM.setStyle(element, "pointer-events", "auto")
+		HTMLDOM.setStyle(element, "position", "absolute")
+		HTMLDOM.setStyle(element, "overflow", "hidden")
+	}
+}
+
+func onWidgetAddedToParent(widget as this) static
+{
+	if(widget == null) {
+		return
+	}
+	if(widget is CustomContainerWidget) {
+		(widget as! CustomContainerWidget).onWidgetAddedToParent()
+	}
+}
+
+func onWidgetRemovedFromParent(widget as this) static
+{
+	if(widget == null) {
+		return
+	}
+	if(widget is CustomContainerWidget) {
+		(widget as! CustomContainerWidget).onWidgetRemovedFromParent()
+	}
+}
+
+func notifyOnAddedToScreen(widget as this, screen as ScreenForWidget) static
+{
+	foreach(child in getChildren(widget)) {
+		notifyOnAddedToScreen(child, screen)
+	}
+	if(widget is ScreenAwareWidget) {
+		(widget as! ScreenAwareWidget).onWidgetAddedToScreen(screen)
+	}
+}
+
+func notifyOnRemovedFromScreen(widget as this, screen as ScreenForWidget) static
+{
+	if(widget is ScreenAwareWidget) {
+		(widget as! ScreenAwareWidget).onWidgetRemovedFromScreen(screen)
+	}
+	foreach(child in getChildren(widget)) {
+		notifyOnRemovedFromScreen(child, screen)
+	}
+}
+
+func addChild(parent as this, child as this) static
+{
+	if(parent == null || child == null) {
+		return
+	}
+	var ccw = child as CustomContainerWidget
+	if(ccw != null) {
+		ccw.tryInitializeWidget()
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[parent addSubview:child];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		var vg = parent as !"android.view.ViewGroup"
+		if(vg == null) {
+			return
+		}
+		lang "java" {{{
+			vg.addView(child);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.appendChild(parent.element, child.element)
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	var pp = parent as CustomContainerWidget
+	if(pp != null) {
+		pp.onChildWidgetAdded(child)
+	}
+	onWidgetAddedToParent(child)
+	var screen = ScreenForWidget.findScreenForWidget(child)
+	if(screen != null) {
+		notifyOnAddedToScreen(child, screen)
+	}
+}
+
+func removeFromParent(child as this) static as this
+{
+	if(child == null) {
+		return(null)
+	}
+	var parentWidget = getParent(child)
+	if(parentWidget == null) {
+		return(null)
+	}
+	var pp = parentWidget as CustomContainerWidget
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[child removeFromSuperview];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			if(parentWidget != null && parentWidget instanceof android.view.ViewGroup) {
+				((android.view.ViewGroup)parentWidget).removeView(child);
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.remove(child.element)
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	if(pp != null) {
+		pp.onChildWidgetRemoved(child)
+	}
+	var screen = ScreenForWidget.findScreenForWidget(parentWidget)
+	if(screen != null) {
+		notifyOnRemovedFromScreen(child, screen)
+	}
+	onWidgetRemovedFromParent(child)
+	return(null)
+}
+
+IFDEF("target_html")
+{
+	func domElementAsWidget(element as object) static as this
+	{
+		var v as this = null
+		lang "js" {{{
+			v = element.widgetObject;
+		}}}
+		if(v is this == false) {
+			v = null
+		}
+		return(v)
+	}
+}
+
+func hasParent(widget as this) static as bool
+{
+	if(getParent(widget) == null) {
+		return(false)
+	}
+	return(true)
+}
+
+func getParent(widget as this) static as this
+{
+	if(widget == null) {
+		return(null)
+	}
+	IFDEF("target_iosoc") {
+		if(widget is CustomContainerWidget && (widget as! CustomContainerWidget).getScreenForWidget() != null) {
+			return(null)
+		}
+		return(lang "objc" this {{{ [widget superview] }}})
+	}
+	ELSE IFDEF("target_android") {
+		var v as this = null
+		lang "java" {{{
+			android.view.ViewParent vp = widget.getParent();
+			if(vp != null && vp instanceof android.view.ViewGroup) {
+				v = (android.view.ViewGroup)vp;
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_html") {
+		var pe = HTMLDOM.getParentElement(widget.element)
+		if(pe == null) {
+			return(null)
+		}
+		return(domElementAsWidget(pe))
+	}
+	ELSE {
+		ERROR("Not implemented.")
+		return(null)
+	}
+}
+
+func getChildren(widget as this) static as vector<this>
+{
+	IFDEF("target_iosoc") {
+		var v = new vector<this>
+		lang "objc" {{{
+			for(UIView* subview in widget.subviews) {
+				[v addObject:subview];
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_android") {
+		var v = new vector<this>
+		lang "java" {{{
+			if(widget instanceof android.view.ViewGroup) {
+				android.view.ViewGroup vg = (android.view.ViewGroup)widget;
+				int n;
+				for(n=0; n<vg.getChildCount(); n++) {
+					v.add(vg.getChildAt(n));
+				}
+			}
+		}}}
+		return(v)
+	}
+	ELSE IFDEF("target_html") {
+		var v = new vector<this>
+		var dome #used = widget.element
+		lang "js" {{{
+			for(var n = 0; n<dome.childNodes.length; n++) {
+				v.push(CaveUIWidget.domElementAsWidget(dome.childNodes[n]));
+			}
+		}}}
+		return(v)
+	}
+	ELSE {
+		ERROR("Not implemented.")
+		return(null)
+	}
+}
+
+func getX(widget as this) static as int
+{
+	if(widget == null) {
+		return(0)
+	}
+	var v = 0
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			v = widget.frame.origin.x;
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			v = (int)widget.getX();
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			v = widget.element.offsetLeft;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	return(v)
+}
+
+func getY(widget as this) static as int
+{
+	if(widget == null) {
+		return(0)
+	}
+	var v = 0
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			v = widget.frame.origin.y;
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			v = (int)widget.getY();
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			v = widget.element.offsetTop;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	return(v)
+}
+
+func getWidth(widget as this) static as int
+{
+	if(widget == null) {
+		return(0)
+	}
+	var v = 0
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			v = widget.frame.size.width;
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			v = widget.getWidth();
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			v = widget.element.offsetWidth;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	return(v)
+}
+
+func getHeight(widget as this) static as int
+{
+	if(widget == null) {
+		return(0)
+	}
+	var v = 0
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			v = widget.frame.size.height;
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			v = widget.getHeight();
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			v = widget.element.offsetHeight;
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	return(v)
+}
+
+func move(widget as this, x as int, y as int) static
+{
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			widget.frame = CGRectMake(x, y, widget.frame.size.width, widget.frame.size.height);
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			widget.element.style.left = (~~x) + "px";
+			widget.element.style.top = (~~y) + "px";
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+}
+
+func isRootWidget(widget as this) static as bool
+{
+	var cw = widget as CustomContainerWidget
+	if(cw == null) {
+		return(false)
+	}
+	var pp = getParent(cw)
+	if(pp == null) {
+		return(true)
+	}
+	if(pp is WidgetWithLayout) {
+		return(false)
+	}
+	return(true)
+}
+
+func findScreen(widget as this) static as Screen
+{
+	IFDEF("target_iosoc") {
+		var pp = widget
+		while(pp != null) {
+			if(pp is CustomContainerWidget) {
+				var screen = (pp as! CustomContainerWidget).getScreenForWidget()
+				if(screen != null) {
+					return(screen)
+				}
+			}
+			pp = getParent(pp)
+		}
+		return(null)
+	}
+	ELSE IFDEF("target_android") {
+		var view #used = widget
+		var scr as !"android.app.Activity"
+		lang "java" {{{
+			if(view == null) {
+				return(null);
+			}
+			android.content.Context ctx = view.getContext();
+			if(ctx != null && ctx instanceof android.app.Activity) {
+				scr = (android.app.Activity)ctx;
+			}
+		}}}
+		return(scr as Screen)
+	}
+	ELSE IFDEF("target_html") {
+		var pp = widget.element
+		while(pp != null) {
+			var v as object
+			lang "js" {{{
+				if(pp.screenObject) {
+					v = pp.screenObject
+				}
+			}}}
+			if(v != null) {
+				return(v as Screen)
+			}
+			pp = HTMLDOM.getParentElement(pp)
+		}
+		return(null)
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(null)
+	}
+}
+
+func findRootWidget(widget as this) static as CustomContainerWidget
+{
+	var v = widget
+	while(true) {
+		if(v == null) {
+			break
+		}
+		if(isRootWidget(v)) {
+			return(v as CustomContainerWidget)
+		}
+		v = getParent(v)
+	}
+	return(null)
+}
+
+func setLayoutSize(widget as this, width as int, height as int) static as bool
+{
+	if(isRootWidget(widget)) {
+		var ccw = widget as CustomContainerWidget
+		if(ccw != null && ccw.getAllowResize() == false) {
+			return(false)
+		}
+	}
+	if(getWidth(widget) == width && getHeight(widget) == height) {
+		return(false)
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			widget.frame = CGRectMake(widget.frame.origin.x, widget.frame.origin.y, width, height);
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			int x = (int)widget.getX();
+			int y = (int)widget.getY();
+			widget.layout(x, y, x+width, y+height);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			widget.element.style.width = ~~width + "px";
+			widget.element.style.height = ~~height + "px";
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented.")
+	}
+	if(widget is ResizeAwareWidget) {
+		(widget as! ResizeAwareWidget).onWidgetResized()
+	}
+	return(true)
+}
+
+func resizeHeight(widget as this, height as int) static as bool
+{
+	if(setLayoutSize(widget, getWidth(widget), height) == false) {
+		return(false)
+	}
+	if(widget is HeightAwareWidget) {
+		(widget as! HeightAwareWidget).onWidgetHeightChanged(height)
+	}
+	return(true)
+}
+
+func layout(widget as this, widthConstraint as int, force as bool = false) static
+{
+	if(widget == null) {
+		return
+	}
+	var done = false
+	if(widget is WidgetWithLayout) {
+		done = (widget as! WidgetWithLayout).layoutWidget(widthConstraint, force)
+	}
+	if(done == false) {
+		IFDEF("target_iosoc") {
+			var srw as int
+			var srh as int
+			var cw = widthConstraint
+			var ch #used = 0
+			if(cw < 0) {
+				cw = 0
+			}
+			lang "objc" {{{
+				CGSize nsz = [widget sizeThatFits:CGSizeMake(cw, ch)];
+				srw = nsz.width;
+				if(nsz.width - srw > 0) {
+					srw ++;
+				}
+				srh = nsz.height;
+				if(nsz.height - srh > 0) {
+					srh ++;
+				}
+			}}}
+			if(widthConstraint >= 0 && srw != widthConstraint) {
+				srw = widthConstraint
+			}
+			setLayoutSize(widget, srw, srh)
+		}
+		ELSE IFDEF("target_android") {
+			var srw as int
+			var srh as int
+			lang "java" {{{
+				int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+				int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+				if(widthConstraint >= 0) {
+					msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY);
+				}
+				widget.measure(msw, msh);
+				srw = widget.getMeasuredWidth();
+				srh = widget.getMeasuredHeight();
+			}}}
+			if(widthConstraint >= 0 && srw < widthConstraint) {
+				srw = widthConstraint
+			}
+			setLayoutSize(widget, srw, srh)
+		}
+		ELSE IFDEF("target_html") {
+			if(widthConstraint >= 0) {
+				HTMLDOM.setStyle(widget.element, "white-space", "normal")
+				HTMLDOM.setStyle(widget.element, "width", String.forInteger(widthConstraint) .. "px")
+			}
+			else {
+				HTMLDOM.setStyle(widget.element, "white-space", "nowrap")
+				HTMLDOM.setStyle(widget.element, "width", "auto")
+				var ww = getWidth(widget)
+				HTMLDOM.setStyle(widget.element, "width", String.forInteger(ww + 1) .. "px")
+			}
+			HTMLDOM.setStyle(widget.element, "height", "auto")
+			if(widget is ResizeAwareWidget) {
+				(widget as! ResizeAwareWidget).onWidgetResized()
+			}
+		}
+		ELSE {
+			ERROR("Not implemented.")
+		}
+	}
+}
+
+IFDEF("target_iosoc")
+{
+	class WidgetClickForwarder
+	{
+		prop handler as function
+		prop widget as Widget
+
+		func execute
+		{
+			lang "objc" {{{
+				[[widget.window.subviews objectAtIndex:0] endEditing:YES];
+			}}}
+			handler()
+		}
+	}
+}
+
+func setWidgetClickHandler(widget as this, handler as function) static
+{
+	if(widget is CustomContainerWidget) {
+		if(handler == null) {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
+		}
+		else {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
+		}
+	}
+	IFDEF("target_iosoc") {
+		var forwarder = new WidgetClickForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setHandler(handler)
+		lang "objc" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[widget setUserInteractionEnabled:YES];
+			[widget addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute)]];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		var hf final #used = handler
+		lang "java" {{{
+			if(handler == null) {
+				widget.setOnClickListener(null);
+			}
+			else {
+				widget.setOnClickListener(new android.view.View.OnClickListener() {
+					public void onClick(android.view.View view) {
+						hf.execute();
+					}
+				});
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			widget.element.onclick = handler;
+		}}}
+		HTMLDOM.setStyle(widget.element, "cursor", "pointer")
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func removeChildrenOf(widget as this) static
+{
+	var children = getChildren(widget)
+	foreach(child in children) {
+		removeFromParent(child)
+	}
+}
+
+func onChanged(widget as this) static
+{
+	if(widget == null) {
+		return
+	}
+	var ccw = widget as CustomContainerWidget
+	if(ccw != null && ccw.getWidgetChanged()) {
+		return
+	}
+	var pp = getParent(widget) as this
+	if(pp != null) {
+		onChanged(pp)
+	}
+	else {
+		var root = findRootWidget(widget)
+		if(root != null) {
+			root.scheduleLayout()
+		}
+	}
+	if(ccw != null) {
+		ccw.setWidgetChanged(true)
+	}
+}
+
+func setAlpha(widget as this, alpha as double) static
+{
+	if(widget == null) {
+		return
+	}
+	IFDEF("target_android") {
+		lang "java" {{{
+			widget.setAlpha((float)alpha);
+		}}}
+	}
+	ELSE IFDEF("target_html5") {
+		HTMLDOM.setStyle(widget.element, "opacity", String.forDouble(alpha))
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[widget setAlpha:(CGFloat)alpha];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+IFDEF("target_html")
+{
+	func addToDomElement(widget as CustomContainerWidget, parentElement as object) static
+	{
+		if(widget == null || parentElement == null) {
+			return
+		}
+		HTMLDOM.setStyle(parentElement, "display", "table")
+		HTMLDOM.setStyle(parentElement, "overflow", "hidden")
+		if(parentElement == HTMLDOM.getDocumentBody()) {
+			HTMLDOM.setStyle(parentElement, "width", "100%")
+			HTMLDOM.setStyle(parentElement, "height", "100%")
+			var html = HTMLDOM.getElementsByTagName(HTMLDOM.getDocument(), "html")[0]
+			HTMLDOM.setStyle(html, "width", "100%")
+			HTMLDOM.setStyle(html, "height", "100%")
+		}
+		HTMLDOM.setStyle(widget.element, "display", "table-cell")
+		HTMLDOM.setStyle(widget.element, "position", "relative")
+		HTMLDOM.setStyle(widget.element, "width", "100%")
+		HTMLDOM.setStyle(widget.element, "height", "100%")
+		HTMLDOM.appendChild(parentElement, widget.element)
+		widget.tryInitializeWidget()
+		onWidgetAddedToParent(widget)
+		widget.scheduleLayout()
+	}
+}

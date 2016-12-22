@@ -1,0 +1,135 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape imports cave imports cave.ui:
+
+var context as GuiApplicationContext
+
+ctor(context as GuiApplicationContext)
+{
+	this.context = context
+}
+
+func openFileDialog(widget as Widget, type as string, callback as function<void, buffer, string, Error>)
+{
+	var cb final #used = callback
+	IFDEF("target_android") {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, null, Error.forCode("no_screen_found"))
+			}
+			return
+		}
+		var actx = (context as GuiApplicationContextForAndroid).getAndroidActivityContext()
+		var ctx final = actx
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			if(requestCode != 0) {
+				if(cb != null) {
+					cb(null, null, Error.forCode("invalid_request_code"))
+				}
+				return
+			}
+			if(resultCode != lang "java" int {{{ android.app.Activity.RESULT_OK }}}) {
+				if(cb != null) {
+					cb(null, null, null)
+				}
+				return
+			}
+			var fl as File
+			var fileName as string
+			lang "java" {{{
+				android.net.Uri uri = data.getData();
+				android.database.Cursor returnCursor = ctx.getContentResolver().query(uri, null, null, null, null);
+				int nameIndex = returnCursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+				returnCursor.moveToFirst();
+				fileName = returnCursor.getString(nameIndex);
+				fl = cape.FileInstance.forPath(uri.getPath());
+			}}}
+			if(cb != null) {
+				if(fl == null) {
+					cb(null, null, Error.forCode("no_file_data"))
+				}
+				else {
+					cb(fl.getContentsBuffer(), fileName, null)
+				}
+			}
+		})
+		var act = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
+		var activity final = act
+		lang "java" {{{
+			android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+			intent.setType(type);
+			intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+			try {
+				activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
+			}
+			catch(android.content.ActivityNotFoundException ex) {
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			var fileSelector = document.createElement('input');
+			fileSelector.setAttribute('type', type);
+			fileSelector.click();
+			fileSelector.addEventListener("change", handleFiles, false);
+			function handleFiles() {
+				var files = fileSelector.files;
+				if(typeof files === "undefined" || files === null) {
+					console.log("undefined files");
+					return;
+				}
+				var file = files[0];
+				if(typeof file === "undefined" || file === null) {
+					console.log("undefined file");
+					return;
+				}
+				var path = fileSelector.value;
+				var filename = path.substring(path.lastIndexOf("\\")+1);
+				var reader = new FileReader();
+				reader.onload = function(res) {
+					if(reader.readyState === 2) {
+						var result = res.target.result;
+						if(cb != null) {
+							if(result === null) {
+								cb(null, null, Error.forCode("no_file_data"))
+							}
+							else {
+								cb(result, filename, null);
+							}
+						}
+					}
+				};
+				reader.readAsArrayBuffer(file);
+			}
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+		if(cb != null) {
+			cb(null, null, Error.forCode("not_supported"))
+		}
+	}
+}
