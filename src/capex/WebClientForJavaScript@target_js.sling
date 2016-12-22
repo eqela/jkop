@@ -63,7 +63,7 @@ func getXMLHttpRequestObject as !"XMLHttpRequest"
 	return(xhr)
 }
 
-func onResponseReceived(status as string, responseHeaders as string, body as string, callback as function<void, string, KeyValueList<string,string>, buffer>)
+func onResponseReceived(status as string, responseHeaders as string, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
 {
 	var nhdrs = new KeyValueList<string,string>()
 	var hdrs = String.split(responseHeaders, ';')
@@ -84,7 +84,7 @@ func onResponseReceived(status as string, responseHeaders as string, body as str
 			}
 		}
 	}
-	callback(status, nhdrs, String.toUTF8Buffer(body))
+	callback(status, nhdrs, body)
 }
 
 func send(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
@@ -93,8 +93,21 @@ func send(method as string, url as string, requestHeaders as KeyValueList<string
 	lang "js" {{{
 		xhr.open(method, url, true);
 		xhr.onreadystatechange = function() {
+			if(xhr.readyState == 2) {
+				var ctype = xhr.getResponseHeader("Content-Type");
+				if(ctype === "application/binary" || ctype === "image/png") {
+					xhr.responseType = "arraybuffer";
+				}
+			}
 			if(xhr.readyState == 4) {
-				this.onResponseReceived(""+xhr.status, xhr.getAllResponseHeaders(), xhr.responseText, callback);
+				var resp;
+				if(xhr.responseType === "arraybuffer") {
+					resp = xhr.response;
+				}
+				else {
+					resp = Cape_x_String.toUTF8Buffer(xhr.responseText);
+				}
+				this.onResponseReceived(""+xhr.status, xhr.getAllResponseHeaders(), resp, callback);
 			}
 		}.bind(this);
 	}}}
