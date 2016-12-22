@@ -1,0 +1,210 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cave imports cape:
+
+func forText(context as GuiApplicationContext, text as string, handler as function) static as this
+{
+	var v = new this(context)
+	v.setWidgetText(text)
+	v.setWidgetClickHandler(handler)
+	return(v)
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.TextView" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"UILabel" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_html")
+{
+	basetype Widget
+
+	func createElement override as object
+	{
+		var v = HTMLDOM.createElement("a")
+		HTMLDOM.setAttribute(v, "href", "javascript:void(0)")
+		return(v)
+	}
+
+	func prepareElement(v as object) override
+	{
+		base.prepareElement(v)
+		HTMLDOM.setStyle(v, "display", "block")
+		HTMLDOM.setStyle(v, "font-size", "20px")
+		HTMLDOM.setFontFamily(v, "Arial")
+	}
+}
+
+var widgetContext as GuiApplicationContext
+var widgetText as string
+var widgetTextColor as Color
+var widgetFontSize as double
+var widgetClickHandler as function
+var widgetUrl as string
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+	}
+	widgetContext = context
+	setWidgetTextColor(Color.forRGB(0,0,0xff))
+	setWidgetFontSize(context.getHeightValue("3mm"))
+	IFDEF("target_iosoc") {
+		/*
+		lang "objc" {{{
+			[super setFont:[UIFont fontWithName:@"Arial Rounded MT Bold" size:(36.0)]];
+		}}}
+		*/
+		lang "objc" {{{
+			[self setNumberOfLines:0];
+			[self setTextAlignment:UITextAlignmentLeft];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setGravity(android.view.Gravity.LEFT);
+			setPaintFlags(getPaintFlags()| android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+		}}}
+	}
+}
+
+func setWidgetText(text as string)
+{
+	widgetText = text
+	IFDEF("target_android") {
+		lang "java" {{{
+			setText(text);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setAttributedText:[[NSAttributedString alloc] initWithString:text attributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle)}]];
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setInnerHTML(element, text)
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getWidgetText as string
+{
+	return(widgetText)
+}
+
+func setWidgetTextColor(color as Color)
+{
+	widgetTextColor = color
+	IFDEF("target_android") {
+		if(color != null) {
+			lang "java" {{{
+				setTextColor(color.toARGBInt32());
+			}}}
+		}
+		else {
+			lang "java" {{{
+				setTextColor(0);
+			}}}
+		}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if(color != null) {
+			lang "objc" {{{
+				[self setTextColor:[color toUIColor]];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setTextColor:nil];
+			}}}
+		}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "color", color.toRgbString())
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
+func setWidgetFontSize(fontSize as double)
+{
+	widgetFontSize = fontSize
+	IFDEF("target_android") {
+		lang "java" {{{
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)fontSize);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(fontSize) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setFont:[UIFont fontWithName:@"Arial" size:widgetFontSize]];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getFontSize as double
+{
+	return(widgetFontSize)
+}
+
+func setWidgetClickHandler(handler as function)
+{
+	widgetClickHandler = handler
+	Widget.setWidgetClickHandler(this, handler)
+}
+
+func setWidgetUrl(url as string)
+{
+	widgetUrl = url
+	IFDEF("target_html") {
+		HTMLDOM.setAttribute(element, "href", url)
+	}
+}
+
+func getWidgetUrl as string
+{
+	return(widgetUrl)
+}

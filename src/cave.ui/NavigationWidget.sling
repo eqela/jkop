@@ -1,0 +1,384 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget is TitleContainerWidget is KeyListener imports cape imports cave imports cave.ui:
+
+func switchToContainer(widget as Widget, newWidget as Widget) static as bool
+{
+	var ng as this
+	var pp = Widget.getParent(widget)
+	while(pp != null) {
+		if(pp is this) {
+			ng = pp as! this
+			break
+		}
+		pp = Widget.getParent(pp)
+	}
+	if(ng == null) {
+		return(false)
+	}
+	return(ng.switchWidget(newWidget))
+}
+
+func pushToContainer(widget as Widget, newWidget as Widget) static as bool
+{
+	var ng as this
+	var pp = Widget.getParent(widget)
+	while(pp != null) {
+		if(pp is this) {
+			ng = pp as! this
+			break
+		}
+		pp = Widget.getParent(pp)
+	}
+	if(ng == null) {
+		return(false)
+	}
+	return(ng.pushWidget(newWidget))
+}
+
+func popFromContainer(widget as Widget) static as Widget
+{
+	var ng as this
+	var pp = Widget.getParent(widget)
+	while(pp != null) {
+		if(pp is this) {
+			ng = pp as! this
+			break
+		}
+		pp = Widget.getParent(pp)
+	}
+	if(ng == null) {
+		return(null)
+	}
+	return(ng.popWidget())
+}
+
+func findNavigationWidget(widget as Widget) static as this
+{
+	var pp = Widget.getParent(widget)
+	while(pp != null) {
+		if(pp is this) {
+			return(pp as! this)
+		}
+		pp = Widget.getParent(pp)
+	}
+	return(null)
+}
+
+var contentArea as SwitcherLayerWidget
+var actionBar protected as ActionBarWidget
+var widgetStack as cape.Stack<Widget>
+var dimWidget as Widget
+var sidebarWidget as Widget
+var sidebarSlotLeft as LayerWidget
+var sidebarIsFixed = false
+var sidebarIsDisplayed = false
+prop enableActionBar = true
+prop actionBarBackgroundColor as Color
+prop actionBarTextColor as Color
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	widgetStack = new cape.Stack<Widget>()
+	actionBarBackgroundColor = Color.black()
+	actionBarTextColor = Color.white()
+}
+
+func onKeyEvent(event as KeyEvent) virtual
+{
+	if(event.isKeyPress(KeyEvent.KEY_BACK)) {
+		if(widgetStack != null && widgetStack.getSize() > 1) {
+			if(popWidget() != null) {
+				event.consume()
+			}
+		}
+	}
+}
+
+func getMenuHandler virtual as function
+{
+	return(null)
+}
+
+func getAppIconResource virtual as string
+{
+	return(null)
+}
+
+func getAppMenuHandler virtual as function
+{
+	return(null)
+}
+
+func createMainWidget virtual as Widget
+{
+	return(null)
+}
+
+func getBackgroundColor virtual as Color
+{
+	return(Color.forRGB(255,255,255))
+}
+
+func updateMenuButton
+{
+	if(actionBar == null) {
+		return
+	}
+	var handler = getMenuHandler()
+	if(widgetStack != null && widgetStack.getSize() > 1) {
+		actionBar.configureLeftButton("backarrow", func {
+			popWidget()
+		})
+	}
+	else if(handler == null) {
+		if(sidebarIsFixed == false) {
+			actionBar.configureLeftButton("burger", func {
+				displaySidebarWidget()
+			})
+		}
+		else {
+			actionBar.configureLeftButton(null, null)
+		}
+	}
+	else {
+		actionBar.configureLeftButton("burger", handler)
+	}
+}
+
+func createSidebarWidget virtual as Widget
+{
+	return(null)
+}
+
+func enableFixedSidebar private
+{
+	if(sidebarWidget == null || sidebarSlotLeft == null || sidebarIsFixed) {
+		return
+	}
+	hideSidebarWidget(false)
+	sidebarIsFixed = true
+	sidebarSlotLeft.addWidget(sidebarWidget)
+	updateMenuButton()
+}
+
+func disableFixedSidebar private
+{
+	if(sidebarIsDisplayed || sidebarIsFixed == false) {
+		return
+	}
+	Widget.removeFromParent(sidebarWidget)
+	sidebarIsFixed = false
+	updateMenuButton()
+}
+
+func updateSidebarWidthRequest(sz as int) private as int
+{
+	var v = 0
+	if(sidebarIsFixed == false && sidebarIsDisplayed && sidebarWidget != null) {
+		var layer = Widget.getParent(sidebarWidget) as LayerWidget
+		if(layer != null) {
+			v = 0.8 * sz as int
+			layer.setWidgetMaximumWidthRequest(v)
+		}
+	}
+	return(v)
+}
+
+func computeWidgetLayout(widthConstraint as int) override
+{
+	if(widthConstraint > context.getWidthValue("200mm")) {
+		enableFixedSidebar()
+	}
+	else {
+		disableFixedSidebar()
+	}
+	// FIXME: We can't do this in the middle of a layout ... updateSidebarWidthRequest(widthConstraint)
+	base.computeWidgetLayout(widthConstraint)
+}
+
+func displaySidebarWidget(animated as bool = true)
+{
+	if(sidebarIsFixed || sidebarIsDisplayed || sidebarWidget == null) {
+		return
+	}
+	if(dimWidget == null) {
+		dimWidget = CanvasWidget.forColor(context, Color.forRGBADouble(0.0, 0.0, 0.0, 0.8))
+	}
+	addWidget(dimWidget)
+	sidebarIsDisplayed = true
+	var box final = new HorizontalBoxWidget(context)
+	box.addWidget(LayerWidget.forWidget(context, sidebarWidget))
+	var filler = new LayerWidget(context)
+	Widget.setWidgetClickHandler(filler, func {
+		hideSidebarWidget()
+	})
+	box.addWidget(filler, 1)
+	var sidebarWidthRequest = updateSidebarWidthRequest(Widget.getWidth(this))
+	addWidget(box)
+	if(animated) {
+		Widget.setAlpha(box, 0.0)
+		var sx final = -sidebarWidthRequest
+		Widget.move(box, sx, Widget.getY(box))
+		Widget.setAlpha(dimWidget, 0.0)
+		var anim = WidgetAnimation.forDuration(context, 250)
+		anim.addCallback(func(completion as double) {
+			var dx = (sx + (0 - sx) * completion) as int
+			if(dx > 0) {
+				dx = 0
+			}
+			Widget.move(box, dx, Widget.getY(box))
+			Widget.setAlpha(dimWidget, completion)
+			Widget.setAlpha(box, completion)
+		})
+		anim.start()
+	}
+}
+
+func hideSidebarWidget(animated as bool = true)
+{
+	if(sidebarIsDisplayed == false) {
+		return
+	}
+	sidebarIsDisplayed = false
+	var box final = Widget.getParent(Widget.getParent(sidebarWidget))
+	if(animated) {
+		var fx final = -Widget.getWidth(sidebarWidget)
+		var anim = WidgetAnimation.forDuration(context, 250)
+		anim.addCallback(func(completion as double) {
+			var dx = (fx * completion) as int
+			Widget.move(box, dx, Widget.getY(box))
+			Widget.setAlpha(dimWidget, 1.0 - completion)
+		})
+		anim.setEndListener(func {
+			Widget.removeFromParent(sidebarWidget)
+			Widget.removeFromParent(box)
+			Widget.removeFromParent(dimWidget)
+		})
+		anim.start()
+	}
+	else {
+		Widget.removeFromParent(sidebarWidget)
+		Widget.removeFromParent(box)
+		Widget.removeFromParent(dimWidget)
+	}
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	var bgc = getBackgroundColor()
+	if(bgc != null) {
+		addWidget(CanvasWidget.forColor(context, bgc))
+	}
+	var mainContainer = VerticalBoxWidget.forContext(context)
+	if(enableActionBar) {
+		actionBar = new ActionBarWidget(context)
+		actionBar.setWidgetBackgroundColor(actionBarBackgroundColor)
+		actionBar.setWidgetTextColor(actionBarTextColor)
+		var appIcon = getAppIconResource()
+		if(cape.String.isEmpty(appIcon) == false) {
+			actionBar.configureRightButton(appIcon, getAppMenuHandler())
+		}
+		mainContainer.addWidget(actionBar)
+	}
+	contentArea = new SwitcherLayerWidget(context)
+	mainContainer.addWidget(contentArea, 1.0)
+	var superMainContainer = HorizontalBoxWidget.forContext(context)
+	sidebarSlotLeft = new LayerWidget(context)
+	superMainContainer.addWidget(sidebarSlotLeft)
+	superMainContainer.addWidget(mainContainer, 1)
+	addWidget(superMainContainer)
+	sidebarWidget = createSidebarWidget()
+	updateMenuButton()
+	var main = createMainWidget()
+	if(main != null) {
+		pushWidget(main)
+	}
+}
+
+func updateWidgetTitle(title as string)
+{
+	if(actionBar != null) {
+		actionBar.setWidgetTitle(title)
+	}
+}
+
+func onCurrentWidgetChanged private
+{
+	if(contentArea == null) {
+		return
+	}
+	var widget as Widget
+	var widgets = Widget.getChildren(contentArea)
+	if(widgets != null && cape.Vector.getSize(widgets) > 0) {
+		widget = cape.Vector.get(widgets, cape.Vector.getSize(widgets)-1)
+	}
+	if(widget != null && widget is DisplayAwareWidget) {
+		(widget as! DisplayAwareWidget).onWidgetDisplayed()
+	}
+	if(widget != null && widget is TitledWidget) {
+		updateWidgetTitle((widget as! TitledWidget).getWidgetTitle())
+	}
+	else {
+		updateWidgetTitle("")
+	}
+	updateMenuButton()
+}
+
+func pushWidget(widget as Widget) as bool
+{
+	if(contentArea == null || widget == null) {
+		return(false)
+	}
+	widgetStack.push(widget)
+	contentArea.addWidget(widget)
+	onCurrentWidgetChanged()
+	return(true)
+}
+
+func switchWidget(widget as Widget) as bool
+{
+	if(widget == null) {
+		return(false)
+	}
+	popWidget()
+	return(pushWidget(widget))
+}
+
+func popWidget as Widget
+{
+	if(contentArea == null) {
+		return(null)
+	}
+	var topmost = widgetStack.pop()
+	if(topmost == null) {
+		return(null)
+	}
+	Widget.removeFromParent(topmost)
+	onCurrentWidgetChanged()
+	return(topmost)
+}

@@ -1,0 +1,233 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithLayout imports cave imports cape:
+
+func forImage(context as GuiApplicationContext, image as Image) static as this
+{
+	var v = new this(context)
+	v.setWidgetImage(image)
+	return(v)
+}
+
+func forImageResource(context as GuiApplicationContext, resName as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetImageResource(resName)
+	return(v)
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"UIImageView" type extends
+	basetype Widget type isAlso
+	depend "objc-header-m:<UIKit/UIKit.h>"
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.ImageView" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_html")
+{
+	basetype Widget
+	func createElement override as object
+	{
+		return(HTMLDOM.createElement("img"))
+	}
+}
+
+const STRETCH = 0
+const FIT = 1
+const FILL = 2
+
+var widgetContext as GuiApplicationContext
+var widgetImage as Image
+prop widgetImageWidth as int = 0
+prop widgetImageHeight as int = 0
+var widgetImageScaleMethod = 0
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+	}
+	widgetContext = context
+	setWidgetImageScaleMethod(STRETCH)
+}
+
+func setWidgetImageScaleMethod(method as int)
+{
+	widgetImageScaleMethod = method
+	IFDEF("target_html") {
+		if(method == STRETCH) {
+			HTMLDOM.setStyle(element, "object-fit", "fill")
+		}
+		else if(method == FIT) {
+			HTMLDOM.setStyle(element, "object-fit", "contain")
+		}
+		else if(method == FILL) {
+			HTMLDOM.setStyle(element, "object-fit", "cover")
+		}
+		else {
+			Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+			HTMLDOM.setStyle(element, "object-fit", "fill")
+		}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if(method == FIT) {
+			lang "objc" {{{
+				[self setContentMode:UIViewContentModeScaleAspectFit];
+			}}}
+		}
+		else if(method == FILL) {
+			lang "objc" {{{
+				[self setContentMode:UIViewContentModeScaleAspectFill];
+			}}}
+		}
+		else {
+			if(method != STRETCH) {
+				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+			}
+			lang "objc" {{{
+				[self setContentMode:UIViewContentModeScaleToFill];
+			}}}
+		}
+	}
+	ELSE IFDEF("target_android") {
+		if(method == FIT) {
+			lang "java" {{{
+				setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+			}}}
+		}
+		else if(method == FILL) {
+			lang "java" {{{
+				setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+			}}}
+		}
+		else {
+			if(method != STRETCH) {
+				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+			}
+			lang "java" {{{
+				setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+			}}}
+		}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setWidgetImage(image as Image)
+{
+	widgetImage = image
+	IFDEF("target_android") {
+		var ifa = widgetImage as ImageForAndroid
+		if(ifa == null) {
+			base.setImageBitmap(null)
+		}
+		else {
+			base.setImageBitmap(ifa.getAndroidBitmap())
+		}
+	}
+	ELSE IFDEF("target_html") {
+		var src as string
+		var img = widgetImage as ImageForHTML
+		if(img != null) {
+			var bm = img.image
+			if(bm != null) {
+				src = lang "js" string {{{ bm.src }}}
+			}
+		}
+		HTMLDOM.setAttribute(element, "src", src)
+	}
+	ELSE IFDEF("target_iosoc") {
+		var uiImage as !"UIImage"
+		var img = image as ImageForIOS
+		if(img != null) {
+			uiImage = img.uiImage
+		}
+		lang "objc" {{{
+			[self setImage:uiImage];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+}
+
+func setWidgetImageResource(resName as string)
+{
+	var img as Image
+	if(cape.String.isEmpty(resName) == false && widgetContext != null) {
+		img = widgetContext.getResourceImage(resName)
+		if(img == null) {
+			Log.error(widgetContext, "Failed to get resource image: `" .. resName .. "'")
+		}
+	}
+	setWidgetImage(img)
+}
+
+func layoutWidget(widthConstraint as int, force as bool) as bool
+{
+	// FIXME: Should check if the size is already set, and then do nothing.
+	if(widgetImage == null) {
+		Widget.setLayoutSize(this, widgetImageWidth, widgetImageHeight)
+		return(true)
+	}
+	if(widthConstraint < 0 && widgetImageWidth < 1 && widgetImageHeight < 1) {
+		return(false)
+	}
+	var width as int = -1
+	var height as int = -1
+	if(widgetImageWidth > 0 && widgetImageHeight > 0) {
+		width = widgetImageWidth
+		height = widgetImageHeight
+	}
+	else if(widgetImageWidth > 0) {
+		width = widgetImageWidth
+	}
+	else if(widgetImageHeight > 0) {
+		height = widgetImageHeight
+	}
+	else {
+		width = widthConstraint
+	}
+	if(width > 0 && widthConstraint >= 0 && width > widthConstraint) {
+		width = widthConstraint
+		height = -1
+	}
+	if(height < 0) {
+		height = widgetImage.getPixelHeight() * width / widgetImage.getPixelWidth()
+	}
+	if(width < 0) {
+		width = widgetImage.getPixelWidth() * height / widgetImage.getPixelHeight()
+	}
+	Widget.setLayoutSize(this, width, height)
+	return(true)
+}

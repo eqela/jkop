@@ -1,0 +1,410 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is cave.ScreenWithContext imports cape:
+
+func findScreenForWidget(widget as Widget) static as this
+{
+	return(Widget.findScreen(widget) as this)
+}
+
+var context protected as GuiApplicationContext
+var myWidget as Widget
+
+IFDEF("target_iosoc")
+{
+	basetype !"UIViewController" type extends
+	basetype cave.Screen type isAlso
+	depend "objc-header-h:<UIKit/UIKit.h>"
+
+	var keyboardY as int #used = 0
+	var statusBarStyle = lang "objc" !"UIStatusBarStyle" {{{ UIStatusBarStyleDefault }}}
+	var screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
+
+	ctor
+	{
+		onPrepareScreen()
+	}
+
+	func loadView
+	{
+		lang "objc" {{{
+			self.view = [[UIView alloc] init];
+		}}}
+		initialize()
+	}
+
+	func viewDidLayoutSubviews
+	{
+		updateContentViewSize()
+	}
+
+	func enableDefaultStatusBarStyle
+	{
+		lang "objc" {{{
+			statusBarStyle = UIStatusBarStyleDefault;
+			[self setNeedsStatusBarAppearanceUpdate];
+		}}}
+	}
+
+	func enableLightStatusBarStyle
+	{
+		lang "objc" {{{
+			statusBarStyle = UIStatusBarStyleLightContent;
+			[self setNeedsStatusBarAppearanceUpdate];
+		}}}
+	}
+
+	lang "objc" {{{
+		- (NSUInteger)supportedInterfaceOrientations {
+			return(self->screenOrientation);
+		}
+
+		- (BOOL)shouldAutorotate {
+			return YES;
+		}
+
+		- (UIStatusBarStyle)preferredStatusBarStyle
+		{
+			return(self->statusBarStyle);
+		}
+
+		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+			[self.view endEditing:YES];
+			[super touchesBegan:touches withEvent:event];
+		}
+
+		- (void)viewWillAppear:(BOOL)animated
+		{
+			[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+			[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
+		}
+
+		- (void)viewWillDisappear:(BOOL)animated
+		{
+			[[NSNotificationCenter defaultCenter] removeObserver:self];
+		}
+
+		- (void)keyboardWillHide:(NSNotification *)note
+		{
+			self->keyboardY = 0;
+			[self updateContentViewSize];
+		}
+
+		- (void)keyboardWillShow:(NSNotification *)note
+		{
+			NSDictionary *userInfo = note.userInfo;
+			CGRect keyboardFrame = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
+			self->keyboardY = keyboardFrame.origin.y;
+			[self updateContentViewSize];
+		}
+	}}}
+
+	func updateContentViewSize
+	{
+		lang "objc" {{{
+			if(self->keyboardY > 0) {
+				self.view.subviews[0].frame = CGRectMake(0, 0, self.view.frame.size.width, self->keyboardY);
+			}
+			else {
+				self.view.subviews[0].frame = self.view.frame;
+			}
+		}}}
+	}
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.app.Activity" type extends
+	basetype cave.Screen type isAlso
+	basetype CompatibleAndroidActivity
+
+	var permissionRequestListener as function<void,bool>
+	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
+
+	func onCreate(savedInstance as !"android.os.Bundle")
+	{
+		base.onCreate(savedInstance)
+		lang "java" {{{
+			android.app.ActionBar ab = getActionBar();
+			if(ab != null) {
+				ab.hide();
+			}
+		}}}
+		onPrepareScreen()
+		initialize()
+	}
+
+	func setPermissionRequestListener(listener as function<void,bool>)
+	{
+		permissionRequestListener = listener
+	}
+
+	func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>)
+	{
+		var listener = permissionRequestListener
+		if(listener == null) {
+			return
+		}
+		permissionRequestListener = null
+		var status = true
+		var granted as int
+		lang "java" {{{
+			granted = android.content.pm.PackageManager.PERMISSION_GRANTED;
+		}}}
+		foreach(result in grantResults) {
+			if(result != granted) {
+				status = false
+				break
+			}
+		}
+		listener(status)
+	}
+
+	func onBackPressed
+	{
+		onBackKeyPressEvent()
+	}
+
+	func onActivityResult(requestCode as int, resultCode as int, data as !"android.content.Intent")
+	{
+		if(androidActivityResultHandler == null) {
+			return
+		}
+		androidActivityResultHandler(requestCode, resultCode, data)
+		androidActivityResultHandler = null
+	}
+
+	func dispatchTouchEvent(event as !"android.view.MotionEvent") as bool
+	{
+		if(event.getAction() == lang "java" int {{{ android.view.MotionEvent.ACTION_DOWN }}}) {
+			var w = lang "java" !"android.view.View" {{{ getCurrentFocus(); }}}
+			if(w is TextInputWidget || w is TextAreaWidget) {
+				lang "java" {{{
+					android.graphics.Rect rect = new android.graphics.Rect();
+					w.getGlobalVisibleRect(rect);
+					if (!rect.contains((int)event.getRawX(), (int)event.getRawY())) {
+						w.clearFocus();
+						android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager)getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+						im.hideSoftInputFromWindow(w.getWindowToken(), 0);
+					}
+				}}}
+			}
+		}
+		return(lang "java" bool {{{ super.dispatchTouchEvent(event) }}})
+	}
+}
+
+IFDEF("target_html")
+{
+	basetype cave.Screen
+}
+
+var keyEvent as KeyEvent
+
+func onBackKeyPressEvent
+{
+	if(keyEvent == null) {
+		keyEvent = new KeyEvent()
+	}
+	keyEvent.clear()
+	keyEvent.setAction(KeyEvent.ACTION_DOWN)
+	keyEvent.setKeyCode(KeyEvent.KEY_BACK)
+	deliverKeyEventToWidget(keyEvent, getWidget())
+	IFDEF("target_android") {
+		if(keyEvent.isConsumed == false) {
+			lang "java" {{{
+				super.onBackPressed();
+			}}}
+		}
+	}
+}
+
+func deliverKeyEventToWidget(event as KeyEvent, widget as Widget)
+{
+	if(widget == null) {
+		return
+	}
+	foreach(child in Widget.getChildren(widget)) {
+		deliverKeyEventToWidget(event, child)
+		if(event.isConsumed) {
+			return
+		}
+	}
+	var kl = widget as KeyListener
+	if(kl != null) {
+		kl.onKeyEvent(event)
+		if(event.isConsumed) {
+			return
+		}
+	}
+}
+
+func unlockOrientation
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func lockToLandscapeOrientation
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskLandscapeLeft }}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func lockToPortraitOrientation
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskPortrait }}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setContext(context as GuiApplicationContext)
+{
+	this.context = context
+}
+
+func getContext as GuiApplicationContext
+{
+	return(context)
+}
+
+func createContext private as GuiApplicationContext
+{
+	var v as GuiApplicationContext
+	IFDEF("target_iosoc") {
+		v = new GuiApplicationContextForIOS()
+	}
+	ELSE IFDEF("target_android") {
+		v = GuiApplicationContextForAndroid.forActivityContext(this)
+	}
+	ELSE IFDEF("target_html") {
+		v = new GuiApplicationContextForHTML()
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	return(v)
+}
+
+func onPrepareScreen virtual
+{
+}
+
+func initialize virtual
+{
+	if(context == null) {
+		context = createContext()
+	}
+	IFDEF("target_html") {
+		var body = HTMLDOM.getDocumentBody()
+		HTMLDOM.setStyle(body, "overflow", "hidden")
+		lang "js" {{{
+			var thisObject = this;
+			history.pushState({}, "", "#app");
+			window.onpopstate = function(event) {
+				thisObject.onBackKeyPressEvent();
+				history.pushState({}, "", "#app");
+			};
+		}}}
+	}
+}
+
+func cleanup virtual
+{
+	IFDEF("target_html") {
+		lang "js" {{{
+			window.onresize = null;
+		}}}
+	}
+}
+
+func getWidget as Widget
+{
+	return(myWidget)
+}
+
+func setWidget(widget as CustomContainerWidget)
+{
+	if(myWidget != null) {
+		ERROR("Nultiple calls to setWidget()")
+		return
+	}
+	if(widget == null) {
+		return
+	}
+	myWidget = widget
+	widget.setAllowResize(false)
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self.view addSubview:widget];
+		}}}
+		widget.tryInitializeWidget()
+		widget.setScreenForWidget(this)
+		Widget.onWidgetAddedToParent(widget)
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setContentView(widget);
+		}}}
+		widget.tryInitializeWidget()
+		Widget.onWidgetAddedToParent(widget)
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			widget.element.screenObject = this;
+		}}}
+		Widget.addToDomElement(widget, HTMLDOM.getDocumentBody())
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.notifyOnAddedToScreen(widget, this)
+}

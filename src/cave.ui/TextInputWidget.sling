@@ -1,0 +1,552 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithValue imports cave imports cape:
+
+func forType(context as GuiApplicationContext, type as int, placeholder as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetType(type)
+	v.setWidgetPlaceholder(placeholder)
+	return(v)
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.EditText" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"UITextField" type extends
+	basetype !"UITextFieldDelegate" type implements
+	basetype Widget type isAlso
+	depend "objc-framework:CoreGraphics"
+
+	lang "objc" {{{
+		- (BOOL)textFieldShouldReturn:(UITextField *)field {
+			if(field == self) {
+				[field resignFirstResponder];
+			}
+			return YES;
+		}
+		- (CGRect)textRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+		- (CGRect)editingRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+	}}}
+}
+
+IFDEF("target_html")
+{
+	basetype Widget
+
+	func createElement override as object
+	{
+		return(HTMLDOM.createElement("input"))
+	}
+
+	func prepareElement(v as object) override
+	{
+		base.prepareElement(v)
+		HTMLDOM.setStyle(v, "border", "0")
+	}
+}
+
+const TYPE_DEFAULT = 0 // text input using whatever default settings on the current platform
+const TYPE_NONASSISTED = 1 // text input with no input assistance (prediction, word completion, etc.)
+const TYPE_NAME = 2 // name text input (capitalized words)
+const TYPE_EMAIL_ADDRESS = 3
+const TYPE_URL = 4
+const TYPE_PHONE_NUMBER = 5
+const TYPE_PASSWORD = 6
+const TYPE_INTEGER = 7
+const TYPE_FLOAT = 8
+const TYPE_STREET_ADDRESS = 9
+
+var widgetContext as GuiApplicationContext
+var widgetType as int
+var widgetPlaceholder as string
+var widgetText as string
+var widgetPaddingLeft = 0
+var widgetPaddingTop = 0
+var widgetPaddingRight = 0
+var widgetPaddingBottom = 0
+var widgetFontFamily as string
+var widgetFontSize as double
+var widgetTextColor as Color
+var widgetBackgroundColor as Color
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		lang "java" {{{
+			setSingleLine();
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			self.delegate = self;
+			self.autocorrectionType = UITextAutocorrectionTypeNo;
+			self.autocapitalizationType = UITextAutocapitalizationTypeNone;
+		}}}
+	}
+	IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "outline-width", "0")
+	}
+	widgetContext = context
+	widgetFontFamily = "Arial"
+	widgetFontSize = context.getHeightValue("3mm")
+	widgetTextColor = null
+	widgetBackgroundColor = null
+	updateWidgetFont()
+	updateWidgetPadding()
+	updateWidgetColors()
+}
+
+func setWidgetTextColor(color as Color) as this
+{
+	widgetTextColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
+func setWidgetBackgroundColor(color as Color) as this
+{
+	widgetBackgroundColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func updateWidgetColors private
+{
+	var textColor = widgetTextColor
+	if(textColor == null) {
+		if(widgetBackgroundColor != null) {
+			if(widgetBackgroundColor.isLightColor()) {
+				textColor = Color.black()
+			}
+			else {
+				textColor = Color.white()
+			}
+		}
+		else {
+			textColor = Color.black()
+		}
+	}
+	IFDEF("target_android") {
+		lang "java" {{{
+			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+			if(widgetBackgroundColor != null) {
+				setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+			}
+			else {
+				setBackgroundColor(0);
+			}
+			setTextColor(textColor.toARGBInt32());
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		var bgc #used = widgetBackgroundColor
+		lang "objc" {{{
+			if(bgc != nil) {
+				self.backgroundColor = [bgc toUIColor];
+			}
+			else {
+				self.backgroundColor = nil;
+			}
+			self.textColor = [textColor toUIColor];
+		}}}
+	}
+	IFDEF("target_html") {
+		if(widgetBackgroundColor == null) {
+			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
+		}
+		else {
+			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(widgetBackgroundColor))
+		}
+		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(textColor))
+	}
+}
+
+func setWidgetType(type as int) as this
+{
+	widgetType = type
+	IFDEF("target_android") {
+		lang "java" {{{
+			if(widgetType == TYPE_DEFAULT) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE |
+					android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+			}
+			else if(widgetType == TYPE_NONASSISTED) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+					| android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+			}
+			else if(widgetType == TYPE_NAME) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME |
+					android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+			}
+			else if(widgetType == TYPE_EMAIL_ADDRESS) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+					 | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+			}
+			else if(widgetType == TYPE_URL) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+			}
+			else if(widgetType == TYPE_PHONE_NUMBER) {
+				setInputType(android.text.InputType.TYPE_CLASS_PHONE);
+			}
+			else if(widgetType == TYPE_PASSWORD) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+			}
+			else if(widgetType == TYPE_INTEGER) {
+				setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+			}
+			else if(widgetType == TYPE_FLOAT) {
+				setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+			}
+			else if(widgetType == TYPE_STREET_ADDRESS) {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS |
+					android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE | android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT |
+					android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+			}
+			else {
+				setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		if(widgetType == TYPE_DEFAULT) {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if(widgetType == TYPE_NONASSISTED) {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if(widgetType == TYPE_NAME) {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if(widgetType == TYPE_EMAIL_ADDRESS) {
+			HTMLDOM.setAttribute(element, "type", "email")
+		}
+		else if(widgetType == TYPE_URL) {
+			HTMLDOM.setAttribute(element, "type", "url")
+		}
+		else if(widgetType == TYPE_PHONE_NUMBER) {
+			HTMLDOM.setAttribute(element, "type", "tel")
+		}
+		else if(widgetType == TYPE_PASSWORD) {
+			HTMLDOM.setAttribute(element, "type", "password")
+		}
+		else if(widgetType == TYPE_INTEGER) {
+			HTMLDOM.setAttribute(element, "type", "number")
+		}
+		else if(widgetType == TYPE_FLOAT) {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if(widgetType == TYPE_STREET_ADDRESS) {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if(widgetType == TYPE_DEFAULT) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeDefault];
+				[self setSpellCheckingType:UITextSpellCheckingTypeDefault];
+			}}}
+		}
+		else if(widgetType == TYPE_NONASSISTED) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_NAME) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeWords];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_EMAIL_ADDRESS) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeEmailAddress];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_URL) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeURL];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_PHONE_NUMBER) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypePhonePad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_PASSWORD) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+				[self setSecureTextEntry:YES];
+			}}}
+		}
+		else if(widgetType == TYPE_INTEGER) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeNumberPad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_FLOAT) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDecimalPad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if(widgetType == TYPE_STREET_ADDRESS) {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeDefault];
+				[self setSpellCheckingType:UITextSpellCheckingTypeDefault];
+			}}}
+		}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	return(this)
+}
+
+func getWidgetType as int
+{
+	return(widgetType)
+}
+
+func setWidgetText(text as string) as this
+{
+	widgetText = text
+	IFDEF("target_android") {
+		lang "java" {{{
+			setText(text);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			this.element.value = text;
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setText:text];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func getWidgetText as string
+{
+	IFDEF("target_html") {
+		return(HTMLDOM.getValue(element))
+	}
+	ELSE IFDEF("target_android") {
+		return(lang "java" string {{{ getText().toString() }}})
+	}
+	ELSE IFDEF("target_iosoc") {
+		return(lang "objc" string {{{ [self text] }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(null)
+	}
+}
+
+func setWidgetPlaceholder(placeholder as string) as this
+{
+	widgetPlaceholder = placeholder
+	IFDEF("target_android") {
+		lang "java" {{{
+			setHint(placeholder);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setAttribute(element, "placeholder", placeholder)
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setPlaceholder:placeholder];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func getWidgetPlaceholder as string
+{
+	return(widgetPlaceholder)
+}
+
+func setWidgetPadding(padding as int)
+{
+	setWidgetPadding(padding, padding, padding, padding)
+}
+
+func setWidgetPadding(x as int, y as int)
+{
+	setWidgetPadding(x, y, x, y)
+}
+
+func setWidgetPadding(l as int, t as int, r as int, b as int) as this
+{
+	if(l < 0 || t < 0 || r < 0 || b < 0) {
+		return(this)
+	}
+	if(widgetPaddingLeft == l && widgetPaddingTop == t && widgetPaddingRight == r && widgetPaddingBottom == b) {
+		return(this)
+	}
+	widgetPaddingLeft = l
+	widgetPaddingTop = t
+	widgetPaddingRight = r
+	widgetPaddingBottom = b
+	updateWidgetPadding()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func updateWidgetPadding private
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "padding",
+			String.forInteger(widgetPaddingTop) .. "px " ..
+			String.forInteger(widgetPaddingRight) .. "px " ..
+			String.forInteger(widgetPaddingBottom) .. "px " ..
+			String.forInteger(widgetPaddingLeft) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		// iOS implementation simply uses the values set above. No further action required.
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setWidgetFontFamily(family as string) as this
+{
+	widgetFontFamily = family
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetFontSize(fontSize as double) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func updateWidgetFont private
+{
+	IFDEF("target_html") {
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setMinimumFontSize:widgetFontSize];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			// android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+			// android.graphics.Typeface t = android.graphics.Typeface.createFromAsset(ctx.getAssets(),resName);
+			setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setWidgetValue(value as object)
+{
+	setWidgetText(cape.String.asString(value))
+}
+
+func getWidgetValue as object
+{
+	return(getWidgetText())
+}
