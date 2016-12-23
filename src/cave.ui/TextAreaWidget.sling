@@ -1,0 +1,219 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithValue imports cave imports cape:
+
+func forPlaceholder(context as GuiApplicationContext, placeholder as string, rows as int = 1) static as this
+{
+	var v = new this(context)
+	v.setWidgetPlaceholder(placeholder)
+	v.setWidgetRows(rows)
+	return(v)
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.EditText" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"UITextView" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_html")
+{
+	basetype Widget
+
+	func createElement override as object
+	{
+		return(HTMLDOM.createElement("textarea"))
+	}
+}
+
+var widgetContext as GuiApplicationContext
+var widgetPlaceholder as string
+var widgetPaddingLeft = 0
+var widgetPaddingTop = 0
+var widgetPaddingRight = 0
+var widgetPaddingBottom = 0
+var widgetRows = 0
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		lang "java" {{{
+			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+			setBackgroundColor(cave.Color.forRGB(255,255,255).toARGBInt32());
+			setTextColor(cave.Color.forRGB(0,0,0).toARGBInt32());
+			setGravity(android.view.Gravity.TOP);
+		}}}
+	}
+	widgetContext = context
+}
+
+func setWidgetRows(row as int) as this
+{
+	this.widgetRows = row
+	IFDEF("target_html") {
+		HTMLDOM.setAttribute(element, "rows", String.forInteger(row))
+	}
+	ELSE IFDEF("target_android") {
+		base.setLines(row)
+		//base.setMaxLines(row)
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetText(text as string) as this
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			setText(text);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			this.element.value = text;
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setText:text];
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetPlaceholder(placeholder as string) as this
+{
+	widgetPlaceholder = placeholder
+	IFDEF("target_android") {
+		lang "java" {{{
+			setHint(placeholder);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setAttribute(element, "placeholder", placeholder)
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetPadding(padding as int)
+{
+	setWidgetPadding(padding, padding, padding, padding)
+}
+
+func setWidgetPadding(lr as int, tb as int)
+{
+	setWidgetPadding(lr, tb, lr, tb)
+}
+
+func setWidgetPadding(l as int, t as int, r as int, b as int) as this
+{
+	if(l < 0 || t < 0 || r < 0 || b < 0) {
+		return(this)
+	}
+	if(widgetPaddingLeft == l && widgetPaddingTop == t && widgetPaddingRight == r && widgetPaddingBottom == b) {
+		return(this)
+	}
+	widgetPaddingLeft = l
+	widgetPaddingTop = t
+	widgetPaddingRight = r
+	widgetPaddingBottom = b
+	IFDEF("target_android") {
+		lang "java" {{{
+			setPadding(l, t, r, b);
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "padding", String.forInteger(t) .. "px" .. " " .. String.forInteger(r) .. "px" .. " " .. String.forInteger(b) .. "px" .. " " .. String.forInteger(l) .. "px")
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	return(this)
+}
+
+func getWidgetText as string
+{
+	IFDEF("target_html") {
+		return(lang "js" string {{{ this.element.value }}})
+	}
+	ELSE IFDEF("target_android") {
+		return(lang "java" string {{{ getText().toString() }}})
+	}
+	ELSE IFDEF("target_iosoc") {
+		return(lang "objc" string {{{ [self text] }}})
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return(null)
+	}
+}
+
+func getWidgetPlaceholder as string
+{
+	return(widgetPlaceholder)
+}
+
+func setWidgetFontStyle(resName as string) as this
+{
+	IFDEF("target_android") {
+		lang "java" {{{
+			android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+			android.graphics.Typeface t = android.graphics.Typeface.createFromAsset(ctx.getAssets(),resName);
+			setTypeface(t);
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	return(this)
+}
+
+func setWidgetValue(value as object)
+{
+	setWidgetText(cape.String.asString(value))
+}
+
+func getWidgetValue as object
+{
+	return(getWidgetText())
+}

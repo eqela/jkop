@@ -1,0 +1,287 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithLayout is HeightAwareWidget imports cape imports cave:
+
+var context protected as GuiApplicationContext
+prop allowResize = true
+
+IFDEF("target_ios")
+{
+	basetype Widget type extends
+	prop screenForWidget as Screen
+	var receivePointerEvents = false
+
+	func layoutSubviews
+	{
+		onNativelyResized()
+	}
+
+	lang "objc" {{{
+		- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+		{
+			if(self->receivePointerEvents) {
+				return([super pointInside:point withEvent:event]);
+			}
+			for (UIView *view in self.subviews) {
+				if(!view.hidden && view.alpha > 0 && view.userInteractionEnabled && [view pointInside:[self convertPoint:point toView:view] withEvent:event])
+					return(YES);
+			}
+			return(NO);
+		}
+	}}}
+}
+
+ELSE IFDEF("target_android")
+{
+	basetype !"android.view.ViewGroup" type extends
+	basetype Widget type isAlso
+
+	func onLayout(changed as bool, left as int, top as int, right as int, bottom as int)
+	{
+		lang "java" {{{
+			setMeasuredDimension(right - left, bottom - top);
+		}}}
+		onNativelyResized()
+	}
+
+	/*
+	// FIXME: This would be nice but currently breaks it.
+	func onMeasure(widthMeasureSpec as int, heightMeasureSpec as int)
+	{
+		computeWidgetSizeRequest(szr, Widget.getWidth(this))
+		lang "java" {{{
+			setMeasuredDimension(szr.width, szr.height);
+		}}}
+	}
+	*/
+}
+
+ELSE IFDEF("target_html")
+{
+	basetype Widget type extends
+}
+
+ELSE
+{
+	basetype Widget type extends
+}
+
+prop initialized = false
+prop widgetChanged = true
+var lastWidthConstraint = -2
+var lastLayoutWidth = -1
+
+ctor(ctx as cave.GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((ctx as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		lang "java" {{{
+			setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+		}}}
+	}
+	context = ctx
+	togglePointerEventHandling(false)
+}
+
+func togglePointerEventHandling(active as bool)
+{
+	if(active) {
+		IFDEF("target_html") {
+			HTMLDOM.setStyle(element, "pointer-events", "auto")
+		}
+		ELSE IFDEF("target_iosoc") {
+			lang "objc" {{{
+				[self setUserInteractionEnabled:YES];
+			}}}
+			receivePointerEvents = true
+		}
+		ELSE IFDEF("target_android") {
+			;
+		}
+		ELSE {
+			ERROR("Not implemented")
+		}
+	}
+	else {
+		IFDEF("target_html") {
+			HTMLDOM.setStyle(element, "pointer-events", "none")
+		}
+		ELSE IFDEF("target_iosoc") {
+			receivePointerEvents = false
+		}
+		ELSE IFDEF("target_android") {
+			;
+		}
+		ELSE {
+			ERROR("Not implemented")
+		}
+	}
+}
+
+func onNativelyResized
+{
+	if(Widget.isRootWidget(this)) {
+		Widget.layout(this, Widget.getWidth(this))
+		onWidgetHeightChanged(Widget.getHeight(this))
+	}
+}
+
+func hasSize as bool
+{
+	if(Widget.getWidth(this) > 0 || Widget.getHeight(this) > 0) {
+		return(true)
+	}
+	return(false)
+}
+
+func tryInitializeWidget virtual
+{
+	if(initialized) {
+		return
+	}
+	setInitialized(true)
+	initializeWidget()
+}
+
+func initializeWidget virtual
+{
+}
+
+func onChildWidgetAdded(widget as Widget) virtual
+{
+	Widget.onChanged(this)
+}
+
+func onChildWidgetRemoved(widget as Widget) virtual
+{
+	Widget.onChanged(this)
+}
+
+IFDEF("target_html") {
+	var resizeHandlers static as vector<this>
+	var originalParentWidth as string
+	var originalParentHeight as string
+}
+
+func onWidgetAddedToParent virtual
+{
+	IFDEF("target_html") {
+		if(Widget.isRootWidget(this)) {
+			if(resizeHandlers == null) {
+				resizeHandlers = new vector<this>
+				var executeResizeHandlers #used = func {
+					foreach(handler in resizeHandlers) {
+						handler.onNativelyResized()
+					}
+				}
+				lang "js" {{{
+					var oresize = window.onresize;
+					window.onresize = function(event) {
+						if(oresize) {
+							oresize();
+						}
+						executeResizeHandlers();
+					};
+				}}}
+			}
+			resizeHandlers += this
+			var pp = HTMLDOM.getParentElement(this.element)
+			if(pp != null) {
+				originalParentWidth = HTMLDOM.getStyle(pp, "width")
+				originalParentHeight = HTMLDOM.getStyle(pp, "height")
+			}
+		}
+	}
+	Widget.onChanged(this)
+}
+
+func onWidgetRemovedFromParent virtual
+{
+	IFDEF("target_html") {
+		if(Widget.isRootWidget(this) && resizeHandlers != null) {
+			Vector.removeValue(resizeHandlers, this)
+		}
+	}
+}
+
+func onWidgetHeightChanged(height as int) virtual
+{
+}
+
+func computeWidgetLayout(widthConstraint as int) virtual
+{
+}
+
+func layoutWidget(widthConstraint as int, force as bool) as bool
+{
+	if(force || widgetChanged || widthConstraint != lastWidthConstraint) {
+		if(force == false && widgetChanged == false && (widthConstraint >= 0 && widthConstraint == lastLayoutWidth)) {
+			; // do nothing
+		}
+		else {
+			widgetChanged = false
+			computeWidgetLayout(widthConstraint)
+			lastWidthConstraint = widthConstraint
+			lastLayoutWidth = Widget.getWidth(this)
+		}
+	}
+	return(true)
+}
+
+var isLayoutScheduled = false
+
+func scheduleLayout
+{
+	if(isLayoutScheduled) {
+		return
+	}
+	isLayoutScheduled = true
+	context.startTimer(0, func {
+		executeLayout()
+	})
+}
+
+func executeLayout
+{
+	isLayoutScheduled = false
+	var ww = Widget.getWidth(this)
+	if(ww == 0 && allowResize) {
+		ww = -1
+	}
+	Widget.layout(this, ww)
+	IFDEF("target_html") {
+		if(allowResize) {
+			var pp = HTMLDOM.getParentElement(this.element)
+			if(pp != null) {
+				if(String.isEmpty(originalParentWidth)) {
+					HTMLDOM.setStyle(pp, "width", String.forInteger(Widget.getWidth(this)) .. "px")
+				}
+				if(String.isEmpty(originalParentHeight)) {
+					HTMLDOM.setStyle(pp, "height", String.forInteger(Widget.getHeight(this)) .. "px")
+				}
+			}
+		}
+	}
+}

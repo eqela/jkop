@@ -1,0 +1,225 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape imports cave imports cave.ui:
+
+IFDEF("target_android")
+{
+	depend "gradle:com.facebook.android:facebook-android-sdk:4.14.0"
+}
+
+IFDEF("target_html")
+{
+	var sdkIncluded static = false
+	var sdkLoaded static = false
+}
+
+IFDEF("target_iosoc")
+{
+	depend "ldflags:-ObjC"
+	depend "objc-header-h:<FBSDKCoreKit/FBSDKCoreKit.h>"
+	depend "objc-header-h:<FBSDKLoginKit/FBSDKLoginKit.h>"
+	depend "objc-framework:FBSDKLoginKit"
+	depend "objc-framework:FBSDKCoreKit"
+	depend "objc-framework:AccountKit"
+	depend "objc-framework:Bolts"
+}
+
+func forApplications(context as GuiApplicationContext, webAppId as string) static as this
+{
+	var v = new this()
+	v.setContext(context)
+	v.setWebAppId(webAppId)
+	if(v.initialize() == false) {
+		v = null
+	}
+	return(v)
+}
+
+prop context as GuiApplicationContext
+prop webAppId as string
+
+func initialize as bool
+{
+	IFDEF("target_html") {
+		if(sdkIncluded == false) {
+			var thisObject #used = this
+			lang "js" {{{
+				window.fbAsyncInit = function() {
+					FB.init({
+						appId : thisObject.webAppId,
+						version : "v2.8"
+					});
+					console.log("On Facebook SDK loaded");
+					CaveFBLogin.sdkLoaded = true;
+				};
+				(function(d, s, id){
+					var js, fjs = d.getElementsByTagName(s)[0];
+					if (d.getElementById(id)) {return;}
+					js = d.createElement(s); js.id = id;
+					js.src = "//connect.facebook.net/en_US/sdk.js";
+					fjs.parentNode.insertBefore(js, fjs);
+				}(document, 'script', 'facebook-jssdk'));
+   			}}}
+			sdkIncluded = true
+		}
+	}
+	IFDEF("target_android") {
+		var activity = (context as GuiApplicationContextForAndroid).getAndroidActivityContext()
+		lang "java" {{{
+			com.facebook.FacebookSdk.sdkInitialize(activity);
+		}}}
+	}
+	return(true)
+}
+
+func execute(widget as Widget, callback as function<void,string,string,cape.Error>)
+{
+	var cb final #used = callback
+	IFDEF("target_html") {
+		if(sdkLoaded == false) {
+			if(callback != null) {
+				callback(null, null, cape.Error.forMessage("Facebook SDK is not yet loaded. Please try again momentarily."))
+			}
+			return
+		}
+		lang "js" {{{
+			FB.login(function(response) {
+				if(response.status === 'connected') {
+					if(response.authResponse.grantedScopes.indexOf("email") < 0) {
+						alert("Email address is required");
+					}
+					else if(response.authResponse.grantedScopes.indexOf("public_profile") < 0) {
+						alert("User profile is required");
+					}
+					else {
+						callback(response.authResponse.userID, response.authResponse.accessToken, null);
+					}
+				}
+			}, {
+				scope : 'public_profile,email',
+				auth_type : 'rerequest',
+				return_scopes : 'true'
+			});
+		}}}
+		return
+	}
+	ELSE IFDEF("target_android") {
+		var screen = cave.ui.ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, null, Error.forCode("no_screen_found"))
+			}
+			return
+		}
+		var callbackManager final = lang "java" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
+		var activity = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			callbackManager.onActivityResult(requestCode, resultCode, data);
+		})
+		lang "java" {{{
+			com.facebook.login.LoginManager lm = com.facebook.login.LoginManager.getInstance();
+			lm.registerCallback(callbackManager, new com.facebook.FacebookCallback<com.facebook.login.LoginResult>() {
+				@Override
+				public void onSuccess(com.facebook.login.LoginResult loginResult) {
+					if(cb == null) {
+						return;
+					}
+					com.facebook.AccessToken ac = loginResult.getAccessToken();
+					if(ac == null) {
+						cb.execute(null, null, cape.Error.forCode("login_failed"));
+					}
+					else {
+						cb.execute(ac.getUserId(), ac.getToken(), null);
+					}
+				}
+
+				@Override
+				public void onCancel() {
+				}
+
+				@Override
+				public void onError(com.facebook.FacebookException exception) {
+					if(cb != null) {
+						cb.execute(null, null, cape.Error.forMessage(exception.toString()));
+					}
+				}
+			});
+			lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"));
+		}}}
+		return
+	}
+	ELSE IFDEF("target_iosoc") {
+		var screen = cave.ui.ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, null, Error.forCode("no_screen_found"))
+			}
+			return
+		}
+		var appdelegate as IOSAppDelegate
+		lang "objc" {{{
+			appdelegate = (CaveIOSAppDelegate*)[[UIApplication sharedApplication] delegate];
+		}}}
+		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"NSURL", options as !"NSDictionary", source as !"NSString", annot as object) as bool {
+			return(lang "objc" bool {{{
+				[[FBSDKApplicationDelegate sharedInstance] application:app openURL:url sourceApplication:source annotation:annot]
+			}}})
+		})
+		lang "objc" {{{
+			FBSDKLoginManager *loginManager = [[FBSDKLoginManager alloc] init];
+			loginManager.loginBehavior = FBSDKLoginBehaviorSystemAccount;
+			[loginManager logInWithReadPermissions:@[@"email"] fromViewController:screen handler:^(FBSDKLoginManagerLoginResult *result, NSError *error) {
+				if(error) {
+					cb(nil, nil, [CapeError forMessage:error.localizedDescription]);
+				}
+				else if(result.isCancelled) {
+					cb(nil, nil, [CapeError forCode:@"cancelled" detail:nil]);
+				}
+				else {
+					if([FBSDKAccessToken currentAccessToken]) {
+						[[[FBSDKGraphRequest alloc] initWithGraphPath:@"me" parameters:@{@"fields": @"id, email"}] startWithCompletionHandler:^(FBSDKGraphRequestConnection *connection, id result, NSError *error) {
+							if(error) {
+								cb(nil, nil, [CapeError forMessage:error.localizedDescription]);
+							}
+							else {
+								cb(result[@"id"], [[FBSDKAccessToken currentAccessToken]tokenString], nil);
+							}
+						}];
+					}
+					else {
+						cb(nil, nil, [CapeError forCode:@"noAccessToken" detail:nil]);
+					}
+				}
+			}];
+		}}}
+		return
+	}
+	ELSE {
+		ERROR("Not implemented")
+		if(cb != null) {
+			cb(null, Error.forCode("not_supported"))
+		}
+	}
+}

@@ -1,0 +1,317 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cave imports cape:
+
+const ALIGN_LEFT = 0
+const ALIGN_CENTER = 1
+const ALIGN_RIGHT = 2
+const ALIGN_JUSTIFY = 3
+
+func forText(context as GuiApplicationContext, text as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetText(text)
+	return(v)
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.TextView" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_iosoc")
+{
+	basetype !"UILabel" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_html")
+{
+	basetype Widget
+
+	func createElement override as object
+	{
+		return(HTMLDOM.createElement("div"))
+	}
+
+	func prepareElement(v as object) override
+	{
+		base.prepareElement(v)
+		HTMLDOM.setStyle(v, "font-size", "20px")
+	}
+}
+
+var widgetContext as GuiApplicationContext
+var widgetText as string
+var widgetTextColor as Color
+var widgetFontSize as double
+var widgetFontBold as bool
+var widgetFontFamily as string
+var widgetTextAlign as int
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+	}
+	widgetContext = context
+	setWidgetTextColor(Color.forRGB(0,0,0))
+	widgetFontFamily = "Arial"
+	widgetFontSize = context.getHeightValue("3mm")
+	widgetFontBold = false
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setNumberOfLines:0];
+			[self setTextAlignment:UITextAlignmentLeft];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setGravity(android.view.Gravity.LEFT);
+		}}}
+	}
+	updateWidgetFont()
+}
+
+func setWidgetText(text as string) as this
+{
+	widgetText = text
+	if(widgetText == null) {
+		widgetText = ""
+	}
+	IFDEF("target_android") {
+		lang "java" {{{
+			setText(widgetText);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setText:widgetText];
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setInnerHTML(element, widgetText)
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+	return(this)
+}
+
+func getWidgetText as string
+{
+	return(widgetText)
+}
+
+func setWidgetTextAlign(align as int) as this
+{
+	widgetTextAlign = align
+	IFDEF("target_html") {
+		if(align == ALIGN_LEFT) {
+			HTMLDOM.setStyle(element, "text-align", "left")
+		}
+		else if(align == ALIGN_CENTER) {
+			HTMLDOM.setStyle(element, "text-align", "center")
+		}
+		else if(align == ALIGN_RIGHT) {
+			HTMLDOM.setStyle(element, "text-align", "right")
+		}
+		else if(align == ALIGN_JUSTIFY) {
+			HTMLDOM.setStyle(element, "text-align", "justify")
+		}
+		else {
+			HTMLDOM.setStyle(element, "text-align", "left")
+		}
+	}
+	ELSE IFDEF("target_android") {
+		if(align == ALIGN_LEFT) {
+			lang "java" {{{
+				setGravity(android.view.Gravity.LEFT);
+			}}}
+		}
+		else if(align == ALIGN_CENTER) {
+			lang "java" {{{
+				setGravity(android.view.Gravity.CENTER);
+			}}}
+		}
+		else if(align == ALIGN_RIGHT) {
+			lang "java" {{{
+				setGravity(android.view.Gravity.RIGHT);
+			}}}
+		}
+		else if(align == ALIGN_JUSTIFY) {
+			lang "java" {{{
+				setGravity(android.view.Gravity.CENTER);
+			}}}
+		}
+		else {
+			lang "java" {{{
+				setGravity(android.view.Gravity.LEFT);
+			}}}
+		}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if(align == ALIGN_LEFT) {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentLeft];
+			}}}
+		}
+		else if(align == ALIGN_CENTER) {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentCenter];
+			}}}
+		}
+		else if(align == ALIGN_RIGHT) {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentRight];
+			}}}
+		}
+		else if(align == ALIGN_JUSTIFY) {
+			lang "objc" {{{
+				[self setTextAlignment:NSTextAlignmentJustified];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentLeft];
+			}}}
+		}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	return(this)
+}
+
+func getWidgetTextAlign as int
+{
+	return(widgetTextAlign)
+}
+
+func setWidgetTextColor(color as Color) as this
+{
+	widgetTextColor = color
+	updateWidgetFont()
+	return(this)
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
+func setWidgetFontSize(fontSize as double) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont()
+	return(this)
+}
+
+func getFontSize as double
+{
+	return(widgetFontSize)
+}
+
+func setWidgetFontBold(bold as bool) as this
+{
+	widgetFontBold = bold
+	updateWidgetFont()
+	return(this)
+}
+
+func setWidgetFontFamily(font as string) as this
+{
+	widgetFontFamily = font
+	updateWidgetFont()
+	return(this)
+}
+
+func updateWidgetFont private
+{
+	IFDEF("target_android") {
+		if(widgetTextColor != null) {
+			lang "java" {{{
+				setTextColor(widgetTextColor.toARGBInt32());
+			}}}
+		}
+		else {
+			lang "java" {{{
+				setTextColor(0);
+			}}}
+		}
+		lang "java" {{{
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			int style = android.graphics.Typeface.NORMAL;
+			if(widgetFontBold) {
+				style = android.graphics.Typeface.BOLD;
+			}
+			setTypeface(android.graphics.Typeface.create(widgetFontFamily, style));
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+		if(widgetFontBold) {
+			HTMLDOM.setStyle(element, "font-weight", "bold")
+		}
+		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(widgetTextColor))
+	}
+	ELSE IFDEF("target_iosoc") {
+		var ff = widgetFontFamily
+		if(cape.String.isEmpty(ff)) {
+			ff = "Arial"
+		}
+		if(widgetFontBold) {
+			if(ff == "Arial") {
+				ff = "Arial-BoldMT"
+			}
+			else if(ff == "Helvetica") {
+				ff = "Helvetica-Bold"
+			}
+			else if(ff == "Georgia") {
+				ff = "Georgia-Bold"
+			}
+		}
+		lang "objc" {{{
+			[self setFont:[UIFont fontWithName:ff size:widgetFontSize]];
+		}}}
+		if(widgetTextColor != null) {
+			lang "objc" {{{
+				[self setTextColor:[widgetTextColor toUIColor]];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setTextColor:nil];
+			}}}
+		}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+	Widget.onChanged(this)
+}

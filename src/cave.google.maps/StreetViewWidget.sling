@@ -1,0 +1,102 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ScreenAwareWidget imports cape imports cave imports cave.ui:
+
+IFDEF("target_android")
+{
+	depend "gradle:com.google.android.gms:play-services-maps:9.0.0"
+	depend "gradle:com.google.android.gms:play-services-location:9.0.0"
+	depend "androidPermission:android.permission.INTERNET"
+	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
+	basetype !"com.google.android.gms.maps.StreetViewPanoramaView" type extends
+	basetype !"com.google.android.gms.maps.OnStreetViewPanoramaReadyCallback" type implements
+	basetype Widget type isAlso
+	basetype ResizeAwareWidget type implements
+
+	func onWidgetResized
+	{
+		var thisWidth #used = Widget.getWidth(this)
+		var thisHeight #used = Widget.getHeight(this)
+		var thisX #used = Widget.getX(this)
+		var thisY #used = Widget.getY(this)
+		lang "java" {{{
+			if(thisWidth > 0 && thisHeight > 0) {
+				int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+				int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+				msw = android.view.View.MeasureSpec.makeMeasureSpec(thisWidth, android.view.View.MeasureSpec.EXACTLY);
+				msh = android.view.View.MeasureSpec.makeMeasureSpec(thisHeight, android.view.View.MeasureSpec.EXACTLY);
+				measure(msw, msh);
+				layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
+			}
+		}}}
+	}
+
+	func onStreetViewPanoramaReady (streetView as !"com.google.android.gms.maps.StreetViewPanorama")
+	{
+		lang "java" {{{
+			streetView.setPanningGesturesEnabled(true);
+			streetView.setStreetNamesEnabled(true);
+			streetView.setUserNavigationEnabled(true);
+			streetView.setZoomGesturesEnabled(true);
+			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(14.4306972, 121.0361416);
+			streetView.setPosition(pos);
+			com.google.android.gms.maps.model.StreetViewPanoramaCamera.Builder cambuilder = new com.google.android.gms.maps.model.StreetViewPanoramaCamera.Builder();
+			cambuilder.zoom(streetView.getPanoramaCamera().zoom);
+			cambuilder.tilt((float)30);
+			cambuilder.bearing((float)20);
+			streetView.animateTo(cambuilder.build(), 20);
+		}}}
+	}
+}
+
+var context as GuiApplicationContext
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+	}
+	this.context = context
+}
+
+func onWidgetAddedToScreen(screen as ScreenForWidget)
+{
+	IFDEF("target_html") {
+	}
+	ELSE IFDEF("target_iosoc") {
+	}
+	ELSE IFDEF("target_android") {
+		var thisObject #used = this
+		lang "java" {{{
+			onCreate(new android.os.Bundle());
+			onResume();
+			getStreetViewPanoramaAsync(thisObject);
+		}}}
+	}
+}
+
+func onWidgetRemovedFromScreen(screen as ScreenForWidget)
+{
+}
