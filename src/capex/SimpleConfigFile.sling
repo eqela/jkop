@@ -111,6 +111,32 @@ func getDataAsMap as DynamicMap
 	return(mapData)
 }
 
+func getDynamicMapValue(key as string, defval as DynamicMap) as DynamicMap
+{
+	var str = getStringValue(key, null)
+	if(str == null) {
+		return(defval)
+	}
+	var v = JSONParser.parse(str) as DynamicMap
+	if(v == null) {
+		return(defval)
+	}
+	return(v)
+}
+
+func getDynamicVectorValue(key as string, defval as DynamicVector) as DynamicVector
+{
+	var str = getStringValue(key, null)
+	if(str == null) {
+		return(defval)
+	}
+	var v = JSONParser.parse(str) as DynamicVector
+	if(v == null) {
+		return(defval)
+	}
+	return(v)
+}
+
 func getStringValue(key as string, defval as string = null) as string
 {
 	var map = getDataAsMap()
@@ -120,6 +146,9 @@ func getStringValue(key as string, defval as string = null) as string
 	var v = map.getString(key)
 	if(v == null) {
 		return(defval)
+	}
+	if(String.startsWith(v, "\"\"\"\n") && String.endsWith(v, "\n\"\"\"")) {
+		v = String.getSubString(v, 4, String.getLength(v) - 8)
 	}
 	return(v)
 }
@@ -180,18 +209,55 @@ func read(file as File) virtual as bool
 	var ins = new PrintReader(reader)
 	var line as string
 	var tag as string
+	var lineBuffer as StringBuilder
+	var terminator as string
 	while((line = ins.readLine()) != null) {
+		if(lineBuffer != null) {
+			lineBuffer.append(line)
+			if(line == terminator) {
+				line = lineBuffer.toString()
+				lineBuffer = null
+				terminator = null
+			}
+			else {
+				lineBuffer.append('\n')
+				continue
+			}
+		}
 		line = String.strip(line)
 		if(String.isEmpty(line) || String.startsWith(line, "#")) {
 			continue
 		}
 		if(String.endsWith(line, "{")) {
-			if(tag == null) {
-				tag = String.strip(String.getSubString(line, 0, String.getLength(line)-1))
+			if(String.indexOf(line, ':') < 0) {
+				if(tag == null) {
+					tag = String.strip(String.getSubString(line, 0, String.getLength(line)-1))
+				}
+				continue
 			}
+			else {
+				lineBuffer = new StringBuilder()
+				lineBuffer.append(line)
+				lineBuffer.append('\n')
+				terminator = "}"
+				continue
+			}
+		}
+		if(String.endsWith(line, "[")) {
+			lineBuffer = new StringBuilder()
+			lineBuffer.append(line)
+			lineBuffer.append('\n')
+			terminator = "]"
 			continue
 		}
-		if(line == "}") {
+		if(String.endsWith(line, "\"\"\"")) {
+			lineBuffer = new StringBuilder()
+			lineBuffer.append(line)
+			lineBuffer.append('\n')
+			terminator = "\"\"\""
+			continue
+		}
+		if(tag != null && line == "}") {
 			tag = null
 			continue
 		}

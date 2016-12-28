@@ -30,15 +30,43 @@ import capex.console
 import sympathy
 import sympathy.web
 
-prop useConfigFile = false
 prop enableRequestLogging = true
 prop listenPort as int = 8080
 prop loggingDirectory as File
+prop configFile as File
 
-func processConfiguration(config as SimpleConfigFile) virtual as bool
+func getConfigFileDirectory as File
 {
-	listenPort = config.getIntegerValue("listenPort", listenPort)
-	loggingDirectory = config.getFileValue("loggingDirectory", loggingDirectory)
+	if(configFile == null) {
+		return(null)
+	}
+	return(configFile.getParent())
+}
+
+func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
+{
+	if(key == "listenPort") {
+		listenPort = Integer.asInteger(value)
+		return(true)
+	}
+	if(key == "enableRequestLogging") {
+		enableRequestLogging = Boolean.asBoolean(value)
+		return(true)
+	}
+	if(key == "loggingDirectory") {
+		loggingDirectory = FileInstance.forRelativePath(value, relativeTo)
+		return(true)
+	}
+	return(false)
+}
+
+func doConfigure(ctx as LoggingContext, key as string, value as string, relativeTo as File) private as bool
+{
+	var error = new Error()
+	if(configure(key, value, relativeTo, error) == false) {
+		Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. key .. "'"))
+		return(false)
+	}
 	return(true)
 }
 
@@ -49,19 +77,11 @@ func initialize(ctx as LoggingContext, server as HTTPServer) virtual as bool
 
 func printUsage(stdout as PrintWriter) virtual
 {
-	var params as array<array<string>>
-	if(useConfigFile) {
-		params = [
-			[ "configFile", "Specify the configuration file to use" ]
-		]
-	}
-	var flags = [
-		[ "port", "Specify the TCP/IP port to listen to (overriding configuration, if any)" ]
-	]
 	var options = [
-		[ "requestLogging", "Enable or disable request logging (true or false)" ]
+		[ "config", "Specify a configuration file to use" ],
+		[ "O<option>", "Manually specify configuration parameters (key/value pairs)" ]
 	]
-	ConsoleApplication.printUsage(stdout, null, params, flags, options)
+	ConsoleApplication.printUsage(stdout, null, null, null, options)
 }
 
 func printHeader(stdout as PrintWriter) virtual
@@ -73,25 +93,26 @@ func execute(args as array<string>) as bool
 	var stdout = Stdout.instance()
 	printHeader(stdout)
 	var ctx as LoggingContext = new ConsoleApplicationContext()
-	var configFile as File
-	var forceListenPort = 0
 	var showHelp = false
+	var options = new KeyValueListForStrings()
 	foreach(arg in ConsoleApplication.parseCommandLineArguments(args)) {
-		if(arg.isParameter()) {
+		if(arg.isOption("config")) {
 			if(configFile != null) {
-				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.value .. "'")
+				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.getComplete() .. "'")
 				return(false)
 			}
 			configFile = FileInstance.forPath(arg.getStringValue())
 		}
-		else if(arg.isFlag("port")) {
-			forceListenPort = arg.getIntegerValue()
-		}
 		else if(arg.isFlag("help") || arg.isFlag("h")) {
 			showHelp = true
 		}
-		else if(arg.isOption("requestLogging")) {
-			enableRequestLogging = arg.getBooleanValue()
+		else if(arg.key != null && String.startsWith(arg.key, "O")) {
+			var key = String.getSubString(arg.key, 1)
+			if(String.isEmpty(key)) {
+				Log.error(ctx, "Invalid option parameter: `" .. arg.getComplete() .. "'")
+				return(false)
+			}
+			options.add(key, arg.getStringValue())
 		}
 		else {
 			arg.reportAsUnsupported(ctx)
@@ -102,27 +123,40 @@ func execute(args as array<string>) as bool
 		printUsage(stdout)
 		return(true)
 	}
-	if(useConfigFile) {
-		if(configFile == null) {
-			printUsage(stdout)
-			return(false)
-		}
+	if(configFile != null) {
 		var config = SimpleConfigFile.forFile(configFile)
 		if(config == null) {
 			Log.error(ctx, "Failed to read configuration file: `" .. configFile.getPath() .. "'")
 			return(false)
 		}
-		if(processConfiguration(config) == false) {
-			Log.error(ctx, "Configuration file processing failed: `" .. configFile.getPath() .. "'")
+		var it = config.iterate()
+		while(it != null) {
+			var kvp = it.next()
+			if(kvp == null) {
+				break
+			}
+			var key = kvp.key
+			var value = kvp.value
+			if(doConfigure(ctx, key, value, null) == false) {
+				return(false)
+			}
+		}
+	}
+	var oit as Iterator<KeyValuePair<string,string>> #force = options.iterate()
+	while(oit != null) {
+		var kvp = oit.next()
+		if(kvp == null) {
+			break
+		}
+		var key = kvp.key
+		var value = kvp.value
+		if(doConfigure(ctx, key, value, null) == false) {
 			return(false)
 		}
 	}
 	if(loggingDirectory != null) {
 		Log.debug(ctx, "Configuring logging to directory: `" .. loggingDirectory.getPath() .. "'")
 		ctx = DirectoryLogContext.create(loggingDirectory)
-	}
-	if(forceListenPort > 0) {
-		listenPort = forceListenPort
 	}
 	var server = new HTTPServer()
 	server.setPort(listenPort)
