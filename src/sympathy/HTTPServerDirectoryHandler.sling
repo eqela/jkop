@@ -38,6 +38,8 @@ prop maxAge = 300
 prop serverURL as string
 prop indexFiles as vector<string>
 prop templateIncludeDirs as vector<File>
+var serverName as string
+prop templateData as DynamicMap
 
 func addTemplateIncludeDir(dir as File)
 {
@@ -59,8 +61,17 @@ func setIndexFiles(files as array<string>) as this
 	return(this)
 }
 
+func setServerName(name as string) as this
+{
+	this.serverName = name
+	return(this)
+}
+
 func getServerName as string
 {
+	if(serverName != null) {
+		return(serverName)
+	}
 	var server = getServer()
 	if(server == null) {
 		return(null)
@@ -248,9 +259,15 @@ func onGET(req as HTTPServerRequest) override as bool
 	}
 	if(dd.exists() == false && processTemplateFiles) {
 		var bn = dd.baseName()
-		var nf = dd.getParent().entry(bn .. ".html.t")
+		var nf = dd.getParent().entry(bn .. ".t")
 		if(nf.isFile()) {
 			dd = nf
+		}
+		else {
+			nf = dd.getParent().entry(bn .. ".html.t")
+			if(nf.isFile()) {
+				dd = nf
+			}
 		}
 	}
 	if(dd.isFile()) {
@@ -259,13 +276,17 @@ func onGET(req as HTTPServerRequest) override as bool
 			var bn = dd.baseName()
 			var isJSONTemplate = false
 			var isHTMLTemplate = false
+			var isCSSTemplate = false
 			if(String.endsWith(bn, ".html.t")) {
 				isHTMLTemplate = true
+			}
+			else if(String.endsWith(bn, ".css.t")) {
+				isCSSTemplate = true
 			}
 			else if(String.endsWith(bn, ".json.t")) {
 				isJSONTemplate = true
 			}
-			if(isHTMLTemplate || isJSONTemplate) {
+			if(isHTMLTemplate || isCSSTemplate || isJSONTemplate) {
 				var data = dd.getContentsString("UTF-8")
 				if(data == null) {
 					Log.error(logContext, "Failed to read template file content: `" .. dd.getPath() .. "'")
@@ -278,7 +299,7 @@ func onGET(req as HTTPServerRequest) override as bool
 					includeDirs += dir
 				}
 				var tt as TextTemplate
-				if(isHTMLTemplate) {
+				if(isHTMLTemplate || isCSSTemplate) {
 					tt = TextTemplate.forHTMLString(data, includeDirs, logContext)
 				}
 				else {
@@ -289,7 +310,17 @@ func onGET(req as HTTPServerRequest) override as bool
 					req.sendResponse(HTTPServerResponse.forHTTPInternalError())
 					return(true)
 				}
-				var text = tt.execute(getTemplateVariablesForFile(dd), includeDirs)
+				var data = templateData
+				var dynamicData = getTemplateVariablesForFile(dd)
+				if(dynamicData != null) {
+					if(data == null) {
+						data = dynamicData
+					}
+					else {
+						data.mergeFrom(dynamicData)
+					}
+				}
+				var text = tt.execute(data, includeDirs)
 				if(text == null) {
 					Log.error(logContext, "Failed to execute template: `" .. dd.getPath() .. "'")
 					req.sendResponse(HTTPServerResponse.forHTTPInternalError())
@@ -297,6 +328,9 @@ func onGET(req as HTTPServerRequest) override as bool
 				}
 				if(isHTMLTemplate) {
 					resp = HTTPServerResponse.forHTMLString(text)
+				}
+				else if(isCSSTemplate) {
+					resp = HTTPServerResponse.forString(text, "text/css")
 				}
 				else {
 					resp = HTTPServerResponse.forJSONString(text)
