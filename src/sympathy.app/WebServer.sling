@@ -33,6 +33,7 @@ prop enableRequestLogging = true
 prop listenPort as int = 8080
 prop loggingDirectory as File
 prop configFile as File
+prop enableDebugMessages = false
 
 func getConfigFileDirectory as File
 {
@@ -56,6 +57,10 @@ func configure(key as string, value as string, relativeTo as File, error as Erro
 		loggingDirectory = FileInstance.forRelativePath(value, relativeTo)
 		return(true)
 	}
+	if(key == "enableDebugMessages") {
+		enableDebugMessages = Boolean.asBoolean(value)
+		return(true)
+	}
 	return(false)
 }
 
@@ -76,25 +81,44 @@ func initialize(ctx as LoggingContext, server as HTTPServer) virtual as bool
 
 func printUsage(stdout as PrintWriter) virtual
 {
+	var flags = [
+		[ "v|version|vv", "Display version information" ],
+		[ "h|help", "Usage information" ]
+	]
 	var options = [
 		[ "config", "Specify a configuration file to use" ],
 		[ "O<option>", "Manually specify configuration parameters (key/value pairs)" ]
 	]
-	ConsoleApplication.printUsage(stdout, null, null, null, options)
+	ConsoleApplication.printUsage(stdout, null, null, flags, options)
 }
 
 func printHeader(stdout as PrintWriter) virtual
 {
 }
 
+func printVersion(stdout as PrintWriter, longFormat as bool) virtual
+{
+}
+
 func execute(args as array<string>) as bool
 {
 	var stdout = Stdout.instance()
+	var arguments = ConsoleApplication.parseCommandLineArguments(args)
+	foreach(arg in arguments) {
+		if(arg.isFlag("v") || arg.isFlag("version")) {
+			printVersion(stdout, false)
+			return(true)
+		}
+		else if(arg.isFlag("vv")) {
+			printVersion(stdout, true)
+			return(true)
+		}
+	}
 	printHeader(stdout)
 	var ctx as LoggingContext = new ConsoleApplicationContext()
 	var showHelp = false
 	var options = new KeyValueListForStrings()
-	foreach(arg in ConsoleApplication.parseCommandLineArguments(args)) {
+	foreach(arg in arguments) {
 		if(arg.isOption("config")) {
 			if(configFile != null) {
 				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.getComplete() .. "'")
@@ -155,7 +179,12 @@ func execute(args as array<string>) as bool
 	}
 	if(loggingDirectory != null) {
 		Log.debug(ctx, "Configuring logging to directory: `" .. loggingDirectory.getPath() .. "'")
-		ctx = DirectoryLogContext.create(loggingDirectory)
+		var dlc = DirectoryLogContext.create(loggingDirectory)
+		dlc.setEnableDebugMessages(enableDebugMessages)
+		ctx = dlc
+	}
+	else {
+		(ctx as! ConsoleApplicationContext).setEnableDebugMessages(enableDebugMessages)
 	}
 	var server = new HTTPServer()
 	server.setPort(listenPort)
