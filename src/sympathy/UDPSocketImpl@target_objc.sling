@@ -32,7 +32,7 @@ class is UDPSocket is FileDescriptor
 	depends "objc-header-m:<arpa/inet.h>"
 	imports cape:
 
-var fileDescriptor as int = -1;
+var fileDescriptor = -1
 
 ctor
 {
@@ -43,33 +43,33 @@ ctor
 
 dtor
 {
-	close();
+	close()
 }
 
 func getFileDescriptor as int
 {
-	return(fileDescriptor);
+	return(fileDescriptor)
 }
 
-func close
+func close override
 {
 	if(fileDescriptor >= 0) {
 		lang "objc" {{{
 			close(fileDescriptor);
 		}}}
-		fileDescriptor = -1;
+		fileDescriptor = -1
 	}
 }
 
-func send(message as buffer, address as string, port as int) as int
+func send(message as buffer, address as string, port as int) override as int
 {
 	if(address == null) {
-		return(-1);
+		return(-1)
 	}
 	if(message == null || fileDescriptor < 0) {
-		return(0);
+		return(0)
 	}
-	var v= 0;
+	var v = 0
 	lang "objc" {{{
 		struct sockaddr_in server_addr;
 		memset(&server_addr, 0, sizeof(struct sockaddr_in));
@@ -78,36 +78,36 @@ func send(message as buffer, address as string, port as int) as int
 		server_addr.sin_port = htons(port);
 		v = sendto(fileDescriptor, [message bytes], [message length], 0, (struct sockaddr*)(&server_addr), sizeof(struct sockaddr_in));
 	}}}
-	return(v);
+	return(v)
 }
 
-func sendBroadcast(message as buffer, address as string, port as int) as int
+func sendBroadcast(message as buffer, address as string, port as int) override as int
 {
-	var v = 0;
-	var flag = 1;
+	var v = 0
+	var flag = 1
 	lang "objc" {{{
 		setsockopt(fileDescriptor, SOL_SOCKET, SO_BROADCAST, (void*)&flag, sizeof(int));
 	}}}
-	v = send(message, address, port);
-	flag = 0;
+	v = send(message, address, port)
+	flag = 0
 	lang "objc" {{{
 		setsockopt(fileDescriptor, SOL_SOCKET, SO_BROADCAST, (void*)&flag, sizeof(int));
 	}}}
-	return(v);
+	return(v)
 }
 
 func waitForData(timeout as int) as bool
 {
-	var v = false;
+	var v = false
 	if(fileDescriptor < 0) {
-		return(false);
+		return(false)
 	}
 	lang "objc" {{{
 		fd_set fdset;
 		FD_ZERO(&fdset);
 		FD_SET(fileDescriptor, &fdset);
 	}}}
-	var r = -1;
+	var r = -1
 	if(timeout < 0) {
 		lang "objc" {{{
 			r = select(fileDescriptor+1, &fdset, (void*)0, (void*)0, (void*)0);
@@ -129,7 +129,7 @@ func waitForData(timeout as int) as bool
 		}}}
 	}
 	if(r < 0) {
-		var err as string;
+		var err as string
 		lang "objc" {{{
 			if(errno != EINTR) {
 				const char* ep = strerror(errno);
@@ -139,18 +139,18 @@ func waitForData(timeout as int) as bool
 			}
 		}}}
 		if(err != null) {
-			println("select() returned error status " .. String.forInteger(r) .. ": " .. err);
+			PRINT("select() returned error status " .. String.forInteger(r) .. ": " .. err)
 		}
 	}
-	return(v);
+	return(v)
 }
 
-func receive(buffer as buffer, timeout as int) as int
+func receive(buffer as buffer, timeout as int) override as int
 {
 	if(buffer == null || fileDescriptor < 0) {
-		return(0);
+		return(0)
 	}
-	var v = 0;
+	var v = 0
 	if(waitForData(timeout)) {
 		lang "objc" {{{
 			socklen_t l = (socklen_t)sizeof(struct sockaddr_in);
@@ -158,15 +158,15 @@ func receive(buffer as buffer, timeout as int) as int
 			v = recvfrom(fileDescriptor, [buffer mutableBytes], [buffer length], 0, (struct sockaddr*)(&client_addr), &l);
 		}}}
 	}
-	return(v);
+	return(v)
 }
 
-func bind(port as int) as bool
+func bind(port as int) override as bool
 {
 	if(fileDescriptor < 0) {
-		return(false);
+		return(false)
 	}
-	var v = 0;
+	var v = 0
 	lang "objc" {{{
 		struct sockaddr_in server_addr;
 		memset(&server_addr, 0, sizeof(struct sockaddr_in));
@@ -176,46 +176,46 @@ func bind(port as int) as bool
 		v = bind(fileDescriptor, (struct sockaddr*)(&server_addr), sizeof(struct sockaddr_in));
 	}}}
 	if(v != 0) {
-		close();
-		return(false);
+		close()
+		return(false)
 	}
-	return(true);
+	return(true)
 }
 
-func getLocalAddress as string
+func getLocalAddress override as string
 {
-	var r as int;
+	var r as int
 	lang "objc" {{{
 		socklen_t s = (socklen_t)sizeof(struct sockaddr_in);
 		struct sockaddr_in new_addr;
 		r = getsockname(fileDescriptor, (struct sockaddr*)(&new_addr), &s);
 	}}}
 	if(r < 0) {
-		return(null);
+		return(null)
 	}
-	var v as string = null;
+	var v as string = null
 	lang "objc" {{{
 		char* adds = (char*)inet_ntoa(new_addr.sin_addr);
 		if(adds != NULL) {
 			v = [[NSString alloc] initWithUTF8String:adds];
 		}
 	}}}
-	return(v);
+	return(v)
 }
 
-func getLocalPort as int
+func getLocalPort override as int
 {
-	var r as int;
+	var r as int
 	lang "objc" {{{
 		socklen_t s = (socklen_t)sizeof(struct sockaddr_in);
 		struct sockaddr_in new_addr;
 		r = getsockname(fileDescriptor, (struct sockaddr*)(&new_addr), &s);
 	}}}
 	if(r < 0) {
-		return(0);
+		return(0)
 	}
 	lang "objc" {{{
 		r = ntohs(new_addr.sin_port);
 	}}}
-	return(r);
+	return(r)
 }

@@ -57,8 +57,8 @@ var responseCookies as vector<HTTPServerCookie>
 
 macro requireSession
 {
-	if(thisobject.getSession() == null) {
-		thisobject.sendResponse(HTTPServerResponse.forHTTPNotAllowed())
+	if(thisObject.getSession() == null) {
+		thisObject.sendResponse(HTTPServerResponse.forHTTPNotAllowed())
 		return
 	}
 }
@@ -306,6 +306,15 @@ func getBodyJSONMap as DynamicMap
 	return(getBodyJSONObject() as DynamicMap)
 }
 
+func getBodyJSONMapValue(key as string) as string
+{
+	var map = getBodyJSONMap()
+	if(map == null) {
+		return(null)
+	}
+	return(map.getString(key))
+}
+
 func getPostParameters as map<string,string>
 {
 	if(postParameters == null) {
@@ -390,7 +399,30 @@ func getRemainingResourceCount as int
 	return(Vector.getSize(resources) - currentResource - 1)
 }
 
-func acceptResource(resource as string) as bool
+func acceptMethodAndResource(methodToAccept as string, resource as string, mustBeLastResource as bool = false) as bool
+{
+	if(resource == null) {
+		return(false)
+	}
+	if(methodToAccept == null || method == methodToAccept) {
+		var cc = peekResource()
+		if(cc == null) {
+			return(false)
+		}
+		if(cc != resource) {
+			return(false)
+		}
+		popResource()
+		if(mustBeLastResource && hasMoreResources()) {
+			unpopResource()
+			return(false)
+		}
+		return(true)
+	}
+	return(false)
+}
+
+func acceptResource(resource as string, mustBeLastResource as bool = false) as bool
 {
 	if(resource == null) {
 		return(false)
@@ -403,6 +435,10 @@ func acceptResource(resource as string) as bool
 		return(false)
 	}
 	popResource()
+	if(mustBeLastResource && hasMoreResources()) {
+		unpopResource()
+		return(false)
+	}
 	return(true)
 }
 
@@ -418,6 +454,17 @@ func peekResource as string
 		return(resources[currentResource])
 	}
 	return(null)
+}
+
+func getCurrentResource as int
+{
+	return(currentResource)
+}
+
+func setCurrentResource(value as int)
+{
+	currentResource = value
+	relativeResourcePath = null
 }
 
 func popResource as string

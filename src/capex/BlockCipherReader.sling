@@ -27,142 +27,142 @@ class is Reader is SizedReader is SeekableReader imports cape:
 func create(reader as SizedReader, cipher as BlockCipher) static as SizedReader
 {
 	if(reader == null) {
-		return(null);
+		return(null)
 	}
 	if(cipher == null) {
-		return(reader);
+		return(reader)
 	}
-	var v = new this();
-	v.reader = reader;
-	v.cipher = cipher;
-	v.bcurrent = Buffer.allocate(cipher.getBlockSize());
-	v.bnext = Buffer.allocate(cipher.getBlockSize());
-	v.ddata = Buffer.allocate(cipher.getBlockSize());
-	v.csize = 0;
-	v.cindex = 0;
-	v.nsize = 0;
-	return(v);
+	var v = new this()
+	v.reader = reader
+	v.cipher = cipher
+	v.bcurrent = Buffer.allocate(cipher.getBlockSize())
+	v.bnext = Buffer.allocate(cipher.getBlockSize())
+	v.ddata = Buffer.allocate(cipher.getBlockSize())
+	v.csize = 0
+	v.cindex = 0
+	v.nsize = 0
+	return(v)
 }
 
-var cipher as BlockCipher;
-var reader as SizedReader;
-var bcurrent as buffer;
-var csize as int;
-var cindex as int;
-var bnext as buffer;
-var nsize as int;
-var ddata as buffer;
+var cipher as BlockCipher
+var reader as SizedReader
+var bcurrent as buffer
+var csize as int
+var cindex as int
+var bnext as buffer
+var nsize as int
+var ddata as buffer
 
 func getSize as int
 {
 	if(reader != null) {
-		return(reader.getSize());
+		return(reader.getSize())
 	}
-	return(0);
+	return(0)
 }
 
 func setCurrentPosition(n as int64) as bool
 {
-	var rem as int = n % cipher.getBlockSize();
-	var ss as int = n - rem;
-	csize = 0;
-	cindex = 0;
-	nsize = 0;
-	var v as bool = false;
+	var rem as int = n % cipher.getBlockSize()
+	var ss as int = n - rem
+	csize = 0
+	cindex = 0
+	nsize = 0
+	var v = false
 	if(reader != null && reader is SeekableReader) {
-		v = (reader as! SeekableReader).setCurrentPosition(ss);
+		v = (reader as! SeekableReader).setCurrentPosition(ss)
 	}
 	if(v && rem > 0) {
-		var bb = Buffer.allocate(rem);
+		var bb = Buffer.allocate(rem)
 		if(read(bb) != rem) {
-			v = false;
+			v = false
 		}
 	}
-	return(v);
+	return(v)
 }
 
 func getCurrentPosition as int64
 {
 	if(reader != null && reader is SeekableReader) {
-		return((reader as! SeekableReader).getCurrentPosition());
+		return((reader as! SeekableReader).getCurrentPosition())
 	}
-	return(-1);
+	return(-1)
 }
 
 func read(buf as buffer) as int
 {
 	if(buf == null || Buffer.getSize(buf) < 1) {
-		return(0);
+		return(0)
 	}
-	var ptr = buf;
+	var ptr = buf
 	if(ptr == null) {
-		return(0);
+		return(0)
 	}
-	var v as int = 0;
-	var bs as int = cipher.getBlockSize();
+	var v = 0
+	var bs = cipher.getBlockSize()
 	while(v < Buffer.getSize(buf)) {
-		var x as int = bs;
+		var x = bs
 		if(v + x > Buffer.getSize(buf)) {
-			x = Buffer.getSize(buf) - v;
+			x = Buffer.getSize(buf) - v
 		}
-		var r  as int = readBlock(ptr, v, x);
+		var r = readBlock(ptr, v, x)
 		if(r < 1) {
-			break;
+			break
 		}
-		v += r;
+		v += r
 	}
-	return(v);
+	return(v)
 }
 
 func readAndDecrypt(buf as buffer) as int
 {
-	var v as int = reader.read(ddata);
+	var v = reader.read(ddata)
 	if(v == cipher.getBlockSize()) {
-		cipher.decryptBlock(ddata, buf);
+		cipher.decryptBlock(ddata, buf)
 	}
 	else {
-		Buffer.copyFrom(ddata, buf, 0, 0, v);
+		Buffer.copyFrom(ddata, buf, 0, 0, v)
 	}
-	return(v);
+	return(v)
 }
 
 func readBlock(ptr as buffer, offset as int, size as int) as int
 {
 	if(cindex >= csize) {
-	csize = 0;
+		csize = 0
 	}
 	if(nsize < 1) {
-		nsize = readAndDecrypt(bnext);
+		nsize = readAndDecrypt(bnext)
 	}
 	if(csize < 1) {
 		if(nsize < cipher.getBlockSize()) {
-			return(0);
+			return(0)
 		}
-		var nn = bcurrent;
-		bcurrent = bnext;
-		csize = nsize;
-		cindex = 0;
-		bnext = nn;
-		nsize = readAndDecrypt(bnext);
+		var nn = bcurrent
+		bcurrent = bnext
+		csize = nsize
+		cindex = 0
+		bnext = nn
+		nsize = readAndDecrypt(bnext)
 	}
-	var data as int = cipher.getBlockSize();
+	var data = cipher.getBlockSize()
 	if(nsize < cipher.getBlockSize()) {
-		var ptr2 = bnext;
+		var ptr2 = bnext
 		if(ptr2 != null) {
-			data -= Buffer.getByte(ptr2, 0);
+			data -= Buffer.getByte(ptr2, 0)
 		}
 	}
-	data -= cindex;
+	data -= cindex
 	if(data < 1) {
-		csize = 0;
-		return(readBlock(ptr, offset, size));
+		csize = 0
+		return(readBlock(ptr, offset, size))
 	}
 	if(data < size) {
-		Buffer.copyFrom(bcurrent, ptr, cindex, offset, data);
-		cindex += data;
-		return(data);
+		Buffer.copyFrom(bcurrent, ptr, cindex, offset, data)
+		cindex += data
+		return(data)
 	}
-	Buffer.copyFrom(bcurrent, ptr, cindex, offset, size);
-	cindex += size;
-	return(size);
+	Buffer.copyFrom(bcurrent, ptr, cindex, offset, size)
+	cindex += size
+	return(size)
 }

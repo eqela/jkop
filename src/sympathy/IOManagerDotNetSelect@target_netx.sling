@@ -26,247 +26,247 @@ class is IOManager imports cape:
 
 class MyTimer is IOManagerTimer is Runnable
 {
-	prop delay as long;
-	prop parent as parent;
-	prop handler as function<bool>;
-	var stopFlag = false;
-	var targetTime as TimeValue;
+	prop delay as long
+	prop parent as parent
+	prop handler as function<bool>
+	var stopFlag = false
+	var targetTime as TimeValue
 
 	func hasElapsed(now as TimeValue) as bool
 	{
 		if(TimeValue.diff(targetTime, now) <= 0) {
-			return(true);
+			return(true)
 		}
-		return(false);
+		return(false)
 	}
 
 	func process(now as TimeValue) as bool
 	{
 		if(handler == null) {
-			return(false);
+			return(false)
 		}
 		if(hasElapsed(now) == false) {
-			return(true);
+			return(true)
 		}
 		if(handler() == false) {
-			return(false);
+			return(false)
 		}
-		targetTime = null;
+		targetTime = null
 		if(initialize() == false) {
-			return(false);
+			return(false)
 		}
-		return(true);
+		return(true)
 	}
 
 	func stop
 	{
-		stopFlag = true;
+		stopFlag = true
 	}
 
 	func run
 	{
-		stopFlag = false;
-		var now = new TimeValue();
+		stopFlag = false
+		var now = new TimeValue()
 		while(stopFlag == false) {
-			SystemClock.update(now);
-			var diff = TimeValue.diff(targetTime, now);
+			SystemClock.update(now)
+			var diff = TimeValue.diff(targetTime, now)
 			if(diff <= 0) {
-				break;
+				break
 			}
 			if(diff > 5000000) {
-				diff = 5000000;
+				diff = 5000000
 			}
-			CurrentThread.sleepMicroSeconds(diff);
+			CurrentThread.sleepMicroSeconds(diff)
 		}
-		parent.sendSignal();
+		parent.sendSignal()
 	}
 
 	func initialize as bool
 	{
 		if(targetTime != null) {
-			return(false);
+			return(false)
 		}
 		var orig = SystemClock.asTimeValue()
-		targetTime = orig.add(0, delay);
+		targetTime = orig.add(0, delay)
 		if(Thread.start(this) == false) {
-			return(false);
+			return(false)
 		}
-		return(true);
+		return(true)
 	}
 }
 
 class MyEntry is IOManagerEntry
 {
-	prop socket as TCPSocket;
-	prop master as parent;
-	var rrl as function;
-	var wrl as function;
-	var added as bool = false;
+	prop socket as TCPSocket
+	prop master as parent
+	var rrl as function
+	var wrl as function
+	var added = false
 
 	func onReadReady
 	{
-		var rrl = this.rrl;
+		var rrl = this.rrl
 		if(rrl != null) {
-			rrl();
+			rrl()
 		}
 	}
 
 	func onWriteReady
 	{
-		var wrl = this.wrl;
+		var wrl = this.wrl
 		if(wrl != null) {
-			wrl();
+			wrl()
 		}
 	}
 
 	func setListeners(rrl as function, wrl as function)
 	{
-		this.rrl = rrl;
-		this.wrl = wrl;
-		update();
+		this.rrl = rrl
+		this.wrl = wrl
+		update()
 	}
 
 	func setReadListener(rrl as function)
 	{
-		this.rrl = rrl;
-		update();
+		this.rrl = rrl
+		update()
 	}
 
 	func setWriteListener(wrl as function)
 	{
-		this.wrl = wrl;
-		update();
+		this.wrl = wrl
+		update()
 	}
 
 	func update
 	{
-		remove();
+		remove()
 		if(socket == null || master == null) {
-			return;
+			return
 		}
 		if(rrl == null && wrl == null) {
-			return;
+			return
 		}
 		if(rrl != null) {
-			Vector.append(master.readlist, this);
+			Vector.append(master.readlist, this)
 		}
 		if(wrl != null) {
-			Vector.append(master.writelist, this);
+			Vector.append(master.writelist, this)
 		}
-		added = true;
+		added = true
 	}
 
 	func remove
 	{
 		if(added == false || master == null) {
-			return;
+			return
 		}
-		Vector.removeValue(master.readlist, this);
-		Vector.removeValue(master.writelist, this);
-		added = false;
+		Vector.removeValue(master.readlist, this)
+		Vector.removeValue(master.writelist, this)
+		added = false
 	}
 
 	func getNetSocket as !"System.Net.Sockets.Socket"
 	{
-		var myss = socket as TCPSocketImpl;
+		var myss = socket as TCPSocketImpl
 		if(myss == null) {
-			return(null);
+			return(null)
 		}
-		return(myss.getNetSocket());
+		return(myss.getNetSocket())
 	}
 }
 
-var exitflag as bool;
-var running = false;
-var signalPort as int = -1;
-var readlist public as vector<IOManagerEntry> = null;
-var writelist public as vector<IOManagerEntry> = null;
-var timers as vector<MyTimer>;
+var exitflag as bool
+var running = false
+var signalPort = -1
+var readlist public as vector<IOManagerEntry> = null
+var writelist public as vector<IOManagerEntry> = null
+var timers as vector<MyTimer>
 
 ctor
 {
-	readlist = new vector<IOManagerEntry>;
-	writelist = new vector<IOManagerEntry>;
-	timers = new vector<MyTimer>;
+	readlist = new vector<IOManagerEntry>
+	writelist = new vector<IOManagerEntry>
+	timers = new vector<MyTimer>
 }
 
 func getEntryForSocket(socket as !"System.Net.Sockets.Socket", list as vector<IOManagerEntry>) as IOManagerEntry
 {
 	foreach(ee as MyEntry in list) {
 		if(ee.getNetSocket() == socket) {
-			return(ee);
+			return(ee)
 		}
 	}
-	return(null);
+	return(null)
 }
 
 func onReadReady(socket as TCPSocket)
 {
 	if(socket == null) {
-		return;
+		return
 	}
-	var ss = socket.accept();
+	var ss = socket.accept()
 	if(ss != null) {
-		ss.close();
+		ss.close()
 	}
 }
 
 func execute(ctx as LoggingContext) override as bool
 {
-	exitflag = false;
-	running = true;
-	var signalSocket = openSignalSocket();
+	exitflag = false
+	running = true
+	var signalSocket = openSignalSocket()
 	if(signalSocket != null) {
-		var ee = add(signalSocket);
+		var ee = add(signalSocket)
 		if(ee != null) {
 			ee.setReadListener(func {
-				onReadReady(signalSocket);
-			});
+				onReadReady(signalSocket)
+			})
 		}
 	}
-	var reads = new vector<object>;
-	var writes = new vector<object>;
-	var now = new TimeValue();
-	Log.debug(ctx, VALUE("__THIS__") .. " started");
+	var reads = new vector<object>
+	var writes = new vector<object>
+	var now = new TimeValue()
+	Log.debug(ctx, VALUE("__THIS__") .. " started")
 	while(exitflag == false) {
 		if(executeSelect(ctx, reads, writes) == false) {
-			continue;
+			continue
 		}
 		foreach(ele as MyEntry in reads) {
-			ele.onReadReady();
+			ele.onReadReady()
 		}
 		foreach(ele as MyEntry in writes) {
-			ele.onWriteReady();
+			ele.onWriteReady()
 		}
-		Vector.clear(reads);
-		Vector.clear(writes);
+		Vector.clear(reads)
+		Vector.clear(writes)
 		if(Vector.isEmpty(timers) == false) {
-			SystemClock.update(now);
+			SystemClock.update(now)
 			// FIXME: The timer removal process is NOT fast.
-			var timersToRemove as vector<MyTimer>;
+			var timersToRemove as vector<MyTimer>
 			foreach(timer in timers) {
 				if(timer.process(now) == false) {
 					if(timersToRemove == null) {
-						timersToRemove = new vector<MyTimer>;
+						timersToRemove = new vector<MyTimer>
 					}
-					timersToRemove += timer;
+					timersToRemove += timer
 				}
 			}
 			foreach(timer in timersToRemove) {
-				Vector.removeValue(timers, timer);
+				Vector.removeValue(timers, timer)
 			}
 		}
 	}
 	if(signalSocket != null) {
-		signalSocket.close();
-		signalSocket = null;
+		signalSocket.close()
+		signalSocket = null
 	}
-	Vector.clear(readlist);
-	Vector.clear(writelist);
-	signalPort = -1;
-	running = false;
-	Log.debug(ctx, VALUE("__THIS__") .. " ended");
-	return(true);
+	Vector.clear(readlist)
+	Vector.clear(writelist)
+	signalPort = -1
+	running = false
+	Log.debug(ctx, VALUE("__THIS__") .. " ended")
+	return(true)
 }
 
 func executeSelect(ctx as LoggingContext, reads as vector<object>, writes as vector<object>) private as bool
@@ -306,62 +306,62 @@ func executeSelect(ctx as LoggingContext, reads as vector<object>, writes as vec
 			}
 		}
 	}}}
-	return(true);
+	return(true)
 }
 
 func openSignalSocket as TCPSocket
 {
-	var v = TCPSocket.create();
-	var n as int;
+	var v = TCPSocket.create()
+	var n as int
 	for(n=20000; n<60000; n++) {
 		// FIXME: This should be bound to localhost only
 		if(v.listen(n)) {
-			signalPort = n;
-			return(v);
+			signalPort = n
+			return(v)
 		}
 	}
-	return(null);
+	return(null)
 }
 
 func stop override
 {
-	exitflag = true;
-	sendSignal();
+	exitflag = true
+	sendSignal()
 }
 
 func sendSignal
 {
 	if(signalPort > 0) {
-		var signalClient = TCPSocket.createAndConnect("127.0.0.1", signalPort);
+		var signalClient = TCPSocket.createAndConnect("127.0.0.1", signalPort)
 		if(signalClient != null) {
-			signalClient.close();
+			signalClient.close()
 		}
 	}
 }
 
 func isRunning as bool
 {
-	return(running);
+	return(running)
 }
 
 func add(o as object) override as IOManagerEntry
 {
-	var ss = o as TCPSocket;
+	var ss = o as TCPSocket
 	if(ss == null) {
-		return(null);
+		return(null)
 	}
-	return(new MyEntry().setMaster(this).setSocket(ss));
+	return(new MyEntry().setMaster(this).setSocket(ss))
 }
 
 func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer
 {
-	var timer = new MyTimer();
-	timer.setDelay(delay);
-	timer.setParent(this);
-	timer.setHandler(handler);
+	var timer = new MyTimer()
+	timer.setDelay(delay)
+	timer.setParent(this)
+	timer.setHandler(handler)
 	if(timer.initialize() == false) {
-		return(null);
+		return(null)
 	}
-	timers += timer;
-	return(timer);
+	timers += timer
+	return(timer)
 }
