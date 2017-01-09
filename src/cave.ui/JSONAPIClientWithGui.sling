@@ -22,67 +22,35 @@
  * SOFTWARE.
  */
 
-class is Reader is LineReader is Closable:
+class is JSONAPIClient imports cape imports capex imports cave:
 
-var reader as Reader
-var iterator as CharacterIteratorForReader
+prop context as GuiApplicationContext
+prop parentWidget as Widget
+var loadingWidget as LoadingWidget
+var requestCounter = 0
 
-ctor(reader as Reader)
+func onStartSendRequest override
 {
-	setReader(reader)
+	base.onStartSendRequest()
+	if(loadingWidget == null) {
+		loadingWidget = LoadingWidget.openPopup(context, parentWidget)
+	}
+	requestCounter++
 }
 
-func setReader(reader as Reader)
+func onEndSendRequest override
 {
-	this.reader = reader
-	if(reader == null) {
-		this.iterator = null
-	}
-	else {
-		this.iterator = new CharacterIteratorForReader(reader)
+	base.onEndSendRequest()
+	requestCounter--
+	if(requestCounter < 1) {
+		loadingWidget = LoadingWidget.closePopup(loadingWidget)
 	}
 }
 
-func readLine as string
+func onDefaultErrorHandler(error as Error) override
 {
-	if(iterator == null) {
-		return(null)
+	if(error == null || context == null) {
+		return
 	}
-	var sb = new StringBuilder()
-	while(true) {
-		var c = iterator.getNextChar()
-		if(c < 1) {
-			if(sb.count() < 1) {
-				return(null)
-			}
-			break
-		}
-		if(c == '\r') {
-			continue
-		}
-		if(c == '\n') {
-			break
-		}
-		sb.append(c)
-	}
-	if(sb.count() < 1) {
-		return("")
-	}
-	return(sb.toString())
-}
-
-func read(buffer as buffer) as int
-{
-	if(reader == null) {
-		return(-1)
-	}
-	return(reader.read(buffer))
-}
-
-func close
-{
-	var rc = reader as Closable
-	if(rc != null) {
-		rc.close()
-	}
+	context.showErrorDialog(error.toString())
 }
