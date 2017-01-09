@@ -52,6 +52,14 @@ IFDEF("target_html")
 	{
 		return(HTMLDOM.createElement("textarea"))
 	}
+
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		HTMLDOM.setStyle(element, "resize", "none")
+		HTMLDOM.setStyle(element, "border", "none")
+		HTMLDOM.removeStyle(element, "overflow")
+	}
 }
 
 var widgetContext as GuiApplicationContext
@@ -61,6 +69,10 @@ var widgetPaddingTop = 0
 var widgetPaddingRight = 0
 var widgetPaddingBottom = 0
 var widgetRows = 0
+var widgetTextColor as Color
+var widgetBackgroundColor as Color
+var widgetFontFamily as string
+var widgetFontSize as double
 
 ctor(context as GuiApplicationContext)
 {
@@ -73,7 +85,132 @@ ctor(context as GuiApplicationContext)
 			setGravity(android.view.Gravity.TOP);
 		}}}
 	}
+	IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "outline-width", "0")
+	}
+	widgetFontFamily = "Arial"
+	widgetFontSize = context.getHeightValue("3mm")
+	widgetTextColor = null
+	widgetBackgroundColor = null
 	widgetContext = context
+	updateWidgetFont()
+	updateWidgetPadding()
+	updateWidgetColors()
+}
+
+func updateWidgetColors private
+{
+	var textColor = widgetTextColor
+	if(textColor == null) {
+		if(widgetBackgroundColor != null) {
+			if(widgetBackgroundColor.isLightColor()) {
+				textColor = Color.black()
+			}
+			else {
+				textColor = Color.white()
+			}
+		}
+		else {
+			textColor = Color.black()
+		}
+	}
+	IFDEF("target_android") {
+		lang "java" {{{
+			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+			if(widgetBackgroundColor != null) {
+				setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+			}
+			else {
+				setBackgroundColor(0);
+			}
+			setTextColor(textColor.toARGBInt32());
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		var bgc #used = widgetBackgroundColor
+		lang "objc" {{{
+			if(bgc != nil) {
+				self.backgroundColor = [bgc toUIColor];
+			}
+			else {
+				self.backgroundColor = nil;
+			}
+			self.textColor = [textColor toUIColor];
+		}}}
+	}
+	IFDEF("target_html") {
+		if(widgetBackgroundColor == null) {
+			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
+		}
+		else {
+			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(widgetBackgroundColor))
+		}
+		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(textColor))
+	}
+}
+
+func updateWidgetFont private
+{
+	IFDEF("target_html") {
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			[self setMinimumFontSize:widgetFontSize];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			// android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+			// android.graphics.Typeface t = android.graphics.Typeface.createFromAsset(ctx.getAssets(),resName);
+			setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setWidgetFontFamily(family as string) as this
+{
+	widgetFontFamily = family
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetFontSize(fontSize as double) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetTextColor(color as Color) as this
+{
+	widgetTextColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
+func setWidgetBackgroundColor(color as Color) as this
+{
+	widgetBackgroundColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func getWidgetBackgroundColor as Color
+{
+	return(widgetBackgroundColor)
 }
 
 func setWidgetRows(row as int) as this
@@ -135,14 +272,14 @@ func setWidgetPlaceholder(placeholder as string) as this
 	return(this)
 }
 
-func setWidgetPadding(padding as int)
+func setWidgetPadding(padding as int) as this
 {
-	setWidgetPadding(padding, padding, padding, padding)
+	return(setWidgetPadding(padding, padding, padding, padding))
 }
 
-func setWidgetPadding(lr as int, tb as int)
+func setWidgetPadding(lr as int, tb as int) as this
 {
-	setWidgetPadding(lr, tb, lr, tb)
+	return(setWidgetPadding(lr, tb, lr, tb))
 }
 
 func setWidgetPadding(l as int, t as int, r as int, b as int) as this
@@ -157,18 +294,26 @@ func setWidgetPadding(l as int, t as int, r as int, b as int) as this
 	widgetPaddingTop = t
 	widgetPaddingRight = r
 	widgetPaddingBottom = b
+	updateWidgetPadding()
+	return(this)
+}
+
+func updateWidgetPadding private
+{
 	IFDEF("target_android") {
 		lang "java" {{{
-			setPadding(l, t, r, b);
+			setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
 		}}}
 	}
 	ELSE IFDEF("target_html") {
-		HTMLDOM.setStyle(element, "padding", String.forInteger(t) .. "px" .. " " .. String.forInteger(r) .. "px" .. " " .. String.forInteger(b) .. "px" .. " " .. String.forInteger(l) .. "px")
+		HTMLDOM.setStyle(element, "padding", String.forInteger(widgetPaddingTop) .. "px" ..
+			" " .. String.forInteger(widgetPaddingRight) .. "px" .. " " ..
+			String.forInteger(widgetPaddingBottom) .. "px" .. " " ..
+			String.forInteger(widgetPaddingLeft) .. "px")
 	}
 	ELSE {
 		ERROR("Not implemented")
 	}
-	return(this)
 }
 
 func getWidgetText as string
