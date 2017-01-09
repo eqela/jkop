@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,70 +28,152 @@ import cape
 import capex
 import capex.console
 import sympathy
-import sympathy.web
 
-prop useConfigFile = false
-prop enableRequestLogging = true
-prop listenPort as int = 8080
-prop loggingDirectory as File
-
-func processConfiguration(config as SimpleConfigFile) virtual as bool
+class MyHTTPServer is HTTPServer
 {
-	listenPort = config.getIntegerValue("listenPort", listenPort)
-	loggingDirectory = config.getFileValue("loggingDirectory", loggingDirectory)
+	prop myParent as parent
+
+	func onMaintenance override
+	{
+		base.onMaintenance()
+		myParent.onMaintenance()
+	}
+}
+
+prop enableRequestLogging = true
+prop listenPort = 8080
+prop loggingDirectory as File
+prop configFile as File
+prop enableDebugMessages = false
+prop maintenanceTimerDelay = 60
+prop enableRateLimit as string
+
+func getConfigFileDirectory as File
+{
+	if(configFile == null) {
+		return(null)
+	}
+	return(configFile.getParent())
+}
+
+func onMaintenance virtual
+{
+}
+
+func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
+{
+	if(key == "enableRateLimit") {
+		enableRateLimit = value
+		return(true)
+	}
+	if(key == "maintenanceTimerDelay") {
+		maintenanceTimerDelay = Integer.asInteger(value)
+		return(true)
+	}
+	if(key == "listenPort") {
+		listenPort = Integer.asInteger(value)
+		return(true)
+	}
+	if(key == "enableRequestLogging") {
+		enableRequestLogging = Boolean.asBoolean(value)
+		return(true)
+	}
+	if(key == "loggingDirectory") {
+		loggingDirectory = FileInstance.forRelativePath(value, relativeTo)
+		return(true)
+	}
+	if(key == "enableDebugMessages") {
+		enableDebugMessages = Boolean.asBoolean(value)
+		return(true)
+	}
+	return(false)
+}
+
+func doConfigure(ctx as LoggingContext, key as string, value as string, relativeTo as File) private as bool
+{
+	var error = new Error()
+	if(configure(key, value, relativeTo, error) == false) {
+		Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. key .. "'"))
+		return(false)
+	}
 	return(true)
 }
 
 func initialize(ctx as LoggingContext, server as HTTPServer) virtual as bool
 {
+	if(enableRateLimit != null) {
+		var limit = new HTTPServerRateLimitHandler()
+		if(enableRateLimit == "true" || enableRateLimit == "yes") {
+			; // all good, use default settings
+		}
+		else {
+			var comps = String.split(enableRateLimit, ':', 3)
+			limit.setCountLimit(Integer.asInteger(Vector.get(comps, 0)))
+			limit.setCountDuration(Integer.asInteger(Vector.get(comps, 1)))
+			limit.setIgnoreDuration(Integer.asInteger(Vector.get(comps, 2)))
+		}
+		server.pushRequestHandler(limit)
+	}
 	return(true)
 }
 
 func printUsage(stdout as PrintWriter) virtual
 {
-	var params as array<array<string>>
-	if(useConfigFile) {
-		params = [
-			[ "configFile", "Specify the configuration file to use" ]
-		]
-	}
 	var flags = [
-		[ "port", "Specify the TCP/IP port to listen to (overriding configuration, if any)" ]
+		[ "v|version|vv", "Display version information" ],
+		[ "h|help", "Usage information" ]
 	]
 	var options = [
-		[ "requestLogging", "Enable or disable request logging (true or false)" ]
+		[ "config", "Specify a configuration file to use" ],
+		[ "O<option>", "Manually specify configuration parameters (key/value pairs)" ]
 	]
-	ConsoleApplication.printUsage(stdout, null, params, flags, options)
+	ConsoleApplication.printUsage(stdout, null, null, flags, options)
 }
 
 func printHeader(stdout as PrintWriter) virtual
 {
 }
 
+func printVersion(stdout as PrintWriter, longFormat as bool) virtual
+{
+}
+
 func execute(args as array<string>) as bool
 {
 	var stdout = Stdout.instance()
+	var arguments = ConsoleApplication.parseCommandLineArguments(args)
+	foreach(arg in arguments) {
+		if(arg.isFlag("v") || arg.isFlag("version")) {
+			printVersion(stdout, false)
+			return(true)
+		}
+		else if(arg.isFlag("vv")) {
+			printVersion(stdout, true)
+			return(true)
+		}
+	}
 	printHeader(stdout)
 	var ctx as LoggingContext = new ConsoleApplicationContext()
-	var configFile as File
-	var forceListenPort = 0
 	var showHelp = false
-	foreach(arg in ConsoleApplication.parseCommandLineArguments(args)) {
-		if(arg.isParameter()) {
+	var options = new KeyValueListForStrings()
+	foreach(arg in arguments) {
+		if(arg.isOption("config")) {
 			if(configFile != null) {
-				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.value .. "'")
+				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.getComplete() .. "'")
 				return(false)
 			}
 			configFile = FileInstance.forPath(arg.getStringValue())
 		}
-		else if(arg.isFlag("port")) {
-			forceListenPort = arg.getIntegerValue()
-		}
 		else if(arg.isFlag("help") || arg.isFlag("h")) {
 			showHelp = true
 		}
-		else if(arg.isOption("requestLogging")) {
-			enableRequestLogging = arg.getBooleanValue()
+		else if(arg.key != null && String.startsWith(arg.key, "O")) {
+			var key = String.getSubString(arg.key, 1)
+			if(String.isEmpty(key)) {
+				Log.error(ctx, "Invalid option parameter: `" .. arg.getComplete() .. "'")
+				return(false)
+			}
+			options.add(key, arg.getStringValue())
 		}
 		else {
 			arg.reportAsUnsupported(ctx)
@@ -102,29 +184,48 @@ func execute(args as array<string>) as bool
 		printUsage(stdout)
 		return(true)
 	}
-	if(useConfigFile) {
-		if(configFile == null) {
-			printUsage(stdout)
-			return(false)
-		}
+	if(configFile != null) {
 		var config = SimpleConfigFile.forFile(configFile)
 		if(config == null) {
 			Log.error(ctx, "Failed to read configuration file: `" .. configFile.getPath() .. "'")
 			return(false)
 		}
-		if(processConfiguration(config) == false) {
-			Log.error(ctx, "Configuration file processing failed: `" .. configFile.getPath() .. "'")
+		var it = config.iterate()
+		while(it != null) {
+			var kvp = it.next()
+			if(kvp == null) {
+				break
+			}
+			var key = kvp.key
+			var value = kvp.value
+			if(doConfigure(ctx, key, value, null) == false) {
+				return(false)
+			}
+		}
+	}
+	var oit as Iterator<KeyValuePair<string,string>> #force = options.iterate()
+	while(oit != null) {
+		var kvp = oit.next()
+		if(kvp == null) {
+			break
+		}
+		var key = kvp.key
+		var value = kvp.value
+		if(doConfigure(ctx, key, value, null) == false) {
 			return(false)
 		}
 	}
 	if(loggingDirectory != null) {
 		Log.debug(ctx, "Configuring logging to directory: `" .. loggingDirectory.getPath() .. "'")
-		ctx = DirectoryLogContext.create(loggingDirectory)
+		var dlc = DirectoryLogContext.create(loggingDirectory)
+		dlc.setEnableDebugMessages(enableDebugMessages)
+		ctx = dlc
 	}
-	if(forceListenPort > 0) {
-		listenPort = forceListenPort
+	else {
+		(ctx as! ConsoleApplicationContext).setEnableDebugMessages(enableDebugMessages)
 	}
-	var server = new HTTPServer()
+	var server = new MyHTTPServer()
+	server.setMyParent(this)
 	server.setPort(listenPort)
 	if(initialize(ctx, server) == false) {
 		Log.error(ctx, "Failed to configure HTTP server")
