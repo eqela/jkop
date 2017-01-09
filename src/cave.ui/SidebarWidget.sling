@@ -27,7 +27,7 @@ class is LayerWidget imports cave imports cave.ui:
 func forItems(ctx as GuiApplicationContext, items as vector<Widget>, color as Color = null) as this
 {
 	var v = new this(ctx)
-	v.setWidgetColor(color)
+	v.setWidgetBackgroundColor(color)
 	v.setWidgetItems(items)
 	return(v)
 }
@@ -37,30 +37,14 @@ ctor(ctx as GuiApplicationContext)
 	base(ctx)
 }
 
-var widgetColor as Color
-var widgetItems as vector<Widget>
+prop widgetBackgroundColor as Color
+prop defaultActionItemWidgetBackgroundColor as Color
+prop defaultActionItemWidgetTextColor as Color
+prop defaultLabelItemWidgetBackgroundColor as Color
+prop defaultLabelItemWidgetTextColor as Color
+prop widgetItems as vector<Widget>
 
-func setWidgetColor(color as Color)
-{
-	widgetColor = color
-}
-
-func setWidgetItems(items as vector<Widget>)
-{
-	widgetItems = items
-}
-
-func getWidgetColor as Color
-{
-	return(widgetColor)
-}
-
-func getWidgetItems as vector<Widget>
-{
-	return(widgetItems)
-}
-
-func addItem(widget as Widget)
+func addToWidgetItems(widget as Widget)
 {
 	if(widget == null) {
 		return
@@ -71,13 +55,89 @@ func addItem(widget as Widget)
 	widgetItems += widget
 }
 
+func determineBackgroundColor as Color
+{
+	var wc = widgetBackgroundColor
+	if(wc == null) {
+		wc = Color.white()
+	}
+	return(wc)
+}
+
+func determineTextColor(backgroundColor as Color, textColor as Color, defaultTextColor as Color, lowerBackgroundColor as Color) private as Color
+{
+	var tc = textColor
+	if(tc == null) {
+		tc = defaultTextColor
+	}
+	if(tc == null) {
+		var cc = lowerBackgroundColor
+		if(cc == null) {
+			cc = determineBackgroundColor()
+		}
+		if(cc.isDarkColor()) {
+			tc = Color.white()
+		}
+		else {
+			tc = Color.black()
+		}
+	}
+	return(tc)
+}
+
+func addLabelItem(text as string, bold as bool = true, backgroundColor as Color = null, textColor as Color = null) as Widget
+{
+	var v = new LayerWidget(context)
+	var bgc = backgroundColor
+	if(bgc == null) {
+		bgc = defaultLabelItemWidgetBackgroundColor
+	}
+	var tc = determineTextColor(backgroundColor, textColor, defaultLabelItemWidgetTextColor, bgc)
+	if(bgc != null) {
+		v.addWidget(CanvasWidget.forColor(context, bgc))
+	}
+	var mm3 = context.getHeightValue("3mm")
+	var lbl = LabelWidget.forText(context, text)
+	lbl.setWidgetFontSize(mm3)
+	lbl.setWidgetTextColor(tc)
+	lbl.setWidgetFontBold(bold)
+	v.addWidget(LayerWidget.forWidget(context, lbl, mm3))
+	addToWidgetItems(v)
+	return(this)
+}
+
+func addActionItem(text as string, handler as function, bold as bool = false, backgroundColor as Color = null, textColor as Color = null) as Widget
+{
+	var v = new LayerWidget(context)
+	var bgc = backgroundColor
+	if(bgc == null) {
+		bgc = defaultActionItemWidgetBackgroundColor
+	}
+	var tc = determineTextColor(backgroundColor, textColor, defaultActionItemWidgetTextColor, bgc)
+	if(bgc != null) {
+		v.addWidget(CanvasWidget.forColor(context, bgc))
+	}
+	var mm3 = context.getHeightValue("3mm")
+	var lbl = LabelWidget.forText(context, text)
+	lbl.setWidgetFontSize(mm3)
+	lbl.setWidgetTextColor(tc)
+	lbl.setWidgetFontBold(bold)
+	v.addWidget(LayerWidget.forWidget(context, lbl, mm3))
+	if(handler != null) {
+		Widget.setWidgetClickHandler(v, handler)
+	}
+	IFDEF("target_html") {
+		HTMLDOM.setStyle(v.element, "cursor", "pointer")
+	}
+	addToWidgetItems(v)
+	return(this)
+}
+
 func initializeWidget override
 {
 	base.initializeWidget()
-	if(widgetColor == null) {
-		widgetColor = Color.white()
-	}
-	addWidget(CanvasWidget.forColor(context, widgetColor))
+	var wc = determineBackgroundColor()
+	addWidget(CanvasWidget.forColor(context, wc))
 	var vbox = VerticalBoxWidget.forContext(context, 0)
 	if(cape.Vector.isEmpty(widgetItems) == false) {
 		foreach(item in widgetItems) {
