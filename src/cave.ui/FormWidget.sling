@@ -100,6 +100,9 @@ prop formWidth as int
 prop fieldLabelFontSize as int
 var customFooterWidget as LayerWidget
 var queueData as DynamicMap
+prop widgetBackgroundColor as Color
+prop enableScrolling = true
+prop fillContainerWidget = false
 
 ctor(context as GuiApplicationContext)
 {
@@ -110,6 +113,7 @@ ctor(context as GuiApplicationContext)
 	fieldLabelFontSize = context.getHeightValue("2000um")
 	elementSpacing = formMargin
 	customFooterWidget = new LayerWidget(context)
+	widgetBackgroundColor = Color.forString("#EEEEEE")
 }
 
 func getCustomFooterWidget as LayerWidget
@@ -148,14 +152,29 @@ func addAction(label as string, handler as function)
 
 func setStyleForTextInputWidget(widget as TextInputWidget) virtual
 {
+	widget.setWidgetBackgroundColor(Color.white())
+	widget.setWidgetPadding(context.getHeightValue("1500um"))
+	widget.setWidgetFontSize(context.getHeightValue("3000um"))
 }
 
 func setStyleForTextButtonWidget(widget as TextButtonWidget) virtual
 {
+	widget.setWidgetBackgroundColor(Color.forString("blue"))
+	Widget.setAlpha(widget, 0.9)
 }
 
 func setStyleForSelectWidget(widget as SelectWidget) virtual
 {
+	widget.setWidgetBackgroundColor(Color.white())
+	widget.setWidgetPadding(context.getHeightValue("1500um"))
+	widget.setWidgetFontSize(context.getHeightValue("3000um"))
+}
+
+func setStyleForTextAreaWidget(widget as TextAreaWidget)
+{
+	widget.setWidgetBackgroundColor(Color.white())
+	widget.setWidgetPadding(context.getHeightValue("1500um"))
+	widget.setWidgetFontSize(context.getHeightValue("3000um"))
 }
 
 /*
@@ -174,6 +193,9 @@ func setStyleForWidget(widget as Widget) virtual
 	}
 	else if(widget is SelectWidget) {
 		setStyleForSelectWidget(widget as! SelectWidget)
+	}
+	else if(widget is TextAreaWidget) {
+		setStyleForTextAreaWidget(widget as! TextAreaWidget)
 	}
 	/* FIXME: Incorporate DateSelectorWidget
 	else if(widget is DateSelectorWidget) {
@@ -231,7 +253,10 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 	if(element == null) {
 		return(null)
 	}
-	if(element is FormDeclaration.TextInput) {
+	if(element is FormDeclaration.DynamicElement) {
+		ERROR("FIXME: DynamicElement")
+	}
+	else if(element is FormDeclaration.TextInput) {
 		var ti = element as! FormDeclaration.TextInput
 		return(TextInputWidget.forType(context, TextInputWidget.TYPE_DEFAULT, asPlaceHolder(ti.getLabel())))
 	}
@@ -263,6 +288,12 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 		var ta = element as! FormDeclaration.TextAreaInput
 		return(TextAreaWidget.forPlaceholder(context, asPlaceHolder(ta.getLabel()), ta.getRows()))
 	}
+	else if(element is FormDeclaration.CodeInput) {
+		var ta = element as! FormDeclaration.TextAreaInput
+		var v = TextAreaWidget.forPlaceholder(context, asPlaceHolder(ta.getLabel()), ta.getRows())
+		v.configureMonospaceFont()
+		return(v)
+	}
 	else if(element is FormDeclaration.StaticTextElement) {
 		var ti = element as! FormDeclaration.StaticTextElement
 		var st = StaticTextWidget.forText(context, ti.getLabel())
@@ -283,22 +314,47 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 		v.setSkipYears(ds.getSkipYears())
 		return(v)
 	}
+	else if(element is FormDeclaration.StringListInput) {
+		ERROR("FIXME: StringListInput")
+	}
 	else if(element is FormDeclaration.Container) {
-		var v = VerticalBoxWidget.forContext(context)
-		v.setWidgetWidthRequest(formWidth)
-		v.setWidgetSpacing(elementSpacing)
-		if(element is FormDeclaration.Group) {
+		var v as CustomContainerWidget
+		if(element is FormDeclaration.VerticalContainer) {
+			var vb = VerticalBoxWidget.forContext(context)
+			if(formWidth > 0) {
+				vb.setWidgetWidthRequest(formWidth)
+			}
+			vb.setWidgetSpacing(elementSpacing)
+			v = vb
+		}
+		else if(element is FormDeclaration.HorizontalContainer) {
+			var hb = HorizontalBoxWidget.forContext(context)
+			hb.setWidgetSpacing(elementSpacing)
+			v = hb
+		}
+		else if(element is FormDeclaration.Group) {
 			var g = element as! FormDeclaration.Group
+			var vb = VerticalBoxWidget.forContext(context)
+			if(formWidth > 0) {
+				vb.setWidgetWidthRequest(formWidth)
+			}
+			vb.setWidgetSpacing(elementSpacing)
 			var wlayer = LayerWidget.forContext(context)
 			var bgc = getBackgroundColorForElement(g)
 			wlayer.addWidget(CanvasWidget.forColor(context, bgc))
 			var groupLabel = LabelWidget.forText(context, g.getLabel())
 			groupLabel.setWidgetTextColor(getAdjustedForegroundColor(g, bgc))
 			wlayer.addWidget(LayerWidget.forWidget(context, groupLabel, context.getHeightValue("2mm")))
-			v.addWidget(wlayer)
+			vb.addWidget(wlayer)
+			v = vb
 		}
-		if(element is FormDeclaration.Tab) {
+		else if(element is FormDeclaration.Tab) {
 			ERROR("FIXME")
+			return(null)
+		}
+		else {
+			ERROR("Unsupported form declaration container encountered.")
+			return(null)
 		}
 		foreach(child in (element as! FormDeclaration.Container).getChildren()) {
 			var ww = createAndRegisterWidget(child)
@@ -319,12 +375,12 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 							.setWidgetMarginRight(ss)
 							.setWidgetMarginTop(ss))
 					}
-					wbox.addWidget(ww)
+					wbox.addWidget(ww, child.getWeight())
 					wlayer.addWidget(wbox)
-					v.addWidget(wlayer)
+					addToContainerWithWeight(v, wlayer, child.getWeight())
 				}
 				else {
-					v.addWidget(ww)
+					addToContainerWithWeight(v, ww, child.getWeight())
 				}
 			}
 		}
@@ -334,6 +390,23 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 		ERROR("FIXME")
 	}
 	return(null)
+}
+
+func addToContainerWithWeight(container as CustomContainerWidget, child as Widget, weight as double)
+{
+	if(weight <= 0.0) {
+		container.addWidget(child)
+	}
+	else if(container is HorizontalBoxWidget) {
+		(container as! HorizontalBoxWidget).addWidget(child, weight)
+	}
+	else if(container is VerticalBoxWidget) {
+		(container as! VerticalBoxWidget).addWidget(child, weight)
+	}
+	else {
+		ERROR("Tried to add a widget with weight to a container that is not a box. Ignoring weight.")
+		container.addWidget(child)
+	}
 }
 
 func createAndRegisterWidget(element as FormDeclaration.Element) as Widget
@@ -374,12 +447,15 @@ func initializeWidget override
 	if(root == null) {
 		return
 	}
+	if(widgetBackgroundColor != null) {
+		addWidget(CanvasWidget.forColor(context, widgetBackgroundColor))
+	}
 	var box = VerticalBoxWidget.forContext(context)
 	box.setWidgetMargin(formMargin)
 	box.setWidgetSpacing(formMargin)
 	var topWidget = createAndRegisterWidget(root)
 	if(topWidget != null) {
-		box.addWidget(topWidget)
+		box.addWidget(topWidget, 1.0)
 	}
 	if(queueData != null) {
 		setFormData(queueData)
@@ -398,9 +474,21 @@ func initializeWidget override
 		box.addWidget(hbox)
 	}
 	box.addWidget(customFooterWidget)
-	alignWidget = AlignWidget.forWidget(context, box, 0.5, 0.5, 0)
-	var scroller = VerticalScrollerWidget.forWidget(context, alignWidget)
-	addWidget(scroller)
+	var finalWidget as Widget
+	if(fillContainerWidget) {
+		finalWidget = box
+	}
+	else {
+		alignWidget = AlignWidget.forWidget(context, box, 0.5, 0.5, 0)
+		finalWidget = alignWidget
+	}
+	if(enableScrolling) {
+		var scroller = VerticalScrollerWidget.forWidget(context, finalWidget)
+		addWidget(scroller)
+	}
+	else {
+		addWidget(finalWidget)
+	}
 }
 
 func setFormData(data as DynamicMap)
