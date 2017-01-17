@@ -1,0 +1,105 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape imports cave:
+
+IFDEF("target_android")
+{
+	depend "androidPermission:android.permission.VIBRATE"
+}
+
+var context as GuiApplicationContext
+
+ctor(context as GuiApplicationContext)
+{
+	this.context = context
+}
+
+func show(title as string, message as string) as bool
+{
+	var t = title
+	if(String.isEmpty(t)) {
+		t = "Notification"
+	}
+	if(String.isEmpty(message)) {
+		return(false)
+	}
+	IFDEF("target_android") {
+		var cc = context as GuiApplicationContextForAndroid
+		if(cc == null) {
+			return(false)
+		}
+		var ctx = cc.getAndroidActivityContext()
+		if(ctx == null) {
+			return(false)
+		}
+		var act = ctx as !"android.app.Activity"
+		var activity final = act
+		var packageName = ctx.getPackageName() as! string
+		var rid #used = packageName .. ":drawable/appicon"
+		var id #used = Integer.asInteger(String.forInteger(SystemClock.asSeconds()))
+		lang "java" {{{
+			android.content.res.Resources res = ctx.getResources();
+			int aid = res.getIdentifier(rid, null, null);
+			if(aid < 0) {
+				aid = android.R.drawable.sym_def_app_icon;
+			}
+			android.app.Notification.Builder mBuilder = new android.app.Notification.Builder(ctx);
+			mBuilder.setSmallIcon(aid);
+			mBuilder.setContentTitle(t);
+			mBuilder.setContentText(message);
+			mBuilder.setTicker(message);
+			mBuilder.setDefaults(android.app.Notification.DEFAULT_ALL);
+			mBuilder.setAutoCancel(true);
+			android.content.pm.PackageManager pm = null;
+			try {
+				pm = ctx.getPackageManager();
+			}
+			catch(Exception e) {
+				pm = null;
+				return(false);
+			}
+			android.content.Intent resultIntent = pm.getLaunchIntentForPackage(packageName);
+			android.app.PendingIntent resultPendingIntent = android.app.PendingIntent.getActivity(ctx, 0, resultIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT);
+			mBuilder.setContentIntent(resultPendingIntent);
+			android.app.NotificationManager mNotificationManager = (android.app.NotificationManager)ctx.getSystemService(ctx.NOTIFICATION_SERVICE);
+			android.app.Notification mbuilt = null;
+			try {
+				mbuilt = mBuilder.build();
+			}
+			catch(java.lang.Exception e) {
+				return(false);
+			}
+			if(mbuilt == null) {
+				return(false);
+			}
+			mNotificationManager.notify(id, mbuilt);
+		}}}
+		return(true)
+	}
+	ELSE {
+		ERROR("Not implemented.")
+		return(false)
+	}
+}
