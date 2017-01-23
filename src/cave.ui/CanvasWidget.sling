@@ -50,13 +50,12 @@ IFDEF("target_html")
 
 var widgetContext as GuiApplicationContext
 var widgetColor as Color
-var widgetRounded as bool
 var widgetTopLeftRadius as double
 var widgetTopRightRadius as double
 var widgetBottomRightRadius as double
 var widgetBottomLeftRadius as double
 var widgetOutlineColor as Color
-var widgetOutlineWidth as string
+var widgetOutlineWidth as int
 
 ctor(context as GuiApplicationContext)
 {
@@ -68,9 +67,9 @@ ctor(context as GuiApplicationContext)
 	widgetOutlineColor = Color.black()
 }
 
-func layoutWidget(widthConstraint as int, force as bool) as bool
+func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 {
-	Widget.setLayoutSize(this, widthConstraint, 0)
+	Widget.setLayoutSize(this, widthConstraint - (widgetOutlineWidth * 4), 0)
 	return(true)
 }
 
@@ -129,7 +128,7 @@ func setWidgetOutlineColor(color as Color)
 			HTMLDOM.removeStyle(element, "border-style")
 		}
 		else {
-			HTMLDOM.setStyle(element, "border", "1px")
+			HTMLDOM.setStyle(element, "border", String.asString(widgetOutlineWidth) .. "px")
 			HTMLDOM.setStyle(element, "border-style", "solid")
 			HTMLDOM.setStyle(element, "border-color", color.toRgbString())
 		}
@@ -144,7 +143,7 @@ func getWidgetOutlineColor as Color
 	return(widgetOutlineColor)
 }
 
-func setWidgetOutlineWidth(width as string)
+func setWidgetOutlineWidth(width as int #notLiteral)
 {
 	widgetOutlineWidth = width
 	IFDEF("target_html") {
@@ -155,30 +154,9 @@ func setWidgetOutlineWidth(width as string)
 	}
 }
 
-func getWidgetOutlineWidth as string
+func getWidgetOutlineWidth as int
 {
 	return(widgetOutlineWidth)
-}
-
-func setWidgetRounded(rounded as bool)
-{
-	widgetRounded = rounded
-	IFDEF("target_html") {
-		if(widgetRounded == false) {
-			HTMLDOM.removeStyle(element, "border-radius")
-		}
-		else {
-			setWidgetRoundingRadius(15.0)
-		}
-	}
-	ELSE {
-		ERROR("Not implemented")
-	}
-}
-
-func getWidgetRounded as bool
-{
-	return(widgetRounded)
 }
 
 func getWidgetTopLeftRadius as double
@@ -201,43 +179,50 @@ func getWidgetBottomLeftRadius as double
 	return(widgetBottomLeftRadius)
 }
 
-func setWidgetRoundingRadius(radius as double)
+func setWidgetRoundingRadius(radius as double #notLiteral)
 {
 	setWidgetRoundingRadius(radius, radius, radius, radius)
 }
 
-func setWidgetRoundingRadius(lradius as double, rradius as double)
+func setWidgetRoundingRadius(lradius as double #notLiteral, rradius as double #notLiteral)
 {
 	setWidgetRoundingRadius(lradius, rradius, rradius, lradius)
 }
 
-func setWidgetRoundingRadius(tlradius as double, trradius as double, brradius as double, blradius as double)
+func setWidgetRoundingRadius(tlradius as double #notLiteral, trradius as double #notLiteral, brradius as double #notLiteral, blradius as double #notLiteral)
 {
 	widgetTopLeftRadius = tlradius
 	widgetTopRightRadius = trradius
 	widgetBottomRightRadius = brradius
 	widgetBottomLeftRadius = blradius
+	var isRounded = true
+	if widgetTopLeftRadius <= 0.0 && widgetTopRightRadius <= 0.0 && widgetBottomRightRadius <= 0.0 && widgetBottomLeftRadius <= 0.0 {
+		isRounded = false
+	}
 	IFDEF("target_html") {
-		HTMLDOM.setStyle(element, "border-radius", String.asString(widgetTopLeftRadius) .. "px " ..
-			String.asString(widgetTopRightRadius) .. "px " ..
-			String.asString(widgetBottomRightRadius) .. "px " ..
-			String.asString(widgetBottomLeftRadius) .. "px")
+		if isRounded {
+			HTMLDOM.setStyle(element, "border-radius", String.asString(widgetTopLeftRadius) .. "px " ..
+				String.asString(widgetTopRightRadius) .. "px " ..
+				String.asString(widgetBottomRightRadius) .. "px " ..
+				String.asString(widgetBottomLeftRadius) .. "px")
+		}
+		else {
+			HTMLDOM.removeStyle(element, "border-radius")
+		}
 	}
 	ELSE IFDEF("target_android") {
-		if(widgetRounded) {
-			var r1 = widgetTopLeftRadius as float
-			var r2 = widgetTopRightRadius as float
-			var r3 = widgetBottomRightRadius as float
-			var r4 = widgetBottomLeftRadius as float
-			var rr = new !"android.graphics.drawable.shapes.RoundRectShape"([r1, r1, r2, r2, r3, r3, r4, r4], null, null)
-			var shape = new !"android.graphics.drawable.ShapeDrawable"(rr)
-			lang "java" {{{
-				if(widgetColor != null) {
-					shape.getPaint().setColor(widgetColor.toARGBInt32());
-				}
-				setBackgroundDrawable(shape);
-			}}}
-		}
+		var r1 = widgetTopLeftRadius as float
+		var r2 = widgetTopRightRadius as float
+		var r3 = widgetBottomRightRadius as float
+		var r4 = widgetBottomLeftRadius as float
+		var rr = new !"android.graphics.drawable.shapes.RoundRectShape"([r1, r1, r2, r2, r3, r3, r4, r4], null, null)
+		var shape = new !"android.graphics.drawable.ShapeDrawable"(rr)
+		lang "java" {{{
+			if(widgetColor != null) {
+				shape.getPaint().setColor(widgetColor.toARGBInt32());
+			}
+			setBackgroundDrawable(shape);
+		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
