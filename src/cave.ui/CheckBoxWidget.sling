@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class imports cape imports cave:
+class is WidgetWithValue imports cape imports cave:
 
 func forText(context as GuiApplicationContext, text as string) static as this
 {
@@ -40,6 +40,9 @@ IFDEF("target_html")
 		var v = HTMLDOM.createElement("div")
 		var input = HTMLDOM.createElement("input")
 		HTMLDOM.setAttribute(input, "type", "checkbox")
+		HTMLDOM.addEventListener(input, "change", func {
+			onCheckChangeListener()
+		})
 		var label = HTMLDOM.createElement("label")
 		HTMLDOM.setStyle(label, "margin-left", "5px")
 		HTMLDOM.setStyle(label, "font-size", "14px")
@@ -63,6 +66,8 @@ IFDEF("target_ios")
 
 var widgetContext as GuiApplicationContext
 var widgetText as string
+var widgetTextColor as Color
+prop widgetCheckHandler as function
 
 ctor(context as GuiApplicationContext)
 {
@@ -70,6 +75,17 @@ ctor(context as GuiApplicationContext)
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
 	widgetContext = context
+	widgetTextColor = Color.black()
+	setWidgetTextColor(widgetTextColor)
+	IFDEF("target_android") {
+		lang "java" {{{
+			setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+				public void onCheckedChanged(android.widget.CompoundButton buttonView, boolean isChecked) {
+					onCheckChangeListener();
+				}
+			});
+		}}}
+	}
 }
 
 func setWidgetText(text as string)
@@ -92,6 +108,26 @@ func setWidgetText(text as string)
 func getWidgetText as string
 {
 	return(widgetText)
+}
+
+func setWidgetTextColor(color as Color)
+{
+	widgetTextColor = color
+	IFDEF("target_html") {
+		var child = HTMLDOM.getChild(element, 1)
+		HTMLDOM.setStyle(child, "color", HTMLDOM.colorToRGBA(widgetTextColor))
+	}
+	ELSE IFDEF("target_android") {
+		base.setTextColor(widgetTextColor.toARGBInt32())
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
 }
 
 func getWidgetChecked as bool
@@ -119,7 +155,28 @@ func setWidgetChecked(x as bool)
 			HTMLDOM.setAttribute(child, "checked", null)
 		}
 	}
+	ELSE IFDEF("target_android") {
+		base.setChecked(x)
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
+}
+
+func setWidgetValue(value as object)
+{
+	if(value is BooleanObject) {
+		setWidgetChecked((value as BooleanObject).toBoolean())
+	}
+}
+
+func getWidgetValue virtual as object
+{
+	return(Boolean.asObject(getWidgetChecked()))
+}
+
+func onCheckChangeListener private
+{
+	if widgetCheckHandler:
+		widgetCheckHandler()
 }
