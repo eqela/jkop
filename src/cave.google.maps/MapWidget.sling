@@ -36,6 +36,7 @@ IFDEF("target_android")
 	basetype ResizeAwareWidget type implements
 	var created = false
 	var gmap as !"com.google.android.gms.maps.GoogleMap"
+	var markers as map<string, MapMarker>
 
 	func onWidgetResized
 	{
@@ -85,6 +86,23 @@ IFDEF("target_android")
 			map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
 				public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
 					onMapClicked(loc.latitude, loc.longitude);
+				}
+			});
+			map.setOnInfoWindowClickListener(new com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener() {
+				public void onInfoWindowClick (com.google.android.gms.maps.model.Marker marker) {
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
+					mkr.infoWindowClickHandler.execute();
+				}
+			});
+			map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
+				public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
+					cave.ui.LabelWidget tx = cave.ui.LabelWidget.forText(context, mkr.details);
+					return(tx);
+				}
+
+				public android.view.View getInfoWindow(com.google.android.gms.maps.model.Marker marker) {
+					return(null);
 				}
 			});
 		}}}
@@ -261,6 +279,7 @@ IFDEF("target_html")
 				center: { lat: this.centerLat, lng: this.centerLon }
 			});
 			this.mapObject = map;
+			this.mapObject.infoWindow = null;
 			google.maps.event.addListener(map, 'click', function(evt) {
 				myObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng())
 			});
@@ -359,6 +378,14 @@ class MyMapMarker is MapMarker
 	var markerObject public as object
 	prop removed = false
 
+	IFDEF("target_html") {
+		var mapObject as object
+	}
+	ELSE IFDEF("target_android") {
+		var infoWindowClickHandler as function
+		var details as string
+	}
+
 	func move(lat as double, lon as double)
 	{
 		this.lat = lat
@@ -385,14 +412,46 @@ class MyMapMarker is MapMarker
 
 	func remove
 	{
-		IFDEF("target_html") {
-			if(markerObject != null) {
+		if(markerObject != null) {
+			IFDEF("target_html") {
 				lang "js" {{{
 					this.markerObject.setMap(null);
 				}}}
 			}
+			ELSE IFDEF("target_android") {
+				lang "java" {{{
+					((com.google.android.gms.maps.model.Marker)markerObject).remove();
+				}}}
+			}
 		}
 		removed = true
+	}
+
+	func setInfoDetail(dtl as string, callback as function)
+	{
+		IFDEF("target_html") {
+			lang "js" {{{
+				this.markerObject.addListener('click', function() {
+					if(this.mapObject.infoWindow) {
+						this.mapObject.infoWindow.close();
+					}
+					this.mapObject.infoWindow = new google.maps.InfoWindow({
+						content: dtl
+					});
+					this.mapObject.infoWindow.open(this.mapObject, this.markerObject);
+					var elems = document.getElementsByClassName("gm-style-iw");
+					for(var elem of elems) {
+						elem.addEventListener("click", function() {
+							callback();
+						});
+					}
+				}.bind(this));
+			}}}
+		}
+		ELSE IFDEF("target_android") {
+			details = dtl
+			infoWindowClickHandler = callback
+		}
 	}
 }
 
@@ -542,9 +601,11 @@ func doAddMapMarker(marker as MyMapMarker) private
 			}
 			var mo = new google.maps.Marker(mkropt);
 			marker.markerObject = mo;
+			marker.mapObject = this.mapObject;
 		}}}
 	}
 	ELSE IFDEF("target_android") {
+		var markerId as string
 		lang "java" {{{
 			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
 			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
@@ -560,7 +621,12 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
 			}
 			marker.markerObject = gmap.addMarker(mkropt);
+			markerId = ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId();
 		}}}
+		if(markers == null) {
+			markers = new map<string, MapMarker>
+		}
+		markers[markerId]= marker
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
