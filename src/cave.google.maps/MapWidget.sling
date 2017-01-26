@@ -36,7 +36,7 @@ IFDEF("target_android")
 	basetype ResizeAwareWidget type implements
 	var created = false
 	var gmap as !"com.google.android.gms.maps.GoogleMap"
-	var markers as vector<MyMapMarker>
+	var markers as map<string, MapMarker>
 
 	func onWidgetResized
 	{
@@ -90,13 +90,13 @@ IFDEF("target_android")
 			});
 			map.setOnInfoWindowClickListener(new com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener() {
 				public void onInfoWindowClick (com.google.android.gms.maps.model.Marker marker) {
-					MyMapMarker mkr = (MyMapMarker)getMarkerForId(marker.getId());
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
 					mkr.infoWindowClickHandler.execute();
 				}
 			});
 			map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
 				public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
-					MyMapMarker mkr = (MyMapMarker)getMarkerForId(marker.getId());
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
 					cave.ui.LabelWidget tx = cave.ui.LabelWidget.forText(context, mkr.details);
 					return(tx);
 				}
@@ -113,18 +113,6 @@ IFDEF("target_android")
 		if(coordinateQueue != null) {
 			doZoomToCoordinates()
 		}
-	}
-
-	func getMarkerForId(id as string) as MapMarker
-	{
-		var mkr as MyMapMarker
-		foreach(marker in markers) {
-			var markerId = lang "java" string {{{ ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId() }}}
-			if(markerId == id) {
-				mkr = marker
-			}
-		}
-		return(mkr)
 	}
 }
 
@@ -617,6 +605,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 		}}}
 	}
 	ELSE IFDEF("target_android") {
+		var markerId as string
 		lang "java" {{{
 			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
 			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
@@ -632,11 +621,12 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
 			}
 			marker.markerObject = gmap.addMarker(mkropt);
+			markerId = ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId();
 		}}}
 		if(markers == null) {
-			markers = new vector<MyMapMarker>
+			markers = new map<string, MapMarker>
 		}
-		markers += marker
+		markers[markerId]= marker
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
