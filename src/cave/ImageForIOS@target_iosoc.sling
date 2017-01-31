@@ -25,6 +25,7 @@
 class is Image imports cape:
 
 depend "objc-header-h:<UIKit/UIKit.h>"
+depend "objc-header-h:<ImageIO/ImageIO.h>"
 
 func forFile(file as File) static as this
 {
@@ -118,14 +119,29 @@ func scaleToSize(w as int, h as int) override as Image
 	if(w < 0 || h < 0) {
 		return(this)
 	}
-	var image = uiImage
+	var imageData #used = toJPGData()
 	var img as !"UIImage"
+	var maxSize = w
+	if(maxSize < h) {
+		maxSize = h
+	}
 	lang "objc" {{{
-		CGSize nsz = CGSizeMake(w, h);
-		UIGraphicsBeginImageContext(nsz);
-		[image drawInRect:CGRectMake(0, 0, nsz.width, nsz.height)];
-		img = UIGraphicsGetImageFromCurrentImageContext();
-		UIGraphicsEndImageContext();
+		CFDataRef cfDataRef = CFDataCreate(NULL, [imageData bytes], [imageData length]);
+		CGImageSourceRef cgImageSrcRef = CGImageSourceCreateWithData(cfDataRef, NULL);
+		CFDictionaryRef options = (__bridge CFDictionaryRef) @{
+			(id) kCGImageSourceCreateThumbnailWithTransform : @YES,
+			(id) kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+			(id) kCGImageSourceThumbnailMaxPixelSize : @(maxSize)
+		};
+		CGImageRef cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef, 0, options);
+		CFRelease(cgImageSrcRef);
+		CGSize cgSize = CGSizeMake(w, h);
+		CGContextRef cgContextRef = CGBitmapContextCreate(NULL, cgSize.width, cgSize.height, 8, 0, CGColorSpaceCreateDeviceRGB(), kCGImageAlphaNoneSkipFirst);
+		CGRect cgRect = CGRectMake(0.0, 0.0, w, h);
+		CGContextDrawImage(cgContextRef, cgRect, cgImageRefInput);
+		CGImageRelease(cgImageRefInput);
+		CGImageRef cgImageRefOutput = CGBitmapContextCreateImage(cgContextRef);
+		img = [[UIImage alloc] initWithCGImage:cgImageRefOutput];
 	}}}
 	if(img == null) {
 		return(null)
@@ -167,7 +183,7 @@ func toPNGData override as buffer
 	}
 	var v as buffer
 	lang "objc" {{{
-		v = [NSData dataWithData:UIImagePNGRepresentation(uiImage)];
+		v = UIImagePNGRepresentation(uiImage);
 	}}}
 	return(v)
 }
