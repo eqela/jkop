@@ -42,7 +42,32 @@ func forUIImage(uiImage as !"UIImage") static as this
 	return(v)
 }
 
+func forBuffer(data as buffer) static as this
+{
+	var v = new this()
+	if(v.readFromBuffer(data) == false) {
+		v = null
+	}
+	return(v)
+}
+
 var uiImage public as !"UIImage"
+
+func readFromBuffer(data as buffer) as bool
+{
+	if(data == null) {
+		return(false)
+	}
+	var img as !"UIImage"
+	lang "objc" {{{
+		img = [UIImage imageWithData:data];
+	}}}
+	if(img == null) {
+		return(false)
+	}
+	this.uiImage = img
+	return(true)
+}
 
 func readFromFile(file as File) as bool
 {
@@ -88,9 +113,39 @@ func getPixelHeight override as int
 	return(v)
 }
 
-func scaleToSize(w as int, h as int) override stub as Image
-func scaleToWidth(w as int) override stub as Image
-func scaleToHeight(h as int) override stub as Image
+func scaleToSize(w as int, h as int) override as Image
+{
+	if(w < 0 || h < 0) {
+		return(this)
+	}
+	var data as buffer
+	var image = uiImage
+	var img as !"UIImage"
+	lang "objc" {{{
+		CGSize nsz = CGSizeMake(w, h);
+		UIGraphicsBeginImageContextWithOptions(nsz, NO, 0.0);
+		[image drawInRect:CGRectMake(0, 0, nsz.width, nsz.height)];
+		img = UIGraphicsGetImageFromCurrentImageContext();
+		UIGraphicsEndImageContext();
+	}}}
+	if(img == null) {
+		return(null)
+	}
+	return(forUIImage(img))
+}
+
+func scaleToWidth(w as int) override as Image
+{
+	var h = ((getPixelHeight() as double) / ((getPixelWidth() as double) * (w as double))) as int
+	return(scaleToSize(w, h))
+}
+
+func scaleToHeight(h as int) override as Image
+{
+	var w = ((getPixelWidth() as double) / ((getPixelHeight() as double) * (h as double))) as int
+	return(scaleToSize(w, h))
+}
+
 func crop(x as int, y as int, w as int, h as int) override stub as Image
 func toRGBAData override stub as buffer
 
