@@ -138,6 +138,7 @@ var queueData as DynamicMap
 prop widgetBackgroundColor as Color
 prop enableScrolling = true
 prop fillContainerWidget = false
+var preservedFormData as DynamicMap
 
 ctor(context as GuiApplicationContext)
 {
@@ -535,20 +536,21 @@ func initializeWidget override
 	}
 }
 
-func setFormData(data as DynamicMap)
+func setFormData(data as DynamicMap, preserveUnknownValues as bool = false)
 {
 	if(Map.count(fieldsById) < 1) {
 		queueData = data
 	}
 	else {
 		var keys as vector<string> #force = Map.getKeys(fieldsById)
-		foreach(key in keys) {
+		foreach key in keys {
 			var value as object
-			if(data != null) {
+			if data:
 				value = data.get(key)
-			}
 			setFieldData(key, value)
 		}
+		if preserveUnknownValues && data:
+			preservedFormData = data.duplicateMap()
 	}
 }
 
@@ -563,15 +565,19 @@ func setFieldData(id as string, value as object)
 
 func getFormDataTo(data as DynamicMap) virtual
 {
-	if(data == null) {
+	if not data:
 		return
+	if preservedFormData {
+		var keys as vector<string> #force = preservedFormData.getKeys()
+		foreach key in keys {
+			data.set(key, preservedFormData.get(key))
+		}
 	}
 	var keys as vector<string> #force = Map.getKeys(fieldsById)
-	foreach(key in keys) {
+	foreach key in keys {
 		var widget = Map.get(fieldsById, key) as WidgetWithValue
-		if(widget == null) {
+		if not widget:
 			continue
-		}
 		data.set(key, widget.getWidgetValue())
 	}
 }
