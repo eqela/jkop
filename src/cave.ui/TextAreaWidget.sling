@@ -42,6 +42,60 @@ IFDEF("target_iosoc")
 {
 	basetype !"UITextView" type extends
 	basetype Widget type isAlso
+	basetype WidgetWithLayout
+
+	lang "objc" {{{
+		- (CGRect)textRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+		- (CGRect)editingRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+	}}}
+
+	// UITextView autosizes to content. So we temporarily set the content
+	// to have the specified number of lines when the widget needs to be resized.
+	// Then we set the content back after resizing.
+	func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
+	{
+		var text = lang "objc" string {{{ [self text ] }}}
+		var rr = widgetRows
+		if rr < 1:
+			rr = 1
+		var sb = new StringBuilder()
+		for(var n = 1; n<rr; n++):
+			sb.append('\n')
+		var tmpStr = sb.toString()
+		lang "objc" {{{
+			[self setText:tmpStr];
+		}}}
+		var srw as int
+		var srh as int
+		var cw = widthConstraint
+		var ch #used = 0
+		if(cw < 0) {
+			cw = 0
+		}
+		lang "objc" {{{
+			CGSize nsz = [self sizeThatFits:CGSizeMake(cw, ch)];
+			srw = nsz.width;
+			if(nsz.width - srw > 0) {
+				srw ++;
+			}
+			srh = nsz.height;
+			if(nsz.height - srh > 0) {
+				srh ++;
+			}
+		}}}
+		if(widthConstraint >= 0 && srw != widthConstraint) {
+			srw = widthConstraint
+		}
+		Widget.setLayoutSize(this, srw, srh)
+		lang "objc" {{{
+			[self setText:text];
+		}}}
+		return true
+	}
 }
 
 IFDEF("target_html")
@@ -161,7 +215,17 @@ func updateWidgetFont private
 		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
 	}
 	ELSE IFDEF("target_iosoc") {
-		ERROR("Not implemented")
+		var ff = widgetFontFamily
+		if cape.String.isEmpty(ff) {
+			ff = "Arial"
+		}
+		lang "objc" {{{
+			UIFont* font = [UIFont fontWithName:ff size:widgetFontSize];
+			if(font == nil) {
+				font = [UIFont fontWithName:@"Arial" size:widgetFontSize];
+			}
+			[self setFont:font];
+		}}}
 	}
 	ELSE IFDEF("target_android") {
 		lang "java" {{{
@@ -226,6 +290,9 @@ func setWidgetRows(row as int) as this
 		base.setLines(row)
 		//base.setMaxLines(row)
 	}
+	ELSE IFDEF("target_iosoc") {
+		// iOS implementation simply uses the layoutWidget defined above to do this.
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -267,6 +334,11 @@ func setWidgetPlaceholder(placeholder as string) as this
 	}
 	ELSE IFDEF("target_html") {
 		HTMLDOM.setAttribute(element, "placeholder", placeholder)
+	}
+	ELSE IFDEF("target_iosoc") {
+		// FIXME: We could implement with one of these funky workarounds:
+		// http://stackoverflow.com/questions/7038876/how-to-insert-placeholder-in-uitextview
+		ERROR("Not implemented")
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -313,6 +385,9 @@ func updateWidgetPadding private
 			" " .. String.forInteger(widgetPaddingRight) .. "px" .. " " ..
 			String.forInteger(widgetPaddingBottom) .. "px" .. " " ..
 			String.forInteger(widgetPaddingLeft) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		// iOS implementation simply uses the values set above. No further action required.
 	}
 	ELSE {
 		ERROR("Not implemented")
