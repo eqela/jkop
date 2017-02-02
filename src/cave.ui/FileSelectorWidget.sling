@@ -65,14 +65,34 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 				int nameIndex = returnCursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
 				returnCursor.moveToFirst();
 				fileName = returnCursor.getString(nameIndex);
-				fl = cape.FileInstance.forPath(uri.getPath());
+				if("content".equalsIgnoreCase(uri.getScheme())) {
+					String[] projection = { android.provider.MediaStore.Images.Media.DATA };
+					android.database.Cursor cursor = null;
+					try {
+						cursor = ctx.getContentResolver().query(uri, projection, null, null, null);
+						int column_index = cursor.getColumnIndexOrThrow(projection[0]);
+						if(cursor.moveToFirst()) {
+							String v = cursor.getString(column_index);
+							cursor.close();
+							fl = cape.FileInstance.forPath(v);
+						}
+					}
+					catch (java.lang.Exception e) {
+					}
+					if(cursor != null && !cursor.isClosed()) {
+						cursor.close();
+					}
+				}
+				else if("file".equalsIgnoreCase(uri.getScheme())) {
+					fl = cape.FileInstance.forPath(uri.getPath());
+				}
 			}}}
 			if(cb != null) {
 				if(fl == null) {
 					cb(null, null, null, Error.forCode("no_file_data"))
 				}
 				else {
-					cb(fl.getContentsBuffer(), fileName, null, null)
+					cb(fl.getContentsBuffer(), fileName, capex.MimeTypeRegistry.typeForFile(fl), null)
 				}
 			}
 		})
