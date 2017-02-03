@@ -24,6 +24,12 @@
 
 class imports cape imports cave imports cave.ui:
 
+IFDEF("target_android")
+{
+	depend "androidPermission:android.permission.READ_EXTERNAL_STORAGE"
+	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
@@ -98,16 +104,26 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 		})
 		var act = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
 		var activity final = act
-		lang "java" {{{
-			android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
-			intent.setType(type);
-			intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-			try {
-				activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
+		var perms = [ "android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE" ]
+		var aac = context as AndroidApplicationContext
+		var ctxAac final = aac
+		var ty final = type
+		ctxAac.requestPermissions(perms, func(status as bool) {
+			if(status == false) {
+				return
 			}
-			catch(android.content.ActivityNotFoundException ex) {
-			}
-		}}}
+			
+			lang "java" {{{
+				android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+				intent.setType(ty);
+				intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
+				try {
+					activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
+				}
+				catch(android.content.ActivityNotFoundException ex) {
+				}
+			}}}
+		})
 	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
