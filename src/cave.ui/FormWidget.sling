@@ -80,11 +80,12 @@ class StaticTextWidget is LayerWidget is WidgetWithValue
 	prop backgroundColor as Color
 	prop textColor as Color
 	var label as LabelWidget
+	var labeltext as string
 
 	func initializeWidget override
 	{
 		base.initializeWidget()
-		label = new LabelWidget(context)
+		label = LabelWidget.forText(context, labeltext)
 		var color = textColor
 		if(color == null) {
 			if(backgroundColor.isLightColor()) {
@@ -101,8 +102,9 @@ class StaticTextWidget is LayerWidget is WidgetWithValue
 
 	func setWidgetValue(value as object)
 	{
+		labeltext = String.asString(value)
 		if(label != null) {
-			label.setWidgetText(String.asString(value))
+			label.setWidgetText(labeltext)
 		}
 	}
 
@@ -125,17 +127,18 @@ func forDeclaration(context as GuiApplicationContext, form as FormDeclaration) s
 var formDeclaration as FormDeclaration
 var fieldsById as map<string,Widget>
 var actions as vector<Action>
-prop elementSpacing as int
-prop formMargin as int
+prop elementSpacing as int #notLiteral
+prop formMargin as int #notLiteral
 var alignWidget as AlignWidget
 prop enableFieldLabels = true
-prop formWidth as int
-prop fieldLabelFontSize as int
+prop formWidth as int #notLiteral
+prop fieldLabelFontSize as int #notLiteral
 var customFooterWidget as LayerWidget
 var queueData as DynamicMap
 prop widgetBackgroundColor as Color
 prop enableScrolling = true
 prop fillContainerWidget = false
+var preservedFormData as DynamicMap
 
 ctor(context as GuiApplicationContext)
 {
@@ -340,6 +343,12 @@ func createWidgetForElement(element as FormDeclaration.Element) virtual as Widge
 		var si = element as! FormDeclaration.MultipleChoiceInput
 		return(SelectWidget.forKeyValueList(context, si.getValues()))
 	}
+	else if(element is FormDeclaration.CheckBoxInput) {
+		var cbi = element as! FormDeclaration.CheckBoxInput
+		var cbx = CheckBoxWidget.forText(context, cbi.getLabel())
+		cbx.setWidgetChecked(cbi.getIsChecked())
+		return(cbx)
+	}
 	else if(element is FormDeclaration.DateInput) {
 		var ds = element as! FormDeclaration.DateInput
 		var v = DateSelectorWidget.forContext(context)
@@ -459,7 +468,7 @@ func createAndRegisterWidget(element as FormDeclaration.Element) as Widget
 	return(v)
 }
 
-func computeWidgetLayout(widthConstraint as int) override
+func computeWidgetLayout(widthConstraint as int #notLiteral) override
 {
 	if(alignWidget != null) {
 		if(widthConstraint >= context.getWidthValue("120mm")) {
@@ -527,20 +536,21 @@ func initializeWidget override
 	}
 }
 
-func setFormData(data as DynamicMap)
+func setFormData(data as DynamicMap, preserveUnknownValues as bool = false)
 {
 	if(Map.count(fieldsById) < 1) {
 		queueData = data
 	}
 	else {
 		var keys as vector<string> #force = Map.getKeys(fieldsById)
-		foreach(key in keys) {
+		foreach key in keys {
 			var value as object
-			if(data != null) {
+			if data:
 				value = data.get(key)
-			}
 			setFieldData(key, value)
 		}
+		if preserveUnknownValues && data:
+			preservedFormData = data.duplicateMap()
 	}
 }
 
@@ -555,15 +565,19 @@ func setFieldData(id as string, value as object)
 
 func getFormDataTo(data as DynamicMap) virtual
 {
-	if(data == null) {
+	if not data:
 		return
+	if preservedFormData {
+		var keys as vector<string> #force = preservedFormData.getKeys()
+		foreach key in keys {
+			data.set(key, preservedFormData.get(key))
+		}
 	}
 	var keys as vector<string> #force = Map.getKeys(fieldsById)
-	foreach(key in keys) {
+	foreach key in keys {
 		var widget = Map.get(fieldsById, key) as WidgetWithValue
-		if(widget == null) {
+		if not widget:
 			continue
-		}
 		data.set(key, widget.getWidgetValue())
 	}
 }

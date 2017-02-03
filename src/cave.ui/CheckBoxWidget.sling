@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class imports cape imports cave:
+class is WidgetWithValue imports cape imports cave:
 
 func forText(context as GuiApplicationContext, text as string) static as this
 {
@@ -40,6 +40,9 @@ IFDEF("target_html")
 		var v = HTMLDOM.createElement("div")
 		var input = HTMLDOM.createElement("input")
 		HTMLDOM.setAttribute(input, "type", "checkbox")
+		HTMLDOM.addEventListener(input, "change", func {
+			onCheckChangeListener()
+		})
 		var label = HTMLDOM.createElement("label")
 		HTMLDOM.setStyle(label, "margin-left", "5px")
 		HTMLDOM.setStyle(label, "font-size", "14px")
@@ -55,14 +58,17 @@ IFDEF("target_android")
 	basetype Widget type isAlso
 }
 
-IFDEF("target_ios")
+IFDEF("target_iosoc")
 {
-	// FIXME
-	basetype Widget
+	basetype HorizontalBoxWidget
+	var uiSwitch as Widget
+	var labelWidget as LabelWidget
 }
 
 var widgetContext as GuiApplicationContext
 var widgetText as string
+var widgetTextColor as Color
+prop widgetCheckHandler as function
 
 ctor(context as GuiApplicationContext)
 {
@@ -70,6 +76,23 @@ ctor(context as GuiApplicationContext)
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
 	widgetContext = context
+	widgetTextColor = Color.black()
+	setWidgetTextColor(widgetTextColor)
+	IFDEF("target_android") {
+		lang "java" {{{
+			setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+				public void onCheckedChanged(android.widget.CompoundButton buttonView, boolean isChecked) {
+					onCheckChangeListener();
+				}
+			});
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		uiSwitch = lang "objc" Widget {{{ [[UISwitch alloc] init] }}}
+		setWidgetSpacing(context.getWidthValue("1mm"))
+		addWidget(uiSwitch)
+		addWidget(labelWidget = new LabelWidget(context), 1.0)
+	}
 }
 
 func setWidgetText(text as string)
@@ -78,6 +101,15 @@ func setWidgetText(text as string)
 	IFDEF("target_html") {
 		var child = HTMLDOM.getChild(element, 1)
 		HTMLDOM.setInnerHTML(child, text)
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setText(text);
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if labelWidget:
+			labelWidget.setWidgetText(text)
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -89,6 +121,30 @@ func getWidgetText as string
 	return(widgetText)
 }
 
+func setWidgetTextColor(color as Color)
+{
+	widgetTextColor = color
+	IFDEF("target_html") {
+		var child = HTMLDOM.getChild(element, 1)
+		HTMLDOM.setStyle(child, "color", HTMLDOM.colorToRGBA(widgetTextColor))
+	}
+	ELSE IFDEF("target_android") {
+		base.setTextColor(widgetTextColor.toARGBInt32())
+	}
+	ELSE IFDEF("target_iosoc") {
+		if labelWidget:
+			labelWidget.setWidgetTextColor(color)
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
 func getWidgetChecked as bool
 {
 	IFDEF("target_html") {
@@ -96,6 +152,9 @@ func getWidgetChecked as bool
 	}
 	ELSE IFDEF("target_android") {
 		return(lang "java" bool {{{ isChecked() }}})
+	}
+	ELSE IFDEF "target_iosoc" {
+		return lang "objc" bool {{{ ((UISwitch*)uiSwitch).on }}}
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -114,7 +173,33 @@ func setWidgetChecked(x as bool)
 			HTMLDOM.setAttribute(child, "checked", null)
 		}
 	}
+	ELSE IFDEF("target_android") {
+		base.setChecked(x)
+	}
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			[(UISwitch*)uiSwitch setOn:x animated:NO];
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
+}
+
+func setWidgetValue(value as object)
+{
+	if(value is BooleanObject) {
+		setWidgetChecked((value as BooleanObject).toBoolean())
+	}
+}
+
+func getWidgetValue virtual as object
+{
+	return(Boolean.asObject(getWidgetChecked()))
+}
+
+func onCheckChangeListener private
+{
+	if widgetCheckHandler:
+		widgetCheckHandler()
 }

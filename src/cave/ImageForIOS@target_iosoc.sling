@@ -25,6 +25,7 @@
 class is Image imports cape:
 
 depend "objc-header-h:<UIKit/UIKit.h>"
+depend "objc-header-h:<ImageIO/ImageIO.h>"
 
 func forFile(file as File) static as this
 {
@@ -42,7 +43,32 @@ func forUIImage(uiImage as !"UIImage") static as this
 	return(v)
 }
 
+func forBuffer(data as buffer) static as this
+{
+	var v = new this()
+	if(v.readFromBuffer(data) == false) {
+		v = null
+	}
+	return(v)
+}
+
 var uiImage public as !"UIImage"
+
+func readFromBuffer(data as buffer) as bool
+{
+	if(data == null) {
+		return(false)
+	}
+	var img as !"UIImage"
+	lang "objc" {{{
+		img = [UIImage imageWithData:data];
+	}}}
+	if(img == null) {
+		return(false)
+	}
+	this.uiImage = img
+	return(true)
+}
 
 func readFromFile(file as File) as bool
 {
@@ -88,9 +114,53 @@ func getPixelHeight override as int
 	return(v)
 }
 
-func scaleToSize(w as int, h as int) override stub as Image
-func scaleToWidth(w as int) override stub as Image
-func scaleToHeight(h as int) override stub as Image
+func scaleToSize(w as int, h as int) override as Image
+{
+	if(w < 0 || h < 0) {
+		return(this)
+	}
+	var imageData #used = toJPGData()
+	var img as !"UIImage"
+	var maxSize = w
+	if(maxSize < h) {
+		maxSize = h
+	}
+	lang "objc" {{{
+		CFDataRef cfDataRef = CFDataCreate(NULL, [imageData bytes], [imageData length]);
+		CGImageSourceRef cgImageSrcRef = CGImageSourceCreateWithData(cfDataRef, NULL);
+		CFDictionaryRef options = (__bridge CFDictionaryRef) @{
+			(id) kCGImageSourceCreateThumbnailWithTransform : @YES,
+			(id) kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+			(id) kCGImageSourceThumbnailMaxPixelSize : @(maxSize)
+		};
+		CGImageRef cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef, 0, options);
+		CFRelease(cgImageSrcRef);
+		CGSize cgSize = CGSizeMake(w, h);
+		CGContextRef cgContextRef = CGBitmapContextCreate(NULL, cgSize.width, cgSize.height, 8, 0, CGColorSpaceCreateDeviceRGB(), kCGImageAlphaNoneSkipFirst);
+		CGRect cgRect = CGRectMake(0.0, 0.0, w, h);
+		CGContextDrawImage(cgContextRef, cgRect, cgImageRefInput);
+		CGImageRelease(cgImageRefInput);
+		CGImageRef cgImageRefOutput = CGBitmapContextCreateImage(cgContextRef);
+		img = [[UIImage alloc] initWithCGImage:cgImageRefOutput];
+	}}}
+	if(img == null) {
+		return(null)
+	}
+	return(forUIImage(img))
+}
+
+func scaleToWidth(w as int) override as Image
+{
+	var h = ((getPixelHeight() as double) / ((getPixelWidth() as double) * (w as double))) as int
+	return(scaleToSize(w, h))
+}
+
+func scaleToHeight(h as int) override as Image
+{
+	var w = ((getPixelWidth() as double) / ((getPixelHeight() as double) * (h as double))) as int
+	return(scaleToSize(w, h))
+}
+
 func crop(x as int, y as int, w as int, h as int) override stub as Image
 func toRGBAData override stub as buffer
 
@@ -113,7 +183,7 @@ func toPNGData override as buffer
 	}
 	var v as buffer
 	lang "objc" {{{
-		v = [NSData dataWithData:UIImagePNGRepresentation(uiImage)];
+		v = UIImagePNGRepresentation(uiImage);
 	}}}
 	return(v)
 }
