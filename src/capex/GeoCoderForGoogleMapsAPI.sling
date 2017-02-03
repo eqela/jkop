@@ -50,15 +50,16 @@ func queryAddress(latitude as double, longitude as double, listener as GeoCoderA
 		listener.onQueryAddressErrorReceived(Error.forCode("noWebClientInstance"))
 		return(false)
 	}
+	var list final = listener
 	client.query("GET", host .. apiKey .. "&latlng=" .. String.forDouble(latitude) .. "," .. String.forDouble(longitude), null, null, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
 		var data = JSONParser.parse(body) as DynamicMap
 		if(data == null) {
-			listener.onQueryAddressErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
+			list.onQueryAddressErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
 			return
 		}
 		var results = data.getDynamicVector("results")
 		if(results == null || results.getSize() < 1) {
-			listener.onQueryAddressErrorReceived(Error.forCode("noResultFound"))
+			list.onQueryAddressErrorReceived(Error.forCode("noResultFound"))
 			return
 		}
 		foreach(result as DynamicMap in results.toVector()) {
@@ -67,7 +68,7 @@ func queryAddress(latitude as double, longitude as double, listener as GeoCoderA
 			}
 			var addressComponents = result.getDynamicVector("address_components")
 			if(addressComponents == null || addressComponents.getSize() < 1) {
-				listener.onQueryAddressErrorReceived(Error.forCode("noaddressComponentsFound"))
+				list.onQueryAddressErrorReceived(Error.forCode("noaddressComponentsFound"))
 				return
 			}
 			var v = new PhysicalAddress()
@@ -129,10 +130,10 @@ func queryAddress(latitude as double, longitude as double, listener as GeoCoderA
 			}
 			v.setLatitude(location.getDouble("lat"))
 			v.setLongitude(location.getDouble("lng"))
-			listener.onQueryAddressCompleted(v)
+			list.onQueryAddressCompleted(v)
 			return
 		}
-		listener.onQueryAddressErrorReceived(Error.forCode("invalidResult"))
+		list.onQueryAddressErrorReceived(Error.forCode("invalidResult"))
 	})
 	return(true)
 }
@@ -146,15 +147,16 @@ func queryLocation(address as string, listener as GeoCoderLocationListener) as b
 		listener.onQueryLocationErrorReceived(Error.forCode("noWebClientInstance"))
 		return(false)
 	}
+	var list final = listener
 	client.query("GET", host .. apiKey .. "&address=" .. URLEncoder.encode(address), null, null, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
 		var data = JSONParser.parse(body) as DynamicMap
 		if(data == null) {
-			listener.onQueryLocationErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
+			list.onQueryLocationErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
 			return
 		}
 		var results = data.getDynamicVector("results")
 		if(results == null || results.getSize() < 1) {
-			listener.onQueryLocationErrorReceived(Error.forCode("noResultFound"))
+			list.onQueryLocationErrorReceived(Error.forCode("noResultFound"))
 			return
 		}
 		foreach(result as DynamicMap in results.toVector()) {
@@ -169,10 +171,10 @@ func queryLocation(address as string, listener as GeoCoderLocationListener) as b
 			if(location == null) {
 				continue
 			}
-			listener.onQueryLocationCompleted(new GeoLocation().setLatitude(location.getDouble("lat")).setLongitude(location.getDouble("lng")))
+			list.onQueryLocationCompleted(new GeoLocation().setLatitude(location.getDouble("lat")).setLongitude(location.getDouble("lng")))
 			return
 		}
-		listener.onQueryLocationErrorReceived(Error.forCode("invalidResult"))
+		list.onQueryLocationErrorReceived(Error.forCode("invalidResult"))
 	})
 	return(true)
 }
