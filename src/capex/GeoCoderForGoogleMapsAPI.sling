@@ -1,0 +1,178 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is GeoCoder imports cape:
+
+func forAPIKey(apiKey as string) static as this
+{
+	if(String.isEmpty(apiKey)) {
+		return(null)
+	}
+	return(new this().setApiKey(apiKey))
+}
+
+ctor
+{
+	client = NativeWebClient.instance()
+}
+
+prop apiKey as string
+var host = "https://maps.googleapis.com/maps/api/geocode/json?key="
+var client as WebClient
+
+func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+{
+	if(listener == null) {
+		return(false)
+	}
+	if(client == null) {
+		listener.onQueryAddressErrorReceived(Error.forCode("noWebClientInstance"))
+		return(false)
+	}
+	client.query("GET", host .. apiKey .. "&latlng=" .. String.forDouble(latitude) .. "," .. String.forDouble(longitude), null, null, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
+		var data = JSONParser.parse(body) as DynamicMap
+		if(data == null) {
+			listener.onQueryAddressErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
+			return
+		}
+		var results = data.getDynamicVector("results")
+		if(results == null || results.getSize() < 1) {
+			listener.onQueryAddressErrorReceived(Error.forCode("noResultFound"))
+			return
+		}
+		foreach(result as DynamicMap in results.toVector()) {
+			if(result == null) {
+				continue
+			}
+			var addressComponents = result.getDynamicVector("address_components")
+			if(addressComponents == null || addressComponents.getSize() < 1) {
+				listener.onQueryAddressErrorReceived(Error.forCode("noaddressComponentsFound"))
+				return
+			}
+			var v = new PhysicalAddress()
+			foreach(addressComponent as DynamicMap in addressComponents.toVector()) {
+				if(addressComponent == null) {
+					continue
+				}
+				var types = addressComponent.getDynamicVector("types")
+				if(types == null || types.getSize() < 1) {
+					continue
+				}
+				foreach(type as string in types.toVector()) {
+					if(type == null) {
+						continue
+					}
+					if(String.equals("street_number", type)) {
+						v.setStreetAddressDetail(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("route", type)) {
+						v.setStreetAddress(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("locality", type)) {
+						v.setStreetAddress(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("sublocality", type)) {
+						v.setSubLocality(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("administrative_area_level_2", type)) {
+						v.setSubAdministrativeArea(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("administrative_area_level_1", type)) {
+						v.setAdministrativeArea(addressComponent.getString("long_name"))
+						break
+					}
+					if(String.equals("country", type)) {
+						v.setCountry(addressComponent.getString("long_name"))
+						v.setCountryCode(addressComponent.getString("short_name"))
+						break
+					}
+					if(String.equals("postal_code", type)) {
+						v.setPostalCode(addressComponent.getString("long_name"))
+						break
+					}
+				}
+			}
+			v.setCompleteAddress(result.getString("formatted_address"))
+			var geometry = result.getDynamicMap("geometry")
+			if(geometry == null) {
+				continue
+			}
+			var location = geometry.getDynamicMap("location")
+			if(location == null) {
+				continue
+			}
+			v.setLatitude(location.getDouble("lat"))
+			v.setLongitude(location.getDouble("lng"))
+			listener.onQueryAddressCompleted(v)
+			return
+		}
+		listener.onQueryAddressErrorReceived(Error.forCode("invalidResult"))
+	})
+	return(true)
+}
+
+func queryLocation(address as string, listener as GeoCoderLocationListener) as bool
+{
+	if(listener == null) {
+		return(false)
+	}
+	if(client == null) {
+		listener.onQueryLocationErrorReceived(Error.forCode("noWebClientInstance"))
+		return(false)
+	}
+	client.query("GET", host .. apiKey .. "&address=" .. URLEncoder.encode(address), null, null, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
+		var data = JSONParser.parse(body) as DynamicMap
+		if(data == null) {
+			listener.onQueryLocationErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
+			return
+		}
+		var results = data.getDynamicVector("results")
+		if(results == null || results.getSize() < 1) {
+			listener.onQueryLocationErrorReceived(Error.forCode("noResultFound"))
+			return
+		}
+		foreach(result as DynamicMap in results.toVector()) {
+			if(result == null) {
+				continue
+			}
+			var geometry = result.getDynamicMap("geometry")
+			if(geometry == null) {
+				continue
+			}
+			var location = geometry.getDynamicMap("location")
+			if(location == null) {
+				continue
+			}
+			listener.onQueryLocationCompleted(new GeoLocation().setLatitude(location.getDouble("lat")).setLongitude(location.getDouble("lng")))
+			return
+		}
+		listener.onQueryLocationErrorReceived(Error.forCode("invalidResult"))
+	})
+	return(true)
+}

@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,16 +31,38 @@ class MyRequestListener implements !"NSURLConnectionDelegate"
 	prop callback as function<void, string, KeyValueList<string,string>, buffer>
 	var responseData as buffer #used
 	var responseCode as string #used
+	var responseHeaders as KeyValueList<string,string>
+
+	func processNSURLResponse(response as !"NSURLResponse")
+	{
+		responseHeaders = new KeyValueList<string,string>()
+		var k as string #used
+		var v as string #used
+		var c as int #used
+		lang "objc" {{{
+			NSHTTPURLResponse *r = (NSHTTPURLResponse*)response;
+			if(r != nil && [r respondsToSelector:@selector(allHeaderFields)]) {
+				c = (int)[r statusCode];
+		}}}
+		responseCode = String.forInteger(c)
+		lang "objc" {{{
+				NSDictionary* d = [r allHeaderFields];
+				for(NSString* key in d) {
+					k = key;
+					v = [d objectForKey:key];
+		}}}
+		k = String.toLowerCase(k)
+		responseHeaders.add(k, v)
+		lang "objc" {{{
+				}
+			}
+		}}}
+	}
 
 	lang "objc" {{{
 		- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-			// A response has been received, this is where we initialize the instance var you created
-			// so that we can append data to it in the didReceiveData method
-			// Furthermore, this method is called each time there is a redirect so reinitializing it
-			// also serves to clear it
 			NSLog(@"Receiving HTTP response ..");
-			responseCode = @"200"; // FIXME: Not always this ..
-			// FIXME: HTTP Headers ..
+			[self processNSURLResponse:response];
 			responseData = [[NSMutableData alloc] init];
 		}
 		
@@ -55,7 +77,7 @@ class MyRequestListener implements !"NSURLConnectionDelegate"
 		
 		- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
 			NSLog(@"Finished receiving HTTP response");
-			callback(responseCode, nil, responseData);
+			callback(responseCode, responseHeaders, responseData);
 		}
 		
 		- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
@@ -76,7 +98,7 @@ func query(method as string, url as string, headers as KeyValueList<string,strin
 	if(headers != null) {
 		var iter = headers.iterate()
 		loop {
-			var nh as KeyValuePair<string,string> = iter.next()
+			var nh as KeyValuePair<string,string> #force = iter.next()
 			if(nh == null) {
 				break
 			}

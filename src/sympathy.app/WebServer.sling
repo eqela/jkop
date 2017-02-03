@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,11 +29,24 @@ import capex
 import capex.console
 import sympathy
 
+class MyHTTPServer is HTTPServer
+{
+	prop myParent as parent
+
+	func onMaintenance override
+	{
+		base.onMaintenance()
+		myParent.onMaintenance()
+	}
+}
+
 prop enableRequestLogging = true
-prop listenPort as int = 8080
+prop listenPort = 8080
 prop loggingDirectory as File
 prop configFile as File
 prop enableDebugMessages = false
+prop maintenanceTimerDelay = 60
+prop enableRateLimit as string
 
 func getConfigFileDirectory as File
 {
@@ -43,8 +56,20 @@ func getConfigFileDirectory as File
 	return(configFile.getParent())
 }
 
+func onMaintenance virtual
+{
+}
+
 func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
 {
+	if(key == "enableRateLimit") {
+		enableRateLimit = value
+		return(true)
+	}
+	if(key == "maintenanceTimerDelay") {
+		maintenanceTimerDelay = Integer.asInteger(value)
+		return(true)
+	}
 	if(key == "listenPort") {
 		listenPort = Integer.asInteger(value)
 		return(true)
@@ -76,6 +101,19 @@ func doConfigure(ctx as LoggingContext, key as string, value as string, relative
 
 func initialize(ctx as LoggingContext, server as HTTPServer) virtual as bool
 {
+	if(enableRateLimit != null) {
+		var limit = new HTTPServerRateLimitHandler()
+		if(enableRateLimit == "true" || enableRateLimit == "yes") {
+			; // all good, use default settings
+		}
+		else {
+			var comps = String.split(enableRateLimit, ':', 3)
+			limit.setCountLimit(Integer.asInteger(Vector.get(comps, 0)))
+			limit.setCountDuration(Integer.asInteger(Vector.get(comps, 1)))
+			limit.setIgnoreDuration(Integer.asInteger(Vector.get(comps, 2)))
+		}
+		server.pushRequestHandler(limit)
+	}
 	return(true)
 }
 
@@ -186,7 +224,8 @@ func execute(args as array<string>) as bool
 	else {
 		(ctx as! ConsoleApplicationContext).setEnableDebugMessages(enableDebugMessages)
 	}
-	var server = new HTTPServer()
+	var server = new MyHTTPServer()
+	server.setMyParent(this)
 	server.setPort(listenPort)
 	if(initialize(ctx, server) == false) {
 		Log.error(ctx, "Failed to configure HTTP server")

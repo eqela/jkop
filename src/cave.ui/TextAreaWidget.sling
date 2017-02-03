@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -42,6 +42,60 @@ IFDEF("target_iosoc")
 {
 	basetype !"UITextView" type extends
 	basetype Widget type isAlso
+	basetype WidgetWithLayout
+
+	lang "objc" {{{
+		- (CGRect)textRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+		- (CGRect)editingRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+	}}}
+
+	// UITextView autosizes to content. So we temporarily set the content
+	// to have the specified number of lines when the widget needs to be resized.
+	// Then we set the content back after resizing.
+	func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
+	{
+		var text = lang "objc" string {{{ [self text ] }}}
+		var rr = widgetRows
+		if rr < 1:
+			rr = 1
+		var sb = new StringBuilder()
+		for(var n = 1; n<rr; n++):
+			sb.append('\n')
+		var tmpStr = sb.toString()
+		lang "objc" {{{
+			[self setText:tmpStr];
+		}}}
+		var srw as int
+		var srh as int
+		var cw = widthConstraint
+		var ch #used = 0
+		if(cw < 0) {
+			cw = 0
+		}
+		lang "objc" {{{
+			CGSize nsz = [self sizeThatFits:CGSizeMake(cw, ch)];
+			srw = nsz.width;
+			if(nsz.width - srw > 0) {
+				srw ++;
+			}
+			srh = nsz.height;
+			if(nsz.height - srh > 0) {
+				srh ++;
+			}
+		}}}
+		if(widthConstraint >= 0 && srw != widthConstraint) {
+			srw = widthConstraint
+		}
+		Widget.setLayoutSize(this, srw, srh)
+		lang "objc" {{{
+			[self setText:text];
+		}}}
+		return true
+	}
 }
 
 IFDEF("target_html")
@@ -52,6 +106,14 @@ IFDEF("target_html")
 	{
 		return(HTMLDOM.createElement("textarea"))
 	}
+
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		HTMLDOM.setStyle(element, "resize", "none")
+		HTMLDOM.setStyle(element, "border", "none")
+		HTMLDOM.removeStyle(element, "overflow")
+	}
 }
 
 var widgetContext as GuiApplicationContext
@@ -61,6 +123,10 @@ var widgetPaddingTop = 0
 var widgetPaddingRight = 0
 var widgetPaddingBottom = 0
 var widgetRows = 0
+var widgetTextColor as Color
+var widgetBackgroundColor as Color
+var widgetFontFamily as string
+var widgetFontSize as double
 
 ctor(context as GuiApplicationContext)
 {
@@ -73,7 +139,145 @@ ctor(context as GuiApplicationContext)
 			setGravity(android.view.Gravity.TOP);
 		}}}
 	}
+	IFDEF("target_html") {
+		HTMLDOM.setStyle(element, "outline-width", "0")
+	}
+	widgetFontFamily = "Arial"
+	widgetFontSize = context.getHeightValue("3mm")
+	widgetTextColor = null
+	widgetBackgroundColor = null
 	widgetContext = context
+	updateWidgetFont()
+	updateWidgetPadding()
+	updateWidgetColors()
+}
+
+func configureMonospaceFont
+{
+	setWidgetFontFamily("monospace")
+}
+
+func updateWidgetColors private
+{
+	var textColor = widgetTextColor
+	if(textColor == null) {
+		if(widgetBackgroundColor != null) {
+			if(widgetBackgroundColor.isLightColor()) {
+				textColor = Color.black()
+			}
+			else {
+				textColor = Color.white()
+			}
+		}
+		else {
+			textColor = Color.black()
+		}
+	}
+	IFDEF("target_android") {
+		lang "java" {{{
+			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+			if(widgetBackgroundColor != null) {
+				setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+			}
+			else {
+				setBackgroundColor(0);
+			}
+			setTextColor(textColor.toARGBInt32());
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		var bgc #used = widgetBackgroundColor
+		lang "objc" {{{
+			if(bgc != nil) {
+				self.backgroundColor = [bgc toUIColor];
+			}
+			else {
+				self.backgroundColor = nil;
+			}
+			self.textColor = [textColor toUIColor];
+		}}}
+	}
+	IFDEF("target_html") {
+		if(widgetBackgroundColor == null) {
+			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
+		}
+		else {
+			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(widgetBackgroundColor))
+		}
+		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(textColor))
+	}
+}
+
+func updateWidgetFont private
+{
+	IFDEF("target_html") {
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		var ff = widgetFontFamily
+		if cape.String.isEmpty(ff) {
+			ff = "Arial"
+		}
+		lang "objc" {{{
+			UIFont* font = [UIFont fontWithName:ff size:widgetFontSize];
+			if(font == nil) {
+				font = [UIFont fontWithName:@"Arial" size:widgetFontSize];
+			}
+			[self setFont:font];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
+		lang "java" {{{
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			// android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+			// android.graphics.Typeface t = android.graphics.Typeface.createFromAsset(ctx.getAssets(),resName);
+			setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+		}}}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
+func setWidgetFontFamily(family as string) as this
+{
+	widgetFontFamily = family
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetFontSize(fontSize as double #notLiteral) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
+func setWidgetTextColor(color as Color) as this
+{
+	widgetTextColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func getWidgetTextColor as Color
+{
+	return(widgetTextColor)
+}
+
+func setWidgetBackgroundColor(color as Color) as this
+{
+	widgetBackgroundColor = color
+	updateWidgetColors()
+	return(this)
+}
+
+func getWidgetBackgroundColor as Color
+{
+	return(widgetBackgroundColor)
 }
 
 func setWidgetRows(row as int) as this
@@ -85,6 +289,9 @@ func setWidgetRows(row as int) as this
 	ELSE IFDEF("target_android") {
 		base.setLines(row)
 		//base.setMaxLines(row)
+	}
+	ELSE IFDEF("target_iosoc") {
+		// iOS implementation simply uses the layoutWidget defined above to do this.
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -128,6 +335,11 @@ func setWidgetPlaceholder(placeholder as string) as this
 	ELSE IFDEF("target_html") {
 		HTMLDOM.setAttribute(element, "placeholder", placeholder)
 	}
+	ELSE IFDEF("target_iosoc") {
+		// FIXME: We could implement with one of these funky workarounds:
+		// http://stackoverflow.com/questions/7038876/how-to-insert-placeholder-in-uitextview
+		ERROR("Not implemented")
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -135,17 +347,17 @@ func setWidgetPlaceholder(placeholder as string) as this
 	return(this)
 }
 
-func setWidgetPadding(padding as int)
+func setWidgetPadding(padding as int #notLiteral) as this
 {
-	setWidgetPadding(padding, padding, padding, padding)
+	return(setWidgetPadding(padding, padding, padding, padding))
 }
 
-func setWidgetPadding(lr as int, tb as int)
+func setWidgetPadding(lr as int #notLiteral, tb as int #notLiteral) as this
 {
-	setWidgetPadding(lr, tb, lr, tb)
+	return(setWidgetPadding(lr, tb, lr, tb))
 }
 
-func setWidgetPadding(l as int, t as int, r as int, b as int) as this
+func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
 {
 	if(l < 0 || t < 0 || r < 0 || b < 0) {
 		return(this)
@@ -157,18 +369,29 @@ func setWidgetPadding(l as int, t as int, r as int, b as int) as this
 	widgetPaddingTop = t
 	widgetPaddingRight = r
 	widgetPaddingBottom = b
+	updateWidgetPadding()
+	return(this)
+}
+
+func updateWidgetPadding private
+{
 	IFDEF("target_android") {
 		lang "java" {{{
-			setPadding(l, t, r, b);
+			setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
 		}}}
 	}
 	ELSE IFDEF("target_html") {
-		HTMLDOM.setStyle(element, "padding", String.forInteger(t) .. "px" .. " " .. String.forInteger(r) .. "px" .. " " .. String.forInteger(b) .. "px" .. " " .. String.forInteger(l) .. "px")
+		HTMLDOM.setStyle(element, "padding", String.forInteger(widgetPaddingTop) .. "px" ..
+			" " .. String.forInteger(widgetPaddingRight) .. "px" .. " " ..
+			String.forInteger(widgetPaddingBottom) .. "px" .. " " ..
+			String.forInteger(widgetPaddingLeft) .. "px")
+	}
+	ELSE IFDEF("target_iosoc") {
+		// iOS implementation simply uses the values set above. No further action required.
 	}
 	ELSE {
 		ERROR("Not implemented")
 	}
-	return(this)
 }
 
 func getWidgetText as string

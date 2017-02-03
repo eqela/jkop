@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -36,6 +36,7 @@ IFDEF("target_android")
 	basetype ResizeAwareWidget type implements
 	var created = false
 	var gmap as !"com.google.android.gms.maps.GoogleMap"
+	var markers as map<string, MapMarker>
 
 	func onWidgetResized
 	{
@@ -85,6 +86,23 @@ IFDEF("target_android")
 			map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
 				public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
 					onMapClicked(loc.latitude, loc.longitude);
+				}
+			});
+			map.setOnInfoWindowClickListener(new com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener() {
+				public void onInfoWindowClick (com.google.android.gms.maps.model.Marker marker) {
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
+					mkr.infoWindowClickHandler.execute();
+				}
+			});
+			map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
+				public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
+					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
+					cave.ui.LabelWidget tx = cave.ui.LabelWidget.forText(context, mkr.details);
+					return(tx);
+				}
+
+				public android.view.View getInfoWindow(com.google.android.gms.maps.model.Marker marker) {
+					return(null);
 				}
 			});
 		}}}
@@ -201,7 +219,7 @@ IFDEF("target_html")
 			return(false)
 		}
 		var error #used = cape.Error.forCode("geocoding_failed")
-		var thisObject #used = this
+		var myObject #used = this
 		lang "js" {{{
 			var geoCoder = new google.maps.Geocoder();
 			geoCoder.geocode({'location': { lat: latitude, lng : longitude }}, function(results, status) {
@@ -210,7 +228,7 @@ IFDEF("target_html")
 				}
 				else {
 					console.log(JSON.stringify(results, null, 4));
-					var pa = thisObject.physicalAddressForResults(results);
+					var pa = myObject.physicalAddressForResults(results);
 					pa.setLatitude(latitude);
 					pa.setLongitude(longitude);
 					listener.onQueryAddressCompleted(pa);
@@ -231,7 +249,6 @@ IFDEF("target_html")
 			return(true)
 		}
 		var error #used = cape.Error.forCode("geocoding_failed")
-		var thisObject #used = this
 		var r #used = new GeoLocation()
 		lang "js" {{{
 			var geoCoder = new google.maps.Geocoder();
@@ -255,15 +272,16 @@ IFDEF("target_html")
 		if(mapInitialized) {
 			return
 		}
-		var thisObject #used = this
+		var myObject #used = this
 		lang "js" {{{
 			var map = new google.maps.Map(document.getElementById(this.myId), {
 				zoom: this.defaultZoomLevel,
 				center: { lat: this.centerLat, lng: this.centerLon }
 			});
 			this.mapObject = map;
+			this.mapObject.infoWindow = null;
 			google.maps.event.addListener(map, 'click', function(evt) {
-				thisObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng())
+				myObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng())
 			});
 		}}}
 		mapInitialized = true
@@ -307,13 +325,25 @@ IFDEF("target_iosoc")
 		}
 	}}}
 
-	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", listener as capex.GeoCoderAddressListener)
+	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", latitude as double, longitude as double, listener as capex.GeoCoderAddressListener)
 	{
 		var addLine1 as string
 		var addLine2 as string
+		var country as string
+		var administrativeArea as string
+		var locality as string
+		var subLocality as string
+		var streetAddress as string
+		var postalCode as string
 		lang "objc" {{{
 			addLine1 = resp.firstResult.addressLine1;
 			addLine2 = resp.firstResult.addressLine2;
+			country = resp.firstResult.country;
+			administrativeArea = resp.firstResult.administrativeArea;
+			locality = resp.firstResult.locality;
+			subLocality = resp.firstResult.subLocality;
+			streetAddress = resp.firstResult.thoroughfare;
+			postalCode = resp.firstResult.postalCode;
 		}}}
 		var sb = new StringBuilder()
 		if(addLine1 != null) {
@@ -327,6 +357,14 @@ IFDEF("target_iosoc")
 		}
 		var v = new capex.PhysicalAddress()
 		v.setCompleteAddress(sb.toString())
+		v.setLatitude(latitude)
+		v.setLongitude(longitude)
+		v.setCountry(country)
+		v.setAdministrativeArea(administrativeArea)
+		v.setLocality(locality)
+		v.setSubLocality(subLocality)
+		v.setStreetAddress(streetAddress)
+		v.setPostalCode(postalCode)
 		if(listener != null) {
 			listener.onQueryAddressCompleted(v)
 		}
@@ -334,11 +372,14 @@ IFDEF("target_iosoc")
 
 	func queryAddress(latitude as double, longitude as double, listener as capex.GeoCoderAddressListener) as bool
 	{
-		var thisObject #used = this
+		var myObject #used = this
 		lang "objc" {{{
 			GMSGeocoder* gc = [GMSGeocoder geocoder];
 			[gc reverseGeocodeCoordinate:CLLocationCoordinate2DMake(latitude, longitude) completionHandler:^(GMSReverseGeocodeResponse *resp, NSError *error) {
-				[thisObject onGeoCoderAddress:resp listener:listener];
+				if(error != nil) {
+					NSLog(@"MapWidget: Error: %@", [error localizedDescription]);
+				}
+				[myObject onGeoCoderAddress:resp latitude:latitude longitude:longitude listener:listener];
 			}];
 		}}}
 		return(true)
@@ -359,6 +400,14 @@ class MyMapMarker is MapMarker
 	prop icon as Image
 	var markerObject public as object
 	prop removed = false
+
+	IFDEF("target_html") {
+		var mapObject as object
+	}
+	ELSE IFDEF("target_android") {
+		var infoWindowClickHandler as function
+		var details as string
+	}
 
 	func move(lat as double, lon as double)
 	{
@@ -386,14 +435,46 @@ class MyMapMarker is MapMarker
 
 	func remove
 	{
-		IFDEF("target_html") {
-			if(markerObject != null) {
+		if(markerObject != null) {
+			IFDEF("target_html") {
 				lang "js" {{{
 					this.markerObject.setMap(null);
 				}}}
 			}
+			ELSE IFDEF("target_android") {
+				lang "java" {{{
+					((com.google.android.gms.maps.model.Marker)markerObject).remove();
+				}}}
+			}
 		}
 		removed = true
+	}
+
+	func setInfoDetail(dtl as string, callback as function)
+	{
+		IFDEF("target_html") {
+			lang "js" {{{
+				this.markerObject.addListener('click', function() {
+					if(this.mapObject.infoWindow) {
+						this.mapObject.infoWindow.close();
+					}
+					this.mapObject.infoWindow = new google.maps.InfoWindow({
+						content: dtl
+					});
+					this.mapObject.infoWindow.open(this.mapObject, this.markerObject);
+					var elems = document.getElementsByClassName("gm-style-iw");
+					for(var elem of elems) {
+						elem.addEventListener("click", function() {
+							callback();
+						});
+					}
+				}.bind(this));
+			}}}
+		}
+		ELSE IFDEF("target_android") {
+			details = dtl
+			infoWindowClickHandler = callback
+		}
 	}
 }
 
@@ -413,10 +494,10 @@ func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey
 }
 
 prop webApiKey as string
-prop centerLat as double = 0.0
-prop centerLon as double = 0.0
+prop centerLat = 0.0
+prop centerLon = 0.0
 prop defaultZoomLevel = 14
-prop zoomInCenter as bool = true
+prop zoomInCenter = true
 prop streetViewEnabled as bool
 var context as GuiApplicationContext
 var mapClickHandler as function<void,double,double>
@@ -466,13 +547,13 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 		}
 	}
 	ELSE IFDEF("target_android") {
-		var thisObject #used = this
+		var myObject #used = this
 		if(created == false) {
 			created = true
 			lang "java" {{{
 				onCreate(new android.os.Bundle());
 				onResume();
-				getMapAsync(thisObject);
+				getMapAsync(myObject);
 			}}}
 		}
 	}
@@ -543,9 +624,11 @@ func doAddMapMarker(marker as MyMapMarker) private
 			}
 			var mo = new google.maps.Marker(mkropt);
 			marker.markerObject = mo;
+			marker.mapObject = this.mapObject;
 		}}}
 	}
 	ELSE IFDEF("target_android") {
+		var markerId as string
 		lang "java" {{{
 			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
 			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
@@ -561,7 +644,12 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
 			}
 			marker.markerObject = gmap.addMarker(mkropt);
+			markerId = ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId();
 		}}}
+		if(markers == null) {
+			markers = new map<string, MapMarker>
+		}
+		markers[markerId]= marker
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{

@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -95,9 +95,14 @@ var sidebarWidget as Widget
 var sidebarSlotLeft as LayerWidget
 var sidebarIsFixed = false
 var sidebarIsDisplayed = false
+prop enableSidebar = true
 prop enableActionBar = true
+prop actionBarIsFloating = false
 prop actionBarBackgroundColor as Color
 prop actionBarTextColor as Color
+prop backgroundColor as Color
+prop backImageResourceName = "backarrow"
+prop burgerMenuImageResourceName = "burger"
 
 ctor(ctx as GuiApplicationContext)
 {
@@ -138,11 +143,6 @@ func createMainWidget virtual as Widget
 	return(null)
 }
 
-func getBackgroundColor virtual as Color
-{
-	return(Color.forRGB(255,255,255))
-}
-
 func updateMenuButton
 {
 	if(actionBar == null) {
@@ -150,13 +150,16 @@ func updateMenuButton
 	}
 	var handler = getMenuHandler()
 	if(widgetStack != null && widgetStack.getSize() > 1) {
-		actionBar.configureLeftButton("backarrow", func {
+		actionBar.configureLeftButton(backImageResourceName, func {
 			popWidget()
 		})
 	}
+	else if(enableSidebar == false) {
+		actionBar.configureLeftButton(null, null)
+	}
 	else if(handler == null) {
 		if(sidebarIsFixed == false) {
-			actionBar.configureLeftButton("burger", func {
+			actionBar.configureLeftButton(burgerMenuImageResourceName, func {
 				displaySidebarWidget()
 			})
 		}
@@ -165,7 +168,7 @@ func updateMenuButton
 		}
 	}
 	else {
-		actionBar.configureLeftButton("burger", handler)
+		actionBar.configureLeftButton(burgerMenuImageResourceName, handler)
 	}
 }
 
@@ -195,7 +198,7 @@ func disableFixedSidebar private
 	updateMenuButton()
 }
 
-func updateSidebarWidthRequest(sz as int) private as int
+func updateSidebarWidthRequest(sz as int #notLiteral) private as int
 {
 	var v = 0
 	if(sidebarIsFixed == false && sidebarIsDisplayed && sidebarWidget != null) {
@@ -208,7 +211,7 @@ func updateSidebarWidthRequest(sz as int) private as int
 	return(v)
 }
 
-func computeWidgetLayout(widthConstraint as int) override
+func computeWidgetLayout(widthConstraint as int #notLiteral) override
 {
 	if(widthConstraint > context.getWidthValue("200mm")) {
 		enableFixedSidebar()
@@ -287,13 +290,18 @@ func hideSidebarWidget(animated as bool = true)
 	}
 }
 
-func initializeWidget override
+func createBackground virtual
 {
-	base.initializeWidget()
 	var bgc = getBackgroundColor()
 	if(bgc != null) {
 		addWidget(CanvasWidget.forColor(context, bgc))
 	}
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	createBackground()
 	var mainContainer = VerticalBoxWidget.forContext(context)
 	if(enableActionBar) {
 		actionBar = new ActionBarWidget(context)
@@ -303,10 +311,23 @@ func initializeWidget override
 		if(cape.String.isEmpty(appIcon) == false) {
 			actionBar.configureRightButton(appIcon, getAppMenuHandler())
 		}
+	}
+	if(actionBar != null && actionBarIsFloating == false) {
 		mainContainer.addWidget(actionBar)
 	}
 	contentArea = new SwitcherLayerWidget(context)
-	mainContainer.addWidget(contentArea, 1.0)
+	if(actionBar != null && actionBarIsFloating == true) {
+		var ll = new LayerWidget(context)
+		ll.addWidget(contentArea)
+		ll.addWidget(VerticalBoxWidget.forContext(context)
+			.addWidget(actionBar, 0.0)
+			.addWidget(new CustomContainerWidget(context), 1.0)
+		)
+		mainContainer.addWidget(ll, 1.0)
+	}
+	else {
+		mainContainer.addWidget(contentArea, 1.0)
+	}
 	var superMainContainer = HorizontalBoxWidget.forContext(context)
 	sidebarSlotLeft = new LayerWidget(context)
 	superMainContainer.addWidget(sidebarSlotLeft)

@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -125,7 +125,7 @@ func getInt8(buffer as buffer #used, offset as long #used) static as uint8
 		return(v)
 	}
 	ELSE IFDEF("target_js") {
-		return(lang "js" uint8 {{{ buffer[offset] }}})
+		return(lang "js" uint8 {{{ new Uint8Array(buffer)[offset] }}})
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -161,6 +161,18 @@ func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, 
 	ELSE IFDEF("target_objc") {
 		lang "objc" {{{
 			[array replaceBytesInRange:NSMakeRange(doffset, size) withBytes:[src bytes]+soffset length:size];
+		}}}
+	}
+	ELSE IFDEF("target_js") {
+		lang "js" {{{
+			var suint = new Uint8Array(src);
+			var sz = size;
+			if((soffset + size) > suint.byteLength) {
+				sz = suint.byteLength - soffset;
+			}
+			var arrayToCopy = suint.subarray(soffset, sz);
+			var duint = new Uint8Array(array);
+			duint.set(arrayToCopy, doffset);
 		}}}
 	}
 	ELSE {
@@ -339,7 +351,7 @@ func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used)
 	}
 	ELSE IFDEF("target_js") {
 		lang "js" {{{
-			buffer[offset] = value;
+			new Uint8Array(buffer)[offset] = value;
 		}}}
 	}
 	ELSE {
@@ -363,12 +375,20 @@ func resize(buffer as buffer, newSize as long) static as buffer
 		}}}
 		return(buffer)
 	}
-	IFDEF("target_java") {
-		var nbuf as buffer = allocate(newSize)
+	ELSE IFDEF("target_java") {
+		var nbuf = allocate(newSize)
 		lang "java" {{{
 			System.arraycopy(buffer, 0, nbuf, 0, (int)cape.Buffer.getSize(buffer));
 		}}}
 		return(nbuf)
+	}
+	ELSE IFDEF("target_js") {
+		var newbuffer = allocate(newSize)
+		lang "js" {{{
+			var uint8 = new Uint8Array(newbuffer);
+			uint8.set(new Uint8Array(buffer));
+		}}}
+		return(newbuffer)
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -389,7 +409,7 @@ func append(original as buffer, toAppend as buffer, size as long = -1) static as
 	}
 	var nl = os + oas
 	var nb = resize(original, nl)
-	copyFrom(nb, toAppend, 0, os,  oas)
+	copyFrom(nb, toAppend, 0, os, oas)
 	return(nb)
 }
 
