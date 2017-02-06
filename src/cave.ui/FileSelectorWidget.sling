@@ -44,7 +44,7 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 		var screen = ScreenForWidget.findScreenForWidget(widget)
 		if(screen == null) {
 			if(cb != null) {
-				cb(null, null, null,Error.forCode("no_screen_found"))
+				cb(null, null, null, Error.forCode("no_screen_found"))
 			}
 			return
 		}
@@ -63,56 +63,62 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 				}
 				return
 			}
-			var fl as File
-			var fileName as string
 			lang "java" {{{
 				android.net.Uri uri = data.getData();
-				android.database.Cursor returnCursor = ctx.getContentResolver().query(uri, null, null, null, null);
-				int nameIndex = returnCursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
-				returnCursor.moveToFirst();
-				fileName = returnCursor.getString(nameIndex);
 				if("content".equalsIgnoreCase(uri.getScheme())) {
-					String[] projection = { android.provider.MediaStore.Images.Media.DATA };
 					android.database.Cursor cursor = null;
+					long fileSize = 0;
+					String fileName = null;
+					String fileType = null;
+					byte[] fileBuffer = null;
 					try {
-						cursor = ctx.getContentResolver().query(uri, projection, null, null, null);
-						int column_index = cursor.getColumnIndexOrThrow(projection[0]);
+						cursor = ctx.getContentResolver().query(uri, null, null, null, null);
 						if(cursor.moveToFirst()) {
-							String v = cursor.getString(column_index);
+							fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME));
+							fileType = ctx.getContentResolver().getType(uri);
+							fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE));
+							fileBuffer = cape.Buffer.allocate(fileSize);
 							cursor.close();
-							fl = cape.FileInstance.forPath(v);
+						}
+						java.io.InputStream inputStream = ctx.getContentResolver().openInputStream(uri);
+						int v = inputStream.read(fileBuffer);
+						if(cb != null) {
+							if(v == fileSize) {
+								cb.execute(fileBuffer, fileName, fileType, null);
+							}
+							else {
+								cb.execute(null, null, null, cape.Error.forCode("invalid_file_data"));
+							}
 						}
 					}
 					catch (java.lang.Exception e) {
-					}
-					if(cursor != null && !cursor.isClosed()) {
-						cursor.close();
+						e.printStackTrace();
+						if(cb != null) {
+							cb.execute(null, null, null, cape.Error.forCode("no_file_data"));
+						}
 					}
 				}
 				else if("file".equalsIgnoreCase(uri.getScheme())) {
-					fl = cape.FileInstance.forPath(uri.getPath());
+					cape.File fl = cape.FileInstance.forPath(uri.getPath());
+					if(fl == null) {
+						cb.execute(null, null, null, cape.Error.forCode("no_file_data"));
+					}
+					else {
+						cb.execute(fl.getContentsBuffer(), fl.baseName(), capex.MimeTypeRegistry.typeForFile(fl), null);
+					}
 				}
 			}}}
-			if(cb != null) {
-				if(fl == null) {
-					cb(null, null, null, Error.forCode("no_file_data"))
-				}
-				else {
-					cb(fl.getContentsBuffer(), fileName, capex.MimeTypeRegistry.typeForFile(fl), null)
-				}
-			}
 		})
 		var act = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
 		var activity final = act
 		var perms = [ "android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE" ]
 		var aac = context as AndroidApplicationContext
 		var ctxAac final = aac
-		var ty final = type
+		var ty final #used = type
 		ctxAac.requestPermissions(perms, func(status as bool) {
 			if(status == false) {
 				return
 			}
-			
 			lang "java" {{{
 				android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
 				intent.setType(ty);
