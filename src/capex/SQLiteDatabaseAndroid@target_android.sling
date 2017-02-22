@@ -1,0 +1,414 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is SQLiteDatabase:
+
+import cape
+
+var sqldatabase private as !"android.database.sqlite.SQLiteDatabase"
+
+class Statement is SQLStatement
+{
+	var error as string
+	var sql as string
+	var paramidx #used = 1
+	var sqlstatement as !"android.database.sqlite.SQLiteStatement"
+	var sqldb as !"android.database.sqlite.SQLiteDatabase"
+	var params as !"java.util.Collection<java.lang.String>"
+
+	dtor
+	{
+		clear()
+	}
+
+	func clear
+	{
+		if sqlstatement {
+			lang "java" {{{
+				paramidx = 1;
+				sqlstatement.clearBindings();
+				sqlstatement = null;
+			}}}
+		}
+		else if params {
+			lang "java" {{{
+				((java.util.LinkedList)params).clear();
+			}}}
+		}
+	}
+
+	func create(db as !"android.database.sqlite.SQLiteDatabase", asql as string) as bool
+	{
+		assert db
+		assert asql
+		sql = asql
+		var str #used = String.split(sql, ' ')[0]
+		var v = true
+		lang "java" {{{
+			try {
+				if(cape.String.equalsIgnoreCase("select", str)) {
+					sqldb = db;
+					params = new java.util.LinkedList<java.lang.String>();
+				}
+				else {
+					sqlstatement = db.compileStatement(sql);
+				}
+			}
+			catch(java.lang.Exception e) {
+				v = false;
+			}
+		}}}
+		return v
+	}
+
+	func addParamString(val as string) as SQLStatement
+	{
+		if sqlstatement {
+			lang "java" {{{
+				sqlstatement.bindString(paramidx, val);
+				paramidx++;
+			}}}
+		}
+		else {
+			lang "java" {{{
+				params.add(val);
+			}}}
+		}
+		return this
+	}
+
+	func addParamInteger(val as int) as SQLStatement
+	{
+		if sqlstatement {
+			lang "java" {{{
+				sqlstatement.bindLong(paramidx, val);
+				paramidx++;
+			}}}
+		}
+		else {
+			lang "java" {{{
+				params.add(java.lang.Integer.toString(val));
+			}}}
+		}
+		return this
+	}
+
+	func addParamDouble(val as double) as SQLStatement
+	{
+		if sqlstatement {
+			lang "java" {{{
+				sqlstatement.bindDouble(paramidx, val);
+				paramidx++;
+			}}}
+		}
+		else {
+			lang "java" {{{
+				params.add(java.lang.Double.toString(val));
+			}}}
+		}
+		return this
+	}
+
+	func addParamBlob(val as buffer) as SQLStatement
+	{
+		if not val:
+			return this
+		if sqlstatement {
+			lang "java" {{{
+				sqlstatement.bindBlob(paramidx, val);
+				paramidx++;
+			}}}
+		}
+		return this
+	}
+
+	func resetStatement
+	{
+		if sqlstatement {
+			clear()
+		}
+	}
+
+	func getError as string
+	{
+		return error
+	}
+
+	func execute as bool
+	{
+		assert sqlstatement
+		var str #used = String.split(sql, ' ')[0]
+		var b as bool
+		var err as string
+		lang "java" {{{
+			try {
+				if(str.equalsIgnoreCase("insert")) {
+					if(sqlstatement.executeInsert() != -1) {
+						b = true;
+					}
+				}
+				else if(str.equalsIgnoreCase("update") || str.equalsIgnoreCase("delete")) {
+					if(sqlstatement.executeUpdateDelete() > 0) {
+						b = true;
+					}
+				}
+				else {
+					sqlstatement.execute();
+					b = true;
+				}
+			}
+			catch(java.lang.Exception e) {
+				err = "SQLite Error " + e;
+			}
+		}}}
+		if err:
+			error = err
+		return b
+	}
+
+	func getResult as !"android.database.Cursor"
+	{
+		assert sqldb
+		var sqlcursor as !"android.database.Cursor"
+		lang "java" {{{
+			sqlcursor = sqldb.rawQuery(sql, (java.lang.String[])params.toArray(new java.lang.String[params.size()]));
+		}}}
+		return sqlcursor
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var sqlcursor as !"android.database.Cursor"
+
+	ctor(stmt as Statement)
+	{
+		sqlcursor = stmt.getResult()
+	}
+
+	func next override as DynamicMap
+	{
+		assert sqlcursor
+		var data as DynamicMap
+		if not step():
+			return data
+		var cols = getColumnNames()
+		data = new DynamicMap()
+		for(var i = 0; i < Vector.getSize(cols); i++) {
+			data.set(Vector.get(cols, i), getColumnObject(i))
+		}
+		return data
+	}
+
+	func nextValues(values as vector<object>) override as bool
+	{
+		assert values
+		if not step():
+			return false
+		Vector.clear(values)
+		var cols = getColumnCount()
+		for(var i = 0; i < cols; i++) {
+			values += getColumnObject(i)
+		}
+		return true
+	}
+
+	func step override as bool
+	{
+		assert sqlcursor
+		return lang "java" bool {{{ sqlcursor.moveToNext() }}}
+	}
+
+	func getColumnCount override as int
+	{
+		assert sqlcursor
+		return lang "java" int {{{ sqlcursor.getColumnCount() }}}
+	}
+
+	func getColumnName(n as int #used) override as string
+	{
+		assert sqlcursor
+		return lang "java" string {{{ sqlcursor.getColumnName(n) }}}
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		assert sqlcursor
+		var v = new vector<string>
+		lang "java" {{{
+			for(java.lang.String name : sqlcursor.getColumnNames()) {
+				cape.Vector.append(v, name);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		assert sqlcursor
+		var type = lang "java" int {{{ sqlcursor.getType(n) }}}
+		if type == 1:
+			return Integer.asObject(getColumnInt(n))
+		if type == 2:
+			return Double.asObject(getColumnDouble(n))
+		if type == 3:
+			return lang "java" string {{{ sqlcursor.getString(n) }}}
+		if type == 4:
+			return Buffer.asObject(getColumnBuffer(n))
+		return ""
+	}
+
+	func getColumnInt(n as int) override as int
+	{
+		assert sqlcursor
+		return lang "java" int {{{ sqlcursor.getInt(n) }}}
+	}
+
+	func getColumnDouble(n as int) override as double
+	{
+		assert sqlcursor
+		return lang "java" double {{{ sqlcursor.getDouble(n) }}}
+	}
+
+	func getColumnBuffer(n as int) override as buffer
+	{
+		assert sqlcursor
+		return lang "java" buffer {{{ sqlcursor.getBlob(n) }}}
+	}
+
+	func close override
+	{
+		if sqlcursor:
+			lang "java" {{{ sqlcursor.close(); }}}
+	}
+}
+
+func initialize(file as File, openCreate as bool) override as bool
+{
+	assert file
+	if openCreate == false && file.isFile() == false {
+		Log.error(getLogger(), "Database does not exist: " .. file.getPath())
+		return false
+	}
+	var nativepath = file.getPath()
+	if nativepath == null {
+		Log.error(getLogger(), "Database file '" .. file.getPath() .. "' is not on a native filesystem. Cannot open.")
+		return false
+	}
+	var v = true
+	lang "java" {{{
+		try {
+			sqldatabase = android.database.sqlite.SQLiteDatabase.openOrCreateDatabase(nativepath, null);
+		}
+		catch(Exception e) {
+			v = false;
+		}
+	}}}
+	if v {
+		Log.debug(getLogger(), "Opened Sqlite database: '" .. file.getPath() .. "'")
+	}
+	else {
+		if openCreate:
+			Log.error(getLogger(), "Failed to create database. Please check write permissions")
+	}
+	return v
+}
+
+func prepare(sql as string) override as SQLStatement
+{
+	var stmt = new Statement()
+	if not stmt.create(sqldatabase, sql):
+		return null
+	return stmt
+}
+
+func query(stmt as SQLStatement) override as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if not ss {
+		Log.debug(getLogger(), "SQLite query: null statement")
+		return null
+	}
+	return new ResultSet(ss)
+}
+
+func execute(stmt as SQLStatement) override as bool
+{
+	assert stmt
+	var v as bool
+	var ss = stmt as Statement
+	if ss:
+		v = ss.execute()
+	return v
+}
+
+func close override
+{
+	lang "java" {{{
+		if(sqldatabase != null) {
+			sqldatabase.close();
+			sqldatabase = null;
+		}
+	}}}
+}
+
+func close(callback as function) override
+{
+	close()
+	if(callback != null) {
+		callback()
+	}
+}
+
+func execute(stmt as SQLStatement, callback as function<void, bool>) override
+{
+	var v = execute(stmt)
+	if(callback != null) {
+		callback(v)
+	}
+}
+
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
+{
+	var v = query(stmt)
+	if(callback != null) {
+		callback(v)
+	}
+}
+
+func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override
+{
+	var v = querySingleRow(stmt)
+	if(callback != null) {
+		callback(v)
+	}
+}
+
+func tableExists(table as string, callback as function<void, bool>) override
+{
+	var v = tableExists(table)
+	if(callback != null) {
+		callback(v)
+	}
+}
