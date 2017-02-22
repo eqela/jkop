@@ -28,14 +28,173 @@ IFDEF("target_android") {
 	depend "androidPermission:android.permission.INTERNET"
 }
 
-func getRemoteAddress override stub as string
-func getRemotePort override stub as int
-func getLocalAddress override stub as string
-func getLocalPort override stub as int
-func connect(address as string, port as int) override stub as bool
-func listen(port as int) override stub as bool
-func accept stub override as TCPSocket
-func setBlocking(blocking as bool) override stub as bool
-func close override stub
-func read(buffer as buffer) override stub as int
-func write(buffer as buffer, size as int) override stub as int
+var socket as !"java.net.Socket"
+var serverSocket as !"java.net.ServerSocket"
+var blocking private = true
+
+func getRemoteAddress override as string
+{
+	assert socket
+	var a as !"java.net.InetAddress"
+	a = socket.getInetAddress() as! !"java.net.InetAddress"
+	assert a
+	return(a.getHostAddress() as string)
+}
+
+func getRemotePort override as int
+{
+	if socket == null:
+		return(0)
+	return(socket.getPort() as int)
+}
+
+func getLocalAddress override as string
+{
+	var a as !"java.net.InetAddress"
+	if socket != null:
+		a = socket.getLocalAddress() as! !"java.net.InetAddress"
+	if serverSocket != null:
+		a = serverSocket.getInetAddress() as! !"java.net.InetAddress"
+	assert a
+	return(a.getHostAddress() as string)
+}
+
+func getLocalPort override as int
+{
+	if socket != null:
+		return(socket.getLocalPort() as int)
+	if serverSocket != null:
+		return(serverSocket.getLocalPort() as int)
+	return(-1)
+}
+
+func connect(address as string, port as int) override as bool
+{
+	var v = true
+	lang "java" {{{
+		try {
+			java.net.InetAddress serverAddress = java.net.InetAddress.getByName(address);
+			socket = new java.net.Socket(serverAddress, port);
+			socket.setKeepAlive(true);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = false;
+		}
+	}}}
+	return(v)
+}
+
+func listen(port as int) override as bool
+{
+	var v = true
+	lang "java" {{{
+		try {
+			serverSocket = new java.net.ServerSocket(port);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = false;
+		}
+	}}}
+	return(v)
+}
+
+func accept override as TCPSocket
+{
+	if serverSocket == null:
+		return(null)
+	var nsocket as !"java.net.Socket"
+	lang "java" {{{
+		try {
+			nsocket = serverSocket.accept();
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			nsocket = null;
+		}
+	}}}
+	if nsocket != null {
+		var v = new this()
+		v.socket = nsocket
+		return(v)
+	}
+	return(null)
+}
+
+func setBlocking(blocking as bool) override as bool
+{
+	this.blocking = blocking
+	return(true)
+}
+
+func close override
+{
+	lang "java" {{{
+		try {
+			if(socket != null) {
+				socket.close();
+				socket = null;
+			}
+			if(serverSocket != null) {
+				serverSocket.close();
+				serverSocket = null;
+			}
+		}
+		catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
+	}}}
+}
+
+func read(buffer as buffer) override as int
+{
+	if buffer == null:
+		return(-1)
+	var v = 0
+	lang "java" {{{
+		try {
+			java.io.InputStream ins = socket.getInputStream();
+			if(blocking == false && ins.available() < 1) {
+				return(0);
+			}
+			else {
+				v = ins.read(buffer);
+			}
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = -1;
+		}
+	}}}
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return(v)
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	if buffer == null:
+		return(-1)
+	var v = 0
+	lang "java" {{{
+		try {
+			java.io.OutputStream os = socket.getOutputStream();
+			os.write(buffer);
+			os.flush();
+			v = size;
+		}
+		catch(java.lang.Exception e)
+		{
+			e.printStackTrace();
+			v = -1;
+		}
+	}}}
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return(v)
+}
