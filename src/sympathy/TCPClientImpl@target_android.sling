@@ -65,6 +65,76 @@ class TCPDisconnectTask is TCPClientTask
 	prop callback as function<void, Error>
 }
 
+class AsyncListener is !"android.os.AsyncTask<Void, TCPEvent, Void>"
+{
+	prop callback as function<void, buffer, int>
+	prop socket as TCPSocket
+	var receiveBuffer private as buffer
+
+	ctor:
+		receiveBuffer = MALLOC(64 * 1024)
+
+	dtor:
+		receiveBuffer = null
+
+	func sendEvent(e as TCPEvent) private
+	{
+		lang "java" {{{
+			publishProgress(e);
+		}}}
+	}
+
+	func close private
+	{
+		if socket != null {
+			socket.close()
+			socket = null
+		}
+	}
+
+	func onDoInBackground private
+	{
+		loop {
+			assert socket
+			var r = socket.read(receiveBuffer)
+			if r < 0 {
+				close()
+				return
+			}
+			else if r == 0 {
+				continue
+			}
+			sendEvent(new TCPResponseEvent().setData(receiveBuffer).setSize(r))
+		}
+	}
+
+	func onTaskUpdate(e as TCPEvent) private
+	{
+		assert e
+		if e is TCPErrorEvent {
+			if callback != null:
+				callback(null, 0)
+			return
+		}
+		else if e is TCPResponseEvent {
+			var v = e as! TCPResponseEvent
+			if callback != null:
+				callback(v.getData(), v.getSize())
+		}
+	}
+
+	lang "java" {{{
+		protected Void doInBackground(Void... o) {
+			onDoInBackground();
+			return null;
+		}
+
+		protected void onProgressUpdate(TCPEvent... e) {
+			onTaskUpdate(e[0]);
+		}
+	}}}
+}
+
 class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 {
 	ctor
@@ -84,8 +154,8 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 		}}}
 	}
 
+	prop socket as TCPSocket
 	var blockingQueue private as !"java.util.concurrent.BlockingQueue<TCPClientTask>"
-	var socket private as TCPSocket
 
 	func pushTask(t as TCPClientTask) as bool
 	{
@@ -103,7 +173,7 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 		return(v)
 	}
 
-	func popTask as TCPClientTask
+	func popTask private as TCPClientTask
 	{
 		var v as TCPClientTask
 		assert blockingQueue
@@ -133,16 +203,8 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 			close()
 		}
 		var c = t.getCallback()
-		if socket != null {
-			if c != null {
-				var e = new TCPEvent()
-				e.setCallback(c)
-				sendEvent(e)
-			}
-			return(true)
-		}
-		socket = TCPSocket.createAndConnect(t.getAddress(), t.getPort())
-		assert socket {
+		assert socket
+		if socket.connect(t.getAddress(), t.getPort()) == false {
 			close()
 			if c != null {
 				var e = new TCPErrorEvent()
@@ -150,16 +212,16 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 				e.setCallback(c)
 				sendEvent(e)
 			}
+			return
 		}
 		if c != null {
 			var e = new TCPEvent()
 			e.setCallback(c)
 			sendEvent(e)
 		}
-		return(true)
 	}
 
-	func onSendTask(t as TCPSendTask) private as bool
+	func onSendTask(t as TCPSendTask) private
 	{
 		assert t
 		var data = t.getData()
@@ -182,16 +244,16 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 				e.setCallback(c)
 				sendEvent(e)
 			}
+			return
 		}
 		if c != null {
 			var e = new TCPEvent()
 			e.setCallback(c)
 			sendEvent(e)
 		}
-		return(true)
 	}
 
-	func sendEvent(e as TCPEvent)
+	func sendEvent(e as TCPEvent) private
 	{
 		lang "java" {{{
 			publishProgress(e);
@@ -256,14 +318,18 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 }
 
 var worker private as AsyncWorker
+var listener private as AsyncListener
+var socket private as TCPSocket
 
 func initializeWorker private
 {
 	deinitializeWorker()
+	socket = TCPSocket.create()
 	worker = new AsyncWorker()
+	worker.setSocket(socket)
 	lang "java" {{{
 		try {
-			worker.execute();
+			worker.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
 		}
 		catch(java.lang.Exception e) {
 			e.printStackTrace();
@@ -280,6 +346,13 @@ func deinitializeWorker private
 		}}}
 		worker = null
 	}
+	if listener != null {
+		lang "java" {{{
+			listener.cancel(true);
+		}}}
+		listener = null
+	}
+	socket = null
 }
 
 func connect(address as string, port as int, callback as function<void,Error>) override
@@ -298,7 +371,26 @@ func connect(address as string, port as int, callback as function<void,Error>) o
 
 func receive(callback as function<void,buffer,int>) override
 {
-	// FIXME: How should this work?
+	if listener != null {
+		lang "java" {{{
+			listener.cancel(true);
+		}}}
+		listener = null
+	}
+	assert callback
+	assert socket
+	listener = new AsyncListener()
+	listener.setSocket(socket)
+	listener.setCallback(callback)
+	lang "java" {{{
+		try {
+			listener.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			listener = null;
+		}
+	}}}
 }
 
 func send(data as buffer, size as int, callback as function<void,Error>) override
