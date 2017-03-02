@@ -24,28 +24,29 @@
 
 class:
 
+class NullObject
+{
+}
+
 func parse(buffer as buffer) static as object
 {
-	if(buffer == null) {
-		return(null)
-	}
-	return(new this(String.forUTF8Buffer(buffer)).acceptObject())
+	if buffer == null:
+		return null
+	return new this(String.forUTF8Buffer(buffer)).acceptObject()
 }
 
 func parse(str as string) static as object
 {
-	if(String.isEmpty(str)) {
-		return(null)
-	}
-	return(new this(str).acceptObject())
+	if String.isEmpty(str):
+		return null
+	return new this(str).acceptObject()
 }
 
 func parse(file as File) static as object
 {
-	if(file == null) {
-		return(null)
-	}
-	return(parse(file.getContentsString("UTF-8")))
+	if file == null:
+		return null
+	return parse(file.getContentsString("UTF-8"))
 }
 
 var iterator as CharacterIterator
@@ -58,12 +59,11 @@ ctor(str as string) private
 
 func skipSpaces private
 {
-	while(true) {
-		if(iterator.hasEnded()) {
+	loop {
+		if iterator.hasEnded():
 			break
-		}
 		var c = iterator.getCurrentChar()
-		if(c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			iterator.moveToNextChar()
 			continue
 		}
@@ -74,107 +74,160 @@ func skipSpaces private
 func acceptChar(c as char) private as bool
 {
 	skipSpaces()
-	if(iterator.getCurrentChar() == c) {
+	if iterator.getCurrentChar() == c {
 		iterator.moveToNextChar()
-		return(true)
+		return true
 	}
-	return(false)
+	return false
 }
 
 func acceptString private as string
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
-	if(ss != '\'' && ss != '"') {
-		return(null)
-	}
+	if ss != '\'' && ss != '"':
+		return null
 	var sb = new StringBuilder()
-	while(true) {
+	loop {
 		var c = iterator.getNextChar()
-		if(c == ss) {
+		if c == ss {
 			iterator.moveToNextChar()
 			break
 		}
-		if(c == '\\') {
+		if c == '\\':
 			c = iterator.getNextChar()
-		}
 		sb.append(c)
 	}
-	return(sb.toString())
+	return sb.toString()
 }
 
-// FIXME - This should be improved and be more strict.
-// possible methods are:
-// acceptBoolean()
-// acceptInteger()
-// acceptFloat()
-
-func acceptNonString private as string
+func acceptBoolean private as BooleanObject
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
-	if(ss != 'f' && ss != 't' && ss != '-' && ss != '+' && ss != '.' && ss < 0 && ss > 9) {
+	if ss != 't' && ss != 'f':
+		return null
+	var sb = new StringBuilder()
+	sb.append(ss)
+	var li = 5
+	if ss == 't':
+		li = 4
+	loop {
+		var c = iterator.getNextChar()
+		if c != 'a' && c != 'l' && c != 's' && c != 'e' && c != 'r' && c != 'u' {
+			iterator.moveToNextChar()
+			break
+		}
+		sb.append(c)
+		if sb.count() == li {
+			iterator.moveToNextChar()
+			break
+		}
+	}
+	var v = sb.toString()
+	if li == 4 && "true" == v:
+		return Boolean.asObject(true)
+	if li == 5 && "false" == v:
+		return Boolean.asObject(false)
+	return null
+}
+
+func acceptNumber private as object
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss != '-' && ss != '+' && ss != '.' && (ss < 48 || ss > 57):
+		return null
+	var sb = new StringBuilder()
+	sb.append(ss)
+	loop {
+		var c = iterator.getNextChar()
+		if c != '.' && (c < 48 || c > 57):
+			break
+		sb.append(c)
+	}
+	var s = sb.toString()
+	if String.getIndexOf(s, '.') > -1:
+		return Double.asObject(Double.asDouble(s))
+	return Integer.asObject(Integer.asInteger(s))
+}
+
+func acceptNull private as NullObject
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if(ss != 'n') {
 		return(null)
 	}
 	var sb = new StringBuilder()
 	sb.append(ss)
-	while(true) {
+	loop {
 		var c = iterator.getNextChar()
-		if(c == ' ' || c == ',' || c == '\t' || c == '\r' || c == '\n') {
+		if c != 'u' && c != 'l' {
 			iterator.moveToNextChar()
 			break
 		}
 		sb.append(c)
+		if sb.count() == 4 {
+			iterator.moveToNextChar()
+			break
+		}
 	}
-	return(sb.toString())
+	if "null" == sb.toString():
+		return new NullObject()
+	return null
 }
 
 func acceptObject private as object
 {
-	if(acceptChar('[')) {
+	if acceptChar('[') {
 		var v = new DynamicVector()
-		while(true) {
-			if(acceptChar(']')) {
+		loop {
+			if acceptChar(']') {
 				break
 			}
 			var o = acceptObject()
-			if(o == null) {
-				return(null)
-			}
+			if o == null:
+				return null
 			v.append(o)
 			acceptChar(',')
 		}
-		return(v)
+		return v
 	}
-	if(acceptChar('{')) {
+	if acceptChar('{') {
 		var v = new DynamicMap()
-		while(true) {
-			if(acceptChar('}')) {
+		loop {
+			if acceptChar('}'):
 				break
-			}
 			var key = acceptString()
-			if(key == null) {
-				return(null)
-			}
-			if(acceptChar(':') == false) {
-				return(null)
-			}
+			if key == null:
+				return null
+			if acceptChar(':') == false:
+				return null
 			var val = acceptObject()
-			if(val == null) {
-				return(null)
+			if val == null:
+				return null
+			if val is NullObject {
+				v.set(key, null)
 			}
-			v.set(key, val)
+			else {
+				v.set(key, val)
+			}
 			acceptChar(',')
 		}
-		return(v)
+		return v
 	}
 	var s = acceptString()
-	if(s != null) {
-		return(s)
-	}
-	s = acceptNonString()
-	if(s != null) {
-		return(s)
-	}
+	if s != null:
+		return s
+	var b = acceptBoolean()
+	if b != null:
+		return b
+	var n = acceptNull()
+	if n != null:
+		return n
+	var v = acceptNumber()
+	if v != null:
+		return v
 	return(null)
 }
