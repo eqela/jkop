@@ -26,11 +26,12 @@ class imports cape imports capex:
 
 prop apiKey as string
 prop locationHost = "http://dataservice.accuweather.com/locations/"
-prop forecastHost = "http://dataservice.accuweather.com/currentconditions/"
+prop currentConditionHost = "http://dataservice.accuweather.com/currentconditions/"
+prop forecastHost = "http://dataservice.accuweather.com/forecasts/"
 var client as WebClient
 prop version = "v1"
-prop language = "en"
 prop details = true
+prop metric = true
 
 ctor:
 	client = NativeWebClient.instance()
@@ -45,8 +46,8 @@ func forApiKey(key as string) static as this
 func queryLocation(latitude as double, longitude as double, callback as function<void, DynamicMap>) 
 {	
 	assert client
-	client.query("GET", locationHost .. version .. "/cities/geoposition/search.json?q=" .. String.forDouble(latitude) .. "," .. String.forDouble(longitude) .. "&apikey=" .. apiKey, null, null, func(statusCode as string, headers as KeyValueList<string, string>, body as buffer) {
-		var data = JSONParser.parse(body) as DynamicMap
+	client.query("GET", locationHost .. version .. "/cities/geoposition/search.json?q=" .. String.forDouble(latitude) .. "," .. String.forDouble(longitude) .. "&apikey=" .. apiKey, null, null, func(statusCode as string, headers as KeyValueList<string, string>, location as buffer) {
+		var data = JSONParser.parse(location) as DynamicMap
 		callback(data)
 	})
 }
@@ -54,8 +55,19 @@ func queryLocation(latitude as double, longitude as double, callback as function
 func queryCurrentCondition(key as string, callback as function<void, DynamicMap>)
 {
 	assert client
-	client.query("GET", forecastHost .. version .. "/" .. key .. "?apikey=" .. apiKey .. "&details=true", null, null, func(statusCode as string, headers as KeyValueList<string, string>, body as buffer) {
-		var data = JSONParser.parse(body) as DynamicMap
+	var weatherData as DynamicMap
+	client.query("GET", currentConditionHost .. version .."/" .. key .. "?apikey=" .. apiKey .. "&details=" .. String.forBoolean(details), null, null, func(statusCode as string, headers as KeyValueList<string, string>, current as buffer) {
+		var data = JSONParser.parse(current) as DynamicVector
+		weatherData =  data.getMap(0)
+		callback(weatherData)
+	})
+}
+
+func queryForecast(key as string, forecastDays as int, callback as function<void, DynamicMap>)
+{
+	assert client
+	client.query("GET", forecastHost .. version .. "/daily/" .. String.forInteger(forecastDays) .. "day/" .. key .. "?apikey=" .. apiKey .. "&metric=" .. String.forBoolean(metric), null, null, func(statusCode as string, headers as KeyValueList<string, string>, forecast as buffer) {
+		var data = JSONParser.parse(forecast) as DynamicMap
 		callback(data)
 	})
 }
