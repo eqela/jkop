@@ -22,27 +22,50 @@
  * SOFTWARE.
  */
 
-class abstract:
+class is SHAEncoder imports cape:
 
-const SHA1 = 1
-const SHA224 = 2
-const SHA256 = 3
-const SHA384 = 4
-const SHA512 = 5
-
-func create static as this
+func encodeAsBuffer(data as buffer, version as int) override as buffer
 {
-	IFDEF("target_cs") {
-		return(new SHAEncoderCS())
+	assert data
+	var algorithm as string
+	if SHAEncoder.SHA1 == version {
+		algorithm = "SHA-1"
 	}
-	ELSE IFDEF("target_java") {
-		return(new SHAEncoderJava())
+	else if SHAEncoder.SHA256 == version {
+		algorithm = "SHA-256"
 	}
-	ELSE {
-		PRINT("Not implemented.")
-		return(null)
+	else if SHAEncoder.SHA384 == version {
+		algorithm = "SHA-384"
 	}
+	else if SHAEncoder.SHA512 == version {
+		algorithm = "SHA-512"
+	}
+	assert algorithm
+	var v as buffer #used
+	lang "java" {{{
+		try {
+			java.security.MessageDigest md = java.security.MessageDigest.getInstance(algorithm);
+			md.update(data);
+			v = md.digest();
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = null;
+		}
+	}}}
+	return v
 }
 
-func encodeAsBuffer(data as buffer, version as int) abstract as buffer
-func encodeAsString(data as buffer, version as int) abstract as string
+func encodeAsString(data as buffer, version as int) override as string
+{
+	var encodedBytes = assert encodeAsBuffer(data, version)
+	var v as string #used
+	lang "java" {{{
+		java.lang.StringBuffer sb = new java.lang.StringBuffer();
+		for(int i = 0; i < encodedBytes.length; i++) {
+			sb.append(Integer.toString((encodedBytes[i] & 0xff) + 0x100, 16).substring(1));
+		}
+		v = sb.toString();
+	}}}
+	return v
+}
