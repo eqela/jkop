@@ -95,6 +95,11 @@ class AsyncListener is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 	func onDoInBackground private
 	{
 		loop {
+			var isCancelled = lang "java" bool {{{ isCancelled() }}}
+			if isCancelled {
+				close()
+				return
+			}
 			assert socket
 			var r = socket.read(receiveBuffer)
 			if r < 0 {
@@ -240,7 +245,7 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 			close()
 			if c != null {
 				var e = new TCPErrorEvent()
-				e.setError(Error.forMessage("Failed to establish a connection"))
+				e.setError(Error.forMessage("Failed to send"))
 				e.setCallback(c)
 				sendEvent(e)
 			}
@@ -372,10 +377,8 @@ func connect(address as string, port as int, callback as function<void,Error>) o
 func receive(callback as function<void,buffer,int>) override
 {
 	if listener != null {
-		lang "java" {{{
-			listener.cancel(true);
-		}}}
-		listener = null
+		listener.setCallback(callback)
+		return
 	}
 	assert callback
 	assert socket
