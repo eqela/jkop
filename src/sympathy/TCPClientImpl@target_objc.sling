@@ -24,36 +24,173 @@
 
 class is TCPClient is ConnectedSocket implements !"NSStreamDelegate" imports cape:
 
-func connect(address as string, port as int, callback as function<void,Error>) override stub
-func receive(callback as function<void,buffer,int>) override stub
-func send(data as buffer, size as int, callback as function<void,Error>) override stub
-func disconnect(callback as function<void,Error>) override stub
-
-/* FIXME: Restore this
-var inputStream as !"NSInputStream*"
-var outputStream as !"NSOutputStream*"
-var ctx as LoggingContext
-var address as string
-var recvBufferSize as int = 32 * 1024
-var recvBuffer as buffer
-var outputQueue as vector<buffer>
-var outputQueueMaxSize as int = 1024 * 1024
-
-func setRecvBufferSize(sz as int)
+class SendTask
 {
-	recvBufferSize = sz
-	if(recvBuffer != null) {
-		recvBuffer = MALLOC(sz)
+	prop data as buffer
+	prop size as int
+	prop callback as function<void, Error>
+}
+
+var inputStream private as !"NSInputStream*"
+var outputStream private as !"NSOutputStream*"
+var receiveBuffer private as buffer
+var sendTaskQueue private as vector<SendTask>
+var sendTaskQueueMaxSize private = 1024 * 1024
+var connectCallback private as function<void, Error>
+var receiveCallback private as function<void, buffer, int>
+
+lang "objc" {{{
+	-(void)stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
+	{
+		if(streamEvent == NSStreamEventNone) {
+		}
+		else if(streamEvent == NSStreamEventOpenCompleted) {
+			if(theStream == outputStream) {
+				[self onStreamOpened];
+			}
+		}
+		else if(streamEvent == NSStreamEventHasBytesAvailable) {
+			[self onBytesAvailable];
+		}
+		else if(streamEvent == NSStreamEventHasSpaceAvailable) {
+			[self onSpaceAvailable];
+		}
+		else if(streamEvent == NSStreamEventErrorOccurred) {
+			[self onStreamError:[[theStream streamError] localizedDescription]];
+		}
+		else if(streamEvent == NSStreamEventEndEncountered) {
+			[self onStreamClosed];
+		}
+		else {
+		}
+	}
+}}}
+
+ctor:
+	receiveBuffer = MALLOC(64 * 1024)
+
+dtor
+{
+	close()
+	receiveBuffer = null
+	sendTaskQueue = null
+	connectCallback = null
+	receiveCallback = null
+}
+
+func onStreamOpened private
+{
+	assert connectCallback
+	connectCallback(null)
+	connectCallback = null
+}
+
+func onStreamError(error as string)
+{
+	close()
+	if connectCallback != null {
+		connectCallback(Error.forMessage(error))
+		connectCallback = null
+	}
+	else if receiveCallback != null {
+		receiveCallback(null, 0)
 	}
 }
 
-func start(actx as LoggingContext, address as string, port as int) as bool
+func onStreamClosed private:
+	close()
+
+func onBytesAvailable private
 {
-	if(connection == null) {
-		return(false)
+	var r = read(receiveBuffer)
+	if r < 0:
+		close()
+	if receiveCallback != null:
+		receiveCallback(receiveBuffer, r)
+}
+
+func read(data as buffer) private as int
+{
+	var v as int
+	lang "objc" {{{
+		v = (int)[inputStream read:[data mutableBytes] maxLength:[data length]];
+	}}}
+	return v
+}
+
+func onSpaceAvailable private
+{
+	assert sendTaskQueue
+	var stq = sendTaskQueue
+	sendTaskQueue = null
+	foreach(st as SendTask in stq) {
+		onSendTask(st)
 	}
-	this.address = address
-	ctx = actx
+}
+
+func onSendTask(st as SendTask) private
+{
+	assert st
+	var data #used = st.getData()
+	var sz = st.getSize()
+	var cb = st.getCallback()
+	if sz < 0 {
+		lang "objc" {{{
+			sz = [data length];
+		}}}
+	}
+	if lang "objc" bool {{{ outputStream.hasSpaceAvailable }}} == false {
+		if sendTaskQueue == null:
+			sendTaskQueue = new vector<SendTask>
+		if Vector.getSize(sendTaskQueue) > sendTaskQueueMaxSize {
+			cb(Error.forMessage("Output stream has no space available, and output queue max size has been exceeded"))
+			return
+		}
+		sendTaskQueue += st
+		return
+	}
+	var v as int
+	lang "objc" {{{
+		v = (int)[outputStream write:[data bytes] maxLength:sz];
+	}}}
+	if v < 0 {
+		close()
+		cb(Error.forMessage("Failed to send"))
+		return
+	}
+	cb(null)
+}
+
+func close private
+{
+	if inputStream != null {
+		lang "objc" {{{
+			[inputStream close];
+			[inputStream setDelegate:nil];
+			[inputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+			// [inputStream release]; // FIXME: ARC forbids explicit message send of 'release'
+		}}}
+		inputStream = null
+	}
+	if outputStream != null {
+		lang "objc" {{{
+			[outputStream close];
+			[outputStream setDelegate:nil];
+			[outputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+			// [outputStream release]; // FIXME: ARC forbids explicit message send of 'release'
+		}}}
+		outputStream = null
+	}
+}
+
+func connect(address as string, port as int, callback as function<void,Error>) override
+{
+	assert callback
+	assert address {
+		callback(Error.forMessage("No address specified"))
+	}
+	connectCallback = callback
+	close()
 	lang "objc" {{{
 		CFReadStreamRef readStream;
 		CFWriteStreamRef writeStream;
@@ -67,154 +204,32 @@ func start(actx as LoggingContext, address as string, port as int) as bool
 		[inputStream open];
 		[outputStream open];
 	}}}
-	recvBuffer = MALLOC(recvBufferSize)
-	connection.initialize(ctx, this)
-	return(true)
 }
 
-func stop
+func receive(callback as function<void,buffer,int>) override
 {
-	close()
+	assert (callback || inputStream)
+	receiveCallback = callback
 }
 
-func close
+func send(data as buffer, size as int, callback as function<void,Error>) override
 {
-	if(inputStream != null) {
-		lang "objc" {{{
-			[inputStream close];
-			[inputStream setDelegate:nil];
-			[inputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-		}}}
-		inputStream = null
+	assert callback
+	assert inputStream {
+		callback(Error.forMessage("No open connection"))
 	}
-	if(outputStream != null) {
-		lang "objc" {{{
-			[outputStream close];
-			[outputStream setDelegate:nil];
-			[outputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
-		}}}
-		outputStream = null
+	assert data {
+		callback(Error.forMessage("No data to send"))
 	}
-	var p = connection
-	connection = null
-	if(p != null) {
-		p.close()
-	}
-	address = null
-	recvBuffer = null
+	onSendTask(new SendTask().setData(data).setSize(size).setCallback(callback))
 }
 
-func read(buffer as buffer) as int
+func disconnect(callback as function<void,Error>) override
 {
-	var v as int
-	lang "objc" {{{
-		v = (int)[inputStream read:[buffer mutableBytes] maxLength:[buffer length]];
-	}}}
-	return(v)
-}
-
-func write(buffer as buffer, size as int) as int
-{
-	var v as int
-	var sz = size
-	if(sz < 0) {
-		lang "objc" {{{
-			sz = [buffer length];
-		}}}
-	}
-	if(lang "objc" bool {{{ outputStream.hasSpaceAvailable }}} == false) {
-		if(outputQueue == null) {
-			outputQueue = new vector<buffer>
-		}
-		if(sizeof(outputQueue) > outputQueueMaxSize) {
-			Log.error(ctx, "Output stream has no space available, and output queue max size has been exceeded.")
-			return(-1)
-		}
-		outputQueue += Buffer.getSubBuffer(buffer, 0, sz)
-		return(sz)
-	}
-	lang "objc" {{{
-		v = (int)[outputStream write:[buffer bytes] maxLength:sz];
-	}}}
-	return(v)
-}
-
-func onStreamError(error as string)
-{
-	var p = connection
-	if(p != null) {
-		p.onError(error)
+	assert callback
+	assert (inputStream || outputStream) {
+		callback(Error.forMessage("No open connection"))
 	}
 	close()
+	callback(null)
 }
-
-func onStreamOpened
-{
-	if(connection != null) {
-		connection.onOpened()
-	}
-}
-
-func onBytesAvailable
-{
-	var x = read(recvBuffer)
-	if(x < 0) {
-		close()
-	}
-	else if(connection != null) {
-		connection.onDataReceived(recvBuffer, x)
-	}
-}
-
-func onSpaceAvailable
-{
-	if(outputQueue != null) {
-		var oq = outputQueue
-		outputQueue = null
-		foreach(buffer as buffer in oq) {
-			write(buffer, -1)
-		}
-	}
-	// FIXME
-}
-
-func onStreamClosed
-{
-	if(connection != null) {
-		connection.onClosed()
-	}
-}
-
-lang "objc" {{{
-	- (void) stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
-	{
-		if(streamEvent == NSStreamEventNone) {
-			[ctx message:@"WARNING" text:@"NSStreamEventNone"];
-		}
-		else if(streamEvent == NSStreamEventOpenCompleted) {
-			[ctx message:@"DEBUG" text:@"NSStreamEventOpenCompleted"];
-			if(theStream == outputStream) {
-				[self onStreamOpened];
-			}
-		}
-		else if(streamEvent == NSStreamEventHasBytesAvailable) {
-			[ctx message:@"DEBUG" text:@"NSStreamEventHasBytesAvailable"];
-			[self onBytesAvailable];
-		}
-		else if(streamEvent == NSStreamEventHasSpaceAvailable) {
-			[ctx message:@"DEBUG" text:@"NSStreamEventHasSpaceAvailable"];
-			[self onSpaceAvailable];
-		}
-		else if(streamEvent == NSStreamEventErrorOccurred) {
-			[self onStreamError:[[theStream streamError] localizedDescription]];
-		}
-		else if(streamEvent == NSStreamEventEndEncountered) {
-			[ctx message:@"DEBUG" text:@"NSStreamEventEndEncountered"];
-			[self onStreamClosed];
-		}
-		else {
-			[ctx message:@"INFO" text:@"Unknown stream event"];
-		}
-	}
-}}}
-*/
