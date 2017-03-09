@@ -26,18 +26,20 @@ class is FileAdapter private:
 
 class MyFileReader is DotNetStreamReader
 {
-	func initialize(file as string) as bool
+	prop file as parent
+
+	func initialize(fileName as string) as bool
 	{
-		if(file == null) {
+		if(fileName == null) {
 			return(false)
 		}
 		var v = true
 		lang "cs" {{{
 			try {
-				setStream(System.IO.File.OpenRead(file));
+				setStream(System.IO.File.OpenRead(fileName));
 			}
 			catch(System.Exception e) {
-				// System.Console.WriteLine(e.ToString());
+				file.onError(e.ToString());
 				setStream(null);
 				v = false;
 			}
@@ -49,24 +51,25 @@ class MyFileReader is DotNetStreamReader
 class MyFileWriter is FileWriter is DotNetStreamWriter
 {
 	prop append as bool
+	prop file as parent
 
-	func initialize(file as string) as bool
+	func initialize(fileName as string) as bool
 	{
-		if(file == null) {
+		if(fileName == null) {
 			return(false)
 		}
 		var v = true
 		lang "cs" {{{
 			try {
 				if(append) {
-					setStream(System.IO.File.Open(file, System.IO.FileMode.Append));
+					setStream(System.IO.File.Open(fileName, System.IO.FileMode.Append));
 				}
 				else {
-					setStream(System.IO.File.Open(file, System.IO.FileMode.Create));
+					setStream(System.IO.File.Open(fileName, System.IO.FileMode.Create));
 				}
 			}
 			catch(System.Exception e) {
-				// System.Console.WriteLine(e.ToString());
+				file.onError(e.ToString());
 				setStream(null);
 				v = false;
 			}
@@ -77,18 +80,35 @@ class MyFileWriter is FileWriter is DotNetStreamWriter
 
 func forPath(path as string) static as File
 {
-	return(new this(path))
+	var v = new this()
+	v.setCompletePath(path)
+	return v
 }
 
 var completePath as string
+var isWindows = false
 
 ctor
 {
+	isWindows = OS.isWindows()
 }
 
-ctor(path as string)
+func setCompletePathRaw(v as string)
 {
-	setCompletePath(path)
+	lang "cs"
+	{{{
+		var x = v;
+		if(x == null || x.Length < 1) {
+			completePath = null;
+		}
+		else {
+			string delim = new System.String(System.IO.Path.DirectorySeparatorChar, 1);
+			while(x.EndsWith(delim) && x.Length > 1) {
+				x = x.Substring(0, x.Length-1);
+			}
+			completePath = x;
+		}
+	}}}
 }
 
 func setCompletePath(v as string)
@@ -104,24 +124,35 @@ func setCompletePath(v as string)
 			while(x.EndsWith(delim) && x.Length > 1) {
 				x = x.Substring(0, x.Length-1);
 			}
-			completePath = System.IO.Path.GetFullPath(x);
+			try {
+				completePath = System.IO.Path.GetFullPath(x);
+			}
+			catch(System.Exception e) {
+				onError(e.ToString());
+				completePath = x;
+			}
 		}
 	}}}
 }
 
 func entry(name as string) override as File
 {
+	onError(null)
+	if name == null || String.getLength(name) < 1:
+		return this
+	var v = new this()
 	if(completePath == null) {
-		return(this)
+		v.setCompletePath(name)
 	}
-	if(name == null || String.getLength(name) < 1) {
-		return(this)
+	else {
+		v.setCompletePathRaw(lang "cs" string {{{ System.IO.Path.Combine(completePath, name) }}})
 	}
-	return(new this(lang "cs" string {{{ System.IO.Path.Combine(completePath, name) }}}))
+	return v
 }
 
 func getParent override as File
 {
+	onError(null)
 	var v as string
 	lang "cs" {{{
 		if(completePath != null) {
@@ -134,12 +165,15 @@ func getParent override as File
 			v = completePath;
 		}
 	}}}
-	return(new this(v))
+	var r = new this()
+	r.setCompletePathRaw(v)
+	return r
 }
 
 class MyIterator is Iterator<File>
 {
 	prop completePath as string
+	prop file as parent
 
 	lang "cs"
 	{{{
@@ -165,21 +199,24 @@ class MyIterator is Iterator<File>
 				str = System.IO.Path.Combine(completePath, str);
 			}
 			catch(System.Exception e) {
+				file.onError(e.ToString());
 				return(null);
 			}
 		}}}
 		var v = new parent()
-		v.setCompletePath(str)
+		v.setCompletePathRaw(str)
 		return(v)
 	}
 }
 
 func entries override as Iterator<File>
 {
+	onError(null)
 	if(completePath == null) {
 		return(null)
 	}
 	var v = new MyIterator()
+	v.setFile(this)
 	v.setCompletePath(completePath)
 	lang "cs" {{{
 		try {
@@ -187,6 +224,8 @@ func entries override as Iterator<File>
 			v.it = cc.GetEnumerator();
 		}
 		catch(System.Exception e) {
+			onError(e.ToString());
+			return(null);
 		}
 	}}}
 	return(v)
@@ -194,6 +233,7 @@ func entries override as Iterator<File>
 
 func move(dest as File, replace as bool) override as bool
 {
+	onError(null)
 	if(dest == null) {
 		return(false)
 	}
@@ -214,7 +254,7 @@ func move(dest as File, replace as bool) override as bool
 			System.IO.File.Move(completePath, destf.completePath);
 		}
 		catch(System.Exception e) {
-			// System.Console.WriteLine(e.ToString());
+			onError(e.ToString());
 			v = false;
 		}
 	}}}
@@ -225,6 +265,7 @@ func rename(newname as string, replacee as bool) override stub as bool // FIXME
 
 func touch override as bool
 {
+	onError(null)
 	if(completePath == null) {
 		return(false)
 	}
@@ -241,7 +282,7 @@ func touch override as bool
 			}
 		}
 		catch(System.Exception e) {
-			// System.Console.WriteLine(e.ToString());
+			onError(e.ToString());
 			v = false;
 		}
 	}}}
@@ -250,7 +291,9 @@ func touch override as bool
 
 func getMyReader private as MyFileReader
 {
+	onError(null)
 	var v = new MyFileReader()
+	v.setFile(this)
 	if(v.initialize(completePath) == false) {
 		return(null)
 	}
@@ -259,12 +302,15 @@ func getMyReader private as MyFileReader
 
 func read override as FileReader
 {
+	onError(null)
 	return(getMyReader())
 }
 
 func write override as FileWriter
 {
+	onError(null)
 	var v = new MyFileWriter()
+	v.setFile(this)
 	lang "cs"
 	{{{
 		if(v.initialize(completePath) == false) {
@@ -276,7 +322,9 @@ func write override as FileWriter
 
 func append override as FileWriter
 {
+	onError(null)
 	var v = new MyFileWriter()
+	v.setFile(this)
 	v.setAppend(true)
 	lang "cs"
 	{{{
@@ -289,6 +337,7 @@ func append override as FileWriter
 
 func makeExecutable override as bool
 {
+	onError(null)
 	var v = true
 	lang "cs"
 	{{{
@@ -297,6 +346,7 @@ func makeExecutable override as bool
 				System.IO.File.SetAttributes(completePath, (System.IO.FileAttributes)((int)System.IO.File.GetAttributes(completePath) | 0x80000000));
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = false;
 			}
 		}
@@ -306,6 +356,7 @@ func makeExecutable override as bool
 
 func stat override as FileInfo
 {
+	onError(null)
 	var v = new FileInfo()
 	v.setFile(this)
 	v.setOwnerUser(0)
@@ -327,6 +378,7 @@ func stat override as FileInfo
 				}
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 			}
 		}}}
 		if(v.getType() == FileInfo.FILE_TYPE_FILE) {
@@ -339,6 +391,7 @@ func stat override as FileInfo
 					v.setModifyTime((int)dnfi.LastWriteTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
 				}
 				catch(System.Exception e) {
+					onError(e.ToString());
 				}
 			}}}
 		}
@@ -348,6 +401,7 @@ func stat override as FileInfo
 
 func exists override as bool
 {
+	onError(null)
 	var fi = stat()
 	return(fi.getType() != FileInfo.FILE_TYPE_UNKNOWN)
 }
@@ -357,6 +411,7 @@ func createFifo override stub as bool // FIXME
 
 func createDirectory override as bool
 {
+	onError(null)
 	var v = false
 	lang "cs"
 	{{{
@@ -365,7 +420,7 @@ func createDirectory override as bool
 			v = true;
 		}
 		catch(System.Exception e) {
-			// System.Console.WriteLine(e.ToString());
+			onError(e.ToString());
 			v = false;
 		}
 	}}}
@@ -374,50 +429,85 @@ func createDirectory override as bool
 
 func createDirectoryRecursive override as bool
 {
+	onError(null)
 	return(createDirectory())
 }
 
+lang "cs" {{{
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool DeleteFileW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool RemoveDirectoryW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+	static extern int GetLastError();
+}}}
+
 func remove override as bool
 {
+	onError(null)
 	var v = true
-	lang "cs"
-	{{{
-		try {
-			System.IO.File.Delete(completePath);
-		}
-		catch(System.IO.DirectoryNotFoundException e) {
-			v = false;
-		}
-		catch(System.IO.FileNotFoundException e) {
-			v = false;
-		}
-		catch(System.Exception e) {
-			// System.Console.WriteLine(e.ToString());
-			v = false;
-		}
-	}}}
+	if isWindows {
+		var ec as int
+		var ff as string
+		lang "cs" {{{
+			ff = @"\\?\" + completePath;
+			v = DeleteFileW(ff);
+			if(v == false) {
+				ec = GetLastError();
+			}
+		}}}
+		if v == false:
+			onError("Failed to DeleteFileW: `" .. ff .. "': " .. String.forInteger(ec))
+	}
+	else {
+		lang "cs"
+		{{{
+			try {
+				System.IO.File.Delete(completePath);
+			}
+			catch(System.Exception e) {
+				onError(e.ToString());
+				v = false;
+			}
+		}}}
+	}
 	return(v)
 }
 
 func removeDirectory override as bool
 {
+	onError(null)
 	var v = true
-	lang "cs"
-	{{{
-		try {
-			System.IO.Directory.Delete(completePath);
-		}
-		catch(System.IO.DirectoryNotFoundException e) {
-			v = false;
-		}
-		catch(System.IO.FileNotFoundException e) {
-			v = false;
-		}
-		catch(System.Exception e) {
-			// System.Console.WriteLine(e.ToString());
-			v = false;
-		}
-	}}}
+	if isWindows {
+		var ff as string
+		var ec as int
+		lang "cs" {{{
+			ff = @"\\?\" + completePath;
+			v = RemoveDirectoryW(ff);
+			if(v == false) {
+				ec = GetLastError();
+			}
+		}}}
+		if v == false:
+			onError("Failed to RemoveDirectoryW: `" .. ff .. "'" .. String.forInteger(ec))
+	}
+	else {
+		lang "cs"
+		{{{
+			try {
+				System.IO.Directory.Delete(completePath);
+			}
+			catch(System.Exception e) {
+				onError(e.ToString());
+				v = false;
+			}
+		}}}
+	}
 	return(v)
 }
 
@@ -431,6 +521,7 @@ func directoryName override stub as string // FIXME
 
 func baseName override as string
 {
+	onError(null)
 	var path = completePath
 	if(path == null) {
 		return(null)
@@ -446,6 +537,7 @@ func isIdentical(file as File) override stub as bool // FIXME
 
 func getContentsBuffer override as buffer
 {
+	onError(null)
 	if(completePath == null) {
 		return(null)
 	}
@@ -454,6 +546,7 @@ func getContentsBuffer override as buffer
 
 func getContentsString(encoding as string) override as string
 {
+	onError(null)
 	if(completePath == null) {
 		return(null)
 	}
@@ -464,6 +557,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -474,6 +568,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath, System.Text.Encoding.UTF8);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -484,6 +579,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath, System.Text.Encoding.ASCII);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -494,6 +590,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath, System.Text.Encoding.Unicode);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -504,6 +601,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath, System.Text.Encoding.UTF7);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -514,6 +612,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath, System.Text.Encoding.UTF32);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -524,6 +623,7 @@ func getContentsString(encoding as string) override as string
 				v = System.IO.File.ReadAllText(completePath);
 			}
 			catch(System.Exception e) {
+				onError(e.ToString());
 				v = null;
 			}
 		}}}
@@ -533,6 +633,7 @@ func getContentsString(encoding as string) override as string
 
 func setContentsBuffer(buf as buffer) override as bool
 {
+	onError(null)
 	if(buf == null) {
 		return(false)
 	}
@@ -542,6 +643,7 @@ func setContentsBuffer(buf as buffer) override as bool
 			System.IO.File.WriteAllBytes(completePath, buf);
 		}
 		catch(System.Exception e) {
+			onError(e.ToString());
 			return(false);
 		}
 	}}}
@@ -554,6 +656,7 @@ func writeFromReader(reader as Reader, append as bool) override stub as bool
 
 func setContentsString(str as string, encoding as string) override as bool
 {
+	onError(null)
 	if(str == null) {
 		return(false)
 	}
@@ -576,6 +679,7 @@ func setContentsString(str as string, encoding as string) override as bool
 			System.IO.File.WriteAllText(completePath, str, ee);
 		}
 		catch(System.Exception e) {
+			onError(e.ToString());
 			return(false);
 		}
 	}}}
