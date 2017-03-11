@@ -93,44 +93,53 @@ ctor
 	isWindows = OS.isWindows()
 }
 
+func withExtension(ext as string) override as File
+{
+	if not ext:
+		return this
+	var v = new this()
+	if completePath:
+		v.setCompletePathRaw(completePath .. "." .. ext)
+	return v
+}
+
 func setCompletePathRaw(v as string)
 {
-	lang "cs"
-	{{{
-		var x = v;
-		if(x == null || x.Length < 1) {
-			completePath = null;
-		}
-		else {
-			string delim = new System.String(System.IO.Path.DirectorySeparatorChar, 1);
-			while(x.EndsWith(delim) && x.Length > 1) {
-				x = x.Substring(0, x.Length-1);
-			}
-			completePath = x;
-		}
-	}}}
+	completePath = v
 }
 
 func setCompletePath(v as string)
 {
-	lang "cs"
-	{{{
-		var x = v;
-		if(x == null || x.Length < 1) {
-			completePath = null;
+	if String.isEmpty(v) {
+		completePath = null
+		return
+	}
+	var x = v
+	lang "cs" {{{
+		string delim = new System.String(System.IO.Path.DirectorySeparatorChar, 1);
+		while(x.EndsWith(delim) && x.Length > 1) {
+			x = x.Substring(0, x.Length-1);
 		}
-		else {
-			string delim = new System.String(System.IO.Path.DirectorySeparatorChar, 1);
-			while(x.EndsWith(delim) && x.Length > 1) {
-				x = x.Substring(0, x.Length-1);
-			}
-			try {
-				completePath = System.IO.Path.GetFullPath(x);
-			}
-			catch(System.Exception e) {
-				onError(e.ToString());
-				completePath = x;
-			}
+	}}}
+	if OS.isWindows() {
+		var l = String.getLength(x)
+		var c1 = String.getChar(x, 1)
+		if l == 2 && c1 == ':' {
+			completePath = x .. "\\"
+			return
+		}
+		if l == 3 && c1 == ':' && String.getChar(x, 2) == '\\' {
+			completePath = x
+			return
+		}
+	}
+	lang "cs" {{{
+		try {
+			completePath = System.IO.Path.GetFullPath(x);
+		}
+		catch(System.Exception e) {
+			onError(e.ToString());
+			completePath = x;
 		}
 	}}}
 }
@@ -406,7 +415,15 @@ func exists override as bool
 	return(fi.getType() != FileInfo.FILE_TYPE_UNKNOWN)
 }
 
-func isExecutable override stub as bool // FIXME
+func isExecutable override as bool
+{
+	if OS.isWindows() {
+		return hasExtension("exe") || hasExtension("bat") || hasExtension("com")
+	}
+	// FIXME: This is not true. Should check for the execute bit.
+	return true
+}
+
 func createFifo override stub as bool // FIXME
 
 func createDirectory override as bool
