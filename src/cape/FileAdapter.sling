@@ -69,6 +69,27 @@ class ReadLineIterator is Iterator<string>
 	}
 }
 
+var lastErrorDescription as string
+
+func getLastErrorDescription as string
+{
+	return lastErrorDescription
+}
+
+func onError(v as string)
+{
+	var pp = getPath()
+	if not v {
+		lastErrorDescription = null
+	}
+	else if pp {
+		lastErrorDescription = pp .. ": " .. v
+	}
+	else {
+		lastErrorDescription = v
+	}
+}
+
 func readLines as Iterator<string>
 {
 	var rd = read()
@@ -101,77 +122,63 @@ func getLastModifiedTimeStamp as long
 
 func isSame(file as File) virtual as bool
 {
-	if(file == null) {
-		return(false)
-	}
+	assert file
 	var path = getPath()
-	if(path != null && path == file.getPath()) {
-		return(true)
-	}
-	return(false)
+	if path && path == file.getPath():
+		return true
+	return false
 }
 
 func removeRecursive virtual as bool
 {
 	var finfo = stat()
-	if(finfo == null) {
-		return(true)
-	}
-	if(finfo.isDirectory() == false || finfo.isLink() == true) {
-		return(remove())
-	}
+	if not finfo:
+		return true
+	if finfo.isDirectory() == false || finfo.isLink() == true:
+		return remove()
 	var it = entries()
-	while(it != null) {
+	if not it:
+		return false
+	while it {
 		var f = it.next()
-		if(f == null) {
+		if not f:
 			break
-		}
-		if(f.removeRecursive() == false) {
-			return(false)
+		assert f.removeRecursive() {
+			onError(f.getLastErrorDescription())
 		}
 	}
-	return(removeDirectory())
+	return removeDirectory()
 }
 
 func isFile virtual as bool
 {
-	var st = stat()
-	if(st == null) {
-		return(false)
-	}
-	return(st.isFile())
+	var st = assert stat()
+	return st.isFile()
 }
 
 func isDirectory virtual as bool
 {
-	var st = stat()
-	if(st == null) {
-		return(false)
-	}
-	return(st.isDirectory())
+	var st = assert stat()
+	return st.isDirectory()
 }
 
 func isLink virtual as bool
 {
-	var st = stat()
-	if(st == null) {
-		return(false)
-	}
-	return(st.isLink())
+	var st = assert stat()
+	return st.isLink()
 }
 
 func getSize virtual as int
 {
 	var st = stat()
-	if(st == null) {
-		return(0)
-	}
-	return(st.getSize())
+	if st == null:
+		return 0
+	return st.getSize()
 }
 
 func setMode(mode as int) virtual as bool
 {
-	return(false)
+	return false
 }
 
 func setOwnerUser(uid as int) virtual as bool
@@ -184,27 +191,31 @@ func setOwnerGroup(gid as int) virtual as bool
 	return(false)
 }
 
+func withExtension(ext as string) virtual as File
+{
+	if not ext:
+		return this
+	var bn = baseName()
+	return getSibling(bn .. "." .. ext)
+}
+
 func asExecutable virtual as File
 {
-	if(OS.isWindows()) {
-		if(hasExtension("exe") == false && hasExtension("bat") == false && hasExtension("com") == false) {
-			var bn = baseName()
-			var exe = getSibling(bn .. ".exe")
-			if(exe.isFile()) {
-				return(exe)
-			}
-			var bat = getSibling(bn .. ".bat")
-			if(bat.isFile()) {
-				return(bat)
-			}
-			var com = getSibling(bn .. ".com")
-			if(com.isFile()) {
-				return(com)
-			}
-			return(exe)
+	if OS.isWindows() {
+		if hasExtension("exe") == false && hasExtension("bat") == false && hasExtension("com") == false {
+			var exe = withExtension("exe")
+			if exe.isFile():
+				return exe
+			var bat = withExtension("bat")
+			if bat.isFile():
+				return bat
+			var com = withExtension("com")
+			if com.isFile():
+				return com
+			return exe
 		}
 	}
-	return(this)
+	return this
 }
 
 func getParent virtual as File

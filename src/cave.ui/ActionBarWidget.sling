@@ -31,6 +31,7 @@ ctor(ctx as GuiApplicationContext)
 
 prop widgetBackgroundColor as Color
 prop widgetTextColor as Color
+prop widgetMenuItemSpacing as int #notLiteral
 var widgetTitle as string
 var widgetLeftIconResource as string
 var widgetLeftAction as function
@@ -41,6 +42,9 @@ var label as LabelWidget
 var leftButton as ImageButtonWidget
 var rightButton as ImageButtonWidget
 var box as HorizontalBoxWidget
+var menuItems as HorizontalBoxWidget
+var overlayWidget as LayerWidget
+var canvas as CanvasWidget
 
 func setWidgetTitle(value as string) as this
 {
@@ -57,7 +61,7 @@ func setWidgetTitleAlignment(align as double)
 		widgetTitleContainer.setAlignForIndex(0, align, 0.5)
 }
 
-func setActionBarMargin(margin as int #noLiteral)
+func setActionBarMargin(margin as int #notLiteral)
 {
 	if box:
 		box.setWidgetMargin(margin)
@@ -143,12 +147,49 @@ func onWidgetRemovedFromScreen(screen as ScreenForWidget)
 	}
 }
 
+func configureMenuItems(items as vector<Widget>)
+{
+	if not items:
+		return
+	if not menuItems:
+		return
+	foreach widget in items:
+		menuItems.addWidget(widget)
+}
+
+func setActionBarBackgroundColor(color as Color)
+{
+	if canvas:
+		canvas.setWidgetColor(color)
+}
+
+func addOverlay(widget as Widget)
+{
+	if overlayWidget:
+		overlayWidget.addWidget(widget)
+}
+
+func removeOverlay as bool
+{
+	if not overlayWidget:
+		return false
+	Widget.removeChildrenOf(overlayWidget)
+	return true
+}
+
+func clearMenuItems
+{
+	if menuItems:
+		Widget.removeChildrenOf(menuItems)
+}
+
 func initializeWidget override
 {
 	base.initializeWidget()
 	var bgc = widgetBackgroundColor
 	if(bgc != null) {
-		addWidget(CanvasWidget.forColor(context, bgc))
+		canvas = CanvasWidget.forColor(context, bgc)
+		addWidget(canvas)
 	}
 	var tml = new TopMarginLayerWidget(context)
 	label = LabelWidget.forText(context, widgetTitle)
@@ -165,10 +206,17 @@ func initializeWidget override
 	widgetTitleContainer = AlignWidget.forWidget(context, label, 0.5, 0.5)
 	box.addWidget(widgetTitleContainer)
 	box.addWidget(new LayerWidget(context), 1.0)
+	var spacing = widgetMenuItemSpacing
+	if spacing < 0:
+		spacing = context.getWidthValue("1mm")
+	menuItems = HorizontalBoxWidget.forContext(context, context.getWidthValue("1mm"), spacing)
+	box.addWidget(menuItems)
 	rightButton = new ImageButtonWidget(context)
 	rightButton.setWidgetButtonHeight(context.getHeightValue("6mm"))
 	box.addWidget(rightButton)
 	updateRightButton()
 	tml.addWidget(box)
+	overlayWidget = new LayerWidget(context)
+	tml.addWidget(overlayWidget)
 	addWidget(tml)
 }
