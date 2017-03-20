@@ -28,16 +28,18 @@ prop ctx as LoggingContext
 prop socket as TCPSocket
 prop serverAddress as string
 var acceptInvalidCertificate as bool
+var sslStream private as !"System.Net.Security.SslStream"
 
-func setAcceptInvalidCertificate(v as bool) override
-{
+func setAcceptInvalidCertificate(v as bool) override:
 	acceptInvalidCertificate = v
+
+func getNetSocket as !"System.Net.Sockets.Socket"
+{
+	var s = assert socket as TCPSocketImpl
+	return s.getNetSocket()
 }
 
 lang "cs" {{{
-	System.Net.Security.SslStream sslStream;
-	System.Collections.Hashtable certificateErrors = new System.Collections.Hashtable();
-
 	public bool ValidateServerCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate certificate, System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors sslPolicyErrors) {
 		if(sslPolicyErrors == System.Net.Security.SslPolicyErrors.None) {
 			return(true);
@@ -54,34 +56,50 @@ lang "cs" {{{
 func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File = null, isServer as bool = false) as bool
 {
 	socket = cSocket as TCPSocket
-	if(socket == null) {
-		return(false)
-	}
+	assert socket
 	var nsocket = (socket as! TCPSocketImpl).getNetSocket()
-	lang "cs" {{{
-		sslStream = new System.Net.Security.SslStream(new System.Net.Sockets.NetworkStream(nsocket), false, new System.Net.Security.RemoteCertificateValidationCallback (ValidateServerCertificate), null);
-		try {
-			sslStream.AuthenticateAsClient(serverAddress);
-		}
-		catch (System.Security.Authentication.AuthenticationException e)
-		{
-			System.Console.WriteLine("Exception: {0}", e.Message);
-			if (e.InnerException != null)
-			{
-				System.Console.WriteLine("Inner exception: {0}", e.InnerException.Message);
+	if isServer {
+		assert certFile
+		var path #used = certFile.getPath()
+		lang "cs" {{{
+			sslStream = new System.Net.Security.SslStream(new System.Net.Sockets.NetworkStream(nsocket), true, new System.Net.Security.RemoteCertificateValidationCallback(ValidateServerCertificate), null);
+			try {
+				System.Security.Cryptography.X509Certificates.X509Certificate2 cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(path, "secret");
+				sslStream.AuthenticateAsServer(cert, true, System.Security.Authentication.SslProtocols.Tls, true);
 			}
-			System.Console.WriteLine ("Authentication failed - closing the connection.");
-			close();
-			return(false);
-		}
-	}}}
-	return(true)
+			catch (System.Exception e)
+			{
+				System.Console.WriteLine("Exception: {0}", e.ToString());
+				System.Console.WriteLine ("Authentication failed - closing the connection.");
+				close();
+				return(false);
+			}
+		}}}
+	}
+	else {
+		lang "cs" {{{
+			sslStream = new System.Net.Security.SslStream(new System.Net.Sockets.NetworkStream(nsocket), false, new System.Net.Security.RemoteCertificateValidationCallback (ValidateServerCertificate), null);
+			try {
+				sslStream.AuthenticateAsClient(serverAddress);
+			}
+			catch (System.Security.Authentication.AuthenticationException e)
+			{
+				System.Console.WriteLine("Exception: {0}", e.Message);
+				if(e.InnerException != null)
+				{
+					System.Console.WriteLine("Inner exception: {0}", e.InnerException.Message);
+				}
+				System.Console.WriteLine ("Authentication failed - closing the connection.");
+				close();
+				return(false);
+			}
+		}}}
+	}
+	return true
 }
 
-func read(buffer as buffer) override as int
-{
-	return(readWithTimeout(buffer, -1))
-}
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
 
 func close override
 {
@@ -91,7 +109,7 @@ func close override
 			sslStream = null;
 		}
 	}}}
-	if(socket != null) {
+	if socket != null {
 		socket.close()
 		socket = null
 	}
@@ -99,9 +117,8 @@ func close override
 
 func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
-	if(buffer == null) {
-		return(0)
-	}
+	if buffer == null:
+		return 0
 	var v = 0
 	lang "cs" {{{
 		if(sslStream != null && socket != null) {
@@ -118,7 +135,7 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 			}
 		}
 	}}}
-	return(v)
+	return v
 }
 
 func write(buffer as buffer, size as int) override as int
@@ -148,10 +165,8 @@ func write(buffer as buffer, size as int) override as int
 			}
 		}
 	}}}
-	return(sz)
+	return sz
 }
 
-func getSocket override as ConnectedSocket
-{
-	return(socket)
-}
+func getSocket override as ConnectedSocket:
+	return socket
