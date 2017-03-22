@@ -205,7 +205,22 @@ func append override as FileWriter
 	return(getMyWriter(false))
 }
 
-// FIXME func Iterator entries virtual stub as Iterator
+func entries override as Iterator<File>
+{
+	var files as array<string>
+	var v = new vector<File>
+	lang "objc" {{{
+		files = [manager contentsOfDirectoryAtPath:path error:nil];
+	}}}
+	if not files:
+		return null
+	foreach p as string in files {
+		Vector.append(v, new this(this.path .. "/" .. p))
+	}
+	var entries as Iterator<File> #force = Vector.iterate(v)
+	return(entries)
+}
+
 func move(dest as File, replace as bool) override stub as bool
 func rename(newname as string, replace as bool) override stub as bool
 func touch override stub as bool
@@ -324,9 +339,13 @@ func isDirectory override as bool
 	return(isdir)
 }
 
+func createDirectory override as bool
+{
+	return lang "objc" bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
+}
+
 func isLink override stub as bool
 func createFifo override stub as bool
-func createDirectory override stub as bool
 func createDirectoryRecursive override stub as bool
 func removeDirectory override stub as bool
 
@@ -336,12 +355,20 @@ func getPath override as string
 }
 
 func isSame(file as File) override stub as bool
-func remove override stub as bool
 func removeRecursive override stub as bool
 func compareModificationTime(file as File) override stub as int
 func directoryName override stub as string
-func baseName override stub as string
 func isIdentical(file as File) override stub as bool
+
+func remove override as bool
+{
+	return lang "objc" bool {{{ [manager removeItemAtPath:path error:nil] }}}
+}
+
+func baseName override as string
+{
+	return lang "objc" string {{{ [manager displayNameAtPath:path] }}}
+}
 
 func getContentsBuffer override as buffer
 {
