@@ -682,6 +682,91 @@ func setWidgetClickHandler(widget as this, handler as function) static
 	}
 }
 
+func setWidgetTouchHandler(widget as this, onStartHandler as function<void, double, double>, onTouchHandler as function<void, double, double>, onEndHandler as function<void, double, double>) static
+{
+	if(widget is CustomContainerWidget) {
+		if(onStartHandler == null || onTouchHandler == null || onEndHandler == null) {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
+		}
+		else {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
+		}
+	}
+	IFDEF("target_iosoc") {
+		/* FIX ME
+		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+		}
+		
+		- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
+			UITouch *aTouch = [touches anyObject];
+			CGPoint loc = [aTouch locationInView:self];
+		
+			float deltaX = loc.x - prevloc.x;
+			float deltaY = loc.y - prevloc.y;
+
+		}
+		- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+		}
+		*/
+	}
+	ELSE IFDEF("target_android") {
+		var othf final #used = onTouchHandler
+		var oshf final #used = onStartHandler
+		var oehf final #used = onEndHandler
+		lang "java" {{{
+			if(onStartHandler == null || onTouchHandler == null || onEndHandler == null) {
+				widget.setOnTouchListener(null);
+			}
+			else {
+				widget.setOnTouchListener(new android.view.View.OnTouchListener() {
+					public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
+						switch (event.getAction()) {
+							case android.view.MotionEvent.ACTION_DOWN:
+								oshf.execute((double)event.getX(), (double)event.getY());
+								break;
+							case android.view.MotionEvent.ACTION_MOVE:
+								othf.execute((double)event.getX(), (double)event.getY());
+								break;
+							case android.view.MotionEvent.ACTION_UP:
+								oehf.execute((double)event.getX(), (double)event.getY());
+								break;
+							default:
+								break;
+						}
+						return true;
+					}
+				});
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			var getCoordinates = function(evt) {
+				var rect = widget.element.getBoundingClientRect();
+				var x = evt.clientX - rect.left;
+				var y = evt.clientY - rect.top;
+				return { x : x, y : y};
+			};
+			var othf = function(evt) {
+				onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+			};
+			var oshf = function(evt) {
+				onStartHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+			};
+			var oehf = function(evt) {
+				onEndHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+			};
+			widget.element.onmousedown = oshf;
+			widget.element.onmousemove = othf;
+			widget.element.onmouseup = oehf;
+		}}}
+		HTMLDOM.setStyle(widget.element, "cursor", "move")
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
 func removeChildrenOf(widget as this) static
 {
 	var children = getChildren(widget)
