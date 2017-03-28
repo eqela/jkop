@@ -682,10 +682,10 @@ func setWidgetClickHandler(widget as this, handler as function) static
 	}
 }
 
-func setWidgetTouchHandler(widget as this, onStartHandler as function<void, double, double>, onTouchHandler as function<void, double, double>, onEndHandler as function<void, double, double>) static
+func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, double, double> = null, onTouchHandler as function<void, double, double> = null, onEndHandler as function<void, double, double> = null) static
 {
 	if(widget is CustomContainerWidget) {
-		if(onStartHandler == null || onTouchHandler == null || onEndHandler == null) {
+		if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
 			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
 		}
 		else {
@@ -697,24 +697,21 @@ func setWidgetTouchHandler(widget as this, onStartHandler as function<void, doub
 		var oshf final #used = onStartHandler
 		var oehf final #used = onEndHandler
 		lang "java" {{{
-			if(onStartHandler == null || onTouchHandler == null || onEndHandler == null) {
+			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
 				widget.setOnTouchListener(null);
 			}
 			else {
 				widget.setOnTouchListener(new android.view.View.OnTouchListener() {
 					public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
-						switch (event.getAction()) {
-							case android.view.MotionEvent.ACTION_DOWN:
-								oshf.execute((double)event.getX(), (double)event.getY());
-								break;
-							case android.view.MotionEvent.ACTION_MOVE:
-								othf.execute((double)event.getX(), (double)event.getY());
-								break;
-							case android.view.MotionEvent.ACTION_UP:
-								oehf.execute((double)event.getX(), (double)event.getY());
-								break;
-							default:
-								break;
+						int action = event.getAction();
+						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+							oshf.execute((double)event.getX(), (double)event.getY());
+						}
+						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+							othf.execute((double)event.getX(), (double)event.getY());
+						}
+						else if(action == android.view.MotionEvent.ACTION_UP && oehf != null) {
+							oehf.execute((double)event.getX(), (double)event.getY());
 						}
 						return true;
 					}
@@ -730,18 +727,24 @@ func setWidgetTouchHandler(widget as this, onStartHandler as function<void, doub
 				var y = evt.clientY - rect.top;
 				return { x : x, y : y};
 			};
-			var othf = function(evt) {
-				onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
-			};
-			var oshf = function(evt) {
-				onStartHandler(getCoordinates(evt).x, getCoordinates(evt).y);
-			};
-			var oehf = function(evt) {
-				onEndHandler(getCoordinates(evt).x, getCoordinates(evt).y);
-			};
-			widget.element.onmousedown = oshf;
-			widget.element.onmousemove = othf;
-			widget.element.onmouseup = oehf;
+			if(onTouchHandler != null) {
+				var othf = function(evt) {
+					onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmousemove = othf;
+			}
+			if(onStartHandler != null) {
+				var oshf = function(evt) {
+					onStartHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmousedown = oshf;
+			}
+			if(onEndHandler != null) {
+				var oehf = function(evt) {
+					onEndHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmouseup = oehf;
+			}
 		}}}
 		HTMLDOM.setStyle(widget.element, "cursor", "move")
 	}
