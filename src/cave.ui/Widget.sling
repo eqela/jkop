@@ -682,6 +682,77 @@ func setWidgetClickHandler(widget as this, handler as function) static
 	}
 }
 
+func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, double, double> = null, onTouchHandler as function<void, double, double> = null, onEndHandler as function<void, double, double> = null) static
+{
+	if(widget is CustomContainerWidget) {
+		if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
+		}
+		else {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
+		}
+	}
+	IFDEF("target_android") {
+		var othf final #used = onTouchHandler
+		var oshf final #used = onStartHandler
+		var oehf final #used = onEndHandler
+		lang "java" {{{
+			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+				widget.setOnTouchListener(null);
+			}
+			else {
+				widget.setOnTouchListener(new android.view.View.OnTouchListener() {
+					public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
+						int action = event.getAction();
+						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+							oshf.execute((double)event.getX(), (double)event.getY());
+						}
+						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+							othf.execute((double)event.getX(), (double)event.getY());
+						}
+						else if(action == android.view.MotionEvent.ACTION_UP && oehf != null) {
+							oehf.execute((double)event.getX(), (double)event.getY());
+						}
+						return true;
+					}
+				});
+			}
+		}}}
+	}
+	ELSE IFDEF("target_html") {
+		lang "js" {{{
+			var getCoordinates = function(evt) {
+				var rect = widget.element.getBoundingClientRect();
+				var x = evt.clientX - rect.left;
+				var y = evt.clientY - rect.top;
+				return { x : x, y : y};
+			};
+			if(onTouchHandler != null) {
+				var othf = function(evt) {
+					onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmousemove = othf;
+			}
+			if(onStartHandler != null) {
+				var oshf = function(evt) {
+					onStartHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmousedown = oshf;
+			}
+			if(onEndHandler != null) {
+				var oehf = function(evt) {
+					onEndHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+				};
+				widget.element.onmouseup = oehf;
+			}
+		}}}
+		HTMLDOM.setStyle(widget.element, "cursor", "move")
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
+}
+
 func removeChildrenOf(widget as this) static
 {
 	var children = getChildren(widget)
