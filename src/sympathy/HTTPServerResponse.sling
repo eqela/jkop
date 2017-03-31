@@ -24,6 +24,104 @@
 
 class imports cape imports capex.util imports capex.text imports capex.crypto:
 
+func parseBuffer(data as buffer) static as this
+{
+	if(data == null) {
+		return(null)
+	}
+	var version as string
+	var statusCode as string
+	var statusMessage as string
+	var key as string
+	var headers as KeyValueList<string,string>
+	var hdr as StringBuilder
+	var contentLength = 0
+	var bodyBuffer as buffer
+	var sz = Buffer.getSize(data)
+	var p = 0
+	while p < sz {
+		var c = (data[p] & 0xFF) as! char
+		p++
+		if c == '\r':
+			continue
+		if version == null {
+			if c == ' ' {
+				if hdr != null {
+					version = hdr.toString()
+					hdr = null
+				}
+				continue
+			}
+		}
+		else if statusCode == null {
+			if c == ' ' {
+				if hdr != null {
+					statusCode = hdr.toString()
+					hdr = null
+				}
+				continue
+			}
+		}
+		else if statusMessage == null {
+			if c == '\n' {
+				if hdr != null {
+					statusMessage = hdr.toString()
+					hdr = null
+				}
+				continue
+			}
+		}
+		else if key == null {
+			if c == ':' {
+				if hdr != null {
+					key = hdr.toString()
+					hdr = null
+				}
+				continue
+			}
+			else if c == '\n' {
+				if hdr != null:
+					return null
+				break
+			}
+		}
+		else if c == ' ' && hdr == null {
+			continue
+		}
+		else if c == '\n' {
+			var value as string = null
+			if hdr != null {
+				value = hdr.toString()
+				hdr = null
+			}
+			if headers == null:
+				headers = new KeyValueList<string,string>()
+			headers.add(key, value)
+			if String.equalsIgnoreCase(key, "content-length") && value != null {
+				contentLength = Integer.asInteger(value)
+			}
+			else if String.equalsIgnoreCase(key, "transfer-encoding") && value != null && String.contains(value, "chunked") {
+				return null
+			}
+			key = null
+			continue
+		}
+		if hdr == null:
+			hdr = new StringBuilder()
+		hdr.append(c)
+		if hdr.count() > 32 * 1024:
+			return null
+	}
+	if contentLength > 0:
+		bodyBuffer = Buffer.getSubBuffer(data, p, -1)
+	var resp = new this()
+	resp.setStatus(statusCode)
+	resp.setMessage(statusMessage)
+	resp.setHeaders(headers)
+	resp.setBody(bodyBuffer)
+	return resp
+}
+
 func forFile(file as File, maxCachedSize as int = -1) static as this
 {
 	if(file == null || file.isFile() == false) {
