@@ -27,20 +27,58 @@ class is WidgetWithLayout is HeightAwareWidget imports cape imports cave:
 IFDEF("target_iosoc")
 {
 	basetype !"UIScrollView" type extends
+	basetype !"UIScrollViewDelegate" type implements
 	basetype Widget type isAlso
 
 	lang "objc" {{{
+		- (void) scrollViewDidScroll:(UIScrollView *) scrollView {
+			if([scrollView.panGestureRecognizer translationInView:scrollView].y > 0) {
+				[self onScroll:1];
+			}
+			else {
+				[self onScroll:0];
+			}
+		}
+
 		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
 			[self endEditing:YES];
 			[super touchesBegan:touches withEvent:event];
 		}
 	}}}
+
+	func onScroll(direction as int)
+	{
+		if onScrolledHandler:
+			onScrolledHandler(direction)
+	}
 }
 
 IFDEF("target_android")
 {
 	basetype !"android.widget.ScrollView" type extends
 	basetype Widget type isAlso
+
+	func onScrollChanged(x as int, y as int, oldx as int, oldy as int)
+	{
+		if not onScrolledHandler:
+			return
+		var h = Widget.getHeight(this)
+		var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
+		if((y + h) >= ch) {
+			onScrolledHandler(0)
+			return
+		}
+		if y < 0 || oldy < 0 {
+			onScrolledHandler(1)
+			return
+		}
+		if(y > oldy) {
+			onScrolledHandler(0)
+		}
+		else if (y < oldy) {
+			onScrolledHandler(1)
+		}
+	}
 }
 
 IFDEF("target_html")
@@ -66,6 +104,7 @@ func forWidget(context as GuiApplicationContext, widget as Widget) static as thi
 	return(v)
 }
 
+prop onScrolledHandler as function<void, int>
 var layoutHeight = -1
 var heightChanged = false
 
@@ -79,6 +118,11 @@ ctor(context as GuiApplicationContext)
 			setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
 			setFocusable(true);
 			setFocusableInTouchMode(true);
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			self.delegate = self;
 		}}}
 	}
 }
@@ -112,12 +156,13 @@ func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 			mh = ch
 		}
 	}
+	var mh2 = mh
 	var eh = Widget.getHeight(this)
-	if eh > 0 && mh > eh:
-		mh = eh
+	if eh > 0 && mh2 > eh:
+		mh2 = eh
 	heightChanged = false
 	layoutHeight = mh
-	Widget.setLayoutSize(this, mw, mh)
+	Widget.setLayoutSize(this, mw, mh2)
 	IFDEF("target_iosoc") {
 		lang "objc" {{{
 			self.contentSize = CGSizeMake(mw,mh);

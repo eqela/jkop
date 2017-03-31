@@ -1,0 +1,941 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WSSocket imports cape imports capex.net imports capex.util imports capex.crypto:
+
+class MyWSMessage
+{
+	const CLOSE_FRAME = 8
+	const PING_FRAME = 9
+	const PONG_FRAME = 10
+
+	var fin = 0
+	var rsv1 = 0
+	var rsv2 = 0
+	var rsv3 = 0
+	var opcode = 0
+	var maskingBuffer as buffer
+	var payloadBuffer as buffer
+	var messageBuffer as buffer
+
+	func create(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, maskingBuffer as buffer, payloadBuffer as buffer) static as this:
+		return new this().setFin(fin).setRsv1(rsv1).setRsv2(rsv2).setRsv3(rsv3).setOpcode(opcode).setMaskingBuffer(maskingBuffer).setPayloadBuffer(payloadBuffer)
+
+	dtor
+	{
+		messageBuffer = null
+		maskingBuffer = null
+		payloadBuffer = null
+	}
+
+	func onChanged private:
+		messageBuffer = null
+
+	func setFin(fin as int) as this
+	{
+		this.fin = fin
+		onChanged()
+		return this
+	}
+
+	func getFin as int:
+		return fin
+
+	func setRsv1(rsv1 as int) as this
+	{
+		this.rsv1 = rsv1
+		onChanged()
+		return this
+	}
+
+	func getRsv1 as int:
+		return rsv1
+
+	func setRsv2(rsv2 as int) as this
+	{
+		this.rsv2 = rsv2
+		onChanged()
+		return this
+	}
+
+	func getRsv2 as int:
+		return rsv2
+
+	func setRsv3(rsv3 as int) as this
+	{
+		this.rsv3 = rsv3
+		onChanged()
+		return this
+	}
+
+	func getRsv3 as int:
+		return rsv3
+
+	func setOpcode(opcode as int) as this
+	{
+		this.opcode = opcode
+		onChanged()
+		return this
+	}
+
+	func getOpcode as int:
+		return opcode
+
+	func setMaskingBuffer(maskingBuffer as buffer) as this
+	{
+		this.maskingBuffer = maskingBuffer
+		onChanged()
+		return this
+	}
+
+	func getMaskingBuffer as buffer:
+		return maskingBuffer
+
+	func setPayloadBuffer(payloadBuffer as buffer) as this
+	{
+		this.payloadBuffer = payloadBuffer
+		onChanged()
+		return this
+	}
+
+	func getPayloadBuffer as buffer:
+		return payloadBuffer
+
+	func forCloseControlFrame(statusCode as int = -1, reason as string = null) static as this
+	{
+		if statusCode < 65536 && statusCode > -1 {
+			if String.isEmpty(reason) == false {
+				var rBuffer = String.toUTF8Buffer(reason)
+				var size = SIZE(rBuffer)
+				var plBuffer = Buffer.allocate(size + 2)
+				Buffer.setByte(plBuffer, 0, (statusCode >> 8) & 0xFF)
+				Buffer.setByte(plBuffer, 1, statusCode & 0xFF)
+				Buffer.copyFrom(plBuffer, rBuffer, 0, 2, size)
+				return new this().setFin(1).setOpcode(CLOSE_FRAME).setPayloadBuffer(plBuffer)
+			}
+			var plBuffer = Buffer.allocate(2)
+			Buffer.setByte(plBuffer, 0, (statusCode >> 8) & 0xFF)
+			Buffer.setByte(plBuffer, 1, statusCode & 0xFF)
+			return new this().setFin(1).setOpcode(CLOSE_FRAME).setPayloadBuffer(plBuffer)
+		}
+		return new this().setFin(1).setOpcode(CLOSE_FRAME)
+	}
+
+	func forPingControlFrame static as this:
+		return new this().setFin(1).setOpcode(PING_FRAME)
+
+	func forPongControlFrame static as this:
+		return new this().setFin(1).setOpcode(PONG_FRAME)
+
+	func isDataText as bool:
+		return opcode == 1
+
+	func isDataBinary as bool:
+		return opcode == 1
+
+	func isCloseControlFrame as bool:
+		return opcode == CLOSE_FRAME
+
+	func isPingControlFrame as bool:
+		return opcode == PING_FRAME
+
+	func isPongControlFrame as bool:
+		return opcode == PONG_FRAME
+
+	func toBuffer as buffer
+	{
+		if messageBuffer != null:
+			return messageBuffer
+
+		// Calculate the total size of the message buffer
+
+		var size = 2
+		if maskingBuffer != null:
+			size += 4
+		var payloadLength = 0
+		if payloadBuffer != null:
+			payloadLength = SIZE(payloadBuffer)
+		var plb = 0
+		if payloadLength < 126 && payloadLength >= 0 {
+			plb = payloadLength
+		}
+		else if payloadLength < 65536 {
+			plb = 126
+			size += 2
+		}
+		else if payloadLength > 65535 {
+			plb = 127
+			size += 8
+		}
+		else {
+			return null
+		}
+		size += payloadLength
+
+		// Allocate a new buffer with the calculated size
+
+		messageBuffer = Buffer.allocate(size)
+
+		// Set the first byte
+
+		var b1 as uint8 = opcode
+		if fin != 0:
+			b1 |= 0x80
+		if rsv1 != 0:
+			b1 |= 0x40
+		if rsv2 != 0:
+			b1 |= 0x20
+		if rsv3 != 0:
+			b1 |= 0x10
+		Buffer.setByte(messageBuffer, 0, b1)
+
+		// Set the second byte
+
+		var b2 as uint8
+		b2 = plb
+		if maskingBuffer != null:
+			b2 |= 0x80
+		Buffer.setByte(messageBuffer, 1, b2)
+
+		// Set the following 2 bytes - 16bit (if payload length < 65536 && payload length > 125)
+		// or the following 8 bytes - 64bit (if payload length > 65535)
+
+		var p = 2
+		var tp = p
+		var n = 0
+		if plb == 126 {
+			n = 8
+			tp += 2
+		}
+		else if plb == 127 {
+			n = 56
+			tp += 8
+		}
+		while p < tp {
+			if n != 0 {
+				Buffer.setByte(messageBuffer, p, (payloadLength >> n) & 0xFF)
+			}
+			else {
+				Buffer.setByte(messageBuffer, p, payloadLength & 0xFF)
+			}
+			p++
+			n -= 8
+		}
+
+		// Append the four bytes of masking buffer if it's not null
+
+		if maskingBuffer != null {
+			Buffer.copyFrom(messageBuffer, maskingBuffer, 0, p, 4)
+			p += 4
+			if payloadBuffer != null {
+
+				// Mask the payload buffer
+
+				var i = 0
+				while i < payloadLength {
+					var b = Buffer.getByte(payloadBuffer, i)
+					var ob = b ^ Buffer.getByte(maskingBuffer, i % 4) as! uint8
+					Buffer.setByte(payloadBuffer, i, ob)
+					i++
+				}
+			}
+		}
+
+		// Append the payload buffer if it's not null
+
+		if payloadBuffer != null:
+			Buffer.copyFrom(messageBuffer, payloadBuffer, 0, p, payloadLength)
+		return messageBuffer
+	}
+}
+
+class MyWSCloseEvent is WSCloseEvent
+{
+	var statusCode private as int
+	var reason private as string
+
+	func setStatusCode(v as int) as this
+	{
+		statusCode = v
+		return this
+	}
+
+	func setReason(v as string) as this
+	{
+		reason = v
+		return this
+	}
+
+	func getStatusCode override as int:
+		return statusCode
+
+	func getReason override as string:
+		return reason
+
+	func forPayloadBuffer(payloadBuffer as buffer) static as WSCloseEvent
+	{
+		assert payloadBuffer
+		var size = SIZE(payloadBuffer)
+		var e = new this()
+		var v as uint16
+		v |= Buffer.getByte(payloadBuffer, 0) << 8
+		v |= Buffer.getByte(payloadBuffer, 1)
+		e.setStatusCode(v)
+		if size - 2 > 0:
+			e.setReason(String.forUTF8Buffer(Buffer.getSubBuffer(payloadBuffer, 2, size - 2)))
+		return e
+	}
+}
+
+class HTTPClientResponse is StringObject imports cape
+{
+	prop httpVersion as string
+	prop httpStatus as string
+	prop httpStatusDescription as string
+	prop rawHeaders as KeyValueListForStrings
+	prop headers as map<string,string>
+
+	func addHeader(key as string, value as string)
+	{
+		if not rawHeaders:
+			rawHeaders = new KeyValueListForStrings()
+		if not headers:
+			headers = new map<string,string>
+		rawHeaders.add(key, value)
+		headers[String.toLowerCase(key)] = value
+	}
+
+	func getHeader(key as string) as string
+	{
+		assert headers
+		return Map.get(headers, key)
+	}
+
+	func toString as string:
+		return String.asString(rawHeaders)
+}
+
+class HTTPResponseParser imports cape
+{
+	var receivedData as buffer = null
+	var headers public as HTTPClientResponse
+	var bodyData public as buffer
+	var isChunked public = false
+	var contentLength public = 0
+	var dataCounter public = 0
+	prop endOfResponse = false
+	prop aborted = false
+
+	func reset virtual
+	{
+		isChunked = false
+		headers = null
+		bodyData = null
+		contentLength = 0
+		dataCounter = 0
+		endOfResponse = false
+		aborted = false
+	}
+
+	func hasEndOfHeaders(buf as buffer, size as long) private as bool
+	{
+		var n = 0
+		var v = false
+		while n <= size - 4 {
+			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n+1) == '\n' && Buffer.getByte(buf, n+2) == '\r' && Buffer.getByte(buf, n+3) == '\n' {
+				v = true
+				break
+			}
+			n++
+		}
+		return v
+	}
+
+	func parseResponseHeader(buf as buffer) private as HTTPClientResponse
+	{
+		var i = 0
+		var p = '0' as uint8
+		var v as HTTPClientResponse
+		var first = true
+		var isChunked = false
+		loop {
+			var sb = new StringBuilder()
+			while ((p = Buffer.getByte(buf, i)) != 0) {
+				if p == '\r' {
+					;
+				}
+				else if p == '\n' {
+					i++
+					break
+				}
+				else {
+					sb.append(p as char)
+				}
+				i++
+			}
+			var t = sb.toString()
+			if String.isEmpty(t) {
+				break
+			}
+			if first {
+				var comps = String.split(t, ' ', 3)
+				v = new HTTPClientResponse()
+				v.setHttpVersion(Vector.get(comps, 0))
+				v.setHttpStatus(Vector.get(comps, 1))
+				v.setHttpStatusDescription(Vector.get(comps, 2))
+			}
+			else {
+				var comps = String.split(t, ':', 2)
+				var key = Vector.get(comps, 0)
+				if String.isEmpty(key) == false {
+					var val = String.strip(Vector.get(comps, 1))
+					v.addHeader(key, val)
+					if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
+						if(val == "chunked") {
+							isChunked = true
+						}
+					}
+					else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
+						contentLength = String.toInteger(val)
+					}
+				}
+			}
+			first = false
+		}
+		var l = Buffer.getSize(buf) - i as long
+		if l > 0 {
+			receivedData = Buffer.getSubBuffer(buf, i, l)
+		}
+		else {
+			receivedData = null
+		}
+		this.isChunked = isChunked
+		return v
+	}
+
+	func getChunk private as buffer
+	{
+		if receivedData == null:
+			return null
+		var i = 0
+		var sb = new StringBuilder()
+		loop {
+			var p = Buffer.getByte(receivedData, i)
+			if p == '\r' {
+				;
+			}
+			else if p == '\n' {
+				i++
+				break
+			}
+			else {
+				sb.append(p as char)
+			}
+			i++
+			if sb.count() >= 16 {
+				// garbage chunk
+				return null
+			}
+		}
+		var cl = -1
+		var t = String.strip(sb.toString())
+		if String.isEmpty(t) == false {
+			cl = String.toIntegerFromHex(t)
+		}
+		var v as buffer
+		if cl > 0 {
+			if Buffer.getSize(receivedData) - i < cl {
+				// FIXME - desired chunk is larger than what we have in buffer. must still wait for the rest to come?
+				return null
+			}
+			v = MALLOC(cl)
+			Buffer.copyFrom(v, receivedData, i, 0, cl)
+			i += cl
+		}
+		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n') {
+			i++
+		}
+		var rem = Buffer.getSize(receivedData) - i as int
+		if rem > 0 {
+			var tmp = receivedData
+			receivedData = MALLOC(rem)
+			Buffer.copyFrom(receivedData, tmp, i, 0, rem)
+		}
+		else {
+			receivedData = null
+		}
+		return v
+	}
+
+	func onDataReceived(buf as buffer, size as long)
+	{
+		if size > 0 {
+			receivedData = Buffer.append(receivedData, buf, size)
+		}
+		if headers == null {
+			if hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
+				headers = parseResponseHeader(receivedData)
+			}
+		}
+		if isChunked {
+			loop {
+				var r = getChunk()
+				if r != null {
+					var sz = Buffer.getSize(r)
+					dataCounter += sz
+					onBodyDataReceived(r, sz)
+				}
+				else {
+					// reset()
+					onEndOfResponse()
+					break
+				}
+				if receivedData == null {
+					break
+				}
+			}
+		}
+		else if contentLength > 0 { // FIXME: Or HTTP/1.0 or HTTP/0.9
+			var rsz = Buffer.getSize(receivedData)
+			if rsz > 0 {
+				if contentLength <= 0 || dataCounter + rsz <= contentLength {
+					var v = receivedData
+					receivedData = null
+					dataCounter += rsz
+					onBodyDataReceived(v, rsz)
+				}
+				else {
+					var vsz = contentLength - dataCounter
+					var v = Buffer.getSubBuffer(receivedData, 0, vsz)
+					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz-vsz)
+					dataCounter += vsz
+					onBodyDataReceived(v, vsz)
+				}
+			}
+			if dataCounter >= contentLength {
+				onEndOfResponse()
+			}
+		}
+		else {
+			onEndOfResponse()
+		}
+	}
+
+	func onBodyDataReceived(buffer as buffer, size as long)
+	{
+		bodyData = Buffer.append(bodyData, buffer)
+	}
+
+	func onEndOfResponse
+	{
+		endOfResponse = true
+	}
+}
+
+class WSHelper imports cape
+{
+	const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+	func getAcceptValueForKey(key as string) static as string
+	{
+		var shaEncoder = assert SHAEncoder.create()
+		return Base64Encoder.encode(shaEncoder.encodeAsBuffer(String.toUTF8Buffer(key .. WEBSOCKET_GUID), SHAEncoder.SHA1))
+	}
+
+	func generateKey static as string
+	{
+		// FIXME: Should generate a random 16-byte key for security.
+		return Base64Encoder.encode(String.toUTF8Buffer("EXTREMEPERFORMED"))
+	}
+
+	func createOpenHandshakeHTTPRequest(url as URL, key as string) static as buffer
+	{
+		// FIXME: This is temporary, there can be more additions to this.
+		assert (url && key)
+		var sb = new StringBuilder()
+		sb.append("GET ")
+		var path = url.toStringNohost()
+		if String.isEmpty(path) {
+			sb.append('/')
+		}
+		else {
+			if String.getIndexOf(path, '/') != 0:
+				sb.append('/')
+			sb.append(path)
+		}
+		sb.append(" HTTP/1.1\r\n")
+		sb.append("Host: ")
+		sb.append(url.getHost())
+		var port = url.getPort()
+		if port != null {
+			sb.append(':')
+			sb.append(port)
+		}
+		sb.append("\r\n")
+		sb.append("Upgrade: websocket\r\n")
+		sb.append("Connection: Upgrade\r\n")
+		sb.append("Sec-WebSocket-Key: ")
+		sb.append(key)
+		sb.append("\r\nSec-WebSocket-Version: 13\r\n\r\n")
+		return String.toUTF8Buffer(sb.toString())
+	}
+
+	func createOpenHandshakeHTTPResponse(key as string) static as buffer
+	{
+		// FIXME: This is temporary, there can be more additions to this.
+		assert key
+		var sb = new StringBuilder()
+		sb.append("HTTP/1.1 101 Switching Protocols\r\n")
+		sb.append("Upgrade: websocket\r\n")
+		sb.append("Connection: Upgrade\r\n")
+		sb.append("Sec-WebSocket-Accept: ")
+		sb.append(getAcceptValueForKey(key))
+		sb.append("\r\n\r\n")
+		return String.toUTF8Buffer(sb.toString())
+	}
+
+	func generateMaskingKey static as buffer
+	{
+		// FIXME: Generate a unique 32-bit buffer
+		return String.toUTF8Buffer("byte")
+	}
+}
+
+var client private as TCPClient
+var key private as string
+var accept private as string
+var parser private as HTTPResponseParser
+var leftOverBuffer as buffer = null
+var frameNo = 1
+
+func processData(data as buffer, size as int) private as bool
+{
+	if data == null || size < 1 {
+		return false
+	}
+	var nbuffer as buffer
+	var nsize as int
+	if leftOverBuffer != null {
+		var losize = SIZE(leftOverBuffer)
+		nsize = losize + size
+		nbuffer = Buffer.allocate(nsize)
+		Buffer.copyFrom(nbuffer, leftOverBuffer, 0, 0, losize)
+		Buffer.copyFrom(nbuffer, data, 0, losize, size)
+		leftOverBuffer = null
+	}
+	else {
+		nbuffer = data
+		nsize = size
+	}
+	var p = 0
+	var fin = 0
+	var rsv1 = 0
+	var rsv2 = 0
+	var rsv3 = 0
+	var opcode = 0
+	var mask = 0
+	var payloadLength = 0
+	var lastMaskingBufferIndex = 0
+	var mi = 0
+	var maskingBuffer as buffer
+	var payloadBuffer as buffer
+	while p < nsize {
+		var b = Buffer.getByte(nbuffer, p)
+		if p == 0 {
+			if b & 0x80:
+				fin = 1
+			if b & 0x40:
+				rsv1 = 1
+			if b & 0x20:
+				rsv2 = 1
+			if b & 0x10:
+				rsv3 = 1
+			opcode = b & 0x0f
+		}
+		else if p == 1 {
+			mask = b & 0x80
+			if mask == 0 {
+				;
+			}
+			else {
+				maskingBuffer = Buffer.allocate(4)
+			}
+			payloadLength = b & 0x7f
+			if payloadLength >= 0 && payloadLength < 126 {
+				p++
+				if maskingBuffer != null:
+					lastMaskingBufferIndex = p + 3
+				continue
+			}
+			else if payloadLength == 126 {
+				var v as uint16
+				v |= Buffer.getByte(nbuffer, p + 1) << 8
+				v |= Buffer.getByte(nbuffer, p + 2)
+				payloadLength = v
+				p += 3
+				if maskingBuffer != null:
+					lastMaskingBufferIndex = p + 3
+				continue
+			}
+			else if payloadLength == 127 {
+				var v as uint64
+				v |= Buffer.getByte(nbuffer, p + 1) & 0x7f << 56
+				v |= Buffer.getByte(nbuffer, p + 2) << 48
+				v |= Buffer.getByte(nbuffer, p + 3) << 40
+				v |= Buffer.getByte(nbuffer, p + 4) << 32
+				v |= Buffer.getByte(nbuffer, p + 5) << 24
+				v |= Buffer.getByte(nbuffer, p + 6) << 16
+				v |= Buffer.getByte(nbuffer, p + 7) << 8
+				v |= Buffer.getByte(nbuffer, p + 8)
+				payloadLength = v
+				p += 9
+				if maskingBuffer != null:
+					lastMaskingBufferIndex = p + 3
+				continue
+			}
+			return false
+		}
+		else if p <= lastMaskingBufferIndex {
+			Buffer.setByte(maskingBuffer, mi, b)
+			mi++
+		}
+		else {
+			break
+		}
+		p++
+	}
+	var frameLength = p + payloadLength
+	if nsize < frameLength {
+		leftOverBuffer = Buffer.allocate(nsize)
+		Buffer.copyFrom(leftOverBuffer, nbuffer, 0, 0, nsize)
+		frameNo ++
+		return true
+	}
+	payloadBuffer = Buffer.allocate(payloadLength)
+	Buffer.copyFrom(payloadBuffer, nbuffer, p, 0, payloadLength)
+	processFrame(fin, rsv1, rsv2, rsv3, opcode, mask, maskingBuffer, payloadLength, payloadBuffer)
+	frameNo = 1
+	if nsize > frameLength {
+		var losize = nsize - frameLength
+		leftOverBuffer = Buffer.allocate(losize)
+		Buffer.copyFrom(leftOverBuffer, nbuffer, frameLength, 0, losize)
+	}
+	return true
+}
+
+func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, mask as int, maskingBuffer as buffer, payloadLength as long, payloadBuffer as buffer) private
+{
+	if fin == 0 {
+		return
+	}
+	// No payload masking for client
+	onNewMessage(MyWSMessage.create(fin, rsv1, rsv2, rsv3, opcode, maskingBuffer, payloadBuffer))
+}
+
+func onNewMessage(message as MyWSMessage) private
+{
+	if message.isCloseControlFrame() {
+		close(WSCloseEvent.CLOSE_NORMAL, null)
+	}
+	else if message.isPingControlFrame() {
+		doSend(MyWSMessage.forPongControlFrame())
+	}
+	else if message.isPongControlFrame() {
+		; // Ignoring Pong control frame received.
+	}
+	else {
+		var c = getOnMessageCallback()
+		if c != null {
+			if message.isDataText() {
+				c(WSMessage.forStringData(String.forUTF8Buffer(message.getPayloadBuffer())))
+			}
+			else {
+				c(WSMessage.forData(message.getPayloadBuffer()))
+			}
+			return
+		}
+	}
+}
+
+ctor
+{
+	key = WSHelper.generateKey()
+	accept = WSHelper.getAcceptValueForKey(key)
+}
+
+dtor
+{
+	key = null
+	accept = null
+	if parser {
+		parser.reset()
+		parser = null
+	}
+}
+
+func connect(url as string, protocols as string) override
+{
+	if client {
+		client.disconnect(func(de as Error) {
+			var c = getOnErrorCallback()
+			if c != null:
+				c()
+		})
+		client = null
+	}
+	client = TCPClient.instance()
+	assert client {
+		var c = getOnErrorCallback()
+		if c != null:
+			c()
+	}
+	var u final = assert URL.forString(url) {
+		var c = getOnErrorCallback()
+		if c != null:
+			c()
+	}
+	var port = u.getPortInt()
+	if port < 1 {
+		port = 80
+	}
+	client.connect(u.getHost(), port, func(e as Error) {
+		assert e {
+			parser = new HTTPResponseParser()
+			client.receive(func(data as buffer, size as int) {
+				onOpenHandshakeResponse(data, size)
+			})
+			var v = WSHelper.createOpenHandshakeHTTPRequest(u, key)
+			client.send(v, SIZE(v), func(oe as Error) {
+				assert oe
+				client.disconnect(func(de as Error) {
+					var c = getOnErrorCallback()
+					if c != null:
+						c()
+				})
+			})
+		}
+		var c = getOnErrorCallback()
+		if c != null:
+			c()
+	})
+}
+
+func onOpenHandshakeResponse(data as buffer, size as int) private
+{
+	assert parser
+	if size < 1 {
+		var c = getOnErrorCallback()
+		if c != null:
+			c()
+		return
+	}
+	parser.onDataReceived(data, size)
+	assert parser.getEndOfResponse()
+	var headers = parser.headers
+	parser.reset()
+	parser = null
+	var statusCode = headers.getHttpStatus()
+	if statusCode == "101" {
+		if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
+			var c = getOnErrorCallback()
+			if c != null:
+				c()
+			return
+		}
+		else if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
+			var c = getOnErrorCallback()
+			if c != null:
+				c()
+			return
+		}
+		else if String.equalsIgnoreCase("upgrade", headers.getHeader("connection")) == false {
+			var c = getOnErrorCallback()
+			if c != null:
+				c()
+			return
+		}
+		else if String.equals(accept, headers.getHeader("sec-websocket-accept")) == false {
+			var c = getOnErrorCallback()
+			if c != null:
+				c()
+			return
+		}
+		client.receive(func(d as buffer, sz as int) {
+			if processData(d, sz) == false {
+				; // FIXME:
+			}
+		})
+		var c = getOnOpenCallback()
+		if c != null:
+			c()
+		return
+	}
+	var c = getOnErrorCallback()
+	if c != null:
+		c()
+}
+
+func send(message as WSMessage) override
+{
+	assert message
+	assert client
+	var v as MyWSMessage
+	if message.isText() {
+		v = MyWSMessage.create(1, 0, 0, 0, 1, WSHelper.generateMaskingKey(), message.getData())
+	}
+	else {
+		v = MyWSMessage.create(1, 0, 0, 0, 2, WSHelper.generateMaskingKey(), message.getData())
+	}
+	doSend(v)
+}
+
+func doSend(message as MyWSMessage) private
+{
+	assert message
+	var data = message.toBuffer()
+	client.send(data, SIZE(data), func(e as Error) {
+		assert e
+		var c = getOnErrorCallback()
+		if c != null:
+			c()
+	})
+}
+
+func close(statusCode as int, reason as string) override
+{
+	assert client
+	var data = MyWSMessage.forCloseControlFrame(WSCloseEvent.CLOSE_NORMAL).toBuffer()
+	client.send(data, SIZE(data), func(e as Error) {
+		var c = getOnCloseCallback()
+		assert e {
+			if c != null:
+				c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_NORMAL))
+		}
+		var ec = getOnErrorCallback()
+		if ec != null:
+			ec()
+		if c != null:
+			c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+	})
+}

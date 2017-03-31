@@ -1,0 +1,425 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPClient imports cape:
+
+depend "androidPermission:android.permission.INTERNET"
+
+interface TCPClientTask
+{
+}
+
+class TCPEvent
+{
+	prop callback as function<void, Error>
+}
+
+class TCPResponseEvent is TCPEvent
+{
+	prop data as buffer
+	prop size as int
+}
+
+class TCPErrorEvent is TCPEvent
+{
+	prop error as Error
+}
+
+class TCPConnectTask is TCPClientTask
+{
+	prop address as string
+	prop port as int
+	prop callback as function<void, Error>
+}
+
+class TCPSendTask is TCPClientTask
+{
+	prop data as buffer
+	prop size as int
+	prop callback as function<void, Error>
+}
+
+class TCPDisconnectTask is TCPClientTask
+{
+	prop callback as function<void, Error>
+}
+
+class AsyncListener is !"android.os.AsyncTask<Void, TCPEvent, Void>"
+{
+	prop callback as function<void, buffer, int>
+	prop socket as TCPSocket
+	var receiveBuffer private as buffer
+
+	ctor:
+		receiveBuffer = MALLOC(64 * 1024)
+
+	dtor:
+		receiveBuffer = null
+
+	func sendEvent(e as TCPEvent) private
+	{
+		lang "java" {{{
+			publishProgress(e);
+		}}}
+	}
+
+	func close private
+	{
+		if socket != null {
+			socket.close()
+			socket = null
+		}
+	}
+
+	func onDoInBackground private
+	{
+		loop {
+			var isCancelled = lang "java" bool {{{ isCancelled() }}}
+			if isCancelled {
+				close()
+				return
+			}
+			assert socket
+			var r = socket.read(receiveBuffer)
+			if r < 0 {
+				close()
+				return
+			}
+			else if r == 0 {
+				continue
+			}
+			sendEvent(new TCPResponseEvent().setData(receiveBuffer).setSize(r))
+		}
+	}
+
+	func onTaskUpdate(e as TCPEvent) private
+	{
+		assert e
+		if e is TCPErrorEvent {
+			if callback != null:
+				callback(null, 0)
+			return
+		}
+		else if e is TCPResponseEvent {
+			var v = e as! TCPResponseEvent
+			if callback != null:
+				callback(v.getData(), v.getSize())
+		}
+	}
+
+	lang "java" {{{
+		protected Void doInBackground(Void... o) {
+			onDoInBackground();
+			return null;
+		}
+
+		protected void onProgressUpdate(TCPEvent... e) {
+			onTaskUpdate(e[0]);
+		}
+	}}}
+}
+
+class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
+{
+	ctor
+	{
+		lang "java" {{{
+			blockingQueue = new java.util.concurrent.LinkedBlockingQueue<TCPClientTask>();
+		}}}
+	}
+
+	dtor
+	{
+		lang "java" {{{
+			if(blockingQueue != null) {
+				blockingQueue.clear();
+				blockingQueue = null;
+			}
+		}}}
+	}
+
+	prop socket as TCPSocket
+	var blockingQueue private as !"java.util.concurrent.BlockingQueue<TCPClientTask>"
+
+	func pushTask(t as TCPClientTask) as bool
+	{
+		var v = true
+		assert blockingQueue
+		lang "java" {{{
+			try {
+				blockingQueue.put(t);
+			}
+			catch(java.lang.Exception e) {
+				v = false;
+				e.printStackTrace();
+			}
+		}}}
+		return(v)
+	}
+
+	func popTask private as TCPClientTask
+	{
+		var v as TCPClientTask
+		assert blockingQueue
+		lang "java" {{{
+			try {
+				v = blockingQueue.take();
+			}
+			catch(java.lang.Exception e) {
+				v = null;
+				e.printStackTrace();
+			}
+		}}}
+		return(v)
+	}
+
+	func close private
+	{
+		if socket != null {
+			socket.close()
+			socket = null
+		}
+	}
+
+	func onConnectTask(t as TCPConnectTask) private
+	{
+		assert t {
+			close()
+		}
+		var c = t.getCallback()
+		assert socket
+		if socket.connect(t.getAddress(), t.getPort()) == false {
+			close()
+			if c != null {
+				var e = new TCPErrorEvent()
+				e.setError(Error.forMessage("Failed to establish a connection"))
+				e.setCallback(c)
+				sendEvent(e)
+			}
+			return
+		}
+		if c != null {
+			var e = new TCPEvent()
+			e.setCallback(c)
+			sendEvent(e)
+		}
+	}
+
+	func onSendTask(t as TCPSendTask) private
+	{
+		assert t
+		var data = t.getData()
+		var size = t.getSize()
+		var c = t.getCallback()
+		assert socket {
+			close()
+			if c != null {
+				var e = new TCPErrorEvent()
+				e.setError(Error.forMessage("No open connection"))
+				e.setCallback(c)
+				sendEvent(e)
+			}
+		}
+		if socket.write(data, size) < 1 {
+			close()
+			if c != null {
+				var e = new TCPErrorEvent()
+				e.setError(Error.forMessage("Failed to send"))
+				e.setCallback(c)
+				sendEvent(e)
+			}
+			return
+		}
+		if c != null {
+			var e = new TCPEvent()
+			e.setCallback(c)
+			sendEvent(e)
+		}
+	}
+
+	func sendEvent(e as TCPEvent) private
+	{
+		lang "java" {{{
+			publishProgress(e);
+		}}}
+	}
+
+	func onDoInBackground private
+	{
+		loop {
+			var t = popTask()
+			assert t
+			var isCancelled = lang "java" bool {{{ isCancelled() }}}
+			if isCancelled {
+				return
+			}
+			else if t is TCPConnectTask {
+				onConnectTask(t as! TCPConnectTask)
+				continue
+			}
+			else if t is TCPDisconnectTask {
+				close()
+				var c = (t as! TCPDisconnectTask).getCallback()
+				if c != null {
+					var e = new TCPEvent()
+					e.setCallback(c)
+					sendEvent(e)
+				}
+				continue
+			}
+			else if t is TCPSendTask {
+				onSendTask(t as! TCPSendTask)
+				continue
+			}
+		}
+	}
+
+	func onTaskUpdate(e as TCPEvent) private
+	{
+		assert e
+		if e is TCPErrorEvent {
+			var v = e as! TCPErrorEvent
+			var c = v.getCallback()
+			if c != null:
+				c(v.getError())
+			return
+		}
+		var c = e.getCallback()
+		if c != null:
+			c(null)
+	}
+
+	lang "java" {{{
+		protected Void doInBackground(Void... o) {
+			onDoInBackground();
+			return null;
+		}
+
+		protected void onProgressUpdate(TCPEvent... e) {
+			onTaskUpdate(e[0]);
+		}
+	}}}
+}
+
+var worker private as AsyncWorker
+var listener private as AsyncListener
+var socket private as TCPSocket
+
+func initializeWorker private
+{
+	deinitializeWorker()
+	socket = TCPSocket.create()
+	worker = new AsyncWorker()
+	worker.setSocket(socket)
+	lang "java" {{{
+		try {
+			worker.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			worker = null;
+		}
+	}}}
+}
+
+func deinitializeWorker private
+{
+	if worker != null {
+		lang "java" {{{
+			worker.cancel(true);
+		}}}
+		worker = null
+	}
+	if listener != null {
+		lang "java" {{{
+			listener.cancel(true);
+		}}}
+		listener = null
+	}
+	socket = null
+}
+
+func connect(address as string, port as int, callback as function<void,Error>) override
+{
+	initializeWorker()
+	assert worker {
+		callback(Error.forMessage("Failed to establish a connection"))
+	}
+	var t = new TCPConnectTask()
+	t.setAddress(address)
+	t.setPort(port)
+	t.setCallback(callback)
+	if worker.pushTask(t) == false:
+		callback(Error.forMessage("Failed to establish a connection"))
+}
+
+func receive(callback as function<void,buffer,int>) override
+{
+	if listener != null {
+		listener.setCallback(callback)
+		return
+	}
+	assert callback
+	assert socket
+	listener = new AsyncListener()
+	listener.setSocket(socket)
+	listener.setCallback(callback)
+	lang "java" {{{
+		try {
+			listener.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			listener = null;
+		}
+	}}}
+}
+
+func send(data as buffer, size as int, callback as function<void,Error>) override
+{
+	assert worker {
+		callback(Error.forMessage("No open connection"))
+	}
+	var t = new TCPSendTask()
+	t.setData(data)
+	t.setSize(size)
+	t.setCallback(callback)
+	if worker.pushTask(t) == false:
+		callback(Error.forMessage("Failed to send data"))
+}
+
+func disconnect(callback as function<void,Error>) override
+{
+	assert worker {
+		callback(Error.forMessage("No open connection"))
+	}
+	var t = new TCPDisconnectTask()
+	var c final = callback
+	t.setCallback(func(e as Error) {
+		deinitializeWorker()
+		c(e)
+	})
+	if worker.pushTask(t) == false:
+		callback(Error.forMessage("Failed to close the connection"))
+}

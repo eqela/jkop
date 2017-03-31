@@ -1,0 +1,235 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPClient is ConnectedSocket implements !"NSStreamDelegate" imports cape:
+
+class SendTask
+{
+	prop data as buffer
+	prop size as int
+	prop callback as function<void, Error>
+}
+
+var inputStream private as !"NSInputStream*"
+var outputStream private as !"NSOutputStream*"
+var receiveBuffer private as buffer
+var sendTaskQueue private as vector<SendTask>
+var sendTaskQueueMaxSize private = 1024 * 1024
+var connectCallback private as function<void, Error>
+var receiveCallback private as function<void, buffer, int>
+
+lang "objc" {{{
+	-(void)stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
+	{
+		if(streamEvent == NSStreamEventNone) {
+		}
+		else if(streamEvent == NSStreamEventOpenCompleted) {
+			if(theStream == outputStream) {
+				[self onStreamOpened];
+			}
+		}
+		else if(streamEvent == NSStreamEventHasBytesAvailable) {
+			[self onBytesAvailable];
+		}
+		else if(streamEvent == NSStreamEventHasSpaceAvailable) {
+			[self onSpaceAvailable];
+		}
+		else if(streamEvent == NSStreamEventErrorOccurred) {
+			[self onStreamError:[[theStream streamError] localizedDescription]];
+		}
+		else if(streamEvent == NSStreamEventEndEncountered) {
+			[self onStreamClosed];
+		}
+		else {
+		}
+	}
+}}}
+
+ctor:
+	receiveBuffer = MALLOC(64 * 1024)
+
+dtor
+{
+	close()
+	receiveBuffer = null
+	sendTaskQueue = null
+	connectCallback = null
+	receiveCallback = null
+}
+
+func onStreamOpened private
+{
+	assert connectCallback
+	connectCallback(null)
+	connectCallback = null
+}
+
+func onStreamError(error as string)
+{
+	close()
+	if connectCallback != null {
+		connectCallback(Error.forMessage(error))
+		connectCallback = null
+	}
+	else if receiveCallback != null {
+		receiveCallback(null, 0)
+	}
+}
+
+func onStreamClosed private:
+	close()
+
+func onBytesAvailable private
+{
+	var r = read(receiveBuffer)
+	if r < 0:
+		close()
+	if receiveCallback != null:
+		receiveCallback(receiveBuffer, r)
+}
+
+func read(data as buffer) private as int
+{
+	var v as int
+	lang "objc" {{{
+		v = (int)[inputStream read:[data mutableBytes] maxLength:[data length]];
+	}}}
+	return v
+}
+
+func onSpaceAvailable private
+{
+	assert sendTaskQueue
+	var stq = sendTaskQueue
+	sendTaskQueue = null
+	foreach(st as SendTask in stq) {
+		onSendTask(st)
+	}
+}
+
+func onSendTask(st as SendTask) private
+{
+	assert st
+	var data #used = st.getData()
+	var sz = st.getSize()
+	var cb = st.getCallback()
+	if sz < 0 {
+		lang "objc" {{{
+			sz = [data length];
+		}}}
+	}
+	if lang "objc" bool {{{ outputStream.hasSpaceAvailable }}} == false {
+		if sendTaskQueue == null:
+			sendTaskQueue = new vector<SendTask>
+		if Vector.getSize(sendTaskQueue) > sendTaskQueueMaxSize {
+			cb(Error.forMessage("Output stream has no space available, and output queue max size has been exceeded"))
+			return
+		}
+		sendTaskQueue += st
+		return
+	}
+	var v as int
+	lang "objc" {{{
+		v = (int)[outputStream write:[data bytes] maxLength:sz];
+	}}}
+	if v < 0 {
+		close()
+		cb(Error.forMessage("Failed to send"))
+		return
+	}
+	cb(null)
+}
+
+func close private
+{
+	if inputStream != null {
+		lang "objc" {{{
+			[inputStream close];
+			[inputStream setDelegate:nil];
+			[inputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+			// [inputStream release]; // FIXME: ARC forbids explicit message send of 'release'
+		}}}
+		inputStream = null
+	}
+	if outputStream != null {
+		lang "objc" {{{
+			[outputStream close];
+			[outputStream setDelegate:nil];
+			[outputStream removeFromRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+			// [outputStream release]; // FIXME: ARC forbids explicit message send of 'release'
+		}}}
+		outputStream = null
+	}
+}
+
+func connect(address as string, port as int, callback as function<void,Error>) override
+{
+	assert callback
+	assert address {
+		callback(Error.forMessage("No address specified"))
+	}
+	connectCallback = callback
+	close()
+	lang "objc" {{{
+		CFReadStreamRef readStream;
+		CFWriteStreamRef writeStream;
+		CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)address, port, &readStream, &writeStream); 
+		inputStream = (__bridge_transfer NSInputStream *)readStream;
+		outputStream = (__bridge_transfer NSOutputStream *)writeStream;
+		[inputStream setDelegate:self];
+		[outputStream setDelegate:self];
+		[inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[inputStream open];
+		[outputStream open];
+	}}}
+}
+
+func receive(callback as function<void,buffer,int>) override
+{
+	assert (callback && inputStream)
+	receiveCallback = callback
+}
+
+func send(data as buffer, size as int, callback as function<void,Error>) override
+{
+	assert callback
+	assert inputStream {
+		callback(Error.forMessage("No open connection"))
+	}
+	assert data {
+		callback(Error.forMessage("No data to send"))
+	}
+	onSendTask(new SendTask().setData(data).setSize(size).setCallback(callback))
+}
+
+func disconnect(callback as function<void,Error>) override
+{
+	assert callback
+	assert (inputStream && outputStream) {
+		callback(Error.forMessage("No open connection"))
+	}
+	close()
+	callback(null)
+}

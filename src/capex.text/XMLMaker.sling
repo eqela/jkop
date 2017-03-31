@@ -1,0 +1,301 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is StringObject imports cape:
+
+class CData is StringObject public
+{
+	prop text as string
+	prop simple = false
+	prop singleLine = false
+
+	ctor(t as string)
+	{
+		text = t
+	}
+
+	func toString as string
+	{
+		var sb = new StringBuilder()
+		if(simple) {
+			sb.append(text)
+		}
+		else {
+			sb.append("<![CDATA[")
+			sb.append(text)
+			sb.append("]]>")
+		}
+		return(sb.toString())
+	}
+}
+
+class Element is StartElement public
+{
+	ctor(name as string)
+	{
+		base(name)
+		setSingle(true)
+	}
+}
+
+class EndElement is StringObject public
+{
+	prop name as string
+
+	ctor(n as string)
+	{
+		name = n
+	}
+
+	func toString as string
+	{
+		return("</" .. getName() .. ">")
+	}
+}
+
+class StartElement is StringObject public
+{
+	prop name as string
+	prop attributes as map<string, string>
+	prop single = false
+	prop singleLine = false
+
+	ctor(n as string)
+	{
+		name = n
+		attributes = new map<string,string>
+	}
+
+	func attribute(key as string, value as string) as this
+	{
+		Map.setValue(attributes, key, value)
+		return(this)
+	}
+
+	func toString as string
+	{
+		var sb = new StringBuilder()
+		sb.append('<')
+		sb.append(name)
+		var keys as vector<string> #force = Map.getKeys(attributes)
+		foreach(key in keys) {
+			sb.append(' ')
+			sb.append(key)
+			sb.append('=')
+			sb.append('"')
+			var val = Map.getValue(attributes, key)
+			sb.append(val)
+			sb.append('"')
+		}
+		if(single) {
+			sb.append(' ')
+			sb.append('/')
+		}
+		sb.append('>')
+		return(sb.toString())
+	}
+}
+
+class CustomXML public
+{
+	prop string as string
+
+	ctor(s as string)
+	{
+		string = s
+	}
+}
+
+prop elements as vector
+prop customHeader as string
+prop singleLine = false
+prop header as string
+
+ctor
+{
+	elements = new vector
+	header = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+}
+
+func start(element as string, singleLine as bool = false) as this
+{
+	add(new StartElement(element).setSingleLine(singleLine))
+	return(this)
+}
+
+func start(element as string, k1 as string, v1 as string, singleLine as bool = false) as this
+{
+	var v = new StartElement(element)
+	v.setSingleLine(singleLine)
+	if(k1 != null) {
+		v.attribute(k1, v1)
+	}
+	add(v)
+	return(this)
+}
+
+func start(element as string, attrs as map<string,string>, singleLine as bool = false) as this
+{
+	var v = new StartElement(element)
+	v.setSingleLine(singleLine)
+	if(attrs != null) {
+		var keys as vector<string> #force = Map.getKeys(attrs)
+		foreach(key in keys) {
+			var val = attrs[key]
+			v.attribute(key, val)
+		}
+	}
+	add(v)
+	return(this)
+}
+
+func element(element as string, attrs as map<string,string>) as this
+{
+	var v = new Element(element)
+	if(attrs != null) {
+		var keys as vector<string> #force = Map.getKeys(attrs)
+		foreach(key in keys) {
+			var val = attrs[key]
+			v.attribute(key, val)
+		}
+	}
+	add(v)
+	return(this)
+}
+
+func end(element as string) as this
+{
+	add(new EndElement(element))
+	return(this)
+}
+
+func text(element as string) as this
+{
+	add(element)
+	return(this)
+}
+
+func cdata(element as string) as this
+{
+	add(new CData(element))
+	return(this)
+}
+
+func textElement(element as string, text as string) as this
+{
+	add(new StartElement(element).setSingleLine(true))
+	add(text)
+	add(new EndElement(element))
+	return(this)
+}
+
+func add(o as object) as this
+{
+	if(o != null) {
+		Vector.append(elements, o)
+	}
+	return(this)
+}
+
+func append(sb as StringBuilder, level as int, str as string, noIndent as bool, noNewLine as bool) private
+{
+	var n as int
+	if(singleLine == false && noIndent == false) {
+		for(n=0; n<level; n++) {
+			sb.append(' ')
+			sb.append(' ')
+		}
+	}
+	sb.append(str)
+	if(singleLine == false && noNewLine == false) {
+		sb.append('\n')
+	}
+}
+
+func escapeString(str as string) private as string
+{
+	var sb = new StringBuilder()
+	if(str != null) {
+		foreach(c in String.toCharArray(str)) {
+			if(c == '"') {
+				sb.append("&quot;")
+			}
+			else if(c == '\'') {
+				sb.append("&apos;")
+			}
+			else if(c == '<') {
+				sb.append("&lt;")
+			}
+			else if(c == '>') {
+				sb.append("&gt;")
+			}
+			else if(c == '&') {
+				sb.append("&amp;")
+			}
+			else {
+				sb.append(c)
+			}
+		}
+	}
+	return(sb.toString())
+}
+
+func toString as string
+{
+	var sb = new StringBuilder()
+	var level = 0
+	if(header != null) {
+		append(sb, level, header, false, false)
+	}
+	if(customHeader != null) {
+		sb.append(customHeader)
+	}
+	var singleLine = false
+	foreach(o in elements) {
+		if(o is Element) {
+			append(sb, level, (o as! Element).toString(), singleLine, singleLine)
+		}
+		else if(o is StartElement) {
+			singleLine = (o as! StartElement).getSingleLine()
+			append(sb, level, (o as! StartElement).toString(), false, singleLine)
+			if((o as! StartElement).getSingle() == false):
+				level ++
+		}
+		else if(o is EndElement) {
+			level --
+			append(sb, level, (o as! EndElement).toString(), singleLine, false)
+			singleLine = false
+		}
+		else if(o is CustomXML) {
+			append(sb, level, (o as! CustomXML).getString(), singleLine, singleLine)
+		}
+		else if(o is string) {
+			append(sb, level, escapeString(o as! string), singleLine, singleLine)
+		}
+		else if(o is CData) {
+			append(sb, level, (o as! CData).toString(), singleLine, (o as! CData).getSingleLine())
+		}
+	}
+	return(sb.toString())
+}

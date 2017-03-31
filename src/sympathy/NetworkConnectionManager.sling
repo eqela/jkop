@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class abstract imports cape:
+class abstract imports cape imports capex.net:
 
 class ConnectionPool protected
 {
@@ -32,32 +32,29 @@ class ConnectionPool protected
 	func initialize(logContext as LoggingContext, maxConnections as int) as bool
 	{
 		connections = new NetworkConnection[maxConnections]
-		return(true)
+		return true
 	}
 
 	func add(logContext as LoggingContext, conn as NetworkConnection) as int
 	{
-		if(nConnection >= SIZE(connections)) {
+		if nConnection >= SIZE(connections) {
 			Log.error(logContext, "Maximum number of connections exceeded.")
-			return(-1)
+			return -1
 		}
 		connections[nConnection] = conn
 		var v = nConnection
 		nConnection ++
 		Log.debug(logContext, "Added connection to connection pool: Now " .. String.forInteger(nConnection) .. " connections")
-		return(v)
+		return v
 	}
 
 	func remove(logContext as LoggingContext, index as int) as bool
 	{
-		if(index < 0 || index >= nConnection) {
-			return(false)
-		}
-		if(connections[index] == null) {
-			return(false)
-		}
+		if index < 0 || index >= nConnection:
+			return false
+		assert connections[index]
 		var last = nConnection - 1
-		if(last == index) {
+		if last == index {
 			connections[index] = null
 			nConnection --
 		}
@@ -69,7 +66,7 @@ class ConnectionPool protected
 			nConnection --
 		}
 		Log.debug(logContext, "Removed connection from connection pool: Now " .. String.forInteger(nConnection) .. " connections")
-		return(true)
+		return true
 	}
 }
 
@@ -80,19 +77,13 @@ class ConnectionIterator is Iterator<NetworkConnection>
 
 	func next as NetworkConnection
 	{
-		if(pool == null) {
-			return(null)
-		}
+		assert pool
 		var nn = current + 1
-		if(nn >= pool.nConnection) {
-			return(null)
-		}
-		var connection = pool.connections[nn] as NetworkConnection
-		if(connection == null) {
-			return(null)
-		}
+		if nn >= pool.nConnection:
+			return null
+		var connection = assert pool.connections[nn] as NetworkConnection
 		current = nn
-		return(connection)
+		return connection
 	}
 }
 
@@ -100,6 +91,9 @@ var logContext protected as LoggingContext
 var ioManager protected as IOManager
 prop maxConnections = 100000
 prop recvBufferSize = 32768
+prop keyFile as File
+prop certFile as File
+prop acceptInvalidCertificate = false
 var connections protected as ConnectionPool
 var recvBuffer as buffer
 
@@ -108,153 +102,124 @@ func createConnectionObject abstract as NetworkConnection
 func setLogContext(ctx as LoggingContext) as this
 {
 	logContext = ctx
-	return(this)
+	return this
 }
 
-func getLogContext as LoggingContext
-{
-	return(logContext)
-}
+func getLogContext as LoggingContext:
+	return logContext
 
 func setIoManager(io as IOManager) as this
 {
 	this.ioManager = io
-	return(this)
+	return this
 }
 
-func getIoManager as IOManager
-{
-	return(ioManager)
-}
+func getIoManager as IOManager:
+	return ioManager
 
-func iterateConnections as Iterator<NetworkConnection>
-{
-	return(new ConnectionIterator().setPool(connections))
-}
+func iterateConnections as Iterator<NetworkConnection>:
+	return new ConnectionIterator().setPool(connections)
 
 func forEachConnection(function as function<void,NetworkConnection>)
 {
-	var it = iterateConnections()
-	if(it == null) {
-		return
-	}
-	while(true) {
+	var it = assert iterateConnections()
+	loop {
 		var cc = it.next()
-		if(cc == null) {
+		if cc == null:
 			break
-		}
 		function(cc)
 	}
 }
 
-func isInitialized as bool
-{
-	if(connections == null) {
-		return(false)
-	}
-	return(true)
-}
+func isInitialized as bool:
+	return connections != null
 
 func initialize(ioManager as IOManager, logContext as LoggingContext = null) as bool
 {
-	if(ioManager == null) {
-		return(false)
-	}
+	assert ioManager
 	setLogContext(logContext)
 	setIoManager(ioManager)
-	return(initialize())
+	return initialize()
 }
 
 func initialize virtual as bool
 {
-	if(connections != null) {
+	if connections != null {
 		Log.error(logContext, "Already initialized")
-		return(false)
+		return false
 	}
-	if(ioManager == null) {
+	assert ioManager {
 		Log.error(logContext, "No IO manager configured for connection server")
-		return(false)
 	}
 	recvBuffer = MALLOC(recvBufferSize)
-	if(recvBuffer == null) {
+	assert recvBuffer {
 		Log.error(logContext, "Failed to allocate recv buffer")
-		return(false)
 	}
 	connections = new ConnectionPool()
-	if(connections.initialize(logContext, maxConnections) == false) {
+	assert connections.initialize(logContext, maxConnections) {
 		Log.error(logContext, "Failed to initialize connection pool")
 		connections = null
 		recvBuffer = null
-		return(false)
 	}
-	return(true)
+	return true
 }
 
-func cleanup virtual
-{
+func cleanup virtual:
 	connections = null
-}
 
 func onNewSocket(socket as ConnectedSocket)
 {
-	if(socket == null) {
-		return
+	var s = assert socket
+	if keyFile != null && certFile != null {
+		var sslSocket = assert SSLSocket.forServer(s, certFile, keyFile, logContext, acceptInvalidCertificate) {
+			Log.error(logContext, "Failed to create SSL socket")
+			s.close()
+		}
+		s = sslSocket
+		Log.debug(logContext, "SSL socket created successfully")
 	}
-	var connection = createConnectionObject()
-	if(connection == null) {
+	var connection = assert createConnectionObject() {
 		Log.error(logContext, "Failed to create TCP server connection object instance for incoming connection")
-		socket.close()
-		return
+		s.close()
 	}
-	if(connection.doInitialize(logContext, socket, this) == false) {
+	assert connection.doInitialize(logContext, s, this) {
 		Log.error(logContext, "Failed to initialize the new connection instance. Closing connection.")
-		socket.close()
-		return
+		s.close()
 	}
-	if(addConnection(connection) == false) {
+	assert addConnection(connection) {
 		Log.error(logContext, "Failed to add a new connection instance. Closing connection.")
 		connection.close()
-		return
 	}
 	connection.onOpened()
 }
 
 func addConnection(connection as NetworkConnection) as bool
 {
-	if(connection == null || ioManager == null) {
-		return(false)
-	}
+	assert (connection && ioManager)
 	var es = ioManager.add(connection.getSocket())
-	if(es == null) {
-		return(false)
-	}
+	assert es
 	connection.setIoEntry(es)
 	var idx = connections.add(logContext, connection)
-	if(idx < 0) {
-		return(false)
-	}
+	if idx < 0:
+		return false
 	connection.setStorageIndex(idx)
-	return(true)
+	return true
 }
 
 func onConnectionClosed(connection as NetworkConnection)
 {
-	if(connection == null) {
-		return
-	}
+	assert connection
 	var es = connection.getIoEntry()
-	if(es != null) {
+	if es != null {
 		es.remove()
 		connection.setIoEntry(null)
 	}
 	var si = connection.getStorageIndex()
-	if(si >= 0) {
+	if si >= 0 {
 		connections.remove(logContext, si)
 		connection.setStorageIndex(-1)
 	}
 }
 
-func getReceiveBuffer as buffer
-{
-	return(recvBuffer)
-}
+func getReceiveBuffer as buffer:
+	return recvBuffer
