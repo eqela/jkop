@@ -85,7 +85,6 @@ func startLocationUpdates(callback as function<void,bool>) override
 				}
 			}
 			catch (java.lang.Exception e) {
-				System.out.println(e);
 				v = false;
 			}
 		}}}
@@ -112,13 +111,41 @@ func getLastLocation(callback as function<void, GeoLocation, Error>) override
 		if(locationManager == null) {
 			callback.execute(null, error);
 		}
-		android.location.Criteria criteria = new android.location.Criteria();
-		java.lang.String provider = locationManager.getBestProvider(criteria, true);
 		try {
-			android.location.Location loc = locationManager.getLastKnownLocation(provider);
-			location = new GeoLocation();
-			location.setLatitude(loc.getLatitude());
-			location.setLongitude(loc.getLongitude());
+			android.location.Location loc = null;
+			android.location.Location gpsLocation = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
+			android.location.Location networkLocation = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
+			if(gpsLocation != null && networkLocation != null) {
+				double timeDelta = gpsLocation.getTime() - networkLocation.getTime();
+				int limit = 1000 * 5;
+				if(timeDelta < 0) {
+					timeDelta = -timeDelta;
+				}
+				if(timeDelta > limit) {
+					if(gpsLocation.getTime() >= networkLocation.getTime()) {
+						loc = gpsLocation;
+					}
+					else {
+						loc = networkLocation;
+					}
+				}
+				else {
+					loc = gpsLocation;
+				}
+			}
+			else {
+				if(gpsLocation != null) {
+					loc = gpsLocation;
+				}
+				if(networkLocation != null) {
+					loc = networkLocation;
+				}
+			}
+			if(loc != null) {
+				location = new GeoLocation();
+				location.setLatitude(loc.getLatitude());
+				location.setLongitude(loc.getLongitude());
+			}
 		}
 		catch(java.lang.Exception e) {
 			callback.execute(null, error);
