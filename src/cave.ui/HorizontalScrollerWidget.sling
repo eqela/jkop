@@ -1,0 +1,137 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithLayout imports cape imports cave:
+
+IFDEF("target_iosoc")
+{
+	basetype !"UIScrollView" type extends
+	basetype !"UIScrollViewDelegate" type implements
+	basetype Widget type isAlso
+
+	lang "objc" {{{
+		- (void) scrollViewDidScroll:(UIScrollView *) scrollView {
+			if([scrollView.panGestureRecognizer translationInView:scrollView].x > 0) {
+				[self onScroll:1];
+			}
+			else {
+				[self onScroll:0];
+			}
+		}
+
+		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+			[self endEditing:YES];
+			[super touchesBegan:touches withEvent:event];
+		}
+	}}}
+
+	func onScroll(direction as int)
+	{
+		if onScrolledHandler:
+			onScrolledHandler(direction)
+	}
+}
+
+IFDEF("target_android")
+{
+	basetype !"android.widget.HorizontalScrollView" type extends
+	basetype Widget type isAlso
+}
+
+IFDEF("target_html")
+{
+	basetype Widget type extends
+
+	func createElement override as object
+	{
+		return(HTMLDOM.createElement("div"))
+	}
+
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		HTMLDOM.setStyle(element, "overflow-x", "scroll")
+	}
+}
+
+func forWidget(context as GuiApplicationContext, widget as Widget) static as this
+{
+	var v = new this(context)
+	v.addWidget(widget)
+	return(v)
+}
+
+prop onScrolledHandler as function<void, int>
+var layoutWidth = -1
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF("target_android") {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		var xx = (context as! cave.GuiApplicationContextForAndroid).getActivityContext()
+		lang "java" {{{
+			setFillViewport(true);
+			setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
+			setFocusable(true);
+			setFocusableInTouchMode(true);
+		}}}
+	}
+}
+
+func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
+{
+	var mw as int
+	var mh as int
+	foreach(child in Widget.getChildren(this)) {
+		Widget.move(child, 0, 0)
+		Widget.layout(child, -1)
+		var childWidth = Widget.getWidth(child)
+		var childHeight = Widget.getHeight(child)
+		if(childWidth > mw) {
+			mw = childWidth
+		}
+		if(childHeight > mh) {
+			mh = childHeight
+		}
+	}
+	layoutWidth = mw
+	if widthConstraint < 0 {
+		Widget.setLayoutSize(this, mw, mh)
+	}
+	else {
+		Widget.setLayoutSize(this, widthConstraint, mh)
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			self.contentSize = CGSizeMake(mw, mh);
+		}}}
+	}
+	return(true)
+}
+
+func addWidget(widget as Widget) as this
+{
+	Widget.addChild(this, widget)
+	return(this)
+}
