@@ -29,6 +29,12 @@ IFDEF("target_android")
 	depend "androidPermission:android.permission.VIBRATE"
 }
 
+ELSE IFDEF("target_iosoc")
+{
+	depend "objc-header-h:<UserNotifications/UserNotifications.h>"
+	depend "objc-framework:UserNotifications"
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
@@ -97,6 +103,23 @@ func show(title as string, message as string) as bool
 			mNotificationManager.notify(id, mbuilt);
 		}}}
 		return(true)
+	}
+	ELSE IFDEF("target_iosoc") {
+		var identifier #used = String.forInteger(SystemClock.asSeconds())
+		lang "objc" {{{
+			UNUserNotificationCenter* center = [UNUserNotificationCenter currentNotificationCenter];
+			UNAuthorizationOptions options = UNAuthorizationOptionAlert + UNAuthorizationOptionSound;
+			[center requestAuthorizationWithOptions:options completionHandler:nil];
+			UNMutableNotificationContent* content = [[UNMutableNotificationContent alloc] init];
+			content.title = t;
+			content.body = message;
+			content.sound = [UNNotificationSound defaultSound];
+			UNTimeIntervalNotificationTrigger* trigger = [UNTimeIntervalNotificationTrigger
+			triggerWithTimeInterval:5 repeats:NO];
+			UNNotificationRequest* request = [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:trigger];
+			[center addNotificationRequest:request withCompletionHandler:nil];
+		}}}
+		return true
 	}
 	ELSE {
 		ERROR("Not implemented.")
