@@ -634,6 +634,21 @@ IFDEF("target_iosoc")
 			handler()
 		}
 	}
+
+	class WidgetLongPressForwarder
+	{
+		prop handler as function
+		prop widget as Widget
+
+		func execute(gesture as !"UIGestureRecognizer")
+		{
+			lang "objc" {{{
+				if (gesture.state == UIGestureRecognizerStateBegan) {
+					handler();
+				}
+			}}}
+		}
+	}
 }
 
 func setWidgetClickHandler(widget as this, handler as function) static
@@ -692,7 +707,17 @@ func setWidgetLongClickHandler(widget as this, handler as function) static
 			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
 		}
 	}
-	IFDEF("target_android") {
+	IFDEF("target_iosoc") {
+		var forwarder = new WidgetLongPressForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setHandler(handler)
+		lang "objc" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[widget setUserInteractionEnabled:YES];
+			[widget addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
+		}}}
+	}
+	ELSE IFDEF("target_android") {
 		var hf final #used = handler
 		lang "java" {{{
 			if(handler == null) {
