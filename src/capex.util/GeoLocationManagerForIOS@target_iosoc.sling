@@ -32,6 +32,7 @@ depend "objc-header-m:<UIKit/UIKit.h>"
 
 var instance static as this
 var lastLocation as GeoLocation
+var locationDelegate as LocationDelegate
 
 func getInstance static as this
 {
@@ -47,8 +48,10 @@ lang "objc" {{{
 
 ctor
 {
+	locationDelegate= new LocationDelegate(this)
 	lang "objc" {{{
 		locationManager = [[CLLocationManager alloc]init];
+		locationManager.delegate = locationDelegate;
 	}}}
 }
 
@@ -56,15 +59,12 @@ func startLocationUpdates(callback as function<void,bool>) override
 {
 	PRINT("START Location UPDATES")
 	var cb final = callback
-	var locationDelegate = new LocationDelegate(this)
 	lang "objc" {{{
 		CLAuthorizationStatus* authStatus = [CLLocationManager authorizationStatus];
 		if (authStatus == kCLAuthorizationStatusAuthorizedWhenInUse) {
 			NSLog(@"AUTHORIZED");
 			if ([locationManager locationServicesEnabled]) {
 				NSLog(@"Location Service Enabled");
-				[locationManager requestLocation];
-				locationManager.delegate = locationDelegate;
 				[locationManager startUpdatingLocation];
 				cb(true);
 			}
@@ -100,10 +100,16 @@ func getLastLocation(callback as function<void, GeoLocation, Error>) override
 
 	PRINT("ENTER getLastLocation")
 	PRINT("LLLLLLLLLLLLLLLLastlocationnnnnnnnnnn")
-	PRINT(lastLocation.getLatitude())
+	// PRINT(lastLocation.getLatitude())
 	if(lastLocation != null) {
+		PRINT("LOCATION NOT NULL")
 		callback(lastLocation, null)
+		// PRINT(lastLocation.getLatitude())
 	}
+	else {
+		PRINT("location NULL!")
+	}
+
 }
 
 class LocationDelegate implements !"CLLocationManagerDelegate"
@@ -112,23 +118,27 @@ class LocationDelegate implements !"CLLocationManagerDelegate"
 	{
 		geoLocationManager = parent
 	}
-	// PRINT("ddddddddddeeeeeegggggwwaaaaaattttteeeee")
 	var geoLocationManager as GeoLocationManagerForIOS
 	lang "objc" {{{
-		- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray *)locations {
+		// NSLog(@"fdgdfgs");
+	- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations
+		{
 			CLLocation *location = [locations lastObject];
 			NSLog(@"%f", location.coordinate.latitude);
 			NSLog(@"%f", location.coordinate.longitude);
 			[geoLocationManager setLocation:location.coordinate.latitude lon:location.coordinate.longitude];
 		}
+	- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+				NSLog(@"Error %@", error);
+	}
 	}}}	
 }
 
 func setLocation(lat as double, lon as double)
 {	
-	PRINT("*********************")
-	PRINT(lat)
-	PRINT(lon)
+	// PRINT("*********************")
+	// PRINT(lat)
+	// PRINT(lon)
 	lastLocation = new GeoLocation()
 	lastLocation.setLatitude(lat)
 	lastLocation.setLongitude(lon)
