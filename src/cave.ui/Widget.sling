@@ -635,6 +635,31 @@ IFDEF("target_iosoc")
 		}
 	}
 
+	class WidgetTouchForwarder
+	{
+		prop onStartHandler as function<void, double, double>
+		prop onTouchHandler as function<void, double, double>
+		prop onEndHandler as function<void, double, double>
+		prop widget as Widget
+		func execute(gesture as !"UIGestureRecognizer")
+		{
+			lang "objc" {{{
+				CGPoint tappedPoint = [gesture locationInView:widget];
+				CGFloat x = tappedPoint.x;
+				CGFloat y = tappedPoint.y;
+				if (gesture.state == UIGestureRecognizerStateBegan && onStartHandler) {
+					onStartHandler((double)x, (double)y);
+				}
+				else if (gesture.state == UIGestureRecognizerStateChanged && onTouchHandler) {
+					onTouchHandler((double)x, (double)y);
+				}
+				else if (gesture.state == UIGestureRecognizerStateEnded && onEndHandler) {
+					onEndHandler((double)x, (double)y);
+				}
+			}}}
+		}
+	}
+	
 	class WidgetLongPressForwarder
 	{
 		prop handler as function
@@ -815,6 +840,19 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 			}
 		}}}
 		HTMLDOM.setStyle(widget.element, "cursor", "move")
+	}
+	ELSE IFDEF("target_iosoc") {
+		var forwarder = new WidgetTouchForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setOnStartHandler(onStartHandler)
+		forwarder.setOnTouchHandler(onTouchHandler)
+		forwarder.setOnEndHandler(onEndHandler)
+		lang "objc" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[widget setUserInteractionEnabled:YES];
+			[widget addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
+			
+		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
