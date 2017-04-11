@@ -93,6 +93,31 @@ class StartElement is StringObject public
 		return(this)
 	}
 
+	func escapeAttribute(str as string) private as string
+	{
+		if str == null:
+			return str
+		var sb = new StringBuilder()
+		foreach c in String.toCharArray(str) {
+			if c == '&' {
+				sb.append("&amp;")
+			}
+			else if c == '"' {
+				sb.append("&quot;")
+			}
+			else if c == '<' {
+				sb.append("&lt;")
+			}
+			else if c == '>' {
+				sb.append("&gt;")
+			}
+			else {
+				sb.append(c)
+			}
+		}
+		return sb.toString()
+	}
+
 	func toString as string
 	{
 		var sb = new StringBuilder()
@@ -104,7 +129,7 @@ class StartElement is StringObject public
 			sb.append(key)
 			sb.append('=')
 			sb.append('"')
-			var val = Map.getValue(attributes, key)
+			var val = escapeAttribute(Map.getValue(attributes, key))
 			sb.append(val)
 			sb.append('"')
 		}
@@ -159,15 +184,15 @@ func start(element as string, attrs as map<string,string>, singleLine as bool = 
 {
 	var v = new StartElement(element)
 	v.setSingleLine(singleLine)
-	if(attrs != null) {
+	if attrs {
 		var keys as vector<string> #force = Map.getKeys(attrs)
-		foreach(key in keys) {
+		foreach key in keys {
 			var val = attrs[key]
 			v.attribute(key, val)
 		}
 	}
 	add(v)
-	return(this)
+	return this
 }
 
 func element(element as string, attrs as map<string,string>) as this
@@ -202,9 +227,18 @@ func cdata(element as string) as this
 	return(this)
 }
 
-func textElement(element as string, text as string) as this
+func textElement(element as string, text as string, attrs as map<string,string> = null) as this
 {
-	add(new StartElement(element).setSingleLine(true))
+	var se = new StartElement(element)
+	se.setSingleLine(true)
+	if attrs {
+		var keys as vector<string> #force = Map.getKeys(attrs)
+		foreach key in keys {
+			var val = attrs[key]
+			se.attribute(key, val)
+		}
+	}
+	add(se)
 	add(text)
 	add(new EndElement(element))
 	return(this)
