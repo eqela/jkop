@@ -31,7 +31,7 @@ func forDetails(method as string, url as string, version as string, headers as K
 	v.urlString = url
 	v.version = version
 	v.setHeaders(headers)
-	return(v)
+	return v
 }
 
 prop method as string
@@ -57,7 +57,7 @@ var responseCookies as vector<HTTPServerCookie>
 
 macro REQUIRE_SESSION
 {
-	if(thisObject.getSession() == null) {
+	if thisObject.getSession() == null {
 		thisObject.sendResponse(HTTPServerResponse.forHTTPNotAllowed())
 		return
 	}
@@ -97,34 +97,25 @@ func asBuffer as buffer
 
 func setBodyReceiver(receiver as DataStream)
 {
-	if(receiver == null) {
-		return
-	}
-	if(bodyBuffer != null) {
+	assert receiver
+	if bodyBuffer {
 		var sz = SIZE(bodyBuffer)
-		if(receiver.onDataStreamStart(sz) == false) {
-			return
-		}
-		if(receiver.onDataStreamContent(bodyBuffer, sz) == false) {
-			return
-		}
+		assert receiver.onDataStreamStart(sz)
+		assert receiver.onDataStreamContent(bodyBuffer, sz)
 		receiver.onDataStreamEnd()
 		return
 	}
-	if(connection == null) {
-		return
-	}
+	assert connection
 	connection.setBodyReceiver(receiver)
 }
 
 func getCacheId as string
 {
-	if(cacheId == null) {
-		if(method == "GET") {
+	if cacheId == null {
+		if method == "GET":
 			cacheId = method .. " " .. urlString
-		}
 	}
-	return(cacheId)
+	return cacheId
 }
 
 func clearHeaders
@@ -135,15 +126,11 @@ func clearHeaders
 
 func addHeader(key as string, value as string)
 {
-	if(key == null) {
-		return
-	}
-	if(rawHeaders == null) {
+	assert key
+	if not rawHeaders:
 		rawHeaders = new KeyValueList<string,string>()
-	}
-	if(headers == null) {
+	if not headers:
 		headers = new map<string,string>
-	}
 	rawHeaders.add(key, value)
 	headers[String.toLowerCase(key)] = value
 }
@@ -151,18 +138,12 @@ func addHeader(key as string, value as string)
 func setHeaders(headers as KeyValueList<string,string>)
 {
 	clearHeaders()
-	if(headers == null) {
-		return
-	}
-	var it = headers.iterate()
-	if(it == null) {
-		return
-	}
-	while(true) {
+	assert headers
+	var it = assert headers.iterate()
+	loop {
 		var kvp = it.next()
-		if(kvp == null) {
+		if not kvp:
 			break
-		}
 		addHeader(kvp.key, kvp.value)
 	}
 }
@@ -372,20 +353,16 @@ func getPostParameter(key as string) as string
 
 func getRelativeRequestPath(relativeTo as string) as string
 {
-	var path = getURLPath()
-	if(path == null) {
-		return(null)
-	}
-	if(relativeTo != null && String.startsWith(path, relativeTo)) {
+	var path = assert getURLPath()
+	if relativeTo != null && String.startsWith(path, relativeTo) {
 		path = String.getSubString(path, String.getLength(relativeTo))
 	}
 	else {
-		return(null)
+		return null
 	}
-	if(String.isEmpty(path)) {
+	if String.isEmpty(path):
 		path = "/"
-	}
-	return(path)
+	return path
 }
 
 func initResources
@@ -408,34 +385,26 @@ func initResources
 
 func hasMoreResources as bool
 {
-	if(resources == null) {
+	if not resources:
 		initResources()
-	}
-	if(resources == null) {
-		return(false)
-	}
-	if(currentResource < Vector.getSize(resources)) {
-		return(true)
-	}
-	return(false)
+	assert resources
+	if currentResource < Vector.getSize(resources):
+		return true
+	return false
 }
 
 func getRemainingResourceCount as int
 {
-	if(resources == null) {
+	if not resources:
 		initResources()
-	}
-	if(resources == null) {
-		return(0)
-	}
-	return(Vector.getSize(resources) - currentResource - 1)
+	if not resources:
+		return 0
+	return Vector.getSize(resources) - currentResource - 1
 }
 
 func acceptMethodAndResource(methodToAccept as string, resource as string, mustBeLastResource as bool = false) as bool
 {
-	if(resource == null) {
-		return(false)
-	}
+	assert resource
 	if(methodToAccept == null || method == methodToAccept) {
 		var cc = peekResource()
 		if(cc == null) {
@@ -456,22 +425,16 @@ func acceptMethodAndResource(methodToAccept as string, resource as string, mustB
 
 func acceptResource(resource as string, mustBeLastResource as bool = false) as bool
 {
-	if(resource == null) {
-		return(false)
-	}
-	var cc = peekResource()
-	if(cc == null) {
-		return(false)
-	}
-	if(cc != resource) {
-		return(false)
-	}
+	assert resource
+	var cc = assert peekResource()
+	if cc != resource:
+		return false
 	popResource()
-	if(mustBeLastResource && hasMoreResources()) {
+	if mustBeLastResource && hasMoreResources() {
 		unpopResource()
-		return(false)
+		return false
 	}
-	return(true)
+	return true
 }
 
 func peekResource as string
@@ -529,22 +492,40 @@ func resetResources
 
 func getRelativeResources as vector<string>
 {
-	if(resources == null) {
+	if not resources:
 		initResources()
-	}
-	if(resources == null) {
-		return(null)
-	}
-	if(currentResource < 1) {
-		return(resources)
-	}
+	if not resources:
+		return null
+	if currentResource < 1:
+		return resources
 	var v = new vector<string>
 	var cr = currentResource
-	while(cr < Vector.getSize(resources)) {
+	while cr < Vector.getSize(resources) {
 		v += resources[cr]
 		cr ++
 	}
-	return(v)
+	return v
+}
+
+func getResourcePathComponent(index as int, nTrailingComponents as int = -1) as string
+{
+	if index < 0:
+		return null
+	if not resources:
+		initResources()
+	if not resources:
+		return null
+	var max = nTrailingComponents
+	var vsz = Vector.getSize(resources)
+	if max < 0:
+		max = vsz
+	if max > vsz:
+		max = vsz
+	if index >= max:
+		return null
+	if max < vsz:
+		return Vector.get(resources, index + vsz - max)
+	return Vector.get(resources, index)
 }
 
 func getRelativeResourcePath as string
@@ -573,173 +554,123 @@ func getRelativeResourcePath as string
 
 func isForResource(res as string) as bool
 {
-	if(res == null) {
-		return(false)
-	}
-	var rrp = getRelativeResourcePath()
-	if(rrp == null) {
-		return(false)
-	}
-	if(rrp == res) {
-		return(true)
-	}
-	return(false)
+	assert res
+	var rrp = assert getRelativeResourcePath()
+	if rrp == res:
+		return true
+	return false
 }
 
 func isForDirectory as bool
 {
 	var path = getURLPath()
-	if(path != null && String.endsWith(path, "/")) {
-		return(true)
-	}
-	return(false)
+	if path && String.endsWith(path, "/"):
+		return true
+	return false
 }
 
 func isForPrefix(res as string) as bool
 {
-	if(res == null) {
-		return(false)
-	}
+	assert res
 	var rr = getRelativeResourcePath()
-	if(rr != null && String.startsWith(rr, res)) {
-		return(true)
-	}
-	return(false)
+	if rr && String.startsWith(rr, res):
+		return true
+	return false
 }
 
-func isGET as bool
+func isForMethod(mm as string) as bool
 {
-	return(method == "GET")
+	assert mm
+	if mm == method:
+		return true
+	return false
 }
 
-func isPOST as bool
-{
-	return(method == "POST")
-}
+func isGET as bool:
+	return method == "GET"
 
-func isDELETE as bool
-{
-	return(method == "DELETE")
-}
+func isPOST as bool:
+	return method == "POST"
 
-func isPUT as bool
-{
-	return(method == "PUT")
-}
+func isDELETE as bool:
+	return method == "DELETE"
 
-func isPATCH as bool
-{
-	return(method == "PATCH")
-}
+func isPUT as bool:
+	return method == "PUT"
+
+func isPATCH as bool:
+	return method == "PATCH"
 
 // Sending of responses
 
-func sendJSONObject(o as object)
-{
+func sendJSONObject(o as object):
 	sendResponse(HTTPServerResponse.forJSONString(JSONEncoder.encode(o)))
-}
 
-func sendJSONString(json as string)
-{
+func sendJSONString(json as string):
 	sendResponse(HTTPServerResponse.forJSONString(json))
-}
 
-func sendJSONError(error as Error)
-{
+func sendJSONError(error as Error):
 	sendResponse(HTTPServerResponse.forJSONString(JSONEncoder.encode(JSONResponse.forError(error))))
-}
 
-func sendJSONOK(data as object = null)
-{
+func sendJSONOK(data as object = null):
 	sendResponse(HTTPServerResponse.forJSONString(JSONEncoder.encode(JSONResponse.forOk(data))))
-}
 
-func sendInternalError(text as string = null)
-{
+func sendInternalError(text as string = null):
 	sendResponse(HTTPServerResponse.forHTTPInternalError(text))
-}
 
-func sendNotAllowed
-{
+func sendNotAllowed:
 	sendResponse(HTTPServerResponse.forHTTPNotAllowed())
-}
 
-func sendNotFound
-{
+func sendNotFound:
 	sendResponse(HTTPServerResponse.forHTTPNotFound())
-}
 
-func sendInvalidRequest(text as string = null)
-{
+func sendInvalidRequest(text as string = null):
 	sendResponse(HTTPServerResponse.forHTTPInvalidRequest(text))
-}
 
-func sendTextString(text as string)
-{
+func sendTextString(text as string):
 	sendResponse(HTTPServerResponse.forTextString(text))
-}
 
-func sendHTMLString(html as string)
-{
+func sendHTMLString(html as string):
 	sendResponse(HTTPServerResponse.forHTMLString(html))
-}
 
-func sendXMLString(xml as string)
-{
+func sendXMLString(xml as string):
 	sendResponse(HTTPServerResponse.forXMLString(xml))
-}
 
-func sendFile(file as File)
-{
+func sendFile(file as File):
 	sendResponse(HTTPServerResponse.forFile(file))
-}
 
-func sendBuffer(buffer as buffer, mimeType as string = null)
-{
+func sendBuffer(buffer as buffer, mimeType as string = null):
 	sendResponse(HTTPServerResponse.forBuffer(buffer, mimeType))
-}
 
-func sendRedirect(url as string)
-{
+func sendRedirect(url as string):
 	sendResponse(HTTPServerResponse.forHTTPMovedTemporarily(url))
-}
 
 func sendRedirectAsDirectory
 {
 	var path = getURLPath()
-	if(path == null) {
+	if path == null:
 		path = ""
-	}
 	sendRedirect(path .. "/")
 }
 
-func isResponseSent as bool
-{
-	return(responseSent)
-}
+func isResponseSent as bool:
+	return responseSent
 
 func addResponseCookie(cookie as HTTPServerCookie)
 {
-	if(cookie == null) {
-		return
-	}
-	if(responseCookies == null) {
+	assert cookie
+	if responseCookies == null:
 		responseCookies = new vector<HTTPServerCookie>
-	}
 	responseCookies += cookie
 }
 
 func sendResponse(resp as HTTPServerResponse)
 {
-	if(responseSent) {
+	assert server
+	if responseSent:
 		return
-	}
-	if(server == null) {
-		return
-	}
-	foreach(cookie in responseCookies) {
+	foreach cookie in responseCookies:
 		resp.addCookie(cookie)
-	}
 	responseCookies = null
 	server.sendResponse(connection, this, resp)
 	responseSent = true

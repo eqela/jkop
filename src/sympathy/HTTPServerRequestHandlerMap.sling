@@ -94,94 +94,83 @@ func cleanup override
 func onHTTPMethod(req as HTTPServerRequest, functions as map<string,function<void,HTTPServerRequest>>) as bool
 {
 	var rsc = req.peekResource()
-	if(rsc == null) {
+	if not rsc:
 		rsc = ""
-	}
 	var handler as function<void,HTTPServerRequest>
 	var rsccount = req.getRemainingResourceCount()
-	if(rsccount < 1) {
+	if rsccount < 1 {
 		handler = Map.get(functions, rsc)
+		if not handler:
+			handler = Map.get(functions, "*")
 	}
-	else if(rsccount == 1) {
+	else if rsccount == 1 {
 		handler = Map.get(functions, rsc .. "/*")
-		if(handler == null) {
+		if not handler:
 			handler = Map.get(functions, rsc .. "/**")
-		}
 	}
 	else {
 		handler = Map.get(functions, rsc .. "/**")
 	}
-	if(handler != null) {
+	if handler {
 		req.popResource()
 		handler(req)
-		return(true)
+		return true
 	}
-	return(false)
+	return false
 }
 
-func onGET(req as HTTPServerRequest) override as bool
-{
-	return(onHTTPMethod(req, getHandlerFunctions))
-}
+func onGET(req as HTTPServerRequest) override as bool:
+	return onHTTPMethod(req, getHandlerFunctions)
 
-func onPOST(req as HTTPServerRequest) override as bool
-{
-	return(onHTTPMethod(req, postHandlerFunctions))
-}
+func onPOST(req as HTTPServerRequest) override as bool:
+	return onHTTPMethod(req, postHandlerFunctions)
 
-func onPUT(req as HTTPServerRequest) override as bool
-{
-	return(onHTTPMethod(req, putHandlerFunctions))
-}
+func onPUT(req as HTTPServerRequest) override as bool:
+	return onHTTPMethod(req, putHandlerFunctions)
 
-func onDELETE(req as HTTPServerRequest) override as bool
-{
-	return(onHTTPMethod(req, deleteHandlerFunctions))
-}
+func onDELETE(req as HTTPServerRequest) override as bool:
+	return onHTTPMethod(req, deleteHandlerFunctions)
 
-func onPATCH(req as HTTPServerRequest) override as bool
-{
-	return(onHTTPMethod(req, patchHandlerFunctions))
-}
+func onPATCH(req as HTTPServerRequest) override as bool:
+	return onHTTPMethod(req, patchHandlerFunctions)
 
 func tryHandleRequest(req as HTTPServerRequest) as bool
 {
 	var v = false
-	if(req == null) {
+	if not req {
 		;
 	}
-	else if(req.isGET()) {
+	else if req.isGET() {
 		v = onGET(req)
 	}
-	else if(req.isPOST()) {
+	else if req.isPOST() {
 		v = onPOST(req)
 	}
-	else if(req.isPUT()) {
+	else if req.isPUT() {
 		v = onPUT(req)
 	}
-	else if(req.isDELETE()) {
+	else if req.isDELETE() {
 		v = onDELETE(req)
 	}
-	else if(req.isPATCH()) {
+	else if req.isPATCH() {
 		v = onPATCH(req)
 	}
-	return(v)
+	return v
 }
 
 func handleRequest(req as HTTPServerRequest, next as function) override
 {
-	if(tryHandleRequest(req)) {
+	if tryHandleRequest(req):
 		return
-	}
 	var rsc = req.peekResource()
-	if(rsc == null) {
+	if not rsc:
 		rsc = ""
-	}
 	var sub = Map.get(childObjects, rsc)
-	if(sub == null) {
+	if not sub:
+		sub = Map.get(childObjects, "*")
+	if not sub:
 		sub = Map.get(childObjects, rsc .. "/**")
-	}
-	if(sub != null) {
+	if sub {
 		req.popResource()
 		sub.handleRequest(req, next)
 		return
@@ -192,50 +181,37 @@ func handleRequest(req as HTTPServerRequest, next as function) override
 
 func child(path as string, handler as HTTPServerRequestHandler) as this
 {
-	if(path != null) {
-		if(childObjects == null) {
+	if path {
+		if not childObjects:
 			childObjects = new map<string,HTTPServerRequestHandler>
-		}
 		childObjects[path] = handler
-		if(handler != null && handler is HTTPServerComponent && isInitialized()) {
+		if handler && handler is HTTPServerComponent && isInitialized():
 			(handler as! HTTPServerComponent).initialize(getServer())
-		}
 	}
-	return(this)
+	return this
 }
 
 macro IMPLEMENT_ADD_HANDLER_FUNCTION(map, path, handler)
 {
-	if(path != null) {
-		if(map == null) {
+	if path {
+		if not map:
 			map = new map<string,function<void,HTTPServerRequest>>
-		}
 		map[path] = handler
 	}
-	return(this)
+	return this
 }
 
-func get(path as string, handler as function<void,HTTPServerRequest>) as this
-{
+func get(path as string, handler as function<void,HTTPServerRequest>) as this:
 	IMPLEMENT_ADD_HANDLER_FUNCTION(getHandlerFunctions, path, handler)
-}
 
-func post(path as string, handler as function<void,HTTPServerRequest>) as this
-{
+func post(path as string, handler as function<void,HTTPServerRequest>) as this:
 	IMPLEMENT_ADD_HANDLER_FUNCTION(postHandlerFunctions, path, handler)
-}
 
-func put(path as string, handler as function<void,HTTPServerRequest>) as this
-{
+func put(path as string, handler as function<void,HTTPServerRequest>) as this:
 	IMPLEMENT_ADD_HANDLER_FUNCTION(putHandlerFunctions, path, handler)
-}
 
-func delete(path as string, handler as function<void,HTTPServerRequest>) as this
-{
+func delete(path as string, handler as function<void,HTTPServerRequest>) as this:
 	IMPLEMENT_ADD_HANDLER_FUNCTION(deleteHandlerFunctions, path, handler)
-}
 
-func patch(path as string, handler as function<void,HTTPServerRequest>) as this
-{
+func patch(path as string, handler as function<void,HTTPServerRequest>) as this:
 	IMPLEMENT_ADD_HANDLER_FUNCTION(patchHandlerFunctions, path, handler)
-}
