@@ -1,0 +1,124 @@
+
+/*
+* This file is part of Jkop
+* Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+* SOFTWARE.
+*/
+
+class is GeoLocationManager imports cape:
+
+depend "plist:{ \"NSLocationWhenInUseUsageDescription\" : \"This app requires access to location services.\" }"
+depend "plist:{ \"NSLocationAlwaysUsageDescription\" : \"This app requires access to location services.\" }"
+depend "objc-header-m:<CoreLocation/CoreLocation.h>"
+depend "objc-header-m:<UIKit/UIKit.h>"
+
+var instance static as this
+var lastLocation as GeoLocation
+var locationDelegate as LocationDelegate
+
+func getInstance static as this
+{
+	if(instance == null) {
+		instance = new this()
+	}
+	return(instance)
+}
+
+lang "objc" {{{
+	CLLocationManager *locationManager;
+}}}
+
+ctor
+{
+	locationDelegate= new LocationDelegate(this)
+	lang "objc" {{{
+		locationManager = [[CLLocationManager alloc]init];
+		locationManager.delegate = locationDelegate;
+	}}}
+}
+
+func startLocationUpdates(callback as function<void,bool>) override
+{
+	var cb final = callback
+	lang "objc" {{{
+		CLAuthorizationStatus* authStatus = [CLLocationManager authorizationStatus];
+		if (authStatus == kCLAuthorizationStatusAuthorizedWhenInUse) {
+			if ([locationManager locationServicesEnabled]) {
+				[locationManager requestLocation];
+				[locationManager startUpdatingLocation];
+				cb(true);
+			}
+			else {
+				cb(false);
+			}
+		}
+		else if (authStatus == kCLAuthorizationStatusNotDetermined){
+			NSLog(@"Authorization​ Status​ NOT DETERMINED");
+			[locationManager requestWhenInUseAuthorization];
+		}
+		else if (authStatus == kCLAuthorizationStatusDenied){
+			NSLog(@"Authorization​ Status​ DENIED");
+		}
+		else if (authStatus == kCLAuthorizationStatusRestricted){
+			NSLog(@"Authorization​ Status​ RESTRICTED");
+		}
+	}}}
+}
+
+func stopLocationUpdates override
+{
+	lang "objc" {{{
+		[locationManager stopUpdatingLocation];
+	}}}
+}
+
+func getLastLocation(callback as function<void, GeoLocation, Error>) override
+{
+	if(lastLocation != null) {
+		callback(lastLocation, null)
+	}
+}
+
+class LocationDelegate implements !"CLLocationManagerDelegate"
+{
+	ctor(parent as GeoLocationManagerForIOS)
+	{
+		geoLocationManager = parent
+	}
+	var geoLocationManager as GeoLocationManagerForIOS
+	lang "objc" {{{
+		- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations
+		{
+			CLLocation *location = [locations lastObject];
+			[geoLocationManager setLocation:location.coordinate.latitude lon:location.coordinate.longitude];
+		}
+		- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
+		{
+			NSLog(@"Error %@", error);
+		}
+	}}}	
+}
+
+func setLocation(lat as double, lon as double)
+{	
+	lastLocation = new GeoLocation()
+	lastLocation.setLatitude(lat)
+	lastLocation.setLongitude(lon)
+}
