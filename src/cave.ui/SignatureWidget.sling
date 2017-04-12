@@ -108,60 +108,6 @@ IFDEF("target_android")
 	}}}
 }
 
-IFDEF("target_iosoc")
-{
-	var incrementalImage as !"UIImage"
-	lang "objc" {{{
-		UIBezierPath *path;
-		UIPanGestureRecognizer *pan;
-		CGPoint previousPoint;
-
-		static CGPoint midpoint(CGPoint p0, CGPoint p1) {
-			return (CGPoint) {
-				(p0.x + p1.x) / 2.0,
-				(p0.y + p1.y) / 2.0
-			};
-		}
-
-		- (void)pan:(UIPanGestureRecognizer *)pan {
-			CGPoint currentPoint = [pan locationInView:self];
-			CGPoint midPoint = midpoint(previousPoint, currentPoint);
-			if (pan.state == UIGestureRecognizerStateBegan) {
-				[path moveToPoint:currentPoint];
-			}
-			else if (pan.state == UIGestureRecognizerStateChanged) {
-				[path addQuadCurveToPoint:midPoint controlPoint:previousPoint];
-			}
-			else if (pan.state == UIGestureRecognizerStateEnded) {
-				[self drawBitmap];
-			}
-			previousPoint = currentPoint;
-			[self setNeedsDisplay];
-		}
-
-		- (void)drawRect:(CGRect)rect
-		{
-			[incrementalImage drawInRect: rect];
-			[[UIColor colorWithRed: [strokeColor getRed] green: [strokeColor getGreen] blue: [strokeColor getBlue] alpha: [strokeColor getAlpha]] setStroke];
-			[path stroke];
-		}
-
-		- (void)drawBitmap
-		{
-			UIGraphicsBeginImageContextWithOptions(self.bounds.size, NO, 0.0);
-			if (!incrementalImage) {
-				UIBezierPath *rectpath = [UIBezierPath bezierPathWithRect:self.bounds];
-				[[UIColor clearColor] setFill];
-				[rectpath fill];
-			}
-			[incrementalImage drawAtPoint:CGPointZero];
-			[path stroke];
-			incrementalImage = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-		}
-	}}}
-}
-
 var strokeColor as Color
 var strokeWidth as float
 
@@ -177,15 +123,6 @@ ctor(ctx as GuiApplicationContext)
 			paint.setStyle(android.graphics.Paint.Style.STROKE);
 			paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
 			paint.setStrokeWidth(strokeWidth);
-		}}}
-	}
-	IFDEF("target_iosoc") {
-		lang "objc" {{{
-			path = [UIBezierPath bezierPath];
-			pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)];
-			pan.maximumNumberOfTouches = pan.minimumNumberOfTouches = 1;
-			[self addGestureRecognizer:pan];
-			[self setBackgroundColor:[UIColor clearColor]];
 		}}}
 	}
 }
@@ -205,16 +142,6 @@ func setStrokeColor(color as Color)
 			}}}
 		}
 	}
-	ELSE IFDEF("target_iosoc") {
-		if (strokeColor == null) {
-			lang "objc" {{{
-				[[UIColor blackColor] setStroke];
-			}}}
-		}
-		else {
-			strokeColor = color
-		}
-	}
 	ELSE {
 		ERROR("Not implemented.")
 	}
@@ -228,11 +155,6 @@ func setStrokeWidth(width as float)
 			paint.setStrokeWidth(strokeWidth);
 		}}}
 	}
-	ELSE IFDEF("target_iosoc") {
-		lang "objc" {{{
-			path.lineWidth = strokeWidth;
-		}}}
-	}
 	ELSE {
 		ERROR("Not implemented.")
 	}
@@ -244,14 +166,6 @@ func clear
 		lang "java" {{{
 			path.reset();
 			invalidate();
-		}}}
-	}
-	ELSE IFDEF("target_iosoc") {
-		lang "objc" {{{
-			path = nil;
-			path = [UIBezierPath bezierPath];
-			incrementalImage = nil;
-			[self setNeedsDisplay];
 		}}}
 	}
 	ELSE {
@@ -272,9 +186,6 @@ func getSignatureAsImage as Image
 			byteArray = bufferStream.toByteArray();
 		}}}
 		return ImageForAndroid.forBuffer(byteArray)
-	}
-	ELSE IFDEF("target_iosoc") {
-		return ImageForIOS.forUIImage(incrementalImage)
 	}
 	ELSE {
 		ERROR("Not implemented.")
