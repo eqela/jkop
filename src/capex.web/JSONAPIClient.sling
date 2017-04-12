@@ -1,0 +1,180 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class imports cape:
+
+prop apiUrl as string
+
+func getFullURL(api as string) virtual as string
+{
+	var url = apiUrl
+	if(String.isEmpty(url)) {
+		url = "/"
+	}
+	if(url == "/") {
+		if(String.startsWith(api, "/")) {
+			return(api)
+		}
+		return(url .. api)
+	}
+	if(String.endsWith(url, "/")) {
+		if(String.startsWith(api, "/")) {
+			return(url .. String.getSubString(api, 1))
+		}
+		return(url .. api)
+	}
+	if(String.startsWith(api, "/")) {
+		return(url .. api)
+	}
+	return(url .. "/" .. api)
+}
+
+func toUTF8Buffer(data as DynamicMap) private as buffer
+{
+	assert data
+	return String.toUTF8Buffer(JSONEncoder.encode(data))
+}
+
+func customizeRequestHeaders(headers as KeyValueList<string,string>) virtual
+{
+}
+
+func onStartSendRequest virtual
+{
+}
+
+func onEndSendRequest virtual
+{
+}
+
+func onDefaultErrorHandler(error as Error) virtual
+{
+}
+
+func handleAsError(response as DynamicMap, callback as function<void,Error> = null) as bool
+{
+	var error = toError(response)
+	if(error != null) {
+		onError(error, callback)
+		return(true)
+	}
+	return(false)
+}
+
+func toError(response as DynamicMap) as Error
+{
+	if(response == null) {
+		return(Error.forCode("noServerResponse"))
+	}
+	if(response.getString("status") == "error") {
+		var v = new Error()
+		v.setCode(response.getString("code"))
+		v.setMessage(response.getString("message"))
+		v.setDetail(response.getString("detail"))
+		return(v)
+	}
+	return(null)
+}
+
+func onError(error as Error, callback as function<void,Error>) virtual
+{
+	if(callback != null) {
+		callback(error)
+	}
+	else {
+		onDefaultErrorHandler(error)
+	}
+}
+
+func onError(error as Error) virtual
+{
+	onError(error, null)
+}
+
+func sendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	if(callback == null) {
+		return
+	}
+	var hrs = headers
+	if(headers == null) {
+		hrs = new KeyValueList<string,string>()
+		hrs.add("Content-Type", "application/json")
+	}
+	var webClient = NativeWebClient.instance()
+	if(webClient == null) {
+		onError(Error.forCode("noWebClient"), errorCallback)
+		return
+	}
+	var ll final = callback
+	customizeRequestHeaders(hrs)
+	onStartSendRequest()
+	var ecb final = errorCallback
+	webClient.query(method, url, hrs, data, func(status as string, responseHeaders as KeyValueList<string,string>, data as buffer) {
+		onEndSendRequest()
+		if(data == null) {
+			onError(Error.forCode("failedToConnect"), ecb)
+			return
+		}
+		var jsonResponseBody = JSONParser.parse(String.forUTF8Buffer(data)) as DynamicMap
+		if(jsonResponseBody == null) {
+			onError(Error.forCode("invalidServerResponse"), ecb)
+			return
+		}
+		if(handleAsError(jsonResponseBody, ecb) == false) {
+			ll(jsonResponseBody)
+		}
+	})
+}
+
+func doGet(url as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	sendRequest("GET", getFullURL(url), null, null, callback, errorCallback)
+}
+
+func doPost(url as string, data as DynamicMap, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
+}
+
+func doPut(url as string, data as DynamicMap, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	sendRequest("PUT", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
+}
+
+func doDelete(url as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	sendRequest("DELETE", getFullURL(url), null, null, callback, errorCallback)
+}
+
+func uploadFile(url as string, data as buffer, mimeType as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+{
+	var mt = mimeType
+	if(String.isEmpty(mt)) {
+		mt = "application/octet-stream"
+	}
+	var hdrs = new KeyValueList<string,string>()
+	hdrs.add("content-type", mt)
+	sendRequest("POST", getFullURL(url), hdrs, data, callback, errorCallback)
+}

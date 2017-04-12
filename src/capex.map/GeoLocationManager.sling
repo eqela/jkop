@@ -22,35 +22,59 @@
  * SOFTWARE.
  */
 
-class is JSONAPIClient imports cape imports cave imports capex.web:
+class abstract imports cape:
 
-prop context as GuiApplicationContext
-prop parentWidget as Widget
-var loadingWidget as LoadingWidget
-var requestCounter = 0
-
-func onStartSendRequest override
+func forApplicationContext(context as ApplicationContext) static as this
 {
-	base.onStartSendRequest()
-	if(loadingWidget == null) {
-		loadingWidget = LoadingWidget.openPopup(context, parentWidget)
+	IFDEF("target_android") {
+		var ctx = context as AndroidApplicationContext
+		if(ctx == null) {
+			return(null)
+		}
+		return(GeoLocationManagerForAndroid.getInstance(ctx))
 	}
-	requestCounter++
-}
-
-func onEndSendRequest override
-{
-	base.onEndSendRequest()
-	requestCounter--
-	if(requestCounter < 1) {
-		loadingWidget = LoadingWidget.closePopup(loadingWidget)
+	ELSE IFDEF("target_html") {
+		return(GeoLocationManagerForJavaScript.getInstance())
+	}
+	ELSE IFDEF("target_iosoc") {
+		return(GeoLocationManagerForIOS.getInstance())
+	}
+	ELSE {
+		return(null)
 	}
 }
 
-func onDefaultErrorHandler(error as Error) override
+var listeners as vector<function<void,GeoLocation>>
+
+ctor
 {
-	if(error == null || context == null) {
-		return
-	}
-	context.showErrorDialog(error.toString())
+	listeners = new vector<function<void,GeoLocation>>
 }
+
+func addListener(l as function<void,GeoLocation>)
+{
+	listeners += l
+}
+
+func removeListener(l as function<void,GeoLocation>)
+{
+	Vector.removeValue(listeners, l)
+}
+
+func removeAllListeners
+{
+	Vector.clear(listeners)
+}
+
+func notifyListeners(location as GeoLocation)
+{
+	foreach(listener in listeners) {
+		if(listener != null) {
+			listener(location)
+		}
+	}
+}
+
+func startLocationUpdates(callback as function<void,bool>) abstract
+func stopLocationUpdates abstract
+func getLastLocation(callback as function<void, GeoLocation, Error>) abstract

@@ -80,14 +80,14 @@ func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) 
 	}
 }
 
-func createColumnSelectionString(columns as array<string>) private as string
+func createColumnSelectionString(columns as array) private as string
 {
 	if(columns == null || SIZE(columns) < 1) {
 		return("*")
 	}
 	var sb = new StringBuilder()
 	var first = true
-	foreach(column in columns) {
+	foreach(column as string in columns) {
 		if(first == false) {
 			sb.append(", ")
 		}
@@ -97,7 +97,7 @@ func createColumnSelectionString(columns as array<string>) private as string
 	return(sb.toString())
 }
 
-func createOrderByString(order as array<SQLOrderingRule>) private as string
+func createOrderByString(order as array) private as string
 {
 	if(order == null || SIZE(order) < 1) {
 		return(null)
@@ -109,13 +109,23 @@ func createOrderByString(order as array<SQLOrderingRule>) private as string
 		if(first == false) {
 			sb.append(", ")
 		}
-		sb.append(rule.getColumn())
-		sb.append(' ')
-		if(rule.getDescending()) {
-			sb.append("DESC")
+		if rule is SQLOrderingRule {
+			var sr = rule as! SQLOrderingRule
+			sb.append(sr.getColumn())
+			sb.append(' ')
+			if(sr.getDescending()) {
+				sb.append("DESC")
+			}
+			else {
+				sb.append("ASC")
+			}
 		}
 		else {
-			sb.append("ASC")
+			var str = String.asString(rule)
+			if not str:
+				str = "unknown"
+			sb.append(str)
+			sb.append(" DESC")
 		}
 		first = false
 	}
@@ -127,12 +137,12 @@ func prepareQueryAllStatement(table as string) as SQLStatement
 	return(prepareQueryAllStatement(table, null, null))
 }
 
-func prepareQueryAllStatement(table as string, columns as array<string>) as SQLStatement
+func prepareQueryAllStatement(table as string, columns as array) as SQLStatement
 {
 	return(prepareQueryAllStatement(table, columns, null))
 }
 
-func prepareQueryAllStatement(table as string, columns as array<string>, order as array<SQLOrderingRule>) virtual as SQLStatement
+func prepareQueryAllStatement(table as string, columns as array, order as array) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.append("SELECT ")
@@ -144,16 +154,16 @@ func prepareQueryAllStatement(table as string, columns as array<string>, order a
 	return(prepare(sb.toString()))
 }
 
-func prepareCountRecordsStatement(table as string, criteria as map<string,string>) virtual as SQLStatement
+func prepareCountRecordsStatement(table as string, criteria as map) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.append("SELECT COUNT(*) AS count FROM ")
 	sb.append(table)
 	var first = true
-	var keys as vector<string>
+	var keys as vector
 	if(criteria != null) {
-		keys = Map.getKeys(criteria) as vector<string>
-		foreach(key in keys) {
+		keys = Map.getKeys(criteria) as vector
+		foreach(key as string in keys) {
 			if(first) {
 				sb.append(" WHERE ")
 				first = false
@@ -161,7 +171,7 @@ func prepareCountRecordsStatement(table as string, criteria as map<string,string
 			else {
 				sb.append(" AND ")
 			}
-			sb.append(key as string)
+			sb.append(key)
 			sb.append(" = ?")
 		}
 	}
@@ -172,38 +182,35 @@ func prepareCountRecordsStatement(table as string, criteria as map<string,string
 		return(null)
 	}
 	if(keys != null) {
-		foreach(key in keys) {
-			var val = Map.get(criteria, key)
-			if(val == null) {
-				val = null
-			}
-			stmt.addParamString(val as string)
+		foreach(key as string in keys) {
+			var val = String.asString(Map.get(criteria, key))
+			stmt.addParamString(val)
 		}
 	}
 	return(stmt)
 }
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map) virtual as SQLStatement
 {
 	return(prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null))
 }
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int) virtual as SQLStatement
 {
 	return(prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null))
 }
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int) virtual as SQLStatement
 {
 	return(prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null))
 }
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int, columns as array<string>) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array) virtual as SQLStatement
 {
 	return(prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null))
 }
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,string>, limit as int, offset as int, columns as array<string>, order as array<SQLOrderingRule>) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.append("SELECT ")
@@ -211,10 +218,10 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,s
 	sb.append(" FROM ")
 	sb.append(table)
 	var first = true
-	var keys as vector<string>
+	var keys as vector
 	if(criteria != null) {
-		keys = Map.getKeys(criteria) as vector<string>
-		foreach(key in keys) {
+		keys = Map.getKeys(criteria) as vector
+		foreach(key as string in keys) {
 			if(first) {
 				sb.append(" WHERE ")
 				first = false
@@ -222,7 +229,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,s
 			else {
 				sb.append(" AND ")
 			}
-			sb.append(key as string)
+			sb.append(key)
 			sb.append(" = ?")
 		}
 	}
@@ -242,12 +249,9 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map<string,s
 		return(null)
 	}
 	if(keys != null) {
-		foreach(key in keys) {
-			var val = Map.get(criteria, key)
-			if(val == null) {
-				val = null
-			}
-			stmt.addParamString(val as string)
+		foreach(key as string in keys) {
+			var val = String.asString(Map.get(criteria, key))
+			stmt.addParamString(val)
 		}
 	}
 	return(stmt)
