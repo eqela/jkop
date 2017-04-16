@@ -196,13 +196,37 @@ func close override
 	catch(e as !"System.Exception") {
 		;
 	}
-	socket.Close()
+	IFDEF "target_dotnet4" {
+		socket.Close()
+	}
+	ELSE {
+		socket.Dispose()
+	}
 	socket = null
 }
 
 func read(buffer as buffer) override as int
 {
 	return(readWithTimeout(buffer, -1))
+}
+
+func isWouldBlock(e as !"System.Net.Sockets.SocketException") as bool
+{
+	IFDEF("target_dotnet4") {
+		lang "cs" {{{
+			if(e.ErrorCode == 10035) { // WSAEWOULDBLOCK
+				return(true);
+			}
+		}}}
+	}
+	ELSE {
+		lang "cs" {{{
+			if(e.SocketErrorCode == System.Net.Sockets.SocketError.WouldBlock) {
+				return(true);
+			}
+		}}}
+	}
+	return false
 }
 
 func readWithTimeout(buffer as buffer, timeout as int) override as int
@@ -224,7 +248,7 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 			v = socket.Receive(buffer);
 		}
 		catch(System.Net.Sockets.SocketException e) {
-			if(e.ErrorCode == 10035) { // WSAEWOULDBLOCK
+			if(isWouldBlock(e)) {
 				return(0);
 			}
 			else {
@@ -257,7 +281,7 @@ func write(buffer as buffer, size as int) override as int
 			v = socket.Send(buffer, 0, nsize, 0);
 		}
 		catch(System.Net.Sockets.SocketException e) {
-			if(e.ErrorCode == 10035) { // WSAEWOULDBLOCK
+			if(isWouldBlock(e)) {
 				return(0);
 			}
 			else {
