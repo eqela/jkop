@@ -1,4 +1,3 @@
-
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
@@ -108,6 +107,7 @@ IFDEF("target_android")
 	}}}
 }
 
+
 IFDEF("target_iosoc")
 {
 	var incrementalImage as !"UIImage"
@@ -115,6 +115,7 @@ IFDEF("target_iosoc")
 		UIBezierPath *path;
 		UIPanGestureRecognizer *pan;
 		CGPoint previousPoint;
+		CGPoint p;
 
 		- (CGPoint)midpoint:(CGPoint)p0 point2:(CGPoint)p1 {
 			return (CGPoint) {
@@ -127,33 +128,44 @@ IFDEF("target_iosoc")
 			CGPoint currentPoint = [pan locationInView:self];
 			CGPoint midPoint = [self midpoint:previousPoint point2:currentPoint];
 			if (pan.state == UIGestureRecognizerStateBegan) {
-				[path moveToPoint:currentPoint];
+				p = [pan locationInView:self];
+				[path moveToPoint:p];
 			}
 			else if (pan.state == UIGestureRecognizerStateChanged) {
+				[path moveToPoint:p];
 				[path addQuadCurveToPoint:midPoint controlPoint:previousPoint];
 			}
-			previousPoint = currentPoint;
+			else if (pan.state == UIGestureRecognizerStateEnded) {
+				[path moveToPoint:currentPoint];
+				[path addLineToPoint:currentPoint];
+			}
+			[self constructIncrementalImage];
 			[self setNeedsDisplay];
+			p = [path currentPoint];
+			[self clearPath];
+			previousPoint = currentPoint;
+
 		}
 
 		- (void)drawRect:(CGRect)rect
 		{
-			[[UIColor colorWithRed: [strokeColor getRed] green: [strokeColor getGreen] blue: [strokeColor getBlue] alpha: [strokeColor getAlpha]] setStroke];
-			[path stroke];
+			[incrementalImage drawInRect:rect];
 		}
 
-		- (void)drawBitmap
+		- (void)constructIncrementalImage
 		{
 			UIGraphicsBeginImageContextWithOptions(self.bounds.size, NO, 0.0);
-			if (!incrementalImage) {
-				UIBezierPath *rectpath = [UIBezierPath bezierPathWithRect:self.bounds];
-				[[UIColor clearColor] setFill];
-				[rectpath fill];
-			}
 			[incrementalImage drawAtPoint:CGPointZero];
+			[[UIColor colorWithRed: [strokeColor getRed] green: [strokeColor getGreen] blue: [strokeColor getBlue] alpha: [strokeColor getAlpha]] setStroke];
 			[path stroke];
 			incrementalImage = UIGraphicsGetImageFromCurrentImageContext();
 			UIGraphicsEndImageContext();
+		}
+
+		- (void)clearPath
+		{
+			path = nil;
+			path = [UIBezierPath bezierPath];
 		}
 	}}}
 }
@@ -166,6 +178,8 @@ ctor(ctx as GuiApplicationContext)
 	base(ctx)
 	strokeColor = Color.black()
 	strokeWidth = 5.0 as float
+	setStrokeColor(strokeColor)
+	setStrokeWidth(strokeWidth)
 	IFDEF("target_android") {
 		lang "java" {{{
 			paint.setAntiAlias(true);
@@ -209,6 +223,10 @@ func setStrokeColor(color as Color)
 		}
 		else {
 			strokeColor = color
+			lang "objc" {{{
+				UIColor *color = [UIColor colorWithRed: [strokeColor getRed] green: [strokeColor getGreen] blue: [strokeColor getBlue] alpha: [strokeColor getAlpha]];
+				[color setStroke];
+			}}}
 		}
 	}
 	ELSE {
@@ -244,8 +262,7 @@ func clear
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
-			path = nil;
-			path = [UIBezierPath bezierPath];
+			[self clearPath];
 			incrementalImage = nil;
 			[self setNeedsDisplay];
 		}}}
@@ -270,9 +287,6 @@ func getSignatureAsImage as Image
 		return ImageForAndroid.forBuffer(byteArray)
 	}
 	ELSE IFDEF("target_iosoc") {
-		lang "objc" {{{
-			[self drawBitmap];
-		}}}
 		return ImageForIOS.forUIImage(incrementalImage)
 	}
 	ELSE {
