@@ -27,7 +27,7 @@ class is WidgetWithLayout is HeightAwareWidget imports cape imports cave:
 var context protected as GuiApplicationContext
 prop allowResize = true
 
-IFDEF("target_ios")
+IFDEF "target_ios"
 {
 	basetype Widget type extends
 	prop screenForWidget as Screen
@@ -53,7 +53,7 @@ IFDEF("target_ios")
 	}}}
 }
 
-ELSE IFDEF("target_android")
+ELSE IFDEF "target_android"
 {
 	basetype !"android.view.ViewGroup" type extends
 	basetype Widget type isAlso
@@ -78,9 +78,64 @@ ELSE IFDEF("target_android")
 	*/
 }
 
-ELSE IFDEF("target_html")
+ELSE IFDEF "target_html"
 {
 	basetype Widget type extends
+}
+
+ELSE IFDEF "target_uwp"
+{
+	basetype !"Windows.UI.Xaml.Controls.Panel" type extends
+	basetype Widget type isAlso
+	var lastWidth #used = -1.0
+	var lastHeight #used = -1.0
+
+	lang "cs" {{{
+		protected override Windows.Foundation.Size ArrangeOverride(Windows.Foundation.Size finalSize)
+		{
+			foreach (Windows.UI.Xaml.UIElement child in Children) {
+				Widget.arrangeWidget(child);
+			}
+			return(finalSize);
+		}
+
+		protected override Windows.Foundation.Size MeasureOverride(Windows.Foundation.Size availableSize)
+		{
+			var wi = Widget.getMyWidgetInfo(this);
+			if(Widget.isRootWidget(this) == false) {
+				return(new Windows.Foundation.Size(wi.w, wi.h));
+			}
+			double wint, hint;
+			if(System.Double.IsPositiveInfinity(availableSize.Width)) {
+				wint = -1.0;
+			}
+			else {
+				wint = availableSize.Width;
+			}
+			if(System.Double.IsPositiveInfinity(availableSize.Height)) {
+				hint = -1.0;
+			}
+			else {
+				hint = availableSize.Height;
+			}
+			if(wint != lastWidth || hint != lastHeight) {
+				if(wint >= 0) {
+					wi.w = (float)wint;
+				}
+				if(hint >= 0) {
+					wi.h = (float)hint;
+				}
+				Widget.layout(this, (int)System.Math.Ceiling(wint));
+				if(hint >= 0) {
+					Widget.resizeHeight(this, (int)System.Math.Ceiling(hint));
+				}
+				onWidgetHeightChanged((int)wi.h);
+				lastWidth = wint;
+				lastHeight = hint;
+			}
+			return(new Windows.Foundation.Size(wi.w, wi.h));
+		}
+	}}}
 }
 
 ELSE
@@ -95,7 +150,7 @@ var lastLayoutWidth = -1
 
 ctor(ctx as cave.GuiApplicationContext)
 {
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		base((ctx as! cave.GuiApplicationContextForAndroid).getActivityContext())
 		lang "java" {{{
 			setLayerType(android.view.View.LAYER_TYPE_NONE, null);
@@ -107,42 +162,42 @@ ctor(ctx as cave.GuiApplicationContext)
 
 func togglePointerEventHandling(active as bool)
 {
-	if(active) {
-		IFDEF("target_html") {
+	if active {
+		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "auto")
 		}
-		ELSE IFDEF("target_iosoc") {
+		ELSE IFDEF "target_iosoc" {
 			lang "objc" {{{
 				[self setUserInteractionEnabled:YES];
 			}}}
 			receivePointerEvents = true
 		}
-		ELSE IFDEF("target_android") {
+		ELSE IFDEF "target_android" {
 			;
 		}
 		ELSE {
-			ERROR("Not implemented")
+			ERROR "Not implemented"
 		}
 	}
 	else {
-		IFDEF("target_html") {
+		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "none")
 		}
-		ELSE IFDEF("target_iosoc") {
+		ELSE IFDEF "target_iosoc" {
 			receivePointerEvents = false
 		}
-		ELSE IFDEF("target_android") {
+		ELSE IFDEF "target_android" {
 			;
 		}
 		ELSE {
-			ERROR("Not implemented")
+			ERROR "Not implemented"
 		}
 	}
 }
 
 func onNativelyResized
 {
-	if(Widget.isRootWidget(this)) {
+	if Widget.isRootWidget(this) {
 		Widget.layout(this, Widget.getWidth(this))
 		onWidgetHeightChanged(Widget.getHeight(this))
 	}
@@ -150,17 +205,15 @@ func onNativelyResized
 
 func hasSize as bool
 {
-	if(Widget.getWidth(this) > 0 || Widget.getHeight(this) > 0) {
-		return(true)
-	}
-	return(false)
+	if Widget.getWidth(this) > 0 || Widget.getHeight(this) > 0:
+		return true
+	return false
 }
 
 func tryInitializeWidget virtual
 {
-	if(initialized) {
+	if initialized:
 		return
-	}
 	setInitialized(true)
 	initializeWidget()
 }
@@ -193,14 +246,13 @@ IFDEF("target_html") {
 
 func onWidgetAddedToParent virtual
 {
-	IFDEF("target_html") {
-		if(Widget.isRootWidget(this)) {
-			if(resizeHandlers == null) {
+	IFDEF "target_html" {
+		if Widget.isRootWidget(this) {
+			if not resizeHandlers {
 				resizeHandlers = new vector<this>
 				var executeResizeHandlers #used = func {
-					foreach(handler in resizeHandlers) {
+					foreach handler in resizeHandlers:
 						handler.onNativelyResized()
-					}
 				}
 				lang "js" {{{
 					var oresize = window.onresize;
@@ -214,7 +266,7 @@ func onWidgetAddedToParent virtual
 			}
 			resizeHandlers += this
 			var pp = HTMLDOM.getParentElement(this.element)
-			if(pp != null) {
+			if pp {
 				originalParentWidth = HTMLDOM.getStyle(pp, "width")
 				originalParentHeight = HTMLDOM.getStyle(pp, "height")
 			}
@@ -225,10 +277,9 @@ func onWidgetAddedToParent virtual
 
 func onWidgetRemovedFromParent virtual
 {
-	IFDEF("target_html") {
-		if(Widget.isRootWidget(this) && resizeHandlers != null) {
+	IFDEF "target_html" {
+		if Widget.isRootWidget(this) && resizeHandlers:
 			Vector.removeValue(resizeHandlers, this)
-		}
 	}
 }
 
