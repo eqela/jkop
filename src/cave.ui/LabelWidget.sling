@@ -64,9 +64,9 @@ IFDEF "target_html"
 
 IFDEF "target_uwp"
 {
-	// FIXME: TextBlock is sealed, cannot inherit: basetype !"Windows.UI.Xaml.Controls.TextBlock" type extends
-	// basetype Widget type isAlso
-	basetype Widget
+	basetype !"Windows.UI.Xaml.Controls.UserControl" type extends
+	basetype Widget type isAlso
+	var textBlock as !"Windows.UI.Xaml.Controls.TextBlock"
 }
 
 var widgetContext as GuiApplicationContext
@@ -83,10 +83,10 @@ ctor(context as GuiApplicationContext)
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
 	widgetContext = context
-	setWidgetTextColor(Color.forRGB(0,0,0))
 	widgetFontFamily = "Arial"
 	widgetFontSize = context.getHeightValue("3mm")
 	widgetFontBold = false
+	widgetTextColor = Color.forRGB(0,0,0)
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self setNumberOfLines:0];
@@ -98,33 +98,43 @@ ctor(context as GuiApplicationContext)
 			setGravity(android.view.Gravity.LEFT);
 		}}}
 	}
+	IFDEF "target_uwp" {
+		textBlock = new !"Windows.UI.Xaml.Controls.TextBlock"()
+		lang "cs" {{{
+			this.Content = textBlock;
+		}}}
+	}
 	updateWidgetFont()
 }
 
 func setWidgetText(text as string) as this
 {
 	widgetText = text
-	if(widgetText == null) {
+	if not widgetText:
 		widgetText = ""
-	}
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		lang "java" {{{
 			setText(widgetText);
 		}}}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self setText:widgetText];
 		}}}
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		HTMLDOM.setInnerHTML(element, widgetText)
 	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			textBlock.Text = widgetText;
+		}}}
+	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func getWidgetText as string
@@ -135,40 +145,40 @@ func getWidgetText as string
 func setWidgetTextAlign(align as int) as this
 {
 	widgetTextAlign = align
-	IFDEF("target_html") {
-		if(align == ALIGN_LEFT) {
+	IFDEF "target_html" {
+		if align == ALIGN_LEFT {
 			HTMLDOM.setStyle(element, "text-align", "left")
 		}
-		else if(align == ALIGN_CENTER) {
+		else if align == ALIGN_CENTER {
 			HTMLDOM.setStyle(element, "text-align", "center")
 		}
-		else if(align == ALIGN_RIGHT) {
+		else if align == ALIGN_RIGHT {
 			HTMLDOM.setStyle(element, "text-align", "right")
 		}
-		else if(align == ALIGN_JUSTIFY) {
+		else if align == ALIGN_JUSTIFY {
 			HTMLDOM.setStyle(element, "text-align", "justify")
 		}
 		else {
 			HTMLDOM.setStyle(element, "text-align", "left")
 		}
 	}
-	ELSE IFDEF("target_android") {
-		if(align == ALIGN_LEFT) {
+	ELSE IFDEF "target_android" {
+		if align == ALIGN_LEFT {
 			lang "java" {{{
 				setGravity(android.view.Gravity.LEFT);
 			}}}
 		}
-		else if(align == ALIGN_CENTER) {
+		else if align == ALIGN_CENTER {
 			lang "java" {{{
 				setGravity(android.view.Gravity.CENTER);
 			}}}
 		}
-		else if(align == ALIGN_RIGHT) {
+		else if align == ALIGN_RIGHT {
 			lang "java" {{{
 				setGravity(android.view.Gravity.RIGHT);
 			}}}
 		}
-		else if(align == ALIGN_JUSTIFY) {
+		else if align == ALIGN_JUSTIFY {
 			lang "java" {{{
 				setGravity(android.view.Gravity.CENTER);
 			}}}
@@ -179,23 +189,23 @@ func setWidgetTextAlign(align as int) as this
 			}}}
 		}
 	}
-	ELSE IFDEF("target_iosoc") {
-		if(align == ALIGN_LEFT) {
+	ELSE IFDEF "target_iosoc" {
+		if align == ALIGN_LEFT {
 			lang "objc" {{{
 				[self setTextAlignment:UITextAlignmentLeft];
 			}}}
 		}
-		else if(align == ALIGN_CENTER) {
+		else if align == ALIGN_CENTER {
 			lang "objc" {{{
 				[self setTextAlignment:UITextAlignmentCenter];
 			}}}
 		}
-		else if(align == ALIGN_RIGHT) {
+		else if align == ALIGN_RIGHT {
 			lang "objc" {{{
 				[self setTextAlignment:UITextAlignmentRight];
 			}}}
 		}
-		else if(align == ALIGN_JUSTIFY) {
+		else if align == ALIGN_JUSTIFY {
 			lang "objc" {{{
 				[self setTextAlignment:NSTextAlignmentJustified];
 			}}}
@@ -203,6 +213,33 @@ func setWidgetTextAlign(align as int) as this
 		else {
 			lang "objc" {{{
 				[self setTextAlignment:UITextAlignmentLeft];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_uwp" {
+		if align == ALIGN_LEFT {
+			lang "cs" {{{
+				textBlock.TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
+			}}}
+		}
+		else if align == ALIGN_CENTER {
+			lang "cs" {{{
+				textBlock.TextAlignment = Windows.UI.Xaml.TextAlignment.Center;
+			}}}
+		}
+		else if align == ALIGN_RIGHT {
+			lang "cs" {{{
+				textBlock.TextAlignment = Windows.UI.Xaml.TextAlignment.Right;
+			}}}
+		}
+		else if align == ALIGN_JUSTIFY {
+			lang "cs" {{{
+				textBlock.TextAlignment = Windows.UI.Xaml.TextAlignment.Justify;
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				textBlock.TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
 			}}}
 		}
 	}
@@ -257,8 +294,11 @@ func setWidgetFontFamily(font as string) as this
 
 func updateWidgetFont private
 {
-	IFDEF("target_android") {
-		if(widgetTextColor != null) {
+	var fs = widgetFontSize
+	if fs < 1.0:
+		fs = 1.0
+	IFDEF "target_android" {
+		if widgetTextColor {
 			lang "java" {{{
 				setTextColor(widgetTextColor.toARGBInt32());
 			}}}
@@ -269,7 +309,7 @@ func updateWidgetFont private
 			}}}
 		}
 		lang "java" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)fs);
 			int style = android.graphics.Typeface.NORMAL;
 			if(widgetFontBold) {
 				style = android.graphics.Typeface.BOLD;
@@ -277,38 +317,36 @@ func updateWidgetFont private
 			setTypeface(android.graphics.Typeface.create(widgetFontFamily, style));
 		}}}
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		HTMLDOM.setFontFamily(element, widgetFontFamily)
-		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
-		if(widgetFontBold) {
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(fs) .. "px")
+		if widgetFontBold:
 			HTMLDOM.setStyle(element, "font-weight", "bold")
-		}
 		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(widgetTextColor))
 	}
 	ELSE IFDEF("target_iosoc") {
 		var ff = widgetFontFamily
-		if(cape.String.isEmpty(ff)) {
+		if cape.String.isEmpty(ff):
 			ff = "Arial"
-		}
-		if(widgetFontBold) {
-			if(ff == "Arial") {
+		if widgetFontBold {
+			if ff == "Arial" {
 				ff = "Arial-BoldMT"
 			}
-			else if(ff == "Helvetica") {
+			else if ff == "Helvetica" {
 				ff = "Helvetica-Bold"
 			}
-			else if(ff == "Georgia") {
+			else if ff == "Georgia" {
 				ff = "Georgia-Bold"
 			}
 		}
 		lang "objc" {{{
-			UIFont* font = [UIFont fontWithName:ff size:widgetFontSize];
+			UIFont* font = [UIFont fontWithName:ff size:fs];
 			if(font == nil) {
-				font = [UIFont fontWithName:@"Arial" size:widgetFontSize];
+				font = [UIFont fontWithName:@"Arial" size:fs];
 			}
 			[self setFont:font];
 		}}}
-		if(widgetTextColor != null) {
+		if widgetTextColor {
 			lang "objc" {{{
 				[self setTextColor:[widgetTextColor toUIColor]];
 			}}}
@@ -319,8 +357,43 @@ func updateWidgetFont private
 			}}}
 		}
 	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.FontSize = (double)fs;
+		}}}
+		if widgetFontFamily {
+			lang "cs" {{{
+				this.FontFamily = new Windows.UI.Xaml.Media.FontFamily(widgetFontFamily);
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				this.FontFamily = Windows.UI.Xaml.Media.FontFamily.XamlAutoFontFamily;
+			}}}
+		}
+		if widgetFontBold {
+			lang "cs" {{{
+				this.FontWeight = Windows.UI.Text.FontWeights.Bold;
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				this.FontWeight = Windows.UI.Text.FontWeights.Normal;
+			}}}
+		}
+		if widgetTextColor {
+			lang "cs" {{{
+				this.Foreground = widgetTextColor.toBrush();
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				this.Foreground = null;
+			}}}
+		}
+	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 	Widget.onChanged(this)
 }

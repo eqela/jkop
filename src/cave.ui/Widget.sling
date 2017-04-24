@@ -68,7 +68,45 @@ IFDEF "target_html"
 IFDEF "target_uwp"
 {
 	modifier #typedef
-	basetype !"Windows.UI.Xaml.Controls.Control" type extends
+	basetype !"Windows.UI.Xaml.UIElement" type extends
+
+	class MyWidgetInfo public
+	{
+		var x public = 0.0 as float
+		var y public = 0.0 as float
+		var w public = 0.0 as float
+		var h public = 0.0 as float
+	}
+
+	lang "cs" {{{
+		public static readonly Windows.UI.Xaml.DependencyProperty WidgetProperty = Windows.UI.Xaml.DependencyProperty.RegisterAttached(
+			"Widget",
+			typeof(MyWidgetInfo),
+			typeof(Widget),
+			new Windows.UI.Xaml.PropertyMetadata(null)
+		);
+	}}}
+
+	func getMyWidgetInfo(widget as this) static as MyWidgetInfo
+	{
+		assert widget
+		var v = lang "cs" object {{{ widget.GetValue(WidgetProperty) }}} as MyWidgetInfo
+		if not v {
+			v = new MyWidgetInfo()
+			lang "cs" {{{
+				widget.SetValue(WidgetProperty, v);
+			}}}
+		}
+		return v
+	}
+
+	func arrangeWidget(widget as this) static
+	{
+		var wi #used = getMyWidgetInfo(widget)
+		lang "cs" {{{
+			widget.Arrange(new Windows.Foundation.Rect(wi.x, wi.y, wi.w, wi.h));
+		}}}
+	}
 }
 
 func onWidgetAddedToParent(widget as this) static
@@ -114,16 +152,19 @@ func addChild(parent as this, child as this) static
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		var vg = parent as !"android.view.ViewGroup"
-		if(vg == null) {
-			return
-		}
+		var vg = assert parent as !"android.view.ViewGroup"
 		lang "java" {{{
 			vg.addView(child);
 		}}}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.appendChild(parent.element, child.element)
+	}
+	ELSE IFDEF "target_uwp" {
+		var panel = assert parent as !"Windows.UI.Xaml.Controls.Panel"
+		lang "cs" {{{
+			panel.Children.Add(child);
+		}}}
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -212,6 +253,14 @@ func getParent(widget as this) static as this
 		var pe = assert HTMLDOM.getParentElement(widget.element)
 		return domElementAsWidget(pe)
 	}
+	ELSE IFDEF "target_uwp" {
+		var fwe = assert widget as !"Windows.UI.Xaml.FrameworkElement"
+		var v as this
+		lang "cs" {{{
+			v = fwe.Parent as Windows.UI.Xaml.UIElement;
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented."
 		return null
@@ -252,6 +301,16 @@ func getChildren(widget as this) static as vector<this>
 		}}}
 		return v
 	}
+	ELSE IFDEF "target_uwp" {
+		var cc = assert widget as !"Windows.UI.Xaml.Controls.Panel"
+		var v = new vector<this>
+		lang "cs" {{{
+			foreach(var child in cc.Children) {
+				v.Add(child);
+			}
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented."
 		return null
@@ -277,6 +336,9 @@ func getX(widget as this) static as int
 		lang "js" {{{
 			v = widget.element.offsetLeft;
 		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		v = getMyWidgetInfo(widget).x as int
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -304,6 +366,9 @@ func getY(widget as this) static as int
 			v = widget.element.offsetTop;
 		}}}
 	}
+	ELSE IFDEF "target_uwp" {
+		v = getMyWidgetInfo(widget).y as int
+	}
 	ELSE {
 		ERROR "Not implemented."
 	}
@@ -329,6 +394,9 @@ func getWidth(widget as this) static as int
 		lang "js" {{{
 			v = widget.element.offsetWidth;
 		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		v = cape.Math.ceil(getMyWidgetInfo(widget).w as double) as int
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -356,6 +424,9 @@ func getHeight(widget as this) static as int
 			v = widget.element.offsetHeight;
 		}}}
 	}
+	ELSE IFDEF "target_uwp" {
+		v = cape.Math.ceil(getMyWidgetInfo(widget).h as double) as int
+	}
 	ELSE {
 		ERROR "Not implemented."
 	}
@@ -378,6 +449,14 @@ func move(widget as this, x as int #notLiteral, y as int #notLiteral) static
 		lang "js" {{{
 			widget.element.style.left = (~~x) + "px";
 			widget.element.style.top = (~~y) + "px";
+		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		var wi = getMyWidgetInfo(widget)
+		wi.x = x as float
+		wi.y = y as float
+		lang "cs" {{{
+			widget.UpdateLayout();
 		}}}
 	}
 	ELSE {
@@ -439,6 +518,15 @@ func findScreen(widget as this) static as Screen
 		}
 		return null
 	}
+	ELSE IFDEF "target_uwp" {
+		var pp = widget
+		while pp {
+			if pp is Screen:
+				return pp as! Screen
+			pp = getParent(pp)
+		}
+		return null
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -484,6 +572,18 @@ func setLayoutSize(widget as this, width as int #notLiteral, height as int #notL
 			widget.element.style.width = ~~width + "px";
 			widget.element.style.height = ~~height + "px";
 		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		var wi = getMyWidgetInfo(widget)
+		wi.w = width as float
+		wi.h = height as float
+		var fwe = widget as !"Windows.UI.Xaml.FrameworkElement"
+		if fwe {
+			lang "cs" {{{
+				fwe.Width = (double)width;
+				fwe.Height = (double)height;
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -561,6 +661,27 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 			HTMLDOM.setStyle(widget.element, "height", "auto")
 			if widget is ResizeAwareWidget:
 				(widget as! ResizeAwareWidget).onWidgetResized()
+		}
+		ELSE IFDEF "target_uwp" {
+			var srw as int
+			var srh as int
+			lang "cs" {{{
+				Windows.Foundation.Size available;
+				available.Height = float.PositiveInfinity;
+				if(widthConstraint >= 0) {
+					available.Width = (float)widthConstraint;
+				}
+				else {
+					available.Width = float.PositiveInfinity;
+				}
+				widget.Measure(available);
+				srw = (int)System.Math.Ceiling(widget.DesiredSize.Width);
+				srh = (int)System.Math.Ceiling(widget.DesiredSize.Height);
+				widget.InvalidateMeasure();
+			}}}
+			if widthConstraint >= 0 && srw < widthConstraint:
+				srw = widthConstraint
+			setLayoutSize(widget, srw, srh)
 		}
 		ELSE {
 			ERROR "Not implemented."

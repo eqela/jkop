@@ -24,15 +24,13 @@
 
 class is cave.ScreenWithContext imports cape:
 
-func findScreenForWidget(widget as Widget) static as this
-{
-	return(Widget.findScreen(widget) as this)
-}
+func findScreenForWidget(widget as Widget) static as this:
+	return Widget.findScreen(widget) as this
 
 var context protected as GuiApplicationContext
 var myWidget as Widget
 
-IFDEF("target_iosoc")
+IFDEF "target_iosoc"
 {
 	basetype !"UIViewController" type extends
 	basetype cave.Screen type isAlso
@@ -134,7 +132,7 @@ IFDEF("target_iosoc")
 	}
 }
 
-IFDEF("target_android")
+IFDEF "target_android"
 {
 	basetype !"android.app.Activity" type extends
 	basetype cave.Screen type isAlso
@@ -216,7 +214,7 @@ IFDEF("target_android")
 	}
 }
 
-IFDEF("target_html")
+IFDEF "target_html"
 {
 	basetype cave.Screen
 }
@@ -224,6 +222,11 @@ IFDEF("target_html")
 IFDEF "target_uwp"
 {
 	basetype cave.Screen
+
+	ctor
+	{
+		initialize()
+	}
 }
 
 var keyEvent as KeyEvent
@@ -319,19 +322,22 @@ func getContext as GuiApplicationContext
 func createContext private as GuiApplicationContext
 {
 	var v as GuiApplicationContext
-	IFDEF("target_iosoc") {
+	IFDEF "target_iosoc" {
 		v = new GuiApplicationContextForIOS()
 	}
-	ELSE IFDEF("target_android") {
+	ELSE IFDEF "target_android" {
 		v = GuiApplicationContextForAndroid.forActivityContext(this)
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		v = new GuiApplicationContextForHTML()
 	}
-	ELSE {
-		ERROR("Not implemented")
+	ELSE IFDEF "target_uwp" {
+		v = new GuiApplicationContextForUWP()
 	}
-	return(v)
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return v
 }
 
 func onPrepareScreen virtual
@@ -373,13 +379,12 @@ func getWidget as Widget
 
 func setWidget(widget as CustomContainerWidget)
 {
-	assert not myWidget {
+	assert not myWidget:
 		ERROR("Multiple calls to setWidget()")
-	}
 	assert widget
 	myWidget = widget
 	widget.setAllowResize(false)
-	IFDEF("target_iosoc") {
+	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self.view addSubview:widget];
 		}}}
@@ -387,21 +392,28 @@ func setWidget(widget as CustomContainerWidget)
 		widget.setScreenForWidget(this)
 		Widget.onWidgetAddedToParent(widget)
 	}
-	ELSE IFDEF("target_android") {
+	ELSE IFDEF "target_android" {
 		lang "java" {{{
 			setContentView(widget);
 		}}}
 		widget.tryInitializeWidget()
 		Widget.onWidgetAddedToParent(widget)
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		lang "js" {{{
 			widget.element.screenObject = this;
 		}}}
 		Widget.addToDomElement(widget, HTMLDOM.getDocumentBody())
 	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Content = widget;
+		}}}
+		widget.tryInitializeWidget()
+		Widget.onWidgetAddedToParent(widget)
+	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 	Widget.notifyOnAddedToScreen(widget, this)
 }
