@@ -546,13 +546,19 @@ func findRootWidget(widget as this) static as CustomContainerWidget
 	return null
 }
 
-func setLayoutSize(widget as this, width as int #notLiteral, height as int #notLiteral) static as bool
+func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as int #notLiteral) static as bool
 {
 	if isRootWidget(widget) {
 		var ccw = widget as CustomContainerWidget
 		if ccw && ccw.getAllowResize() == false:
 			return false
 	}
+	var width = widthValue
+	if width < 0:
+		width = 0
+	var height = heightValue
+	if height < 0:
+		height = 0
 	if getWidth(widget) == width && getHeight(widget) == height:
 		return false
 	IFDEF "target_iosoc" {
@@ -747,6 +753,10 @@ IFDEF "target_iosoc"
 	}
 }
 
+IFDEF "target_uwp" {
+	var existingWidgetClickHandler static as !"Windows.UI.Xaml.Input.PointerEventHandler"
+}
+
 func setWidgetClickHandler(widget as this, handler as function) static
 {
 	if widget is CustomContainerWidget {
@@ -787,6 +797,22 @@ func setWidgetClickHandler(widget as this, handler as function) static
 			widget.element.onclick = handler;
 		}}}
 		HTMLDOM.setStyle(widget.element, "cursor", "pointer")
+	}
+	ELSE IFDEF "target_uwp" {
+		if existingWidgetClickHandler {
+			lang "cs" {{{
+				widget.PointerReleased -= existingWidgetClickHandler;
+			}}}
+			existingWidgetClickHandler = null
+		}
+		if handler {
+			lang "cs" {{{
+				existingWidgetClickHandler = (object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e) => {
+					handler();
+				};
+				widget.PointerReleased += existingWidgetClickHandler;
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
