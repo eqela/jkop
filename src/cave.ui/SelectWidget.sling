@@ -73,11 +73,56 @@ IFDEF("target_android")
 	basetype Widget type isAlso
 
 	var selectedWidgetIndex = -1
+	var adapter as !"android.widget.ArrayAdapter<java.lang.String>"
 
 	func requestLayout
 	{
 		Widget.onChanged(this)
 		base.requestLayout()
+	}
+
+	class MyAdapter is !"android.widget.ArrayAdapter<java.lang.String>"
+	{
+		ctor(ctx as !"android.content.Context", resId as int, obj as !"java.util.List<java.lang.String>")
+		{
+			base(ctx, resId, obj)
+		}
+
+		var tv as !"android.widget.TextView"
+		var queueSize as double
+		var queueFontFamily as string
+
+		func getView(pos as int, view as !"android.view.View", viewGroup as !"android.view.ViewGroup") as !"android.view.View"
+		{
+			lang "java" {{{
+				tv = (android.widget.TextView)super.getView(pos, view, viewGroup);
+			}}}
+			tv.setPadding(0, 0, 0, 0)
+			updateFont()
+			return tv
+		}
+
+		func setWidgetFontSize(sz as double)
+		{
+			queueSize = sz
+			updateFont()
+		}
+
+		func setWidgetFontFamily(ff as string)
+		{
+			queueFontFamily = ff
+			updateFont()
+		}
+
+		func updateFont
+		{
+			if tv {
+				lang "java" {{{
+					tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)queueSize);
+					tv.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL));
+				}}}
+			}
+		}
 	}
 
 	lang "java" {{{
@@ -233,12 +278,10 @@ func updateWidgetFont private
 		}}}
 	}
 	ELSE IFDEF("target_android") {
-		/* FIXME
-		lang "java" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
-			setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
-		}}}
-		*/
+		if adapter {
+			(adapter as! MyAdapter).setWidgetFontSize(widgetFontSize)
+			(adapter as! MyAdapter).setWidgetFontFamily(widgetFontFamily)
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -388,9 +431,7 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 				list += item.value
 			}
 		}
-		var adapter = new !"android.widget.ArrayAdapter<java.lang.String>"((widgetContext as! cave.GuiApplicationContextForAndroid).getAndroidActivityContext(),
-			lang "java" int {{{ android.R.layout.simple_spinner_item }}},
-			list)
+		adapter = new MyAdapter((widgetContext as! cave.GuiApplicationContextForAndroid).getAndroidActivityContext(), lang "java" int {{{ android.R.layout.simple_spinner_item }}}, list)
 		adapter.setDropDownViewResource(lang "java" int {{{ android.R.layout.simple_spinner_dropdown_item }}})
 		base.setAdapter(adapter)
 	}
