@@ -1,0 +1,193 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is SQLDatabase abstract imports cape imports capex.data:
+
+prop databaseName as string
+
+func instance private static as this
+{
+	IFDEF("target_netx") {
+		return new MSSQLDatabaseForDotNet()
+	}
+	ELSE {
+		ERROR("Not implemented")
+		return null
+	}
+}
+
+func forConnectionString(connectionString as string, logContext as LoggingContext) static as this
+{
+	assert String.isNotEmpty(connectionString)
+	var ss = String.split(connectionString, ':', 4)
+	assert ss && Vector.getSize(ss) == 4
+	return connect(ss[0], ss[1], ss[2], ss[3], logContext)
+}
+
+func connect(serverAddress as string, username as string, password as string, database as string, logger as LoggingContext = null) static as this
+{
+	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database)
+	var v = assert instance()
+	v.setLogger(logger)
+	assert v.initialize(serverAddress, username, password, database)
+	return v
+}
+
+func getDatabaseTypeId override as string
+{
+	return "sqlserver"
+}
+
+func initialize(serverAddress as string, username as string, password as string, database as string) virtual as bool
+{
+	return true
+}
+
+func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
+{
+	var it = assert query(stmt)
+	var v as cape.DynamicMap #force = it.next()
+	return v
+}
+
+func tableExists(table as string) override as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	var sr = assert querySingleRow(stmt)
+	return String.equals(table, sr.getString("TABLE_NAME"))
+}
+
+func queryAllTableNames(callback as function<void, vector>) override
+{
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;") {
+		callback(null)
+	}
+	stmt.addParamString(databaseName)
+	query(stmt, func(it as SQLResultSetIterator) {
+		assert it {
+			callback(null)
+		}
+		var v = new vector
+		loop
+		{
+			var vv = it.next()
+			if not vv:
+				break
+			v += vv.getString("TABLE_NAME")
+		}
+		callback(v)
+	})
+}
+
+func queryAllTableNames override as vector
+{
+	assert String.isNotEmpty(databaseName)
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
+	stmt.addParamString(databaseName)
+	var it = assert query(stmt)
+	var v = new vector
+	loop {
+		var vv = it.next()
+		if not vv:
+			break
+		v += vv.getString("TABLE_NAME")
+	}
+	return v
+}
+
+func columnToCreateString(cc as SQLTableColumnInfo) private as string
+{
+	var sb = new StringBuilder()
+	var columnName = cc.getName()
+	sb.append(columnName)
+	sb.append(' ')
+	var tt = cc.getType()
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
+		sb.append("INTEGER AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
+		sb.append("INTEGER")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
+		sb.append("VARCHAR(255)")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
+		sb.append("VARCHAR(255), PRIMARY KEY (" .. columnName .. ")")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
+		sb.append("LONGTEXT")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
+		sb.append("LONGBLOB")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
+		sb.append("REAL")
+	}
+	else {
+		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+		sb.append("UNKNOWN")
+	}
+	return sb.toString()
+}
+
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+{
+	assert String.isNotEmpty(table) && columns
+	var sb = new StringBuilder()
+	sb.append("CREATE TABLE ")
+	sb.append(table)
+	sb.append(" (")
+	var first = true
+	foreach(column as SQLTableColumnInfo in columns) {
+		if not first:
+			sb.append(',')
+		sb.append(' ')
+		sb.append(columnToCreateString(column))
+		first = false
+	}
+	sb.append(" );")
+	return prepare(sb.toString())
+}
+
+func prepareDeleteTableStatement(table as string) override as SQLStatement
+{
+	assert String.isNotEmpty(table)
+	var sb = new StringBuilder()
+	sb.append("DROP TABLE ")
+	sb.append(table)
+	sb.append(";")
+	return prepare(sb.toString())
+}
+
+func prepareCreateIndexStatement(table as string, column as string, unique as bool) override as SQLStatement
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(column)
+	var unq = ""
+	if unique:
+		unq = "UNIQUE "
+	return prepare("CREATE " .. unq .. "INDEX " .. table .. "_" .. column .. " ON " .. table .. " (" .. column .. ")")
+}
