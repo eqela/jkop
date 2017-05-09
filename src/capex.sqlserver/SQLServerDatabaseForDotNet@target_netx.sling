@@ -294,7 +294,7 @@ var connectionString as string
 func initialize(serverAddress as string, username as string, password as string, database as string) override as bool
 {
 	setDatabaseName(database)
-	connectionString = "Data Source=tcp:" .. serverAddress .. ";Initial Catalog=" .. database .. ";User Id=" .. username .. ";Password=" .. password
+	connectionString = "Asynchronous Processing=true;Data Source=tcp:" .. serverAddress .. ";Initial Catalog=" .. database .. ";User Id=" .. username .. ";Password=" .. password
 	Log.debug(getLogger(), "SQL Server connection string: '" .. connectionString .. "'")
 	return true
 }
@@ -316,7 +316,10 @@ func execute(stmt as SQLStatement) override as bool
 			try {
 				System.Console.WriteLine(ss.sql);
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
-				cmd.Parameters.AddRange(ss.getParamArray());
+				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+				if(pa != null) {
+					cmd.Parameters.AddRange(ss.getParamArray());
+				}
 				conn.Open();
 				cmd.ExecuteNonQuery();
 			}
@@ -343,9 +346,12 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
-			cmd.Parameters.AddRange(ss.getParamArray());
+			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+			if(pa != null) {
+				cmd.Parameters.AddRange(ss.getParamArray());
+			}
 			connection.Open();
-			reader = cmd.ExecuteReader();
+			reader = cmd.ExecuteReader(System.Data.CommandBehavior.SequentialAccess);
 		}
 		catch(System.Exception e) {
 			error = e.ToString();
@@ -392,7 +398,10 @@ func execute(stmt as SQLStatement, callback as function<void, bool>) override #d
 			try {
 				System.Console.WriteLine(ss.sql);
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
-				cmd.Parameters.AddRange(ss.getParamArray());
+				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+				if(pa != null) {
+					cmd.Parameters.AddRange(ss.getParamArray());
+				}
 				conn.Open();
 				await cmd.ExecuteNonQueryAsync();
 			}
@@ -423,9 +432,13 @@ func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
-			cmd.Parameters.AddRange(ss.getParamArray());
+			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+			if(pa != null) {
+				cmd.Parameters.AddRange(ss.getParamArray());
+			}
 			connection.Open();
-			reader = await cmd.ExecuteReaderAsync();
+			// FIXME: ExecuteReaderAsync() is extremely slow
+			reader = await cmd.ExecuteReaderAsync(System.Data.CommandBehavior.SequentialAccess);
 		}
 		catch(System.Exception e) {
 			error = e.ToString();
