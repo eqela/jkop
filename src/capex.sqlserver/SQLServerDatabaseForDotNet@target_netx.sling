@@ -38,35 +38,88 @@ class Statement is SQLStatement
 		return v
 	}
 
+	var pcounter = 0
 	var sql public as string
+	var params as vector<!"System.Data.SqlClient.SqlParameter">
+
+	func getParamArray as array<!"System.Data.SqlClient.SqlParameter">
+	{
+		assert params
+		var arr = new !"System.Data.SqlClient.SqlParameter"[Vector.getSize(params)]
+		var i = 0
+		var iter as Iterator<!"System.Data.SqlClient.SqlParameter"> #force = Vector.iterate(params)
+		loop {
+			var n = iter.next() as !"System.Data.SqlClient.SqlParameter"
+			if not n:
+				break
+			arr[i] = n
+			i++
+		}
+		return arr
+	}
+
+	func addToParams(param as !"System.Data.SqlClient.SqlParameter")
+	{
+		if not params:
+			params = new vector<!"System.Data.SqlClient.SqlParameter">
+		params += param
+	}
+
+	func getNextParamName as string
+	{
+		pcounter ++
+		return "@p" .. String.forInteger(pcounter)
+	}
 
 	func addParamString(val as string) as SQLStatement
 	{
-		// FIXME: No implementation yet
+		var vv = val
+		if not vv:
+			vv = ""
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.VarChar);
+			param.Value = vv;
+			addToParams(param);
+		}}}
 		return this
 	}
 
 	func addParamInteger(val as int) as SQLStatement
 	{
-		// FIXME: No implementation yet
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.Int);
+			param.Value = val;
+			addToParams(param);
+		}}}
 		return this
 	}
 
 	func addParamDouble(val as double) as SQLStatement
 	{
-		// FIXME: No implementation yet
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.Float);
+			param.Value = val;
+			addToParams(param);
+		}}}
 		return this
 	}
 
 	func addParamBlob(val as buffer) as SQLStatement
 	{
-		// FIXME: No implementation yet
+		if not val:
+			return this
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.VarBinary);
+			param.Value = val;
+			addToParams(param);
+		}}}
 		return this
 	}
 
 	func resetStatement
 	{
-		// FIXME: No implementation yet
+		params = null
+		pcounter = 0
 	}
 
 	func getError as string
@@ -263,8 +316,8 @@ func execute(stmt as SQLStatement) override as bool
 			try {
 				System.Console.WriteLine(ss.sql);
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				cmd.Parameters.AddRange(ss.getParamArray());
 				conn.Open();
-				// FIXME: Check if there are available parameters to include
 				cmd.ExecuteNonQuery();
 			}
 			catch(System.Exception e) {
@@ -290,8 +343,8 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			cmd.Parameters.AddRange(ss.getParamArray());
 			connection.Open();
-			// FIXME: Check if there are available parameters to include
 			reader = cmd.ExecuteReader();
 		}
 		catch(System.Exception e) {
@@ -325,18 +378,76 @@ func close(callback as function) override
 		callback()
 }
 
-func execute(stmt as SQLStatement, callback as function<void, bool>) override
+func execute(stmt as SQLStatement, callback as function<void, bool>) override #dotnetasync
 {
-	// FIXME: Do asynchronously
-	var v = execute(stmt)
+	var ss = stmt as Statement
+	assert ss {
+		if callback:
+			callback(false)
+	}
+	var v = true
+	var error as string = null
+	lang "cs" {{{
+		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
+			try {
+				System.Console.WriteLine(ss.sql);
+				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				cmd.Parameters.AddRange(ss.getParamArray());
+				conn.Open();
+				await cmd.ExecuteNonQueryAsync();
+			}
+			catch(System.Exception e) {
+				error = e.ToString();
+				v = false;
+			}
+		}
+	}}}
+	if error:
+		Log.error(getLogger(), error)
 	if callback:
 		callback(v)
 }
 
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override #dotnetasync
 {
-	// FIXME: Do asynchronously
-	var v = query(stmt)
+	var ss = stmt as Statement
+	assert ss {
+		if callback:
+			callback(null)
+	}
+	var v as ResultSet = null
+	var error as string = null
+	var reader as !"System.Data.SqlClient.SqlDataReader"
+	var connection as !"System.Data.SqlClient.SqlConnection"
+	lang "cs" {{{
+		connection = new System.Data.SqlClient.SqlConnection(connectionString);
+		try {
+			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			cmd.Parameters.AddRange(ss.getParamArray());
+			connection.Open();
+			reader = await cmd.ExecuteReaderAsync();
+		}
+		catch(System.Exception e) {
+			error = e.ToString();
+			if(reader != null) {
+				reader.Close();
+				reader.Dispose();
+				reader = null;
+			}
+			if(connection != null) {
+				connection.Close();
+				connection.Dispose();
+				connection = null;
+			}
+		}
+	}}}
+	if reader {
+		v = new ResultSet()
+		v.reader = reader
+		v.connection = connection
+	}
+	if error:
+		Log.error(getLogger(), error)
 	if callback:
 		callback(v)
 }
