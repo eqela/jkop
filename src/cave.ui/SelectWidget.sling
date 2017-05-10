@@ -86,11 +86,14 @@ IFDEF("target_android")
 		ctor(ctx as !"android.content.Context", resId as int, obj as !"java.util.List<java.lang.String>")
 		{
 			base(ctx, resId, obj)
+			widgetContext = ctx
 		}
 
+		var widgetContext as !"android.content.Context"
 		var tv as !"android.widget.TextView"
 		var queueSize as double
 		var queueFontFamily as string
+		var queueFontResource as string
 
 		func getView(pos as int, view as !"android.view.View", viewGroup as !"android.view.ViewGroup") as !"android.view.View"
 		{
@@ -114,12 +117,23 @@ IFDEF("target_android")
 			updateFont()
 		}
 
+		func setWidgetFontResource(res as string)
+		{
+			queueFontResource = res
+			updateFont()
+		}
+
 		func updateFont
 		{
 			if tv {
 				lang "java" {{{
 					tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)queueSize);
-					tv.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL));
+					if(queueFontResource != null) {
+						tv.setTypeface(android.graphics.Typeface.createFromAsset(widgetContext.getAssets(), queueFontResource), android.graphics.Typeface.NORMAL);
+					}
+					else {
+						tv.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL));
+					}
 				}}}
 			}
 		}
@@ -214,6 +228,7 @@ var widgetBackgroundColor as Color
 var widgetTextColor as Color
 var widgetPadding as int
 var widgetFontFamily as string
+var widgetFontResource as string
 var widgetFontSize as double
 
 ctor(context as GuiApplicationContext)
@@ -258,6 +273,14 @@ func setWidgetFontFamily(family as string) as this
 	return(this)
 }
 
+func setWidgetFontResource(res as string) as this
+{
+	widgetFontResource = res
+	updateWidgetFont()
+	Widget.onChanged(this)
+	return(this)
+}
+
 func setWidgetFontSize(fontSize as double #notLiteral) as this
 {
 	widgetFontSize = fontSize
@@ -281,6 +304,7 @@ func updateWidgetFont private
 		if adapter {
 			(adapter as! MyAdapter).setWidgetFontSize(widgetFontSize)
 			(adapter as! MyAdapter).setWidgetFontFamily(widgetFontFamily)
+			(adapter as! MyAdapter).setWidgetFontResource(widgetFontResource)
 		}
 	}
 	ELSE {

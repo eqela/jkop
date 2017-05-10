@@ -1,0 +1,170 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget is WidgetWithValue #widget:
+
+class MyRadioButtonWidget #widget
+{
+	ui HorizontalBoxWidget
+	{
+		spacing = context.getHeightValue("2000um")
+		LayerWidget {
+			heightRequest = context.getHeightValue("4000um")
+			widthRequest = context.getHeightValue("4000um")
+			CanvasWidget outline {
+				color = Color.black()
+				roundingRadius = context.getHeightValue("2000um")
+			}
+			LayerWidget {
+				margin = context.getHeightValue("500um")
+				CanvasWidget canvas {
+				}
+			}
+		}
+		LabelWidget label : 1.0 {
+		}
+	}
+
+	prop widgetIndex as int
+	prop widgetContainer as parent
+	prop widgetColor as Color
+	prop widgetText as string
+	prop widgetFontSize as int
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		label.setWidgetText(widgetText)
+		label.setWidgetFontSize(widgetFontSize)
+		canvas.setWidgetColor(Color.white())
+		canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+		Widget.setWidgetClickHandler(this, func {
+			widgetContainer.updateSelectedWidget(widgetIndex)
+		})
+	}
+
+	func onSelected
+	{
+		if not widgetColor:
+			canvas.setWidgetColor(Color.black())
+		canvas.setWidgetColor(widgetColor)
+		canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+	}
+
+	func onDeSelected
+	{
+		canvas.setWidgetColor(Color.white())
+		canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+	}
+}
+
+func forGroup(context as GuiApplicationContext, group as string, items as vector<string>) static as this
+{
+	var v = new this(context)
+	v.setWidgetName(group)
+	v.setWidgetItems(items)
+	return v
+}
+
+var selectedWidgetIndex as int
+var vrb as vector<MyRadioButtonWidget>
+prop widgetItems as vector<string>
+prop widgetName as string
+prop widgetFontSize as int
+prop widgetOnSelectedColor as Color
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	vrb = new vector<MyRadioButtonWidget>
+	var vbox = VerticalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
+	for(var i = 0; i < Vector.getSize(widgetItems); i++) {
+		var d = Vector.get(widgetItems, i)
+		if not d:
+			continue
+		var rb = new MyRadioButtonWidget(context)
+		rb.setWidgetText(d)
+		rb.setWidgetIndex(i)
+		rb.setWidgetContainer(this)
+		rb.setWidgetFontSize(widgetFontSize)
+		rb.setWidgetColor(widgetOnSelectedColor)
+		vrb += rb
+		vbox.addWidget(rb)
+	}
+	addWidget(vbox)
+}
+
+func setWidgetName(name as string)
+{
+	widgetName = name
+}
+
+func setWidgetValue(value as object)
+{
+	setSelectWidgetValue(String.asString(value))
+}
+
+func getWidgetValue as object
+{
+	var v = Integer.asObject(selectedWidgetIndex)
+	return v
+}
+
+func setSelectWidgetValue(selectedWidget as string)
+{
+	updateSelectedWidget(findIndexForWidgetValue(selectedWidget))
+}
+
+func updateSelectedWidget(index as int)
+{
+	if selectedWidgetIndex > -1 {
+		var widget = Vector.get(vrb, selectedWidgetIndex)
+		if widget:
+			widget.onDeSelected()
+	}
+	var ww = Vector.get(vrb, index)
+	if ww:
+		ww.onSelected()
+	selectedWidgetIndex = index
+}
+
+func findIndexForWidgetValue(id as string) private as int
+{
+	var v = -1
+	if widgetItems {
+		var n = 0
+		var it as Iterator<string> #force = Vector.iterate(widgetItems)
+		while it {
+			var item = it.next()
+			if item == null:
+				break
+			if(item == id) {
+				v = n
+				break
+			}
+			n ++
+		}
+	}
+	return v
+}
