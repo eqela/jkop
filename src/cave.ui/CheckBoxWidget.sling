@@ -74,6 +74,8 @@ IFDEF "target_uwp"
 var widgetContext as GuiApplicationContext
 var widgetText as string
 var widgetTextColor as Color
+var widgetFontResource as string
+var widgetFontFamily as string
 prop widgetCheckHandler as function
 
 ctor(context as GuiApplicationContext)
@@ -82,6 +84,7 @@ ctor(context as GuiApplicationContext)
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
 	widgetContext = context
+	widgetFontFamily = "Arial"
 	widgetTextColor = Color.black()
 	setWidgetTextColor(widgetTextColor)
 	IFDEF("target_android") {
@@ -127,28 +130,60 @@ func getWidgetText as string
 	return(widgetText)
 }
 
-func setWidgetTextColor(color as Color)
+func setWidgetTextColor(color as Color) as this
 {
 	widgetTextColor = color
-	IFDEF("target_html") {
-		var child = HTMLDOM.getChild(element, 1)
-		HTMLDOM.setStyle(child, "color", HTMLDOM.colorToRGBA(widgetTextColor))
-	}
-	ELSE IFDEF("target_android") {
-		base.setTextColor(widgetTextColor.toARGBInt32())
-	}
-	ELSE IFDEF("target_iosoc") {
-		if labelWidget:
-			labelWidget.setWidgetTextColor(color)
-	}
-	ELSE {
-		ERROR("Not implemented")
-	}
+	updateWidgetFont()
+	return(this)
 }
 
 func getWidgetTextColor as Color
 {
 	return(widgetTextColor)
+}
+
+func setWidgetFontFamily(font as string) as this
+{
+	widgetFontFamily = font
+	updateWidgetFont()
+	return(this)
+}
+
+func setWidgetFontResource(res as string) as this
+{
+	widgetFontResource = res
+	updateWidgetFont()
+	return(this)
+}
+
+func updateWidgetFont private
+{
+	IFDEF("target_html") {
+		var child = HTMLDOM.getChild(element, 1)
+		HTMLDOM.setStyle(child, "color", HTMLDOM.colorToRGBA(widgetTextColor))
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+	}
+	ELSE IFDEF("target_android") {
+		base.setTextColor(widgetTextColor.toARGBInt32())
+		lang "java" {{{
+			if(widgetFontResource != null) {
+				android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+				setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
+			}
+			else {
+				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+			}
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		if labelWidget {
+			labelWidget.setWidgetTextColor(widgetTextColor)
+			labelWidget.setWidgetFontFamily(widgetFontFamily)
+		}
+	}
+	ELSE {
+		ERROR("Not implemented")
+	}
 }
 
 func getWidgetChecked as bool
