@@ -113,6 +113,9 @@ IFDEF("target_android")
 		if(coordinateQueue != null) {
 			doZoomToCoordinates()
 		}
+		if(centerQueue != null) {
+			doMoveToCenter()
+		}
 	}
 }
 
@@ -508,6 +511,7 @@ var context as GuiApplicationContext
 var mapClickHandler as function<void,double,double>
 var markerQueue as vector<MyMapMarker>
 var coordinateQueue as vector<DynamicMap>
+var centerQueue as GeoLocation
 var mapInitialized = false
 
 ctor(context as GuiApplicationContext) private
@@ -672,22 +676,30 @@ func doAddMapMarker(marker as MyMapMarker) private
 
 func moveToCenter(lat as double, lon as double)
 {
+	centerQueue = new GeoLocation().setLatitude(lat).setLongitude(lon)
+	if mapInitialized:
+		doMoveToCenter()
+}
+
+func doMoveToCenter
+{
+	assert centerQueue
 	IFDEF("target_iosoc") {
 		lang "objc" {{{
-			GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:lat longitude:lon zoom:self->defaultZoomLevel
+			GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:[centerQueue getLatitude] longitude:[centerQueue getLongitude] zoom:self->defaultZoomLevel
 				bearing:0 viewingAngle:45];
 			[self animateToCameraPosition:camera];
 		}}}
 	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
-			this.mapObject.setCenter({ "lat" : lat, "lng" : lon });
+			this.mapObject.setCenter({ "lat" : centerQueue.getLatitude(), "lng" : centerQueue.getLongitude() });
 		}}}
 	}
 	ELSE IFDEF("target_android") {
 		lang "java" {{{
 			com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
-				.target(new com.google.android.gms.maps.model.LatLng(lat, lon))
+				.target(new com.google.android.gms.maps.model.LatLng(centerQueue.getLatitude(), centerQueue.getLongitude()))
 				.zoom(defaultZoomLevel)
 				.bearing(0)
 				.tilt(45)
@@ -717,12 +729,12 @@ func doZoomToCoordinates
 		lang "java" {{{
 			com.google.android.gms.maps.model.LatLngBounds.Builder llbounds = new com.google.android.gms.maps.model.LatLngBounds.Builder();
 			for(cape.DynamicMap coor : coordinateQueue) {
-				double lat = (double)coor.getDouble("lat");
-				double lon = (double)coor.getDouble("lon");
+				double lat = (double)coor.getDouble("latitude");
+				double lon = (double)coor.getDouble("longitude");
 				com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(lat, lon);
 				llbounds.include(pos);
 			}
-			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(),200));
+			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 100));
 		}}}
 	}
 	ELSE IFDEF("target_html") {
@@ -730,7 +742,7 @@ func doZoomToCoordinates
 			var bounds = new google.maps.LatLngBounds();
 			for(var i = 0; i < this.coordinateQueue.length; i++) {
 				var bound = this.coordinateQueue[i];
-				var latlon = new google.maps.LatLng({ lat: bound.getDouble("lat"), lng: bound.getDouble("lon")});
+				var latlon = new google.maps.LatLng({ lat: bound.getDouble("latitude"), lng: bound.getDouble("longitude")});
 				bounds.extend(latlon);
 			}
 			this.mapObject.fitBounds(bounds);
