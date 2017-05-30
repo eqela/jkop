@@ -1,0 +1,172 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+class Column
+{
+	var name public as string
+	var weight public as double
+}
+
+var widgetBackground as CanvasWidget
+var widgetGridBackground as CanvasWidget
+var widgetGrid as VerticalBoxWidget
+var widgetDataBox as VerticalBoxWidget
+var widgetHeaderRow as HorizontalBoxWidget
+var widgetColumns as vector<Column>
+var widgetGridWidth as int
+prop widgetHeaderBackgroundColor as Color
+prop widgetHeaderForegroundColor as Color
+prop widgetDataBackgroundColor as Color
+prop widgetDataForegroundColor as Color
+prop widgetCellPadding = 0
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	addWidget(widgetBackground = new CanvasWidget(ctx))
+	var db = new VerticalBoxWidget(ctx)
+	widgetGrid = db
+	db.addWidget(widgetHeaderRow = new HorizontalBoxWidget(ctx))
+	db.addWidget(widgetDataBox = new VerticalBoxWidget(ctx))
+	var dblayer = new LayerWidget(ctx)
+	dblayer.addWidget(widgetGridBackground = new CanvasWidget(ctx))
+	dblayer.addWidget(db)
+	var dblb = new VerticalBoxWidget(ctx)
+	dblb.addWidget(dblayer)
+	addWidget(dblb)
+	setWidgetHeaderForegroundColor(Color.black())
+	setWidgetDataBackgroundColor(Color.white())
+	setWidgetDataForegroundColor(Color.black())
+	setWidgetBackgroundColor(Color.white())
+	setWidgetGridColor(Color.black())
+	setWidgetHeaderBackgroundColor(Color.instance("#AAAAAA"))
+	setWidgetBackgroundColor(Color.white())
+	setWidgetGridWidth(ctx.getHeightValue("500um"))
+	setWidgetCellPadding(ctx.getHeightValue("1mm"))
+}
+
+func setWidgetBackgroundColor(color as Color):
+	widgetBackground.setWidgetColor(color)
+
+func getWidgetBackgroundColor as Color:
+	return widgetBackground.getWidgetColor()
+
+func setWidgetGridColor(color as Color):
+	widgetGridBackground.setWidgetColor(color)
+
+func getWidgetGridColor as Color:
+	return widgetGridBackground.getWidgetColor()
+
+func setWidgetGridWidth(width as int)
+{
+	widgetGridWidth = width
+	widgetGrid.setWidgetMargin(width)
+	widgetGrid.setWidgetSpacing(width)
+	widgetDataBox.setWidgetSpacing(width)
+	widgetHeaderRow.setWidgetSpacing(width)
+}
+
+func deleteAllColumns
+{
+	widgetColumns = null
+	deleteWidgetHeaderRow()
+	deleteAllRows()
+}
+
+func addColumn(name as string, weight as double = 1.0)
+{
+	if not widgetColumns:
+		widgetColumns = new vector<Column>
+	var c = new Column()
+	c.name = name
+	c.weight = weight
+	widgetColumns += c
+}
+
+func addWidgetHeaderRow
+{
+	widgetHeaderRow.removeAllChildren()
+	foreach column in widgetColumns {
+		var str = column.name
+		if not str:
+			str = ""
+		var lbl = LabelWidget.forText(context, str)
+		lbl.setWidgetTextColor(widgetHeaderForegroundColor)
+		lbl.setWidgetFontBold(true)
+		var cc = CanvasWidget.forColor(context, widgetHeaderBackgroundColor)
+		var ll = new LayerWidget(context)
+		ll.addWidget(cc)
+		if widgetCellPadding > 0 {
+			ll.addWidget(LayerWidget.forWidget(context, lbl, widgetCellPadding))
+		}
+		else {
+			ll.addWidget(lbl)
+		}
+		widgetHeaderRow.addWidget(ll, column.weight)
+	}
+}
+
+func deleteWidgetHeaderRow
+{
+	widgetHeaderRow.removeAllChildren()
+}
+
+func deleteAllRows
+{
+	widgetDataBox.removeAllChildren()
+}
+
+func addRow(data as array, clickHandler as function = null)
+{
+	var n = 0
+	var c = SIZE data
+	var row = new HorizontalBoxWidget(context)
+	row.setWidgetSpacing(widgetGridWidth)
+	widgetDataBox.addWidget(row)
+	foreach column in widgetColumns {
+		if n >= c:
+			continue
+		var dd = data[n]
+		var str = String.asString(dd)
+		if not str:
+			str = ""
+		var lbl = LabelWidget.forText(context, str)
+		lbl.setWidgetFontBold(true)
+		lbl.setWidgetTextColor(widgetDataForegroundColor)
+		var cc = CanvasWidget.forColor(context, widgetDataBackgroundColor)
+		var ll = new LayerWidget(context)
+		ll.addWidget(cc)
+		if widgetCellPadding > 0 {
+			ll.addWidget(LayerWidget.forWidget(context, lbl, widgetCellPadding))
+		}
+		else {
+			ll.addWidget(lbl)
+		}
+		row.addWidget(ll, column.weight)
+		n++
+	}
+	Widget.setWidgetClickHandler(row, clickHandler)
+}
