@@ -30,6 +30,7 @@ IFDEF "target_iosoc"
 	basetype !"UIView" type extends
 	depend "objc-header-h:<UIKit/UIKit.h>"
 	depend "objc-header-m:<objc/runtime.h>"
+	depend "objc-header-m:<UIKit/UIGestureRecognizerSubclass.h>"
 }
 
 IFDEF "target_android"
@@ -751,6 +752,67 @@ IFDEF "target_iosoc"
 		}
 	}
 
+	class MyGestureRecognizer extends !"UIGestureRecognizer"
+	{
+		lang "objc" {{{
+			- (id) initWithTarget:(id)taraget action:(SEL)action
+			{
+				if ([super initWithTarget:target action:action] == nil) {
+					return(nil);
+				}
+				return(self);
+			}
+		}}}
+
+		func touchesBegan(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "objc" {{{
+				[super touchesBegan:touches withEvent:withEvent];
+				if (self.state != UIGestureRecognizerStatePossible && touches.count > 1) {
+					self.state = UIGestureRecognizerStateFailed;
+					return;
+				}
+				self.state = UIGestureRecognizerStateBegan;
+			}}}
+		}
+
+		func touchesEnded(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "objc" {{{
+				[super touchesEnded:touches withEvent:withEvent];
+				[self reset];
+				self.state = UIGestureRecognizerStateEnded;
+			}}}
+		}
+
+		func touchesMoved(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "objc" {{{
+				[super touchesMoved:touches withEvent:withEvent];
+				if (self.state != UIGestureRecognizerStateBegan) {
+					self.state = UIGestureRecognizerStateFailed;
+					return;
+				}
+				self.state = UIGestureRecognizerStateChanged;
+			}}}
+		}
+
+		func touchesCancelled(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "objc" {{{
+				[super touchesCancelled:touches withEvent:withEvent];
+				self.state = UIGestureRecognizerStateCancelled;
+			}}}
+		}
+
+		func reset
+		{
+			lang "objc" {{{
+				[super reset];
+			}}}
+		}
+	}
+
 	class WidgetLongPressForwarder
 	{
 		prop handler as function
@@ -925,6 +987,7 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
+			var mousedown = false;
 			var getCoordinates = function(evt) {
 				var rect = widget.element.getBoundingClientRect();
 				var x = evt.clientX - rect.left;
@@ -933,24 +996,29 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 			};
 			if(onTouchHandler != null) {
 				var othf = function(evt) {
-					onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+					if(mousedown) {
+						CaveHTMLDOM.setStyle(widget.element, "cursor", "move");
+						onTouchHandler(getCoordinates(evt).x, getCoordinates(evt).y);
+					}
 				};
 				widget.element.onmousemove = othf;
 			}
 			if(onStartHandler != null) {
 				var oshf = function(evt) {
+					mousedown = true;
 					onStartHandler(getCoordinates(evt).x, getCoordinates(evt).y);
 				};
 				widget.element.onmousedown = oshf;
 			}
 			if(onEndHandler != null) {
 				var oehf = function(evt) {
+					mousedown = false;
+					CaveHTMLDOM.setStyle(widget.element, "cursor", "auto");
 					onEndHandler(getCoordinates(evt).x, getCoordinates(evt).y);
 				};
 				widget.element.onmouseup = oehf;
 			}
 		}}}
-		HTMLDOM.setStyle(widget.element, "cursor", "move")
 	}
 	ELSE IFDEF "target_iosoc" {
 		var forwarder = new WidgetTouchForwarder()
@@ -961,8 +1029,7 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 		lang "objc" {{{
 			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[widget setUserInteractionEnabled:YES];
-			[widget addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
-			
+			[widget addGestureRecognizer:[[CaveUIWidgetMyGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
 		}}}
 	}
 	ELSE {
