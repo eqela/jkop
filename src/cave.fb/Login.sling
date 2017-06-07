@@ -44,6 +44,22 @@ IFDEF("target_iosoc")
 	depend "objc-framework:FBSDKCoreKit"
 	depend "objc-framework:AccountKit"
 	depend "objc-framework:Bolts"
+
+	func doGraphAPICall(callback as function<void, string, string, cape.Error>) private
+	{
+		assert callback
+		var cb = callback
+		lang "objc" {{{
+			[[[FBSDKGraphRequest alloc] initWithGraphPath:@"me" parameters:@{@"fields": @"id, email"}] startWithCompletionHandler:^(FBSDKGraphRequestConnection *connection, id result, NSError *error) {
+				if(error) {
+					cb(nil, nil, [CapeError forMessage:error.localizedDescription]);
+				}
+				else {
+					cb(result[@"id"], [[FBSDKAccessToken currentAccessToken]tokenString], nil);
+				}
+			}];
+		}}}
+	}
 }
 
 func forApplications(context as GuiApplicationContext, webAppId as string) static as this
@@ -81,7 +97,7 @@ func initialize as bool
 					js.src = "//connect.facebook.net/en_US/sdk.js";
 					fjs.parentNode.insertBefore(js, fjs);
 				}(document, 'script', 'facebook-jssdk'));
-   			}}}
+			}}}
 			sdkIncluded = true
 		}
 	}
@@ -154,11 +170,9 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 						cb.execute(ac.getUserId(), ac.getToken(), null);
 					}
 				}
-
 				@Override
 				public void onCancel() {
 				}
-
 				@Override
 				public void onError(com.facebook.FacebookException exception) {
 					if(cb != null) {
@@ -184,12 +198,18 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 		}}}
 		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"NSURL", options as !"NSDictionary", source as !"NSString", annot as object) as bool {
 			return(lang "objc" bool {{{
-				[[FBSDKApplicationDelegate sharedInstance] application:app openURL:url sourceApplication:source annotation:annot]
+				[[FBSDKApplicationDelegate sharedInstance] application:app openURL:url sourceApplication:@"com.apple.mobilesafari" annotation:annot]
 			}}})
 		})
 		lang "objc" {{{
 			FBSDKLoginManager *loginManager = [[FBSDKLoginManager alloc] init];
-			loginManager.loginBehavior = FBSDKLoginBehaviorSystemAccount;
+			loginManager.loginBehavior = FBSDKLoginBehaviorNative;
+			if([FBSDKAccessToken currentAccessToken]) {
+				if([[FBSDKAccessToken currentAccessToken] hasGranted:@"email"]) {
+					[self doGraphAPICall:cb];
+					return;
+				}
+			}
 			[loginManager logInWithReadPermissions:@[@"email"] fromViewController:screen handler:^(FBSDKLoginManagerLoginResult *result, NSError *error) {
 				if(error) {
 					cb(nil, nil, [CapeError forMessage:error.localizedDescription]);
@@ -199,14 +219,7 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 				}
 				else {
 					if([FBSDKAccessToken currentAccessToken]) {
-						[[[FBSDKGraphRequest alloc] initWithGraphPath:@"me" parameters:@{@"fields": @"id, email"}] startWithCompletionHandler:^(FBSDKGraphRequestConnection *connection, id result, NSError *error) {
-							if(error) {
-								cb(nil, nil, [CapeError forMessage:error.localizedDescription]);
-							}
-							else {
-								cb(result[@"id"], [[FBSDKAccessToken currentAccessToken]tokenString], nil);
-							}
-						}];
+						[self doGraphAPICall:cb];
 					}
 					else {
 						cb(nil, nil, [CapeError forCode:@"noAccessToken" detail:nil]);
