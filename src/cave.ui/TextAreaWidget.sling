@@ -29,7 +29,7 @@ func forPlaceholder(context as GuiApplicationContext, placeholder as string, row
 	var v = new this(context)
 	v.setWidgetPlaceholder(placeholder)
 	v.setWidgetRows(rows)
-	return(v)
+	return v
 }
 
 IFDEF("target_android")
@@ -41,13 +41,19 @@ IFDEF("target_android")
 IFDEF("target_iosoc")
 {
 	basetype !"UITextView" type extends
+	basetype !"UITextViewDelegate" type implements
 	basetype Widget type isAlso
 	basetype WidgetWithLayout
 
 	lang "objc" {{{
+		- (void)textViewDidChange:(UITextView*)textView {
+			[self onChangeListener];
+		}
+
 		- (CGRect)textRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
 		}
+
 		- (CGRect)editingRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
 		}
@@ -102,10 +108,8 @@ IFDEF("target_html")
 {
 	basetype Widget
 
-	func createElement override as object
-	{
-		return(HTMLDOM.createElement("textarea"))
-	}
+	func createElement override as object:
+		return HTMLDOM.createElement("textarea")
 
 	func prepareElement(element as object) override
 	{
@@ -113,6 +117,9 @@ IFDEF("target_html")
 		HTMLDOM.setStyle(element, "resize", "none")
 		HTMLDOM.setStyle(element, "border", "none")
 		HTMLDOM.removeStyle(element, "overflow")
+		HTMLDOM.addEventListener(element, "input", func {
+			onChangeListener()
+		})
 	}
 }
 
@@ -134,6 +141,7 @@ var widgetBackgroundColor as Color
 var widgetFontFamily as string
 var widgetFontResource as string
 var widgetFontSize as double
+prop widgetTextChangeHandler as function
 
 ctor(context as GuiApplicationContext)
 {
@@ -144,6 +152,22 @@ ctor(context as GuiApplicationContext)
 			setBackgroundColor(cave.Color.forRGB(255,255,255).toARGBInt32());
 			setTextColor(cave.Color.forRGB(0,0,0).toARGBInt32());
 			setGravity(android.view.Gravity.TOP);
+			addTextChangedListener(new android.text.TextWatcher() {
+				public void onTextChanged(java.lang.CharSequence s, int start, int before, int count) {
+					onChangeListener();
+				}
+
+				public void beforeTextChanged(java.lang.CharSequence s, int start, int count, int after) {
+				}
+
+				public void afterTextChanged(android.text.Editable s) {
+				}
+			});
+		}}}
+	}
+	IFDEF("target_iosoc") {
+		lang "objc" {{{
+			self.delegate = self;
 		}}}
 	}
 	IFDEF("target_html") {
@@ -159,17 +183,15 @@ ctor(context as GuiApplicationContext)
 	updateWidgetColors()
 }
 
-func configureMonospaceFont
-{
+func configureMonospaceFont:
 	setWidgetFontFamily("monospace")
-}
 
 func updateWidgetColors private
 {
 	var textColor = widgetTextColor
-	if(textColor == null) {
-		if(widgetBackgroundColor != null) {
-			if(widgetBackgroundColor.isLightColor()) {
+	if not textColor {
+		if widgetBackgroundColor {
+			if widgetBackgroundColor.isLightColor() {
 				textColor = Color.black()
 			}
 			else {
@@ -205,7 +227,7 @@ func updateWidgetColors private
 		}}}
 	}
 	IFDEF("target_html") {
-		if(widgetBackgroundColor == null) {
+		if not widgetBackgroundColor {
 			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
 		}
 		else {
@@ -247,7 +269,7 @@ func updateWidgetFont private
 		}}}
 	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 }
 
@@ -256,7 +278,7 @@ func setWidgetFontFamily(family as string) as this
 	widgetFontFamily = family
 	updateWidgetFont()
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func setWidgetFontResource(res as string) as this
@@ -264,7 +286,7 @@ func setWidgetFontResource(res as string) as this
 	widgetFontResource = res
 	updateWidgetFont()
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func setWidgetFontSize(fontSize as double #notLiteral) as this
@@ -272,32 +294,28 @@ func setWidgetFontSize(fontSize as double #notLiteral) as this
 	widgetFontSize = fontSize
 	updateWidgetFont()
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func setWidgetTextColor(color as Color) as this
 {
 	widgetTextColor = color
 	updateWidgetColors()
-	return(this)
+	return this
 }
 
-func getWidgetTextColor as Color
-{
-	return(widgetTextColor)
-}
+func getWidgetTextColor as Color:
+	return widgetTextColor
 
 func setWidgetBackgroundColor(color as Color) as this
 {
 	widgetBackgroundColor = color
 	updateWidgetColors()
-	return(this)
+	return this
 }
 
-func getWidgetBackgroundColor as Color
-{
-	return(widgetBackgroundColor)
-}
+func getWidgetBackgroundColor as Color:
+	return widgetBackgroundColor
 
 func setWidgetRows(row as int) as this
 {
@@ -316,7 +334,7 @@ func setWidgetRows(row as int) as this
 		ERROR("Not implemented")
 	}
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func setWidgetText(text as string) as this
@@ -340,7 +358,7 @@ func setWidgetText(text as string) as this
 		ERROR("Not implemented")
 	}
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
 func setWidgetPlaceholder(placeholder as string) as this
@@ -363,33 +381,27 @@ func setWidgetPlaceholder(placeholder as string) as this
 		ERROR("Not implemented")
 	}
 	Widget.onChanged(this)
-	return(this)
+	return this
 }
 
-func setWidgetPadding(padding as int #notLiteral) as this
-{
-	return(setWidgetPadding(padding, padding, padding, padding))
-}
+func setWidgetPadding(padding as int #notLiteral) as this:
+	return setWidgetPadding(padding, padding, padding, padding)
 
-func setWidgetPadding(lr as int #notLiteral, tb as int #notLiteral) as this
-{
-	return(setWidgetPadding(lr, tb, lr, tb))
-}
+func setWidgetPadding(lr as int #notLiteral, tb as int #notLiteral) as this:
+	return setWidgetPadding(lr, tb, lr, tb)
 
 func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
 {
-	if(l < 0 || t < 0 || r < 0 || b < 0) {
-		return(this)
-	}
-	if(widgetPaddingLeft == l && widgetPaddingTop == t && widgetPaddingRight == r && widgetPaddingBottom == b) {
-		return(this)
-	}
+	if l < 0 || t < 0 || r < 0 || b < 0:
+		return this
+	if widgetPaddingLeft == l && widgetPaddingTop == t && widgetPaddingRight == r && widgetPaddingBottom == b:
+		return this
 	widgetPaddingLeft = l
 	widgetPaddingTop = t
 	widgetPaddingRight = r
 	widgetPaddingBottom = b
 	updateWidgetPadding()
-	return(this)
+	return this
 }
 
 func updateWidgetPadding private
@@ -409,38 +421,38 @@ func updateWidgetPadding private
 		// iOS implementation simply uses the values set above. No further action required.
 	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 }
 
 func getWidgetText as string
 {
-	IFDEF("target_html") {
-		return(lang "js" string {{{ this.element.value }}})
+	IFDEF "target_html" {
+		return lang "js" string {{{ this.element.value }}}
 	}
-	ELSE IFDEF("target_android") {
-		return(lang "java" string {{{ getText().toString() }}})
+	ELSE IFDEF "target_android" {
+		return lang "java" string {{{ getText().toString() }}}
 	}
-	ELSE IFDEF("target_iosoc") {
-		return(lang "objc" string {{{ [self text] }}})
+	ELSE IFDEF "target_iosoc" {
+		return lang "objc" string {{{ [self text] }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(null)
+		ERROR "Not implemented"
+		return null
 	}
 }
 
-func getWidgetPlaceholder as string
-{
-	return(widgetPlaceholder)
-}
+func getWidgetPlaceholder as string:
+	return widgetPlaceholder
 
-func setWidgetValue(value as object)
-{
+func setWidgetValue(value as object):
 	setWidgetText(cape.String.asString(value))
-}
 
-func getWidgetValue as object
+func getWidgetValue as object:
+	return getWidgetText()
+
+func onChangeListener private
 {
-	return(getWidgetText())
+	if widgetTextChangeHandler:
+		widgetTextChangeHandler()
 }
