@@ -32,32 +32,22 @@ lang "c" {{{
 prop file as File
 prop zip as ptr
 
-dtor
-{
+dtor:
 	close()
-}
 
 func initialize as this
 {
-	if(file == null) {
-		return(null)
-	}
+	assert file
 	var fp = file.get_native_path()
-	if(String.is_empty(fp)) {
-		return(null)
-	}
-	var fps = fp.to_strptr()
-	if(fps == null) {
-		return(null)
-	}
+	if String.is_empty(fp):
+		return null
+	var fps = assert fp.to_strptr()
 	var zp as ptr
 	lang "c" {{{
 		mz_zip_archive* zipp = (mz_zip_archive*)malloc(sizeof(mz_zip_archive));
 		zp = zipp;
 	}}}
-	if(zp == null) {
-		return(null)
-	}
+	assert zp
 	var err = false
 	lang "c" {{{
 		memset(zipp, 0, sizeof(mz_zip_archive));
@@ -65,22 +55,21 @@ func initialize as this
 			err = MZ_TRUE;
 		}
 	}}}
-	if(err) {
+	if err {
 		lang "c" {{{
 			free(zipp);
 		}}}
-		return(null)
+		return null
 	}
 	this.zip = zp
-	return(this)
+	return this
 }
 
 func close as bool
 {
 	var zp = zip
-	if(zp == null) {
-		return(true)
-	}
+	if zp == null:
+		return true
 	this.zip = null
 	var err = false
 	lang "c" {{{
@@ -89,7 +78,7 @@ func close as bool
 		}
 		free(zp);
 	}}}
-	return(!err)
+	return !err
 }
 
 class MyZipReaderEntry is ZipReaderEntry
@@ -99,45 +88,30 @@ class MyZipReaderEntry is ZipReaderEntry
 
 	func writeToFile(file as File) override as bool
 	{
-		if(file == null) {
-			return(false)
-		}
-		if(getIsDirectory()) {
-			return(file.createDirectoryRecursive())
-		}
-		if(reader == null) {
-			return(false)
-		}
-		var zp = reader.getZip()
-		if(zp == null) {
-			return(false)
-		}
-		var dstf = file.getPath()
-		if(dstf == null) {
-			return(false)
-		}
+		assert file
+		if getIsDirectory():
+			return file.createDirectoryRecursive()
+		assert reader
+		var zp = assert reader.getZip()
+		var dstf = assert file.getPath()
 		var v as bool
 		var idx = index
 		lang "c" {{{
 			v = mz_zip_reader_extract_to_file((mz_zip_archive*)zp, idx, dstf, 0);
 		}}}
-		return(v)
+		return v
 	}
 }
 
 func getEntries as vector<ZipReaderEntry>
 {
-	var zp = zip
-	if(zp == null) {
-		return(null)
-	}
+	var zp = assert zip
 	var c as int
 	lang "c" {{{
 		c = (int)mz_zip_reader_get_num_files((mz_zip_archive*)zp);
 	}}}
-	if(c < 1) {
-		return(null)
-	}
+	if c < 1:
+		return null
 	var v = new vector<ZipReaderEntry>
 	var n as int
 	lang "c" {{{
@@ -163,5 +137,5 @@ func getEntries as vector<ZipReaderEntry>
 		e.setUncompressedSize(uncompsize)
 		v += e
 	}
-	return(v)
+	return v
 }

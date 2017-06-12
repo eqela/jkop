@@ -33,28 +33,20 @@ lang "c" {{{
 	#include "miniz.c"
 }}}
 
-dtor
-{
+dtor:
 	close()
-}
 
 func initialize as this
 {
-	if(file == null || file.exists()) {
-		return(null)
-	}
-	var filename = file.getPath()
-	if(filename == null) {
-		return(null)
-	}
+	assert file
+	assert file.exists() == false
+	var filename = assert file.getPath()
 	var zp as ptr
 	lang "c" {{{
 		mz_zip_archive* zipp = (mz_zip_archive*)malloc(sizeof(mz_zip_archive));
 		zp = zipp;
 	}}}
-	if(zp == null) {
-		return(null)
-	}
+	assert zp
 	var err = false
 	lang "c" {{{
 		memset(zipp, 0, sizeof(mz_zip_archive));
@@ -62,43 +54,38 @@ func initialize as this
 			err = MZ_TRUE;
 		}
 	}}}
-	if(err) {
+	if err {
 		lang "c" {{{
 			free(zipp);
 		}}}
-		return(null)
+		return null
 	}
 	this.zip = zp
-	return(this)
+	return this
 }
 
 func addFile(file as File, afilenemae as string) as bool
 {
-	if(zip == null || file == null || String.isEmpty(afilename)) {
-		return(false)
-	}
+	assert zip
+	assert file
+	assert String.isNotEmpty(afilename)
 	var fs = file.stat()
-	if(fs.isFile() == false && fs.isDirectory() == false) {
-		return(false)
-	}
+	if fs.isFile() == false && fs.isDirectory() == false:
+		return false
 	var filename = String.replace(afilename, '\\', '/')
-	var fn = file.getPath()
-	if(fn == null) {
-		return(false)
-	}
-	if(fs.isDirectory() && String.startsWith(filename, "/") == false) {
+	var fn = assert file.getPath()
+	if fs.isDirectory() && String.startsWith(filename, "/") == false:
 		filename = filename .. "/"
-	}
 	var zp = zip
 	var err = false
-	if(fs.isFile()) {
+	if fs.isFile() {
 		lang "c" {{{
 			if(mz_zip_writer_add_file((mz_zip_archive*)zp, filename, fn, NULL, 0, MZ_DEFAULT_COMPRESSION) == MZ_FALSE) {
 				err = MZ_TRUE;
 			}
 		}}}
 	}
-	else if(fs.isDirectory()) {
+	else if fs.isDirectory() {
 		lang "c" {{{
 			if(mz_zip_writer_add_mem((mz_zip_archive*)zp, filename, NULL, 0, MZ_DEFAULT_COMPRESSION) == MZ_FALSE) {
 				err = MZ_TRUE;
@@ -108,15 +95,14 @@ func addFile(file as File, afilenemae as string) as bool
 	else {
 		err = true
 	}
-	return(!err)
+	return !err
 }
 
 func close as bool
 {
 	var zp = zip
-	if(zp == null) {
-		return(true)
-	}
+	if zp == null:
+		return true
 	this.zip = null
 	var err = false
 	lang "c" {{{
@@ -128,5 +114,5 @@ func close as bool
 		}
 		free(zp);
 	}}}
-	return(!err)
+	return !err
 }
