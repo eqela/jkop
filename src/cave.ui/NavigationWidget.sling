@@ -95,22 +95,23 @@ var sidebarWidget as Widget
 var sidebarSlotLeft as LayerWidget
 var sidebarIsFixed = false
 var sidebarIsDisplayed = false
-prop enableSidebar = true
-prop enableActionBar = true
-prop actionBarIsFloating = false
-prop actionBarBackgroundColor as Color
-prop actionBarTextColor as Color
-prop actionBarMenuItemSpacing as int #notLiteral
-prop backgroundColor as Color
-prop backImageResourceName = "backarrow"
-prop burgerMenuImageResourceName = "burger"
+var contentWidget as Widget
+prop widgetEnableSidebar = true
+prop widgetEnableActionBar = true
+prop widgetActionBarIsFloating = false
+prop widgetActionBarBackgroundColor as Color
+prop widgetActionBarTextColor as Color
+prop widgetActionBarMenuItemSpacing as int #notLiteral
+prop widgetBackgroundColor as Color
+prop widgetBackImageResourceName = "backarrow"
+prop widgetBurgerMenuImageResourceName = "burger"
 
 ctor(ctx as GuiApplicationContext)
 {
 	base(ctx)
 	widgetStack = new cape.Stack<Widget>()
-	actionBarBackgroundColor = Color.black()
-	actionBarTextColor = Color.white()
+	widgetActionBarBackgroundColor = Color.black()
+	widgetActionBarTextColor = Color.white()
 }
 
 func onKeyEvent(event as KeyEvent) virtual
@@ -156,16 +157,16 @@ func updateMenuButton
 	}
 	var handler = getMenuHandler()
 	if(widgetStack != null && widgetStack.getSize() > 1) {
-		actionBar.configureLeftButton(backImageResourceName, func {
+		actionBar.configureLeftButton(widgetBackImageResourceName, func {
 			popWidget()
 		})
 	}
-	else if(enableSidebar == false) {
+	else if(widgetEnableSidebar == false) {
 		actionBar.configureLeftButton(null, null)
 	}
 	else if(handler == null) {
 		if(sidebarIsFixed == false) {
-			actionBar.configureLeftButton(burgerMenuImageResourceName, func {
+			actionBar.configureLeftButton(widgetBurgerMenuImageResourceName, func {
 				displaySidebarWidget()
 			})
 		}
@@ -174,7 +175,7 @@ func updateMenuButton
 		}
 	}
 	else {
-		actionBar.configureLeftButton(burgerMenuImageResourceName, handler)
+		actionBar.configureLeftButton(widgetBurgerMenuImageResourceName, handler)
 	}
 }
 
@@ -298,7 +299,7 @@ func hideSidebarWidget(animated as bool = true)
 
 func createBackground virtual
 {
-	var bgc = getBackgroundColor()
+	var bgc = getWidgetBackgroundColor()
 	if(bgc != null) {
 		addWidget(CanvasWidget.forColor(context, bgc))
 	}
@@ -309,21 +310,21 @@ func initializeWidget override
 	base.initializeWidget()
 	createBackground()
 	var mainContainer = VerticalBoxWidget.forContext(context)
-	if(enableActionBar) {
+	if(widgetEnableActionBar) {
 		actionBar = new ActionBarWidget(context)
-		actionBar.setWidgetBackgroundColor(actionBarBackgroundColor)
-		actionBar.setWidgetTextColor(actionBarTextColor)
-		actionBar.setWidgetMenuItemSpacing(actionBarMenuItemSpacing)
+		actionBar.setWidgetBackgroundColor(widgetActionBarBackgroundColor)
+		actionBar.setWidgetTextColor(widgetActionBarTextColor)
+		actionBar.setWidgetMenuItemSpacing(widgetActionBarMenuItemSpacing)
 		var appIcon = getAppIconResource()
 		if(cape.String.isEmpty(appIcon) == false) {
 			actionBar.configureRightButton(appIcon, getAppMenuHandler())
 		}
 	}
-	if(actionBar != null && actionBarIsFloating == false) {
+	if(actionBar != null && widgetActionBarIsFloating == false) {
 		mainContainer.addWidget(actionBar)
 	}
 	contentArea = new SwitcherLayerWidget(context)
-	if(actionBar != null && actionBarIsFloating == true) {
+	if(actionBar != null && widgetActionBarIsFloating == true) {
 		var ll = new LayerWidget(context)
 		ll.addWidget(contentArea)
 		ll.addWidget(VerticalBoxWidget.forContext(context)
@@ -342,10 +343,11 @@ func initializeWidget override
 	addWidget(superMainContainer)
 	sidebarWidget = createSidebarWidget()
 	updateMenuButton()
-	var main = createMainWidget()
-	if(main != null) {
+	var main = contentWidget
+	if not main:
+		main = createMainWidget()
+	if main:
 		pushWidget(main)
-	}
 }
 
 func updateWidgetTitle(title as string)
@@ -391,13 +393,23 @@ func onCurrentWidgetChanged private
 		if actionBar {
 			actionBar.removeOverlay()
 			actionBar.clearMenuItems()
-			actionBar.setActionBarBackgroundColor(actionBarBackgroundColor)
+			actionBar.setActionBarBackgroundColor(widgetActionBarBackgroundColor)
 		}
 		var menuItems = getActionBarMenuItems()
 		if menuItems:
 			actionBar.configureMenuItems(menuItems)
 	}
 	updateMenuButton()
+}
+
+func setWidgetContent(widget as Widget)
+{
+	assert widget
+	if widgetStack.getSize() > 0:
+		return
+	assert contentArea:
+		contentWidget = widget
+	pushWidget(widget)
 }
 
 func pushWidget(widget as Widget) as bool
