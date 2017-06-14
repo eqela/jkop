@@ -24,6 +24,53 @@
 
 class is LayerWidget #widget:
 
+class DataGridRowWidget is LayerWidget #widget
+{
+	prop widgetGridWidth as int
+	prop widgetCellPadding = 0
+	var widgetBackground as CanvasWidget
+	var widgetMain as LayerWidget
+
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		addWidget(widgetBackground = CanvasWidget.forColor(context, Color.white()))
+		addWidget(widgetMain = new LayerWidget(ctx))
+	}
+
+	func setWidgetBackgroundColor(color as Color):
+		widgetBackground.setWidgetColor(color)
+
+	func reload(data as array, widgetColumns as vector<Column>)
+	{
+		var n #used = 0
+		var c #used = SIZE data
+		var row = new HorizontalBoxWidget(context)
+		row.setWidgetSpacing(widgetGridWidth)
+		widgetMain.addWidget(row)
+		foreach column in widgetColumns {
+			if n >= c:
+				continue
+			var dd = data[n]
+			var str = String.asString(dd)
+			if not str:
+				str = ""
+			var lbl = LabelWidget.forText(context, str)
+			lbl.setWidgetFontBold(true)
+			lbl.setWidgetTextColor(Color.black())
+			var ll = new LayerWidget(context)
+			if widgetCellPadding > 0 {
+				ll.addWidget(LayerWidget.forWidget(context, lbl, widgetCellPadding))
+			}
+			else {
+				ll.addWidget(lbl)
+			}
+			row.addWidget(ll, column.weight)
+			n++
+		}
+	}
+}
+
 class Column
 {
 	var name public as string
@@ -37,10 +84,13 @@ var widgetDataBox as VerticalBoxWidget
 var widgetHeaderRow as HorizontalBoxWidget
 var widgetColumns as vector<Column>
 var widgetGridWidth as int
+var selectedRow as DataGridRowWidget
 prop widgetHeaderBackgroundColor as Color
 prop widgetHeaderForegroundColor as Color
 prop widgetDataBackgroundColor as Color
 prop widgetDataForegroundColor as Color
+prop widgetSelectedDataBackgroundColor as Color
+prop widgetSelectedDataForegroundColor as Color
 prop widgetCellPadding = 0
 
 ctor(ctx as GuiApplicationContext)
@@ -60,6 +110,8 @@ ctor(ctx as GuiApplicationContext)
 	setWidgetHeaderForegroundColor(Color.black())
 	setWidgetDataBackgroundColor(Color.white())
 	setWidgetDataForegroundColor(Color.black())
+	setWidgetSelectedDataForegroundColor(Color.white())
+	setWidgetSelectedDataBackgroundColor(Color.instance("#428AFF"))
 	setWidgetBackgroundColor(Color.white())
 	setWidgetGridColor(Color.black())
 	setWidgetHeaderBackgroundColor(Color.instance("#AAAAAA"))
@@ -139,34 +191,30 @@ func deleteAllRows
 	widgetDataBox.removeAllChildren()
 }
 
-func addRow(data as array, clickHandler as function = null)
+func addRow(data as array, clickHandler as function = null, doubleClickHandler as function = null)
 {
 	var n = 0
 	var c = SIZE data
-	var row = new HorizontalBoxWidget(context)
-	row.setWidgetSpacing(widgetGridWidth)
+	var row = new DataGridRowWidget(context)
+	row.setWidgetGridWidth(widgetGridWidth)
+	row.setWidgetCellPadding(widgetCellPadding)
+	row.reload(data, widgetColumns)
 	widgetDataBox.addWidget(row)
-	foreach column in widgetColumns {
-		if n >= c:
-			continue
-		var dd = data[n]
-		var str = String.asString(dd)
-		if not str:
-			str = ""
-		var lbl = LabelWidget.forText(context, str)
-		lbl.setWidgetFontBold(true)
-		lbl.setWidgetTextColor(widgetDataForegroundColor)
-		var cc = CanvasWidget.forColor(context, widgetDataBackgroundColor)
-		var ll = new LayerWidget(context)
-		ll.addWidget(cc)
-		if widgetCellPadding > 0 {
-			ll.addWidget(LayerWidget.forWidget(context, lbl, widgetCellPadding))
-		}
-		else {
-			ll.addWidget(lbl)
-		}
-		row.addWidget(ll, column.weight)
-		n++
-	}
-	Widget.setWidgetClickHandler(row, clickHandler)
+	var r final = row
+	Widget.setWidgetClickHandler(row, func {
+		if selectedRow:
+			selectedRow.setWidgetBackgroundColor(Color.white())
+		r.setWidgetBackgroundColor(widgetSelectedDataBackgroundColor)
+		selectedRow = r
+		if clickHandler:
+			clickHandler()
+	})
+	Widget.setWidgetDoubleClickHandler(row, func {
+		if selectedRow:
+			selectedRow.setWidgetBackgroundColor(Color.white())
+		r.setWidgetBackgroundColor(widgetSelectedDataBackgroundColor)
+		selectedRow = r
+		if doubleClickHandler:
+			doubleClickHandler()
+	})
 }
