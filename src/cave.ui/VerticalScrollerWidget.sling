@@ -94,13 +94,44 @@ IFDEF "target_html"
 
 	func createElement override as object
 	{
-		return(HTMLDOM.createElement("div"))
+		var v = HTMLDOM.createElement("div")
+		HTMLDOM.addToClassList(v, VALUE "__THIS__")
+		return v
 	}
 
 	func prepareElement(element as object) override
 	{
 		base.prepareElement(element)
-		HTMLDOM.setStyle(element, "overflow-y", "scroll")
+		if HTMLDOM.isFirefox() == false {
+			HTMLDOM.setStyle(element, "overflow-y", "scroll")
+		}
+		else {
+			HTMLDOM.removeStyle(element, "overflow")
+			HTMLDOM.setStyle(element, "overflow-x", "hidden")
+		}
+	}
+
+	var noScrollBarStyleCreated static = false
+
+	func createNoScrollBarStyle static
+	{
+		if noScrollBarStyleCreated:
+			return
+		var styleElement = HTMLDOM.createElement("style")
+		var className = "." .. VALUE("__THIS__") .. "WithNoScrollBar"
+		var style as string
+		if HTMLDOM.isWebKit() {
+			style = className .. "::-webkit-scrollbar { display: none; }"
+		}
+		else if HTMLDOM.isFirefox() {
+			style = className .. " { overflow-y: hidden; }\n" ..
+				className .. ":hover { overflow-y: auto; }"
+		}
+		if style {
+			HTMLDOM.setInnerHTML(styleElement, style)
+			HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), styleElement)
+		}
+		noScrollBarStyleCreated = true
 	}
 }
 
@@ -136,6 +167,21 @@ ctor(context as GuiApplicationContext)
 		lang "cs" {{{
 			this.Content = new Windows.UI.Xaml.Controls.ScrollViewer();
 		}}}
+	}
+}
+
+func setWidgetScrollBarDisabled(value as bool)
+{
+	IFDEF "target_html" {
+		if value {
+			createNoScrollBarStyle()
+			HTMLDOM.setStyle(element, "-ms-overflow-style", "none")
+			HTMLDOM.addToClassList(element, VALUE("__THIS__") .. "WithNoScrollBar")
+		}
+		else {
+			HTMLDOM.setStyle(element, "-ms-overflow-style", "scrollbar")
+			HTMLDOM.removeFromClassList(element, VALUE("__THIS__") .. "WithNoScrollBar")
+		}
 	}
 }
 
