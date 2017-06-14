@@ -831,6 +831,8 @@ IFDEF "target_iosoc"
 
 IFDEF "target_uwp" {
 	var existingWidgetClickHandler static as !"Windows.UI.Xaml.Input.PointerEventHandler"
+	var existingWidgetDoubleClickHandler static as !"Windows.UI.Xaml.Input.DoubleTappedEventHandler"
+	var singleClick static #used = false
 }
 
 func setWidgetClickHandler(widget as this, handler as function) static
@@ -883,10 +885,46 @@ func setWidgetClickHandler(widget as this, handler as function) static
 		}
 		if handler {
 			lang "cs" {{{
-				existingWidgetClickHandler = (object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e) => {
-					handler();
+				existingWidgetClickHandler = async (object sender, Windows.UI.Xaml.Input.PointerRoutedEventArgs e) => {
+					singleClick = true;
+					await System.Threading.Tasks.Task.Delay(200);
+					if(singleClick) {
+						handler();
+					}
 				};
 				widget.PointerReleased += existingWidgetClickHandler;
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetDoubleClickHandler(widget as this, handler as function) static
+{
+	if widget is CustomContainerWidget {
+		if not handler {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
+		}
+		else {
+			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
+		}
+	}
+	IFDEF "target_uwp" {
+		if existingWidgetDoubleClickHandler {
+			lang "cs" {{{
+				widget.DoubleTapped -= existingWidgetDoubleClickHandler;
+			}}}
+			existingWidgetDoubleClickHandler = null
+		}
+		if handler {
+			lang "cs" {{{
+				existingWidgetDoubleClickHandler = (object sender, Windows.UI.Xaml.Input.DoubleTappedRoutedEventArgs e) => {
+					singleClick = false;
+					handler();
+				};
+				widget.DoubleTapped += existingWidgetDoubleClickHandler;
 			}}}
 		}
 	}
