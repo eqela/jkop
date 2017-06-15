@@ -32,96 +32,122 @@ class Statement is SQLStatement
 {
 	func forSql(sql as string) static as this
 	{
-		if(String.isEmpty(sql)) {
-			return(null)
-		}
+		assert String.isNotEmpty(sql)
 		var v = new this()
 		v.sql = SQLAdoNet.convertSQLString(sql)
-		return(v)
+		return v
 	}
 
 	var pcounter = 0
 	var sql public as string
 	var params as vector<!"MySql.Data.MySqlClient.MySqlParameter">
+	var isStoredProcedure = false
+
+	func setIsStoredProcedure(v as bool) as SQLStatement
+	{
+		isStoredProcedure = v
+		return this
+	}
+
+	func getIsStoredProcedure as bool:
+		return isStoredProcedure
 
 	func getParamArray as array<!"MySql.Data.MySqlClient.MySqlParameter">
 	{
-		if(params == null) {
-			return(null)
-		}
+		assert params
 		var arr = new !"MySql.Data.MySqlClient.MySqlParameter"[Vector.getSize(params)]
 		var i = 0
 		var iter as Iterator<!"MySql.Data.MySqlClient.MySqlParameter"> #force = Vector.iterate(params)
 		loop {
 			var n = iter.next() as !"MySql.Data.MySqlClient.MySqlParameter"
-			if(n == null) {
+			if not n:
 				break
-			}
 			arr[i] = n
 			i++
 		}
-		return(arr)
+		return arr
 	}
 
 	func addToParams(param as !"MySql.Data.MySqlClient.MySqlParameter")
 	{
-		if(params == null) {
+		if not params:
 			params = new vector<!"MySql.Data.MySqlClient.MySqlParameter">
-		}
 		params += param
 	}
 
 	func getNextParamName as string
 	{
 		pcounter ++
-		return("@p" .. String.forInteger(pcounter))
+		return "@p" .. String.forInteger(pcounter)
 	}
 
-	func addParamString(val as string) as SQLStatement
+	func addParamString(val as string) as SQLStatement:
+		return setParamString(null, val)
+
+	func addParamInteger(val as int) as SQLStatement:
+		return setParamInteger(null, val)
+
+	func addParamDouble(val as double) as SQLStatement:
+		return setParamDouble(null, val)
+
+	func addParamBlob(val as buffer) as SQLStatement:
+		return setParamBlob(null, val)
+
+	func setParamString(name as string, val as string) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		var vv = val
-		if(vv == null) {
+		if not vv:
 			vv = ""
-		}
 		lang "cs" {{{
-			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.String);
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.String);
 			param.Value = vv;
 			addToParams(param);
 		}}}
-		return(this)
+		return this
 	}
 
-	func addParamInteger(val as int) as SQLStatement
+	func setParamInteger(name as string, val as int) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		lang "cs" {{{
-			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Int32);
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Int32);
 			param.Value = val;
 			addToParams(param);
 		}}}
-		return(this)
+		return this
 	}
 
-	func addParamDouble(val as double) as SQLStatement
+	func setParamDouble(name as string, val as double) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		lang "cs" {{{
-			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Double);
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Double);
 			param.Value = val;
 			addToParams(param);
 		}}}
-		return(this)
+		return this
 	}
 
-	func addParamBlob(val as buffer) as SQLStatement
+	func setParamBlob(name as string, val as buffer) as SQLStatement
 	{
-		if(val == null) {
-			return(this)
-		}
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		if not val:
+			return this
 		lang "cs" {{{
-			var param = new MySql.Data.MySqlClient.MySqlParameter(getNextParamName(), MySql.Data.MySqlClient.MySqlDbType.Binary);
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Binary);
 			param.Value = val;
 			addToParams(param);
 		}}}
-		return(this)
+		return this
 	}
 
 	func resetStatement
@@ -130,24 +156,20 @@ class Statement is SQLStatement
 		pcounter = 0
 	}
 
-	func getError as string
-	{
-		return(null)
-	}
+	func getError as string:
+		return null
 }
 
 class ResultSet is SQLResultSetIterator
 {
 	var reader public as !"MySql.Data.MySqlClient.MySqlDataReader"
 
-	dtor
-	{
+	dtor:
 		close()
-	}
 
 	func close override
 	{
-		if(reader != null) {
+		if reader {
 			reader.Close()
 			reader = null
 		}
@@ -155,23 +177,18 @@ class ResultSet is SQLResultSetIterator
 
 	func nextValues(values as vector<object>) override as bool
 	{
-		if(values == null) {
-			return(false)
-		}
-		if(step() == false) {
-			return(false)
-		}
+		assert values
+		assert step()
 		cape.Vector.clear(values)
 		var cols = getColumnCount()
 		var n as int
 		for(n = 0; n < cols; n++) {
 			var o = getColumnObject(n)
-			if(o == null) {
+			if not o:
 				o = ""
-			}
 			values += o
 		}
-		return(true)
+		return true
 	}
 
 	func step override as bool
@@ -185,7 +202,7 @@ class ResultSet is SQLResultSetIterator
 				return(false);
 			}
 		}}}
-		return(true)
+		return true
 	}
 
 	func getColumnCount override as int
@@ -196,7 +213,7 @@ class ResultSet is SQLResultSetIterator
 				v = reader.FieldCount;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getColumnNames override as vector<string>
@@ -206,12 +223,11 @@ class ResultSet is SQLResultSetIterator
 		var c = getColumnCount()
 		for(n = 0; n < c; n++) {
 			var nn = getColumnName(n)
-			if(nn == null) {
+			if not nn:
 				nn = ""
-			}
 			v += nn
 		}
-		return(v)
+		return v
 	}
 
 	func getColumnName(n as int) override as string
@@ -225,14 +241,12 @@ class ResultSet is SQLResultSetIterator
 				v = "";
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getColumnObject(n as int) override as object
 	{
-		if(reader == null) {
-			return(null)
-		}
+		assert reader
 		var v as string = null
 		lang "cs" {{{
 			if(reader.IsDBNull(n)) {
@@ -251,7 +265,7 @@ class ResultSet is SQLResultSetIterator
 				return(null);
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getColumnInt(n as int) override as int
@@ -262,7 +276,7 @@ class ResultSet is SQLResultSetIterator
 				v = reader.GetInt32(n);
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getColumnDouble(n as int) override as double
@@ -273,7 +287,7 @@ class ResultSet is SQLResultSetIterator
 				v = reader.GetDouble(n);
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getColumnBuffer(n as int) override as buffer
@@ -284,24 +298,19 @@ class ResultSet is SQLResultSetIterator
 				v = (byte[])reader.GetValue(n);
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func next override as cape.DynamicMap
 	{
-		if(step() == false) {
-			return(null)
-		}
+		assert step()
 		var names = getColumnNames()
-		if(names == null || cape.Vector.getSize(names) < 1) {
-			return(null)
-		}
+		assert names && cape.Vector.getSize(names) > 0
 		var v = new cape.DynamicMap()
 		var n as int
-		for(n = 0; n < cape.Vector.getSize(names); n++) {
+		for(n = 0; n < cape.Vector.getSize(names); n++):
 			v.set(cape.Vector.get(names, n), getColumnObject(n))
-		}
-		return(v)
+		return v
 	}
 }
 
@@ -312,25 +321,19 @@ func initialize(serverAddress as string, username as string, password as string,
 	setDatabaseName(database)
 	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Password=" .. password
 	Log.debug(getLogger(), "MySQL connection string: `" .. connectionString .. "'")
-	return(true)
+	return true
 }
 
-func close override
-{
+func close override:
 	connectionString = null
-}
 
-func prepare(sql as string) override as SQLStatement
-{
-	return(Statement.forSql(sql))
-}
+func prepare(sql as string) override as SQLStatement:
+	return Statement.forSql(sql)
 
 func execute(stmt as SQLStatement) override as bool
 {
 	var ss = stmt as Statement
-	if(ss == null) {
-		return(false)
-	}
+	assert ss
 	var v = true
 	var error as string = null
 	lang "cs" {{{
@@ -342,18 +345,15 @@ func execute(stmt as SQLStatement) override as bool
 			error = e.ToString();
 		}
 	}}}
-	if(error != null) {
+	if String.isNotEmpty(error):
 		Log.error(getLogger(), error)
-	}
-	return(v)
+	return v
 }
 
 func query(stmt as SQLStatement) override as SQLResultSetIterator
 {
 	var ss = stmt as Statement
-	if(ss == null) {
-		return(null)
-	}
+	assert ss
 	var v as ResultSet = null
 	var error as string = null
 	var rdr as !"MySql.Data.MySqlClient.MySqlDataReader"
@@ -369,28 +369,24 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 			v.reader = rdr;
 		}
 	}}}
-	if(error != null) {
+	if String.isNotEmpty(error):
 		Log.error(getLogger(), error)
-	}
-	return(v)
+	return v
 }
 
 func close(callback as function) override
 {
 	close()
-	if(callback != null) {
+	if callback:
 		callback()
-	}
 }
 
 func execute(stmt as SQLStatement, callback as function<void, bool>) override #dotnetasync
 {
 	var ss = stmt as Statement
-	if(ss == null) {
-		if(callback != null) {
+	assert ss {
+		if callback:
 			callback(false)
-		}
-		return
 	}
 	var v = true
 	var error as string = null
@@ -403,22 +399,18 @@ func execute(stmt as SQLStatement, callback as function<void, bool>) override #d
 			error = e.ToString();
 		}
 	}}}
-	if(error != null) {
+	if String.isNotEmpty(error):
 		Log.error(getLogger(), error)
-	}
-	if(callback != null) {
+	if callback:
 		callback(v)
-	}
 }
 
 func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override #dotnetasync
 {
 	var ss = stmt as Statement
-	if(ss == null) {
-		if(callback != null) {
+	assert ss {
+		if callback:
 			callback(null)
-		}
-		return
 	}
 	var v as ResultSet = null
 	var error as string = null
@@ -435,25 +427,22 @@ func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator
 			v.reader = rdr;
 		}
 	}}}
-	if(error != null) {
+	if String.isNotEmpty(error):
 		Log.error(getLogger(), error)
-	}
-	if(callback != null) {
+	if callback:
 		callback(v)
-	}
 }
 
 func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override
 {
 	query(stmt, func(it as SQLResultSetIterator) {
-		if(callback != null) {
-			if(it != null) {
-				var v = it.next()
-				it.close()
-				callback(v)
-				return
+		if callback {
+			assert it {
+				callback(null)
 			}
-			callback(null)
+			var v = it.next()
+			it.close()
+			callback(v)
 		}
 	})
 }
@@ -461,26 +450,18 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 func tableExists(table as string, callback as function<void, bool>) override
 {
 	var databaseName = getDatabaseName()
-	if(table == null || databaseName == null) {
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) {
 		callback(false)
-		return
 	}
-	var stmt = prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
-	if(stmt == null) {
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;") {
 		callback(false)
-		return
 	}
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	querySingleRow(stmt, func(sr as DynamicMap) {
-		if(sr == null) {
+		assert sr {
 			callback(false)
-			return
 		}
-		if(String.equals(table, sr.getString("TABLE_NAME")) == false) {
-			callback(false)
-			return
-		}
-		callback(true)
+		callback(String.equalsIgnoreCase(table, sr.getString("TABLE_NAME")))
 	})
 }

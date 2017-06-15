@@ -41,6 +41,16 @@ class Statement is SQLStatement
 	var pcounter = 0
 	var sql public as string
 	var params as vector<!"System.Data.SqlClient.SqlParameter">
+	var isStoredProcedure = false
+
+	func setIsStoredProcedure(v as bool) as SQLStatement
+	{
+		isStoredProcedure = v
+		return this
+	}
+
+	func getIsStoredProcedure as bool:
+		return isStoredProcedure
 
 	func getParamArray as array<!"System.Data.SqlClient.SqlParameter">
 	{
@@ -71,45 +81,69 @@ class Statement is SQLStatement
 		return "@p" .. String.forInteger(pcounter)
 	}
 
-	func addParamString(val as string) as SQLStatement
+	func addParamString(val as string) as SQLStatement:
+		return setParamString(null, val)
+
+	func addParamInteger(val as int) as SQLStatement:
+		return setParamInteger(null, val)
+
+	func addParamDouble(val as double) as SQLStatement:
+		return setParamDouble(null, val)
+
+	func addParamBlob(val as buffer) as SQLStatement:
+		return setParamBlob(null, val)
+
+	func setParamString(name as string, val as string) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		var vv = val
 		if not vv:
 			vv = ""
 		lang "cs" {{{
-			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.VarChar);
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.VarChar);
 			param.Value = vv;
 			addToParams(param);
 		}}}
 		return this
 	}
 
-	func addParamInteger(val as int) as SQLStatement
+	func setParamInteger(name as string, val as int) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		lang "cs" {{{
-			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.Int);
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.Int);
 			param.Value = val;
 			addToParams(param);
 		}}}
 		return this
 	}
 
-	func addParamDouble(val as double) as SQLStatement
+	func setParamDouble(name as string, val as double) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		lang "cs" {{{
-			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.Float);
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.Float);
 			param.Value = val;
 			addToParams(param);
 		}}}
 		return this
 	}
 
-	func addParamBlob(val as buffer) as SQLStatement
+	func setParamBlob(name as string, val as buffer) as SQLStatement
 	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
 		if not val:
 			return this
 		lang "cs" {{{
-			var param = new System.Data.SqlClient.SqlParameter(getNextParamName(), System.Data.SqlDbType.VarBinary);
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.VarBinary);
 			param.Value = val;
 			addToParams(param);
 		}}}
@@ -122,10 +156,8 @@ class Statement is SQLStatement
 		pcounter = 0
 	}
 
-	func getError as string
-	{
+	func getError as string:
 		return null
-	}
 }
 
 class ResultSet is SQLResultSetIterator
@@ -279,9 +311,8 @@ class ResultSet is SQLResultSetIterator
 			return null
 		var v = new cape.DynamicMap()
 		var n as int
-		for(n = 0; n < cape.Vector.getSize(names); n++) {
+		for(n = 0; n < cape.Vector.getSize(names); n++):
 			v.set(cape.Vector.get(names, n), getColumnObject(n))
-		}
 		return v
 	}
 }
@@ -311,8 +342,10 @@ func execute(stmt as SQLStatement) override as bool
 	lang "cs" {{{
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			try {
-				System.Console.WriteLine(ss.sql);
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				if(ss.getIsStoredProcedure()) {
+					cmd.CommandType = System.Data.CommandType.StoredProcedure;
+				}
 				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
 				if(pa != null) {
 					cmd.Parameters.AddRange(ss.getParamArray());
@@ -343,6 +376,9 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			if(ss.getIsStoredProcedure()) {
+				cmd.CommandType = System.Data.CommandType.StoredProcedure;
+			}
 			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
 			if(pa != null) {
 				cmd.Parameters.AddRange(ss.getParamArray());
@@ -393,8 +429,10 @@ func execute(stmt as SQLStatement, callback as function<void, bool>) override #d
 	lang "cs" {{{
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			try {
-				System.Console.WriteLine(ss.sql);
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				if(ss.getIsStoredProcedure()) {
+					cmd.CommandType = System.Data.CommandType.StoredProcedure;
+				}
 				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
 				if(pa != null) {
 					cmd.Parameters.AddRange(ss.getParamArray());
@@ -429,6 +467,9 @@ func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			if(ss.getIsStoredProcedure()) {
+				cmd.CommandType = System.Data.CommandType.StoredProcedure;
+			}
 			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
 			if(pa != null) {
 				cmd.Parameters.AddRange(ss.getParamArray());
@@ -491,6 +532,6 @@ func tableExists(table as string, callback as function<void, bool>) override
 		assert sr {
 			callback(false)
 		}
-		callback(String.equals(table, sr.getString("TABLE_NAME")))
+		callback(String.equalsIgnoreCase(table, sr.getString("TABLE_NAME")))
 	})
 }
