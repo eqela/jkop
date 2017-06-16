@@ -1,0 +1,126 @@
+
+/*
+ * This file is part of MyCTPL
+ * Copyright (c) 2017 Job and Esther Technologies, Inc.
+ * All rights reserved.
+ */
+
+class #widget:
+
+class TabHeaderWidget #widget
+{
+	ui LayerWidget
+	{
+		CanvasWidget headerBackground {
+		}
+		LayerWidget headerPadding {
+			LabelWidget headerTitle {
+				text = "Tab Header"
+			}
+		}
+	}
+
+	prop index as int
+	prop container as parent
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		Widget.setWidgetClickHandler(this, func {
+			container.updateSelectedTab(index)
+		})
+	}
+
+	func setHeaderTitle(text as string):
+		headerTitle.setWidgetText(text)
+
+	func setHeaderBackground(color as Color):
+		headerBackground.setWidgetColor(color)
+
+	func setHeaderTextColor(color as Color):
+		headerTitle.setWidgetTextColor(color)
+}
+
+ui LayerWidget
+{
+	VerticalBoxWidget {
+		HorizontalBoxWidget tabHeaders {
+		}
+		LayerWidget : 1.0 {
+			CanvasWidget background {
+				color = Color.white()
+			}
+			LayerWidget content {
+			}
+		}
+	}
+}
+
+prop widgetTabContent as vector<DynamicMap>
+prop widgetSelectedTabBackgroundColor as Color
+prop widgetSelectedTabTextColor as Color
+prop widgetUnselectedTabBackgroundColor as Color
+prop widgetUnselectedTabTextColor as Color
+prop widgetTabHeaderTitleMargin as int #noLiteral
+prop widgetOnTabChangeListener as function<void, int, Widget>
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	if not widgetTabContent:
+		return
+	for(var i = 0; i < Vector.getSize(widgetTabContent); i++) {
+		var d = Vector.get(widgetTabContent, i)
+		if not d:
+			continue
+		var h = new TabHeaderWidget(context)
+		h.setContainer(this)
+		h.setIndex(i)
+		h.setHeaderTitle(d.getString("header"))
+		tabHeaders.addWidget(h, 1.0)
+	}
+	updateSelectedTab(0)
+}
+
+func updateSelectedTab(idx as int) private
+{
+	var w = Widget.getChildren(tabHeaders)
+	for(var i = 0; i < SIZE(w); i++) {
+		if i == idx {
+			if not widgetSelectedTabBackgroundColor:
+				widgetSelectedTabBackgroundColor = Color.white()
+			if not widgetSelectedTabTextColor:
+				widgetSelectedTabTextColor = Color.black()
+			(w[idx] as TabHeaderWidget).setHeaderBackground(widgetSelectedTabBackgroundColor)
+			(w[idx] as TabHeaderWidget).setHeaderTextColor(widgetSelectedTabTextColor)
+			continue
+		}
+		if not widgetUnselectedTabBackgroundColor:
+			widgetUnselectedTabBackgroundColor = Color.forRGB(128,128,128)
+		if not widgetUnselectedTabTextColor:
+			widgetUnselectedTabTextColor = Color.forRGB(80,80,80)
+		(w[i] as TabHeaderWidget).setHeaderBackground(widgetUnselectedTabBackgroundColor)
+		(w[i] as TabHeaderWidget).setHeaderTextColor(widgetUnselectedTabTextColor)
+	}
+	updateContent(idx)
+}
+
+func updateContent(idx as int) private
+{
+	Widget.removeChildrenOf(content)
+	var v = Vector.get(widgetTabContent, idx)
+	if not v:
+		return
+	var w = v.get("widget") as Widget
+	if not w:
+		return
+	content.addWidget(w)
+	if widgetOnTabChangeListener:
+		widgetOnTabChangeListener(idx, w)
+}
+
+func setWidgetSelectedTab(index as int)
+{
+	if index < SIZE(widgetTabContent):
+		updateSelectedTab(index)
+}
