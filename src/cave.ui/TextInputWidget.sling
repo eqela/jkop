@@ -116,7 +116,10 @@ var widgetFontResource as string
 var widgetFontSize as double
 var widgetTextColor as Color
 var widgetBackgroundColor as Color
+var widgetIsEnabled as bool
 prop widgetTextChangeHandler as function
+prop widgetOnFocusHandler as function
+prop widgetOnLoseFocusHandler as function
 
 ctor(context as GuiApplicationContext)
 {
@@ -147,6 +150,20 @@ ctor(context as GuiApplicationContext)
 	}
 	IFDEF("target_html") {
 		HTMLDOM.setStyle(element, "outline-width", "0")
+	}
+	IFDEF("target_uwp") {
+		lang "cs" {{{
+			this.Background = cave.Color.forRGBA(0,0,0,0).toBrush();
+			this.Padding = new Windows.UI.Xaml.Thickness(0,0,0,0);
+			this.BorderThickness = new Windows.UI.Xaml.Thickness(0,0,0,0);
+			this.MinHeight = 0.0;
+			this.GotFocus += (object sender, Windows.UI.Xaml.RoutedEventArgs e) => {
+				onFocusListener();
+			};
+			this.LostFocus += (object sender, Windows.UI.Xaml.RoutedEventArgs e) => {
+				onLoseFocusListener();
+			};
+		}}}
 	}
 	widgetContext = context
 	setWidgetStyle(VALUE("__THIS__"))
@@ -444,6 +461,11 @@ func setWidgetText(text as string) as this
 			[self setText:text];
 		}}}
 	}
+	ELSE IFDEF("target_uwp") {
+		lang "cs" {{{
+			this.Text = text;
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -461,6 +483,9 @@ func getWidgetText as string
 	}
 	ELSE IFDEF("target_iosoc") {
 		return(lang "objc" string {{{ [self text] }}})
+	}
+	ELSE IFDEF("target_uwp") {
+		return(lang "cs" string {{{ this.Text }}})
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -482,6 +507,11 @@ func setWidgetPlaceholder(placeholder as string) as this
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
 			[self setPlaceholder:placeholder];
+		}}}
+	}
+	ELSE IFDEF("target_uwp") {
+		lang "cs" {{{
+			this.PlaceholderText = placeholder;
 		}}}
 	}
 	ELSE {
@@ -540,6 +570,16 @@ func updateWidgetPadding private
 	ELSE IFDEF("target_iosoc") {
 		// iOS implementation simply uses the values set above. No further action required.
 	}
+	ELSE IFDEF("target_uwp") {
+		lang "cs" {{{
+			var thickness = new Windows.UI.Xaml.Thickness();
+			thickness.Left = (double)widgetPaddingLeft;
+			thickness.Top = (double)widgetPaddingTop;
+			thickness.Right = (double)widgetPaddingRight;
+			thickness.Bottom = (double)widgetPaddingBottom;
+			this.Padding = thickness;
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -593,9 +633,33 @@ func updateWidgetFont private
 			}
 		}}}
 	}
+	IFDEF("target_uwp") {
+		lang "cs" {{{
+			this.FontSize = (double)widgetFontSize;
+			this.FontFamily = new Windows.UI.Xaml.Media.FontFamily(widgetFontFamily);
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
+}
+
+func setWidgetIsEnabled(v as bool)
+{
+	widgetIsEnabled = v
+	IFDEF("target_uwp") {
+		lang "cs" {{{
+			this.IsReadOnly = !v;
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetIsEnabled as bool
+{
+	return widgetIsEnabled
 }
 
 func setWidgetValue(value as object) virtual
@@ -615,4 +679,16 @@ func onChangeListener private
 {
 	if widgetTextChangeHandler:
 		widgetTextChangeHandler()
+}
+
+func onFocusListener private
+{
+	if widgetOnFocusHandler:
+		widgetOnFocusHandler()
+}
+
+func onLoseFocusListener private
+{
+	if widgetOnLoseFocusHandler:
+		widgetOnLoseFocusHandler()
 }
