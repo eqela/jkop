@@ -28,26 +28,31 @@ class DataGridRowWidget is LayerWidget #widget
 {
 	prop widgetGridWidth as int
 	prop widgetCellPadding = 0
+	prop widgetIsEditable as bool
 	var widgetBackground as CanvasWidget
 	var widgetMain as LayerWidget
+	var widgetCellContainer as HorizontalBoxWidget
 
 	ctor(ctx as GuiApplicationContext)
 	{
 		base(ctx)
-		addWidget(widgetBackground = CanvasWidget.forColor(context, Color.white()))
+		addWidget(widgetBackground = CanvasWidget.forColor(context, Color.black()))
 		addWidget(widgetMain = new LayerWidget(ctx))
 	}
 
-	func setWidgetBackgroundColor(color as Color):
-		widgetBackground.setWidgetColor(color)
+	func setWidgetBackgroundColor(color as Color)
+	{
+		foreach cell as CellWidget in Widget.getChildren(widgetCellContainer):
+			cell.setWidgetCellBackgroundColor(color)
+	}
 
-	func reload(data as array, widgetColumns as vector<Column>)
+	func reload(data as array, widgetColumns as vector<Column>, isEditable as bool = false)
 	{
 		var n = 0
 		var c = SIZE data
-		var row = new HorizontalBoxWidget(context)
-		row.setWidgetSpacing(widgetGridWidth)
-		widgetMain.addWidget(row)
+		widgetCellContainer = new HorizontalBoxWidget(context)
+		widgetCellContainer.setWidgetSpacing(widgetGridWidth)
+		widgetMain.addWidget(widgetCellContainer)
 		foreach column in widgetColumns {
 			if n >= c:
 				continue
@@ -55,19 +60,109 @@ class DataGridRowWidget is LayerWidget #widget
 			var str = String.asString(dd)
 			if not str:
 				str = ""
-			var lbl = LabelWidget.forText(context, str)
-			lbl.setWidgetFontBold(true)
-			lbl.setWidgetTextColor(Color.black())
-			var ll = new LayerWidget(context)
-			if widgetCellPadding > 0 {
-				ll.addWidget(LayerWidget.forWidget(context, lbl, widgetCellPadding))
+			var cell as CellWidget
+			if isEditable {
+				cell = CellWidget.forEditableCell(context, str, widgetCellPadding)
 			}
 			else {
-				ll.addWidget(lbl)
+				cell = CellWidget.forStaticCell(context, str, widgetCellPadding)
 			}
-			row.addWidget(ll, column.weight)
+			cell.setWidgetKey(column.key)
+			cell.setWidgetCellTextColor(Color.black())
+			widgetCellContainer.addWidget(cell, column.weight)
 			n++
 		}
+	}
+
+	func collectRowDataTo(dv as DynamicVector)
+	{
+		assert dv
+		var dm = new DynamicMap()
+		foreach cell as CellWidget in Widget.getChildren(widgetCellContainer):
+			dm.set(cell.getWidgetKey(), cell.getWidgetText())
+		dv.append(dm)
+	}
+}
+
+class CellWidget #widget
+{
+	ui LayerWidget
+	{
+		CanvasWidget cellBackground {
+			color = Color.white()
+		}
+		LayerWidget cellTextCon {
+		}
+	}
+
+	func forEditableCell(ctx as GuiApplicationContext, text as string, padding as int = 0) static as this
+	{
+		var v = new this(ctx)
+		v.setWidgetText(text)
+		v.setWidgetCellPadding(padding)
+		v.setWidgetIsEditable(true)
+		return v
+	}
+
+	func forStaticCell(ctx as GuiApplicationContext, text as string, padding as int = 0) static as this
+	{
+		var v = new this(ctx)
+		v.setWidgetText(text)
+		v.setWidgetCellPadding(padding)
+		v.setWidgetIsEditable(false)
+		return v
+	}
+
+	prop widgetText as string
+	prop widgetIsEditable as bool
+	prop widgetKey as string
+	var widgetTextColor as Color
+	var widget as Widget
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		if widgetIsEditable {
+			widget = new TextInputWidget(context)
+			(widget as! TextInputWidget).setWidgetText(widgetText)
+			(widget as! TextInputWidget).setWidgetTextColor(widgetTextColor)
+			cellTextCon.addWidget(widget)
+		}
+		else {
+			widget = LabelWidget.forText(context, widgetText)
+			(widget as! LabelWidget).setWidgetTextColor(widgetTextColor)
+			cellTextCon.addWidget(widget)
+		}
+	}
+
+	func setWidgetCellPadding(padding as int #noLiteral):
+		cellTextCon.setWidgetMargin(padding)
+
+	func setWidgetCellBackgroundColor(color as Color):
+		cellBackground.setWidgetColor(color)
+
+	func setWidgetCellTextColor(color as Color)
+	{
+		widgetTextColor = color
+		assert widget
+		if widget is TextInputWidget {
+			(widget as! TextInputWidget).setWidgetTextColor(color)
+		}
+		else {
+			(widget as! LabelWidget).setWidgetTextColor(color)
+		}
+	}
+
+	func getWidgetText as string
+	{
+		var v = ""
+		if widget is TextInputWidget {
+			v = (widget as! TextInputWidget).getWidgetText()
+		}
+		else {
+			v = (widget as! LabelWidget).getWidgetText()
+		}
+		return v
 	}
 }
 
@@ -75,6 +170,7 @@ class Column
 {
 	var name public as string
 	var weight public as double
+	var key public as string
 }
 
 var widgetBackground as CanvasWidget
@@ -92,6 +188,7 @@ prop widgetDataForegroundColor as Color
 prop widgetSelectedDataBackgroundColor as Color
 prop widgetSelectedDataForegroundColor as Color
 prop widgetCellPadding = 0
+prop widgetIsEditable as bool
 
 ctor(ctx as GuiApplicationContext)
 {
@@ -148,12 +245,13 @@ func deleteAllColumns
 	deleteAllRows()
 }
 
-func addColumn(name as string, weight as double = 1.0)
+func addColumn(name as string, key as string, weight as double = 1.0)
 {
 	if not widgetColumns:
 		widgetColumns = new vector<Column>
 	var c = new Column()
 	c.name = name
+	c.key = key
 	c.weight = weight
 	widgetColumns += c
 }
@@ -196,7 +294,7 @@ func addRow(data as array, clickHandler as function = null, doubleClickHandler a
 	var row = new DataGridRowWidget(context)
 	row.setWidgetGridWidth(widgetGridWidth)
 	row.setWidgetCellPadding(widgetCellPadding)
-	row.reload(data, widgetColumns)
+	row.reload(data, widgetColumns, widgetIsEditable)
 	widgetDataBox.addWidget(row)
 	var r final = row
 	var h final = clickHandler
@@ -217,4 +315,12 @@ func addRow(data as array, clickHandler as function = null, doubleClickHandler a
 		if d:
 			d()
 	})
+}
+
+func getGridData as DynamicVector
+{
+	var dv = new DynamicVector()
+	foreach dgr as DataGridRowWidget in Widget.getChildren(widgetDataBox):
+		dgr.collectRowDataTo(dv)
+	return dv
 }
