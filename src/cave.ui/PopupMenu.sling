@@ -24,10 +24,32 @@
 
 class:
 
-func showBelow(widget as Widget, menu as Menu) static
+class MyContainer is CustomContainerWidget
 {
-	assert widget
+	prop widget as Widget
+
+	func onWidgetHeightChanged(height as int #notLiteral) override
+	{
+		foreach child in Widget.getChildren(this):
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+	}
+
+	func computeWidgetLayout(widthConstraint as int #notLiteral) override
+	{
+		foreach child in Widget.getChildren(this) {
+			Widget.layout(child, widthConstraint)
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+		}
+		Widget.setLayoutSize(this, widthConstraint, Widget.getHeight(this))
+	}
+}
+
+func showBelow(ctx as GuiApplicationContext, w as Widget, menu as Menu) static
+{
+	assert w
 	assert menu
+	var widget final = w
+	var context final = ctx
 	IFDEF "target_uwp" {
 		lang "cs" {{{
 			var pm = new Windows.UI.Xaml.Controls.MenuFlyout();
@@ -47,6 +69,80 @@ func showBelow(widget as Widget, menu as Menu) static
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented."
+		var parentLayer as LayerWidget
+		IFDEF("target_html")
+		{
+			var div = HTMLDOM.createElement("div")
+			HTMLDOM.setStyle(div, "position", "fixed")
+			HTMLDOM.setStyle(div, "bottom", "0px")
+			HTMLDOM.setStyle(div, "top", "0px")
+			HTMLDOM.setStyle(div, "left", "0px")
+			HTMLDOM.setStyle(div, "right", "0px")
+			HTMLDOM.setStyle(div, "width", "100%")
+			HTMLDOM.setStyle(div, "height", "100%")
+			HTMLDOM.setStyle(div, "z-index", "999")
+			HTMLDOM.appendToBody(div)
+			parentLayer = new LayerWidget(context)
+			Widget.addToDomElement(parentLayer, div)
+		}
+		ELSE {
+			var parent = widget
+			while parent {
+				if parent is LayerWidget:
+					parentLayer = parent as! LayerWidget
+				parent = Widget.getParent(parent)
+			}
+			assert parentLayer:
+				ERROR("No LayerWidget was found in the widget tree. Cannot show popup!")
+		}
+		var textColor = context.getStyleColor(VALUE("__THIS__"), "textColor")
+		if not textColor:
+			textColor = Color.black()
+		var backgroundColor = context.getStyleColor(VALUE("__THIS__"), "backgroundColor")
+		if not backgroundColor:
+			backgroundColor = Color.white()
+		var padding = context.getStylePixels(VALUE("__THIS__"), "padding")
+		if padding < 1:
+			padding = context.getHeightValue("1000um")
+		var fontSize = context.getStylePixels(VALUE("__THIS__"), "fontSize")
+		if fontSize < 1:
+			fontSize = context.getHeightValue("2mm")
+		var vbox final = VerticalBoxWidget.forContext(context)
+		foreach entry in menu.getEntries() {
+			var lbl = LabelWidget.forText(context, entry.title)
+			lbl.setWidgetTextColor(textColor)
+			var layer = new LayerWidget(context)
+			layer.addWidget(CanvasWidget.forColor(context, backgroundColor))
+			layer.addWidget(LayerWidget.forWidget(context, lbl, padding))
+			Widget.setWidgetClickHandler(layer, entry.handler)
+			vbox.addWidget(layer)
+		}
+		var container final = new MyContainer(context)
+		container.setWidget(widget)
+		container.addWidget(vbox)
+		parentLayer.addWidget(container)
+		Widget.setWidgetClickHandler(parentLayer, func {
+			var anim = WidgetAnimation.forDuration(context, 300)
+			anim.addFadeOut(container, true)
+			IFDEF "target_html"
+			{
+				var parent = HTMLDOM.getParentElement(HTMLDOM.getParentElement(container.element))
+				anim.setEndListener(func {
+					HTMLDOM.remove(parent)
+				})
+			}
+			anim.start()
+		})
+		var animationDestY final = Widget.getAbsoluteY(widget)
+		var ay final = context.getHeightValue("3mm")
+		Widget.move(vbox, Widget.getAbsoluteX(widget), (animationDestY + ay) as int)
+		var anim = WidgetAnimation.forDuration(context, 300)
+		anim.addCallback(func(completion as double) {
+			var bgf = completion * 1.5
+			if bgf > 1.0:
+				bgf = 1.0
+			Widget.move(vbox, Widget.getAbsoluteX(widget), (animationDestY + ((1.0 - completion) * ay)) as int)
+		})
+		anim.start()
 	}
 }
