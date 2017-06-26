@@ -28,61 +28,44 @@ prop databaseName as string
 
 func instance private static as this
 {
-	IFDEF("target_netx") {
-		return(new MySQLDatabaseForDotNet())
+	IFDEF "target_netx" {
+		return new MySQLDatabaseForDotNet()
 	}
 	ELSE {
 		ERROR("Not implemented")
-		return(null)
+		return null
 	}
 }
 
 func forConnectionString(connectionString as string, logContext as LoggingContext) static as this
 {
-	if(connectionString == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(connectionString)
 	var ss = String.split(connectionString, ':', 4)
-	if(ss == null || Vector.getSize(ss) < 4) {
-		return(null)
-	}
-	return(connect(ss[0], ss[1], ss[2], ss[3], logContext))
+	assert ss && Vector.getSize(ss) == 4
+	return connect(ss[0], ss[1], ss[2], ss[3], logContext)
 }
 
 func connect(serverAddress as string, username as string, password as string, database as string, logger as LoggingContext = null) static as this
 {
-	if(String.isEmpty(serverAddress) == null || username == null || password == null || String.isEmpty(database)) {
-		return(null)
-	}
-	var v = instance()
-	if(v == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database)
+	var v = assert instance()
 	v.setLogger(logger)
-	if(v.initialize(serverAddress, username, password, database) == false) {
-		v = null
-	}
-	return(v)
+	assert v.initialize(serverAddress, username, password, database)
+	return v
 }
 
-func getDatabaseTypeId override as string
-{
-	return("mysql")
-}
+func getDatabaseTypeId override as string:
+	return "mysql"
 
-func initialize(serverAddress as string, username as string, password as string, database as string) virtual as bool
-{
-	return(true)
-}
+func initialize(serverAddress as string, username as string, password as string, database as string) virtual as bool:
+	return true
 
 func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
 {
-	var it = query(stmt)
-	if(it == null) {
-		return(null)
-	}
+	var it = assert query(stmt)
 	var v as cape.DynamicMap #force = it.next()
-	return(v)
+	it.close()
+	return v
 }
 
 func tableExists(table as string) override as bool
@@ -97,24 +80,20 @@ func tableExists(table as string) override as bool
 
 func queryAllTableNames(callback as function<void, vector>) override
 {
-	var stmt = prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
-	if(stmt == null) {
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;") {
 		callback(null)
-		return
 	}
 	stmt.addParamString(databaseName)
 	query(stmt, func(it as SQLResultSetIterator) {
-		if(it == null) {
+		assert it {
 			callback(null)
-			return
 		}
 		var v = new vector
 		loop
 		{
 			var vv = it.next()
-			if(vv == null) {
+			if not vv:
 				break
-			}
 			v += vv.getString("TABLE_NAME")
 		}
 		callback(v)
@@ -123,27 +102,18 @@ func queryAllTableNames(callback as function<void, vector>) override
 
 func queryAllTableNames override as vector
 {
-	if(databaseName == null) {
-		return(null)
-	}
-	var stmt = prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
-	if(stmt == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(databaseName)
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
 	stmt.addParamString(databaseName)
-	var it = query(stmt)
-	if(it == null) {
-		return(null)
-	}
+	var it = assert query(stmt)
 	var v = new vector
 	loop {
 		var vv = it.next()
-		if(vv == null) {
+		if not vv:
 			break
-		}
 		v += vv.getString("TABLE_NAME")
 	}
-	return(v)
+	return v
 }
 
 func columnToCreateString(cc as SQLTableColumnInfo) private as string
@@ -153,85 +123,77 @@ func columnToCreateString(cc as SQLTableColumnInfo) private as string
 	sb.append(columnName)
 	sb.append(' ')
 	var tt = cc.getType()
-	if(tt == SQLTableColumnInfo.TYPE_INTEGER_KEY) {
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
 		sb.append("INTEGER AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_INTEGER) {
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
 		sb.append("INTEGER")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_LONG_KEY) {
+	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
 		sb.append("BIGINT AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_LONG) {
+	else if tt == SQLTableColumnInfo.TYPE_LONG {
 		sb.append("BIGINT")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_STRING) {
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
 		sb.append("VARCHAR(255)")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_STRING_KEY) {
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
 		sb.append("VARCHAR(255), PRIMARY KEY (" .. columnName .. ")")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_TEXT) {
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
 		sb.append("LONGTEXT")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_BLOB) {
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
 		sb.append("LONGBLOB")
 	}
-	else if(tt == SQLTableColumnInfo.TYPE_DOUBLE) {
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
 		sb.append("REAL")
 	}
 	else {
 		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
 		sb.append("UNKNOWN")
 	}
-	return(sb.toString())
+	return sb.toString()
 }
 
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
 {
-	if(table == null || columns == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(table) && columns
 	var sb = new StringBuilder()
 	sb.append("CREATE TABLE ")
 	sb.append(table)
 	sb.append(" (")
 	var first = true
-	foreach(column as SQLTableColumnInfo in columns) {
-		if(first == false) {
+	foreach column as SQLTableColumnInfo in columns {
+		if not first:
 			sb.append(',')
-		}
 		sb.append(' ')
 		sb.append(columnToCreateString(column))
 		first = false
 	}
 	sb.append(" );")
-	return(prepare(sb.toString()))
+	return prepare(sb.toString())
 }
 
 func prepareDeleteTableStatement(table as string) override as SQLStatement
 {
-	if(table == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.append("DROP TABLE ")
 	sb.append(table)
 	sb.append(";")
-	return(prepare(sb.toString()))
+	return prepare(sb.toString())
 }
 
 func prepareCreateIndexStatement(table as string, column as string, unique as bool) override as SQLStatement
 {
-	if(table == null || column == null) {
-		return(null)
-	}
+	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var unq = ""
-	if(unique) {
+	if unique:
 		unq = "UNIQUE "
-	}
 	var sql = "CREATE " .. unq .. "INDEX " .. table .. "_" .. column .. " ON " .. table .. " (" .. column .. ")"
-	return(prepare(sql))
+	return prepare(sql)
 }
 
 func getLastInsertId(table as string) override as long
