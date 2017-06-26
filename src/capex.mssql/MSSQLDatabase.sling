@@ -64,17 +64,18 @@ func initialize(serverAddress as string, username as string, password as string,
 	return true
 }
 
-func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
+func querySingleRow(stmt as SQLStatement) override as DynamicMap
 {
 	var it = assert query(stmt)
-	var v as cape.DynamicMap #force = it.next()
+	var v as DynamicMap #force = it.next()
+	it.close()
 	return v
 }
 
 func tableExists(table as string) override as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	var sr = assert querySingleRow(stmt)
@@ -83,14 +84,11 @@ func tableExists(table as string) override as bool
 
 func queryAllTableNames(callback as function<void, vector>) override
 {
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;") {
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE';"):
 		callback(null)
-	}
-	stmt.addParamString(databaseName)
 	query(stmt, func(it as SQLResultSetIterator) {
-		assert it {
+		assert it:
 			callback(null)
-		}
 		var v = new vector
 		loop
 		{
@@ -99,6 +97,7 @@ func queryAllTableNames(callback as function<void, vector>) override
 				break
 			v += vv.getString("TABLE_NAME")
 		}
+		it.close()
 		callback(v)
 	})
 }
@@ -106,8 +105,7 @@ func queryAllTableNames(callback as function<void, vector>) override
 func queryAllTableNames override as vector
 {
 	assert String.isNotEmpty(databaseName)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
-	stmt.addParamString(databaseName)
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE';")
 	var it = assert query(stmt)
 	var v = new vector
 	loop {
@@ -116,6 +114,7 @@ func queryAllTableNames override as vector
 			break
 		v += vv.getString("TABLE_NAME")
 	}
+	it.close()
 	return v
 }
 

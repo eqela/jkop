@@ -25,31 +25,23 @@
 class:
 
 var isNewLine = true
+var mysb as StringBuilder
 
 func print(line as string, indent as int, startline as bool, endline as bool, sb as StringBuilder, niceFormatting as bool) private
 {
-	if(startline && isNewLine == false) {
-		if(niceFormatting) {
+	if startline && isNewLine == false {
+		if niceFormatting:
 			sb.append('\n')
-		}
-		else {
-			sb.append(' ')
-		}
 		isNewLine = true
 	}
-	if(isNewLine && niceFormatting) {
-		for(var n = 0; n<indent; n++) {
+	if isNewLine && niceFormatting {
+		for(var n = 0; n<indent; n++):
 			sb.append('\t')
-		}
 	}
 	sb.append(line)
-	if(endline) {
-		if(niceFormatting) {
+	if endline {
+		if niceFormatting:
 			sb.append('\n')
-		}
-		else {
-			sb.append(' ')
-		}
 		isNewLine = true
 	}
 	else {
@@ -57,14 +49,23 @@ func print(line as string, indent as int, startline as bool, endline as bool, sb
 	}
 }
 
+macro PRINT_COLON
+{
+	if niceFormatting {
+		sb.append(" : ")
+	}
+	else {
+		sb.append(':')
+	}
+}
+
 func encodeArray(cc as array<object>, indent as int, sb as StringBuilder, niceFormatting as bool) private
 {
 	print("[", indent, false, true, sb, niceFormatting)
 	var first = true
-	foreach(o in cc) {
-		if(first == false) {
+	foreach o in cc {
+		if first == false:
 			print(",", indent, false, true, sb, niceFormatting)
-		}
 		encodeObject(o, indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -75,15 +76,9 @@ func encodeDynamicVector(cc as DynamicVector, indent as int, sb as StringBuilder
 {
 	print("[", indent, false, true, sb, niceFormatting)
 	var first = true
-	var it = cc.iterate()
-	while(it != null) {
-		var o = it.next()
-		if(o == null) {
-			break
-		}
-		if(first == false) {
+	foreach o in cc.toVector() {
+		if first == false:
 			print(",", indent, false, true, sb, niceFormatting)
-		}
 		encodeObject(o, indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -94,10 +89,9 @@ func encodeVector(cc as vector<object>, indent as int, sb as StringBuilder, nice
 {
 	print("[", indent, false, true, sb, niceFormatting)
 	var first = true
-	foreach(o in cc) {
-		if(first == false) {
+	foreach o in cc {
+		if first == false:
 			print(",", indent, false, true, sb, niceFormatting)
-		}
 		encodeObject(o, indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -108,15 +102,18 @@ func encodeMap(map as map, indent as int, sb as StringBuilder, niceFormatting as
 {
 	print("{", indent, false, true, sb, niceFormatting)
 	var first = true
-	var keys as vector #force = Map.getKeys(map)
-	foreach keyo in keys {
+	var it as Iterator<object> #force = Map.iterateKeys(map)
+	while it {
+		var keyo = it.next()
+		if not keyo:
+			break
 		var key = String.asString(keyo)
 		if not key:
 			continue
 		if not first:
 			print(",", indent, false, true, sb, niceFormatting)
 		encodeString(key, indent+1, sb, niceFormatting)
-		sb.append(" : ")
+		PRINT_COLON()
 		encodeObject(map[keyo], indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -127,13 +124,15 @@ func encodeDynamicMap(map as DynamicMap, indent as int, sb as StringBuilder, nic
 {
 	print("{", indent, false, true, sb, niceFormatting)
 	var first = true
-	var keys as vector<string> #force = map.getKeys()
-	foreach(key in keys) {
-		if(first == false) {
+	var it = map.iterateKeys()
+	while it {
+		var key = it.next()
+		if not key:
+			break
+		if first == false:
 			print(",", indent, false, true, sb, niceFormatting)
-		}
 		encodeString(key, indent+1, sb, niceFormatting)
-		sb.append(" : ")
+		PRINT_COLON()
 		encodeObject(map.get(key), indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -145,16 +144,14 @@ func encodeKeyValueList(list as KeyValueListForStrings, indent as int, sb as Str
 	print("{", indent, false, true, sb, niceFormatting)
 	var first = true
 	var it as Iterator<KeyValuePair<string,string>> #force = list.iterate()
-	while(it != null) {
+	while it {
 		var pair = it.next()
-		if(pair == null) {
+		if pair == null:
 			break
-		}
-		if(first == false) {
+		if first == false:
 			print(",", indent, false, true, sb, niceFormatting)
-		}
 		encodeString(pair.key, indent+1, sb, niceFormatting)
-		sb.append(" : ")
+		PRINT_COLON()
 		encodeString(pair.value, indent+1, sb, niceFormatting)
 		first = false
 	}
@@ -163,20 +160,30 @@ func encodeKeyValueList(list as KeyValueListForStrings, indent as int, sb as Str
 
 func encodeString(s as string, indent as int, sb as StringBuilder, niceFormatting as bool) private
 {
-	var mysb = new StringBuilder()
+	if mysb == null {
+		mysb = new StringBuilder()
+	}
+	else {
+		mysb.clear()
+	}
 	mysb.append('"')
-	var it = new CharacterIteratorForString(s)
-	loop {
-		var c = it.getNextChar()
-		if c < 1:
-			break
-		if c == '"' {
-			mysb.append('\\')
+	if String.indexOf(s, '"') >= 0 || String.indexOf(s, '\\') >= 0 {
+		var it = String.iterate(s)
+		loop {
+			var c = it.getNextChar()
+			if c < 1:
+				break
+			if c == '"' {
+				mysb.append('\\')
+			}
+			else if(c == '\\') {
+				mysb.append('\\')
+			}
+			mysb.append(c)
 		}
-		else if(c == '\\') {
-			mysb.append('\\')
-		}
-		mysb.append(c)
+	}
+	else {
+		mysb.append(s)
 	}
 	mysb.append('"')
 	print(mysb.toString(), indent, false, false, sb, niceFormatting)
@@ -199,11 +206,17 @@ func encodeObject(o as object, indent as int, sb as StringBuilder, niceFormattin
 	else if o is buffer {
 		encodeString(Base64Encoder.encode(o as! buffer), indent, sb, niceFormatting)
 	}
+	else if o is string {
+		encodeString(o as! string, indent, sb, niceFormatting)
+	}
 	else if o is DynamicMap {
 		encodeDynamicMap(o as! DynamicMap, indent, sb, niceFormatting)
 	}
-	else if o is string {
-		encodeString(o as! string, indent, sb, niceFormatting)
+	else if o is DynamicVector {
+		encodeDynamicVector(o as! DynamicVector, indent, sb, niceFormatting)
+	}
+	else if o is KeyValueListForStrings {
+		encodeKeyValueList(o as! KeyValueListForStrings, indent, sb, niceFormatting)
 	}
 	else if o is StringObject {
 		encodeString((o as! StringObject).toString(), indent, sb, niceFormatting)
@@ -219,13 +232,6 @@ func encodeObject(o as object, indent as int, sb as StringBuilder, niceFormattin
 		var vv as vector #force = (o as! VectorObject<object>).toVector()
 		encodeVector(vv, indent, sb, niceFormatting)
 	}
-	else if o is DynamicVector {
-		var vv as vector #force = (o as! VectorObject<object>).toVector()
-		encodeDynamicVector(vv, indent, sb, niceFormatting)
-	}
-	else if o is KeyValueListForStrings {
-		encodeKeyValueList(o as! KeyValueListForStrings, indent, sb, niceFormatting)
-	}
 	else if o is IntegerObject || o is LongIntegerObject || o is BooleanObject || o is DoubleObject || o is CharacterObject {
 		encodeString(String.asString(o), indent, sb, niceFormatting)
 	}
@@ -239,4 +245,28 @@ func encode(o as object, niceFormatting as bool = true) static as string
 	var sb = new StringBuilder()
 	new this().encodeObject(o, 0, sb, niceFormatting)
 	return sb.toString()
+}
+
+func encodeStringToBuilder(s as string, sb as StringBuilder) static
+{
+	sb.append('"')
+	if String.indexOf(s, '"') >= 0 || String.indexOf(s, '\\') >= 0 {
+		var it = String.iterate(s)
+		loop {
+			var c = it.getNextChar()
+			if c < 1:
+				break
+			if c == '"' {
+				sb.append('\\')
+			}
+			else if(c == '\\') {
+				sb.append('\\')
+			}
+			sb.append(c)
+		}
+	}
+	else {
+		sb.append(s)
+	}
+	sb.append('"')
 }

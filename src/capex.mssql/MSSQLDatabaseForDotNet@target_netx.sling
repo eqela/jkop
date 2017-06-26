@@ -180,6 +180,8 @@ class ResultSet is SQLResultSetIterator
 {
 	var reader public as !"System.Data.SqlClient.SqlDataReader"
 	var connection public as !"System.Data.SqlClient.SqlConnection"
+	var columnCount = -1
+	var columnNames as vector<string>
 
 	func close override
 	{
@@ -197,10 +199,9 @@ class ResultSet is SQLResultSetIterator
 	{
 		assert values
 		assert step()
-		cape.Vector.clear(values)
+		Vector.clear(values)
 		var cols = getColumnCount()
-		var n as int
-		for(n = 0; n < cols; n++) {
+		for(var n = 0; n < cols; n++) {
 			var o = getColumnObject(n)
 			if not o:
 				o = ""
@@ -225,27 +226,31 @@ class ResultSet is SQLResultSetIterator
 
 	func getColumnCount override as int
 	{
-		var v = 0
+		if columnCount >= 0:
+			return columnCount
+		var v = -1
 		lang "cs" {{{
 			if(reader != null) {
 				v = reader.FieldCount;
 			}
 		}}}
+		columnCount = v
 		return v
 	}
 
 	func getColumnNames override as vector<string>
 	{
-		var v = new vector<string>
-		var n as int
-		var c = getColumnCount()
-		for(n = 0; n < c; n++) {
-			var nn = getColumnName(n)
-			if not nn:
-				nn = ""
-			v += nn
+		if columnNames == null {
+			columnNames = new vector<string>
+			var c = getColumnCount()
+			for(var n = 0; n < c; n++) {
+				var nn = getColumnName(n)
+				if not nn:
+					nn = ""
+				columnNames += nn
+			}
 		}
-		return v
+		return columnNames
 	}
 
 	func getColumnName(n as int) override as string
@@ -282,9 +287,6 @@ class ResultSet is SQLResultSetIterator
 				return(((System.DateTime)o).ToString("yyyy-MM-dd HH:mm:ss"));
 			}
 			v = o.ToString();
-			if(v == null) {
-				return(null);
-			}
 		}}}
 		return v
 	}
@@ -333,16 +335,16 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func next override as cape.DynamicMap
+	func next override as DynamicMap
 	{
 		assert step()
 		var names = getColumnNames()
-		if not names || cape.Vector.getSize(names) < 1:
+		if not names || SIZE(names) < 1:
 			return null
-		var v = new cape.DynamicMap()
-		var n as int
-		for(n = 0; n < cape.Vector.getSize(names); n++):
-			v.set(cape.Vector.get(names, n), getColumnObject(n))
+		var v = new DynamicMap()
+		var sz = SIZE names
+		for(var n = 0; n < sz; n++):
+			v.set(names[n], getColumnObject(n))
 		return v
 	}
 }
@@ -373,6 +375,7 @@ func execute(stmt as SQLStatement) override as bool
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			try {
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				cmd.CommandTimeout = 0;
 				if(ss.getIsStoredProcedure()) {
 					cmd.CommandType = System.Data.CommandType.StoredProcedure;
 				}
@@ -406,6 +409,7 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			cmd.CommandTimeout = 0;
 			if(ss.getIsStoredProcedure()) {
 				cmd.CommandType = System.Data.CommandType.StoredProcedure;
 			}
@@ -460,6 +464,7 @@ func execute(stmt as SQLStatement, callback as function<void, bool>) override #d
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			try {
 				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				cmd.CommandTimeout = 0;
 				if(ss.getIsStoredProcedure()) {
 					cmd.CommandType = System.Data.CommandType.StoredProcedure;
 				}
@@ -497,6 +502,7 @@ func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		try {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+			cmd.CommandTimeout = 0;
 			if(ss.getIsStoredProcedure()) {
 				cmd.CommandType = System.Data.CommandType.StoredProcedure;
 			}
@@ -537,9 +543,8 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 {
 	query(stmt, func(it as SQLResultSetIterator) {
 		if callback {
-			assert it {
+			assert it:
 				callback(null)
-			}
 			var v = it.next()
 			it.close()
 			callback(v)
