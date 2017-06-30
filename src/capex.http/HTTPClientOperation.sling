@@ -223,10 +223,6 @@ class MyResponseParser
 				dataCounter += sz
 				onBodyDataReceived(v, sz)
 			}
-			else {
-				reset()
-				onEndOfResponse()
-			}
 		}
 		else if contentLength > 0 {
 			var rsz = Buffer.getSize(receivedData)
@@ -446,6 +442,11 @@ func readResponse(listener as HTTPClientListener, timeout as int) as bool
 			break
 		}
 		if r < 1 { // socket closed
+			if parser.isStream {
+				parser.reset()
+				parser.onEndOfResponse()
+				break
+			}
 			closeConnection(listener)
 			if listener:
 				listener.onAborted()
@@ -478,6 +479,6 @@ func executeRequest(request as HTTPClientRequest, listener as HTTPClientListener
 {
 	assert sendRequest(request, listener)
 	assert readResponse(listener, 30000)
-	if request.getHeader("connection") == "close":
+	if String.equalsIgnoreCase(request.getHeader("connection"), "close"):
 		closeConnection(listener)
 }
