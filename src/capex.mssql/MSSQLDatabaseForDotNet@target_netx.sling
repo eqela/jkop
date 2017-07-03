@@ -451,90 +451,24 @@ func close(callback as function) override
 		callback()
 }
 
-func execute(stmt as SQLStatement, callback as function<void, bool>) override #dotnetasync
+func execute(stmt as SQLStatement, callback as function<void, bool>) override
 {
-	var ss = stmt as Statement
-	assert ss {
+	var ss = assert stmt as Statement {
 		if callback:
 			callback(false)
 	}
-	var v = true
-	var error as string = null
-	lang "cs" {{{
-		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
-			try {
-				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
-				cmd.CommandTimeout = 0;
-				if(ss.getIsStoredProcedure()) {
-					cmd.CommandType = System.Data.CommandType.StoredProcedure;
-				}
-				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
-				if(pa != null) {
-					cmd.Parameters.AddRange(ss.getParamArray());
-				}
-				conn.Open();
-				await cmd.ExecuteNonQueryAsync();
-			}
-			catch(System.Exception e) {
-				error = e.ToString();
-				v = false;
-			}
-		}
-	}}}
-	if error:
-		Log.error(getLogger(), error)
+	var v = execute(stmt)
 	if callback:
 		callback(v)
 }
 
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override #dotnetasync
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
 {
-	var ss = stmt as Statement
-	assert ss {
+	var ss = assert stmt as Statement {
 		if callback:
 			callback(null)
 	}
-	var v as ResultSet = null
-	var error as string = null
-	var reader as !"System.Data.SqlClient.SqlDataReader"
-	var connection as !"System.Data.SqlClient.SqlConnection"
-	lang "cs" {{{
-		connection = new System.Data.SqlClient.SqlConnection(connectionString);
-		try {
-			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
-			cmd.CommandTimeout = 0;
-			if(ss.getIsStoredProcedure()) {
-				cmd.CommandType = System.Data.CommandType.StoredProcedure;
-			}
-			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
-			if(pa != null) {
-				cmd.Parameters.AddRange(ss.getParamArray());
-			}
-			connection.Open();
-			// FIXME: ExecuteReaderAsync() is extremely slow
-			reader = await cmd.ExecuteReaderAsync();
-		}
-		catch(System.Exception e) {
-			error = e.ToString();
-			if(reader != null) {
-				reader.Close();
-				reader.Dispose();
-				reader = null;
-			}
-			if(connection != null) {
-				connection.Close();
-				connection.Dispose();
-				connection = null;
-			}
-		}
-	}}}
-	if reader {
-		v = new ResultSet()
-		v.reader = reader
-		v.connection = connection
-	}
-	if error:
-		Log.error(getLogger(), error)
+	var v = query(stmt)
 	if callback:
 		callback(v)
 }
