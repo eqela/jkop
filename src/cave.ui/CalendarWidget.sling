@@ -1,0 +1,405 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+class DayWidget #widget
+{
+	ui LayerWidget
+	{
+		CanvasWidget {
+			color = Color.white()
+		}
+		AlignWidget {
+			LayerWidget {
+				heightRequest = context.getHeightValue("6000um")
+				widthRequest = context.getHeightValue("6000um")
+				CanvasWidget canvas {
+					color = Color.white()
+					roundingRadius = context.getHeightValue("3000um")
+				}
+				AlignWidget {
+					LayerWidget {
+						margin = context.getHeightValue("400um")
+						LabelWidget lbl {
+							textColor = Color.black()
+						}
+					}
+				}
+			}
+		}
+	}
+
+	prop index as int
+	prop container as parent
+	var enable = true
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		Widget.setWidgetClickHandler(this, func {
+			if enable:
+				container.updateSelectedDay(index)
+		})
+		canvas.setWidgetColor(Color.white())
+	}
+
+	func setWidgetText(value as string) as this
+	{
+		lbl.setWidgetText(value)
+		return this
+	}
+
+	func setWidgetEnable(x as bool)
+	{
+		enable = x
+		if not x {
+			lbl.setWidgetTextColor(Color.instance("#CCCCCC"))
+		}
+		else {
+			lbl.setWidgetTextColor(Color.instance("#191818"))
+		}
+	}
+
+	func getWidgetText as string:
+		return lbl.getWidgetText()
+
+	func setWidgetBackgroundColor(color as Color) as this
+	{
+		assert color
+		canvas.setWidgetColor(color)
+		canvas.setWidgetRoundingRadius(context.getHeightValue("3000um"))
+		return this
+	}
+
+	func setWidgetTextColor(color as Color) as this
+	{
+		assert color
+		if enable:
+			lbl.setWidgetTextColor(color)
+		return this
+	}
+}
+
+ui LayerWidget
+{
+	widthRequest = context.getWidthValue("80mm")
+	heightRequest = context.getWidthValue("80mm")
+	CanvasWidget background {
+		color = Color.white()
+	}
+	VerticalBoxWidget {
+		spacing = context.getHeightValue("400um")
+		VerticalBoxWidget buttonContainer {
+			HorizontalBoxWidget {
+				ImageButtonWidget prevYear {
+					imageResource = "left"
+				}
+				AlignWidget : 1.0 {
+					LabelWidget yearLabel {
+						textColor = Color.black()
+					}
+				}
+				ImageButtonWidget nextYear {
+					imageResource = "right"
+				}
+			}
+			HorizontalBoxWidget {
+				ImageButtonWidget prevMonth {
+					imageResource = "left"
+				}
+				AlignWidget : 1.0 {
+					LabelWidget monthLabel {
+						textColor = Color.black()
+					}
+				}
+				ImageButtonWidget nextMonth {
+					imageResource = "right"
+				}
+			}
+		}
+		LayerWidget {
+			heightRequest = context.getHeightValue("40um")
+			CanvasWidget {
+				color = Color.black()
+			}
+		}
+		HorizontalBoxWidget headerContainer {
+			spacing = context.getHeightValue("400um")
+		}
+		LayerWidget {
+			heightRequest = context.getHeightValue("40um")
+			CanvasWidget {
+				color = Color.black()
+			}
+		}
+		VerticalBoxWidget container : 1.0 {
+			spacing = context.getHeightValue("400um")
+		}
+	}
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	setWidgetStyle(VALUE("__THIS__"))
+}
+
+prop widgetOnClickHandler as function<void, int, int, int>
+prop widgetDisablePreviousDays = false
+var widgetBackgroundColor as Color
+var widgetSelectedDayColor as Color
+var widgetSelectedTextColor as Color
+var widgetTextColor as Color
+var days as vector<DayWidget>
+var currentMonth as int
+var currentYear as int
+var currentDay as int
+
+func setWidgetStyle(style as string) as this
+{
+	widgetBackgroundColor = context.getStyleColor(style, "backgroundColor")
+	if not widgetBackgroundColor:
+		widgetBackgroundColor = Color.white()
+	widgetSelectedDayColor = context.getStyleColor(style, "selectedDayColor")
+	if not widgetSelectedDayColor:
+		widgetSelectedDayColor = Color.black()
+	widgetSelectedTextColor = context.getStyleColor(style, "selectedTextColor")
+	if not widgetSelectedTextColor:
+		widgetSelectedTextColor = Color.white()
+	widgetTextColor = context.getStyleColor(style, "textColor")
+	if not widgetTextColor:
+		widgetTextColor = Color.black()
+	updateWidgetStyle()
+	return this
+}
+
+func updateWidgetStyle
+{
+	if background:
+		background.setWidgetColor(widgetBackgroundColor)
+	if yearLabel:
+		yearLabel.setWidgetTextColor(widgetTextColor)
+	if monthLabel:
+		monthLabel.setWidgetTextColor(widgetTextColor)
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	days = new vector<DayWidget>
+	var counter = 0
+	for(var x = 0; x < 6; x++) {
+		var hbox = HorizontalBoxWidget.forContext(context, 0, context.getHeightValue("400um"))
+		for(var y = 0; y < 7; y++) {
+			var d = new DayWidget(context)
+			d.setIndex(counter)
+			d.setContainer(this)
+			hbox.addWidget(d, 1.0)
+			days += d
+			counter++
+		}
+		container.addWidget(hbox, 1.0)
+	}
+	var weekNames = getWeekNames()
+	for(var i = 0; i < SIZE(weekNames); i++):
+		headerContainer.addWidget(new DayWidget(context).setWidgetText(weekNames[i]).setWidgetTextColor(widgetTextColor), 1.0)
+	var dt = DateTime.forNow()
+	currentDay = dt.getDayOfMonth()
+	currentYear = dt.getYear()
+	currentMonth = dt.getMonth()
+	yearLabel.setWidgetText(String.forInteger(dt.getYear()))
+	monthLabel.setWidgetText(getMonths()[dt.getMonth() - 1])
+	updateCalendarView(currentMonth, currentYear, currentDay)
+	setClickHandlers()
+	updateWidgetStyle()
+}
+
+func setClickHandlers
+{
+	var months final = getMonths()
+	prevYear.setWidgetClickHandler(func {
+		currentYear--
+		yearLabel.setWidgetText(String.forInteger(currentYear))
+		updateCalendarView(currentMonth, currentYear, currentDay)
+	})
+	nextYear.setWidgetClickHandler(func {
+		currentYear++
+		yearLabel.setWidgetText(String.forInteger(currentYear))
+		updateCalendarView(currentMonth, currentYear, currentDay)
+	})
+	prevMonth.setWidgetClickHandler(func {
+		currentMonth--
+		if currentMonth == 0 {
+			currentMonth += 12
+			currentYear--
+			yearLabel.setWidgetText(String.forInteger(currentYear))
+		}
+		monthLabel.setWidgetText(months[currentMonth - 1])
+		updateCalendarView(currentMonth, currentYear, currentDay)
+	})
+	nextMonth.setWidgetClickHandler(func {
+		currentMonth++
+		if currentMonth > 12 {
+			currentMonth -= 12
+			currentYear++
+			yearLabel.setWidgetText(String.forInteger(currentYear))
+		}
+		monthLabel.setWidgetText(months[currentMonth - 1])
+		updateCalendarView(currentMonth, currentYear, currentDay)
+	})
+}
+
+func updateCalendarView(month as int, year as int, day as int)
+{
+	var dt = DateTime.forNow()
+	var numOfDays = getNumberOfDays(month, year)
+	var startDay = getFirstDay(month, year)
+	var today = day
+	var dayCounter = 1
+	var ld = 1
+	for(var i = 0; i < SIZE(days); i++) {
+		var widget = Vector.get(days, i) as! DayWidget
+		if not widget:
+			continue
+		var str = ""
+		if i < startDay {
+			var nd = getNumberOfDays(month - 1, year)
+			str = String.forInteger(nd - startDay + (i + 1))
+			widget.setWidgetEnable(false)
+		}
+		else if(i >= startDay && dayCounter <= numOfDays) {
+			if widgetDisablePreviousDays {
+				if dayCounter < today && month == dt.getMonth() && year == dt.getYear() {
+					widget.setWidgetEnable(false)
+				}
+				else {
+					widget.setWidgetEnable(true)
+				}
+			}
+			else {
+				widget.setWidgetEnable(true)
+			}
+			if currentDay == dayCounter && month == dt.getMonth() && year == dt.getYear() {
+				widget.setWidgetBackgroundColor(widgetSelectedDayColor)
+				widget.setWidgetTextColor(widgetSelectedTextColor)
+			}
+			else if dayCounter == today && month == dt.getMonth() && year == dt.getYear() {
+				widget.setWidgetBackgroundColor(widgetSelectedDayColor)
+				widget.setWidgetTextColor(widgetSelectedTextColor)
+			}
+			else {
+				widget.setWidgetBackgroundColor(widgetBackgroundColor)
+				widget.setWidgetTextColor(widgetTextColor)
+			}
+			str = String.forInteger(dayCounter)
+			dayCounter++
+		}
+		else {
+			widget.setWidgetEnable(false)
+			str = String.forInteger(ld)
+			ld++
+		}
+		widget.setWidgetText(str)
+	}
+}
+
+func updateSelectedDay(index as int)
+{
+	for(var x = 0; x < SIZE(days); x++) {
+		var widget = Vector.get(days, x) as! DayWidget
+		if not widget:
+			continue
+		if x == index {
+			if not String.isEmpty(widget.getWidgetText()) {
+				widget.setWidgetBackgroundColor(widgetSelectedDayColor)
+				widget.setWidgetTextColor(widgetSelectedTextColor)
+				currentDay = String.toInteger(widget.getWidgetText())
+				if widgetOnClickHandler:
+					widgetOnClickHandler(currentYear, currentMonth, currentDay)
+				continue
+			}
+		}
+		widget.setWidgetBackgroundColor(widgetBackgroundColor)
+		widget.setWidgetTextColor(widgetTextColor)
+	}
+}
+
+func getWeekNames as array<string>:
+	return new string[] { "Su", "Mo", "Tu", "We", "Th", "Fr" ,"Sa" }
+
+func getMonths static as array<string>
+{
+	return new string[] {
+		"January",
+		"February",
+		"March",
+		"April",
+		"May",
+		"June",
+		"July",
+		"August",
+		"September",
+		"October",
+		"November",
+		"December"
+	}
+}
+
+func getFirstDay(m as int, y as int) as int
+{
+	if m == 1 || m == 2 {
+		m += 12
+		y--
+	}
+	var k = y % 100
+	var j = y / 100
+	var h1 = Math.floor(((13 * (m + 1)) / 5))
+	var h2 = Math.floor((k / 4))
+	var h3 = Math.floor(j / 4)
+	var h4 = Math.floor(5 * j)
+	var h = ((1 + h1 + k + h2 + h3 + h4) as! int) % 7
+	var d = ((h + 6) as! int) % 7
+	return d
+}
+
+func getNumberOfDays(month as int, year as int) static as int
+{
+	if month == 4 || month == 6 || month == 9 || month == 11 {
+		return 30
+	}
+	else if month == 2 {
+		if isLeapYear(year):
+			return 29
+		return 28
+	}
+	return 31
+}
+
+func isLeapYear(year as int) static as bool
+{
+	if year % 4 == 0 && year % 100 != 0 || year % 400 == 0:
+		return true
+	return false
+}
