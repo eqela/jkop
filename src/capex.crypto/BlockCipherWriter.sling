@@ -26,9 +26,8 @@ class is Writer is SeekableWriter imports cape:
 
 func create(writer as Writer, cipher as BlockCipher) static as this
 {
-	if(writer == null || cipher == null) {
-		return(null)
-	}
+	assert writer
+	assert cipher
 	var v = new this()
 	v.writer = writer
 	v.cipher = cipher
@@ -36,7 +35,7 @@ func create(writer as Writer, cipher as BlockCipher) static as this
 	v.bcurr = 0
 	v.bdata = Buffer.allocate(cipher.getBlockSize())
 	v.outbuf = Buffer.allocate(cipher.getBlockSize())
-	return(v)
+	return v
 }
 
 var cipher as BlockCipher
@@ -46,21 +45,23 @@ var bcurr as int
 var bdata as buffer
 var outbuf as buffer
 
-dtor
+IFDEF "target_supports_destructor"
 {
-	close()
+	dtor
+	{
+		close()
+	}
 }
 
 func close
 {
-	if(writer != null && bdata != null) {
+	if writer && bdata {
 		var bb = Buffer.allocate(1)
 		var bbptr = bb
-		if(bcurr > 0) {
+		if bcurr > 0 {
 			var n as int
-			for(n = bcurr; n<bsize; n++) {
+			for(n = bcurr; n<bsize; n++):
 				Buffer.setByte(bdata, n, 0)
-			}
 			writeCompleteBlock(bdata)
 			Buffer.setByte(bbptr, 0, bsize - bcurr)
 			writer.write(bb, -1)
@@ -78,81 +79,70 @@ func close
 func setCurrentPosition(n as int64) as bool
 {
 	//FIXME: Need to clear / reset the state (and read the current block to be a part of it)
-	if(writer != null && writer is SeekableWriter) {
+	if writer && writer is SeekableWriter:
 		return((writer as! SeekableWriter).setCurrentPosition(n))
-	}
-	return(false)
+	return false
 }
 
 func getCurrentPosition as int64
 {
-	if(writer != null && writer is SeekableWriter) {
+	if writer && writer is SeekableWriter:
 		return((writer as! SeekableWriter).getCurrentPosition())
-	}
-	return(-1)
+	return -1
 }
 
 func writeCompleteBlock(buf as buffer) as bool
 {
 	cipher.encryptBlock(buf, outbuf)
-	if(writer.write(outbuf, -1) == Buffer.getSize(outbuf)) {
-		return(true)
-	}
-	return(false)
+	if writer.write(outbuf, -1) == Buffer.getSize(outbuf):
+		return true
+	return false
 }
 
 func writeBlock(buf as buffer) as int
 {
 	var size = Buffer.getSize(buf)
-	if(bcurr + size < bsize) {
+	if bcurr + size < bsize {
 		var bufptr = buf
 		Buffer.copyFrom(bufptr, bdata, 0, bcurr, size)
 		bcurr += size
-		return(size)
+		return size
 	}
-	if(bcurr > 0) {
+	if bcurr > 0 {
 		var bufptr = buf
 		var x = bsize - bcurr
 		Buffer.copyFrom(bufptr, bdata, 0, bcurr, x)
-		if(writeCompleteBlock(bdata) == false) {
-			return(0)
-		}
+		if writeCompleteBlock(bdata) == false:
+			return 0
 		bcurr = 0
-		if(x == size) {
-			return(x)
-		}
-		return(x + writeBlock(Buffer.getSubBuffer(buf, x, size - x)))
+		if x == size:
+			return x
+		return x + writeBlock(Buffer.getSubBuffer(buf, x, size - x))
 	}
-	if(writeCompleteBlock(buf) == false) {
-		return(0)
-	}
-	return(bsize)
+	if writeCompleteBlock(buf) == false:
+		return 0
+	return bsize
 }
 
 func write(buf as buffer, asize as int = -1) as int
 {
-	if(buf == null) {
-		return(0)
-	}
+	if buf == null:
+		return 0
 	var bufptr = buf
-	if(bufptr == null) {
-		return(0)
-	}
+	if bufptr == null:
+		return 0
 	var size = asize
-	if(size < 0) {
+	if size < 0:
 		size = Buffer.getSize(buf)
-	}
-	if(size < 1) {
-		return(0)
-	}
+	if size < 1:
+		return 0
 	var v = 0
 	var n as int
 	for(n=0; n<size; n += bsize) {
 		var x = bsize
-		if(n + x > size) {
+		if n + x > size:
 			x = size - n
-		}
 		v += writeBlock(Buffer.getSubBuffer(buf, n, x))
 	}
-	return(v)
+	return v
 }
