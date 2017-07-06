@@ -291,6 +291,9 @@ IFDEF("target_html")
 		if(coordinateQueue != null) {
 			doZoomToCoordinates()
 		}
+		if(centerQueue != null) {
+			doMoveToCenter()
+		}
 	}
 }
 
@@ -318,11 +321,26 @@ IFDEF("target_iosoc")
 	depend "objc-framework:SystemConfiguration"
 	depend "objc-framework:UIKit"
 	depend "objc-framework:Security"
+	var googleMapsApiInitialized static = false
 
 	lang "objc" {{{
 		- (void)mapView:(GMSMapView *)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate
 		{
 			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
+		}
+
+		- (void) mapViewSnapshotReady:(GMSMapView *)mapView
+		{
+			if(self->mapInitialized == false) {
+				self->mapInitialized = true;
+			}
+			[self placeQueuedMarkers];
+			if(self->coordinateQueue != nil) {
+				[self doZoomToCoordinates];
+			}
+			if(self->centerQueue != nil) {
+				[self doMoveToCenter];
+			}
 		}
 	}}}
 
@@ -488,11 +506,11 @@ class MyMapMarker is MapMarker
 func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
 {
 	IFDEF("target_iosoc") {
-		if(mapInitialized == false) {
+		if(googleMapsApiInitialized == false) {
 			lang "objc" {{{
 				[GMSServices provideAPIKey:iosApiKey];
 			}}}
-			mapInitialized = true
+			googleMapsApiInitialized = true
 		}
 	}
 	var v = new this(context)
@@ -511,7 +529,7 @@ var mapClickHandler as function<void,double,double>
 var markerQueue as vector<MyMapMarker>
 var coordinateQueue as vector<DynamicMap>
 var centerQueue as GeoLocation
-var mapInitialized static = false
+var mapInitialized = false
 
 ctor(context as GuiApplicationContext) private
 {
