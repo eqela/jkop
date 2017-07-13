@@ -29,25 +29,21 @@ prop apiUrl as string
 func getFullURL(api as string) virtual as string
 {
 	var url = apiUrl
-	if(String.isEmpty(url)) {
+	if String.isEmpty(url):
 		url = "/"
+	if url == "/" {
+		if String.startsWith(api, "/"):
+			return api
+		return url .. api
 	}
-	if(url == "/") {
-		if(String.startsWith(api, "/")) {
-			return(api)
-		}
-		return(url .. api)
+	if String.endsWith(url, "/") {
+		if String.startsWith(api, "/"):
+			return url .. String.getSubString(api, 1)
+		return url .. api
 	}
-	if(String.endsWith(url, "/")) {
-		if(String.startsWith(api, "/")) {
-			return(url .. String.getSubString(api, 1))
-		}
-		return(url .. api)
-	}
-	if(String.startsWith(api, "/")) {
-		return(url .. api)
-	}
-	return(url .. "/" .. api)
+	if String.startsWith(api, "/"):
+		return url .. api
+	return url .. "/" .. api
 }
 
 func toUTF8Buffer(data as DynamicMap) private as buffer
@@ -75,100 +71,90 @@ func onDefaultErrorHandler(error as Error) virtual
 func handleAsError(response as DynamicMap, callback as function<void,Error> = null) as bool
 {
 	var error = toError(response)
-	if(error != null) {
+	if error {
 		onError(error, callback)
-		return(true)
+		return true
 	}
-	return(false)
+	return false
 }
 
 func toError(response as DynamicMap) as Error
 {
-	if(response == null) {
-		return(Error.forCode("noServerResponse"))
-	}
-	if(response.getString("status") == "error") {
+	assert response:
+		return Error.forCode("noServerResponse")
+	if response.getString("status") == "error" {
 		var v = new Error()
 		v.setCode(response.getString("code"))
 		v.setMessage(response.getString("message"))
 		v.setDetail(response.getString("detail"))
-		return(v)
+		return v
 	}
-	return(null)
+	return null
 }
 
 func onError(error as Error, callback as function<void,Error>) virtual
 {
-	if(callback != null) {
-		callback(error)
-	}
-	else {
+	assert callback:
 		onDefaultErrorHandler(error)
-	}
+	callback(error)
 }
 
-func onError(error as Error) virtual
-{
+func onError(error as Error) virtual:
 	onError(error, null)
-}
 
 func sendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
 {
-	if(callback == null) {
-		return
-	}
+	assert callback
+	var ll final = callback
+	var ecb final = errorCallback
+	doSendRequest(method, url, headers, data, func(responseHeaders as KeyValueList<string,string>, data as buffer) {
+		assert data:
+			onError(Error.forCode("failedToConnect"), ecb)
+		var jsonResponseBody = assert JSONParser.parse(String.forUTF8Buffer(data)) as DynamicMap:
+			onError(Error.forCode("invalidServerResponse"), ecb)
+		if not handleAsError(jsonResponseBody, ecb):
+			ll(jsonResponseBody)
+	}, ecb)
+}
+
+func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void,Error> = null)
+{
+	assert callback
 	var hrs = headers
-	if(headers == null) {
+	if not hrs {
 		hrs = new KeyValueList<string,string>()
 		hrs.add("Content-Type", "application/json")
 	}
-	var webClient = NativeWebClient.instance()
-	if(webClient == null) {
+	var webClient = assert NativeWebClient.instance():
 		onError(Error.forCode("noWebClient"), errorCallback)
-		return
-	}
 	var ll final = callback
 	customizeRequestHeaders(hrs)
 	onStartSendRequest()
 	var ecb final = errorCallback
-	webClient.query(method, url, hrs, data, func(status as string, responseHeaders as KeyValueList<string,string>, data as buffer) {
+	webClient.query(method, url, hrs, data, func(status as string, responseHeaders as KeyValueList<string,string>, body as buffer) {
 		onEndSendRequest()
-		if(data == null) {
+		assert body:
 			onError(Error.forCode("failedToConnect"), ecb)
-			return
-		}
-		var jsonResponseBody = JSONParser.parse(String.forUTF8Buffer(data)) as DynamicMap
-		if(jsonResponseBody == null) {
-			onError(Error.forCode("invalidServerResponse"), ecb)
-			return
-		}
-		if(handleAsError(jsonResponseBody, ecb) == false) {
-			ll(jsonResponseBody)
-		}
+		ll(responseHeaders, body)
 	})
 }
 
-func doGet(url as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
-{
+func doGetFile(url as string, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void, Error> = null):
+	doSendRequest("GET", getFullURL(url), null, null, callback, errorCallback)
+
+func doGet(url as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("GET", getFullURL(url), null, null, callback, errorCallback)
-}
 
-func doPost(url as string, data as DynamicMap, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
-{
+func doPost(url as string, data as DynamicMap, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
-}
 
-func doPut(url as string, data as DynamicMap, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
-{
+func doPut(url as string, data as DynamicMap, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("PUT", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
-}
 
-func doDelete(url as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
-{
+func doDelete(url as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("DELETE", getFullURL(url), null, null, callback, errorCallback)
-}
 
-func uploadFile(url as string, data as buffer, mimeType as string, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
+func uploadFile(url as string, data as buffer, mimeType as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null)
 {
 	var mt = mimeType
 	if(String.isEmpty(mt)) {
