@@ -1,0 +1,219 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+class RangeControlWidget #widget
+{
+	ui LayerWidget
+	{
+		widthRequest = context.getHeightValue("4mm")
+		heightRequest = context.getHeightValue("4mm")
+		CanvasWidget outline {
+			color = Color.instance("#C0C0C0")
+			roundingRadius = context.getHeightValue("800um")
+		}
+		LayerWidget {
+			margin = context.getHeightValue("10um")
+			CanvasWidget main {
+				color = Color.instance("#ffffff")
+				roundingRadius = context.getHeightValue("800um")
+			}
+		}
+	}
+
+	func setWidgetColor(color as Color)
+	{
+		main.setWidgetColor(color)
+	}
+}
+
+class SelectedControl
+{
+	var widget as Widget
+	var control as int
+}
+
+ui LayerWidget
+{
+	heightRequest = context.getHeightValue("4mm")
+	LayerWidget con {
+		CanvasWidget background {
+		}
+		AlignWidget {
+			LayerWidget range : 0.5, 0.5, true {
+				marginLeft = context.getHeightValue("2mm")
+				marginRight = context.getHeightValue("2mm")
+				heightRequest = context.getHeightValue("1mm")
+				CanvasWidget outOfRangeColor {
+					color = Color.instance("#A9A9A9")
+				}
+				CanvasWidget insideOfRangeColor {
+					color = Color.instance("#FF8C00")
+				}
+			}
+			RangeControlWidget leftControl : 0.0, 0.5 {
+			}
+			RangeControlWidget rightControl : 1.0, 0.5 {
+			}
+		}
+	}
+}
+
+prop widgetMaximumValue = 100
+prop widgetLeftControlChangeListener as function<void, double>
+prop widgetRightControlChangeListener as function<void, double>
+var selectedControl as SelectedControl
+var refX as double
+
+const LEFT_CONTROL = 0
+const RIGHT_CONTROL = 1
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	Widget.setWidgetPointerHandlers(con, func(x as double, y as double) {
+		onStartHandler(x, y)
+	}, func(x as double, y as double) {
+		onTouchHandler(x, y)
+	}, func(x as double, y as double) {
+		onEndHandler(x, y)
+	})
+}
+
+func isInside(x as double, y as double, widget as Widget) private as bool
+{
+	var wx = Widget.getX(widget)
+	var wy = Widget.getY(widget)
+	return x >= wx && y >= wy && x <= wx + Widget.getWidth(widget) && y <= wy + Widget.getHeight(widget)
+}
+
+func onStartHandler(x as double, y as double) private
+{
+	resetSelectedControl()
+	if isInside(x, y, leftControl) {
+		selectedControl.widget = leftControl
+		selectedControl.control = LEFT_CONTROL
+		refX = x
+	}
+	else if isInside(x, y, rightControl) {
+		selectedControl.widget = rightControl
+		selectedControl.control = RIGHT_CONTROL
+		refX = x
+	}
+}
+
+func onTouchHandler(x as double, y as double) private
+{
+	assert selectedControl
+	var dx = Widget.getX(selectedControl.widget) + (x - refX) as int
+	moveControl(dx, selectedControl.control)
+	refX = x
+}
+
+func onEndHandler(x as double, y as double) private
+{
+	resetSelectedControl()
+}
+
+func calculate(x as int) private as double
+{
+	var y = x / (Widget.getWidth(range) - Widget.getWidth(rightControl) as double) as double
+	return y * widgetMaximumValue
+}
+
+func updateRangeCanvas private
+{
+	var x = Widget.getX(leftControl) + Widget.getWidth(leftControl) / 2
+	var width = (Widget.getX(rightControl) + Widget.getWidth(rightControl) / 2) - x
+	Widget.setLayoutSize(insideOfRangeColor, width, Widget.getHeight(insideOfRangeColor))
+	Widget.move(insideOfRangeColor, x, Widget.getY(insideOfRangeColor))
+}
+
+func resetSelectedControl
+{
+	if not selectedControl:
+		selectedControl = new SelectedControl()
+	selectedControl.widget = null
+	selectedControl.control = -1
+}
+
+func moveLeftControlTo(value as int)
+{
+	moveControl(value, LEFT_CONTROL)
+}
+
+func moveRightControlTo(value as int)
+{
+	moveControl(value, RIGHT_CONTROL)
+}
+
+func moveControl(value as int, control as int)
+{
+	assert control == LEFT_CONTROL || control == RIGHT_CONTROL
+	resetSelectedControl()
+	selectedControl.control = control
+	var x = value
+	if control == LEFT_CONTROL {
+		selectedControl.widget = leftControl
+		var rx = Widget.getX(rightControl)
+		x = x < 0 ? 0 : x
+		x = x > rx ? rx : x
+		if widgetLeftControlChangeListener:
+			widgetLeftControlChangeListener(calculate(x))
+	}
+	else if control == RIGHT_CONTROL {
+		selectedControl.widget = rightControl
+		var mx = (Widget.getX(range) + Widget.getWidth(range)) - Widget.getWidth(rightControl)
+		var lx = Widget.getX(leftControl)
+		x = x > mx ? mx : x
+		x = x < lx ? lx : x
+		if widgetRightControlChangeListener:
+			widgetRightControlChangeListener(calculate(x))
+	}
+	Widget.move(selectedControl.widget, x, Widget.getY(selectedControl.widget))
+	updateRangeCanvas()
+}
+
+func setWidgetBackgroundColor(color as Color)
+{
+	background.setWidgetColor(color)
+}
+
+func setWidgetOutOfRangeColor(color as Color)
+{
+	outOfRangeColor.setWidgetColor(color)
+}
+
+func setWidgetInsideOfRangeColor(color as Color)
+{
+	insideOfRangeColor.setWidgetColor(color)
+}
+
+func setWidgetControlColor(color as Color)
+{
+	leftControl.setWidgetColor(color)
+	rightControl.setWidgetColor(color)
+}
+
