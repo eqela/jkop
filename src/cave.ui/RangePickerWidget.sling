@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class #widget:
+class is ResizeAwareWidget is WidgetWithValue #widget:
 
 class RangeControlWidget #widget
 {
@@ -51,8 +51,8 @@ class RangeControlWidget #widget
 
 class SelectedControl
 {
-	var widget as Widget
-	var control as int
+	var widget public as Widget
+	var control public as int
 }
 
 ui LayerWidget
@@ -84,11 +84,16 @@ ui LayerWidget
 prop widgetMaximumValue = 100
 prop widgetLeftControlChangeListener as function<void, double>
 prop widgetRightControlChangeListener as function<void, double>
+prop widgetValueFormat = VALUE_AS_STRING
 var selectedControl as SelectedControl
 var refX as double
+var leftValue as double
+var rightValue as double
 
 const LEFT_CONTROL = 0
 const RIGHT_CONTROL = 1
+const VALUE_AS_STRING = 0
+const VALUE_AS_DYNAMICMAP = 1
 
 func initializeWidget override
 {
@@ -137,10 +142,16 @@ func onEndHandler(x as double, y as double) private
 	resetSelectedControl()
 }
 
-func calculate(x as int) private as double
+func calculateValueForX(x as int) private as double
 {
 	var y = x / (Widget.getWidth(range) - Widget.getWidth(rightControl) as double) as double
 	return y * widgetMaximumValue
+}
+
+func calculateXForValue(value as double) private as int
+{
+	var x = value / widgetMaximumValue
+	return x * (Widget.getX(range) + Widget.getWidth(range)) - Widget.getWidth(rightControl) as int
 }
 
 func updateRangeCanvas private
@@ -159,14 +170,14 @@ func resetSelectedControl
 	selectedControl.control = -1
 }
 
-func moveLeftControlTo(value as int)
+func moveLeftControlTo(value as double)
 {
-	moveControl(value, LEFT_CONTROL)
+	moveControl(calculateXForValue(value), LEFT_CONTROL)
 }
 
-func moveRightControlTo(value as int)
+func moveRightControlTo(value as double)
 {
-	moveControl(value, RIGHT_CONTROL)
+	moveControl(calculateXForValue(value), RIGHT_CONTROL)
 }
 
 func moveControl(value as int, control as int)
@@ -180,8 +191,10 @@ func moveControl(value as int, control as int)
 		var rx = Widget.getX(rightControl)
 		x = x < 0 ? 0 : x
 		x = x > rx ? rx : x
-		if widgetLeftControlChangeListener:
-			widgetLeftControlChangeListener(calculate(x))
+		if widgetLeftControlChangeListener {
+			leftValue = calculateValueForX(x)
+			widgetLeftControlChangeListener(leftValue)
+		}
 	}
 	else if control == RIGHT_CONTROL {
 		selectedControl.widget = rightControl
@@ -189,11 +202,22 @@ func moveControl(value as int, control as int)
 		var lx = Widget.getX(leftControl)
 		x = x > mx ? mx : x
 		x = x < lx ? lx : x
-		if widgetRightControlChangeListener:
-			widgetRightControlChangeListener(calculate(x))
+		if widgetRightControlChangeListener {
+			rightValue = calculateValueForX(x)
+			widgetRightControlChangeListener(rightValue)
+		}
 	}
 	Widget.move(selectedControl.widget, x, Widget.getY(selectedControl.widget))
 	updateRangeCanvas()
+}
+
+func setWidgetStyle(style as string) as this
+{
+	setWidgetControlColor(context.getStyleColor(style, "controlColor"))
+	setWidgetBackgroundColor(context.getStyleColor(style, "backgroundColor"))
+	setWidgetOutOfRangeColor(context.getStyleColor(style, "outOfRangeColor"))
+	setWidgetInsideOfRangeColor(context.getStyleColor(style, "insideOfRangeColor"))
+	return this
 }
 
 func setWidgetBackgroundColor(color as Color)
@@ -217,3 +241,45 @@ func setWidgetControlColor(color as Color)
 	rightControl.setWidgetColor(color)
 }
 
+func onWidgetResized
+{
+	moveControl(Widget.getX(leftControl), LEFT_CONTROL)
+	moveControl(Widget.getX(rightControl), RIGHT_CONTROL)
+}
+
+func setWidgetValue(value as object)
+{
+	assert value
+	var lv as double
+	var rv as double
+	if value is string {
+		var v = String.split(value as! string, '-', 2)
+		lv = String.toDouble(v[0])
+		rv = String.toDouble(v[1])
+	}
+	else if value is DynamicMap {
+		var v = value as! DynamicMap
+		lv = v.getDouble("from")
+		rv = v.getDouble("to")
+	}
+	moveLeftControlTo(lv)
+	moveRightControlTo(rv)
+}
+
+func getWidgetValue as object
+{
+	if widgetValueFormat < VALUE_AS_STRING && widgetValueFormat > VALUE_AS_DYNAMICMAP:
+		widgetValueFormat = VALUE_AS_STRING
+	var v as object
+	if widgetValueFormat == VALUE_AS_STRING {
+		var str = String.asString(leftValue) .. "-" .. String.asString(rightValue)
+		v = str
+	}
+	else {
+		var dm = new DynamicMap()
+		dm.set("from", leftValue)
+		dm.set("to", rightValue)
+		v = dm
+	}
+	return v
+}
