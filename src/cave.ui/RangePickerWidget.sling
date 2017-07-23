@@ -86,6 +86,8 @@ prop widgetLeftControlChangeListener as function<void, double>
 prop widgetRightControlChangeListener as function<void, double>
 var selectedControl as SelectedControl
 var refX as double
+var firstLayoutDone as bool
+var rangeValue as int
 var leftValue as double
 var rightValue as double
 
@@ -137,19 +139,19 @@ func onTouchHandler(x as double, y as double) private
 func onEndHandler(x as double, y as double) private:
 	resetSelectedControl()
 
-func calculateValueForX(x as int) private as double
+func calculateValueForX(x as double) private as double
 {
-	var y = x / (Widget.getWidth(range) - Widget.getWidth(rightControl) as double) as double
-	return y * widgetMaximumValue
+	var y = x / rangeValue
+	return Math.round((y * widgetMaximumValue) * 100) / 100
 }
 
-func calculateXForValue(value as double) private as int
+func calculateXForValue(value as double) private as double
 {
 	var x = value / widgetMaximumValue
-	return x * (Widget.getX(range) + Widget.getWidth(range)) - Widget.getWidth(rightControl) as int
+	return x * rangeValue
 }
 
-func updateRangeCanvas private
+func updateInsideOfRangeCanvas private
 {
 	var x = Widget.getX(leftControl) + Widget.getWidth(leftControl) / 2
 	var width = (Widget.getX(rightControl) + Widget.getWidth(rightControl) / 2) - x
@@ -171,7 +173,7 @@ func moveLeftControlTo(value as double):
 func moveRightControlTo(value as double):
 	moveControl(calculateXForValue(value), RIGHT_CONTROL)
 
-func moveControl(value as int, control as int)
+func moveControl(value as double, control as int)
 {
 	assert control == LEFT_CONTROL || control == RIGHT_CONTROL
 	resetSelectedControl()
@@ -179,8 +181,8 @@ func moveControl(value as int, control as int)
 	var x = value
 	if control == LEFT_CONTROL {
 		selectedControl.widget = leftControl
-		var rx = Widget.getX(rightControl)
-		x = x < 0 ? 0 : x
+		var rx = Widget.getX(rightControl) as! double
+		x = x < 0 ? 0.0 : x
 		x = x > rx ? rx : x
 		if widgetLeftControlChangeListener {
 			leftValue = calculateValueForX(x)
@@ -189,8 +191,8 @@ func moveControl(value as int, control as int)
 	}
 	else if control == RIGHT_CONTROL {
 		selectedControl.widget = rightControl
-		var mx = (Widget.getX(range) + Widget.getWidth(range)) - Widget.getWidth(rightControl)
-		var lx = Widget.getX(leftControl)
+		var mx = rangeValue as! double
+		var lx = Widget.getX(leftControl) as! double
 		x = x > mx ? mx : x
 		x = x < lx ? lx : x
 		if widgetRightControlChangeListener {
@@ -198,8 +200,8 @@ func moveControl(value as int, control as int)
 			widgetRightControlChangeListener(rightValue)
 		}
 	}
-	Widget.move(selectedControl.widget, x, Widget.getY(selectedControl.widget))
-	updateRangeCanvas()
+	Widget.move(selectedControl.widget, x as! int, Widget.getY(selectedControl.widget))
+	updateInsideOfRangeCanvas()
 }
 
 func setWidgetStyle(style as string) as this
@@ -228,8 +230,11 @@ func setWidgetControlColor(color as Color)
 
 func onWidgetResized
 {
-	moveControl(Widget.getX(leftControl), LEFT_CONTROL)
-	moveControl(Widget.getX(rightControl), RIGHT_CONTROL)
+	rangeValue = Widget.getWidth(range) - Widget.getWidth(rightControl)
+	assert firstLayoutDone:
+		firstLayoutDone = true
+	moveLeftControlTo(leftValue)
+	moveRightControlTo(rightValue)
 }
 
 func setWidgetValue(value as object)
@@ -241,7 +246,7 @@ func setWidgetValue(value as object)
 	moveRightControlTo(String.toDouble(v[1]))
 }
 
-func setWidgetValueAsDynamicMap(value as DynamicMap)
+func setWidgetValueForDynamicMap(value as DynamicMap)
 {
 	assert value
 	moveLeftControlTo(value.getDouble("from"))
