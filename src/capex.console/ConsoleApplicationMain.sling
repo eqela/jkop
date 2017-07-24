@@ -29,7 +29,9 @@ func executeMain(app as this, args as array<string>) static as int
 	if not app:
 		return -1
 	app.args = ConsoleApplication.parseCommandLineArguments(args)
-	if app.execute():
+	var r = app.execute()
+	Log.status(app.ctx, null)
+	if r:
 		return 0
 	return 1
 }
@@ -38,12 +40,81 @@ var stdout public as PrintWriter
 var stdin public as PrintReader
 var ctx public as ConsoleApplicationContext
 var args public as vector<CommandLineArgument>
+var verbosityLevel = 3
 
 ctor
 {
 	stdin = Stdin.instance()
 	stdout = Stdout.instance()
 	ctx = new ConsoleApplicationContext()
+}
+
+func getVerbosityLevel as int:
+	return verbosityLevel
+
+func setVerbosityLevel(level as int)
+{
+	verbosityLevel = level
+	if verbosityLevel <= 0 {
+		ctx.setEnableOutput(false)
+	}
+	else if verbosityLevel == 1 {
+		ctx.setEnableOutput(true)
+		ctx.setShowError(true)
+		ctx.setShowWarning(false)
+		ctx.setShowInfo(false)
+		ctx.setShowDebug(false)
+	}
+	else if verbosityLevel == 2 {
+		ctx.setEnableOutput(true)
+		ctx.setShowError(true)
+		ctx.setShowWarning(true)
+		ctx.setShowInfo(false)
+		ctx.setShowDebug(false)
+	}
+	else if verbosityLevel == 3 {
+		ctx.setEnableOutput(true)
+		ctx.setShowError(true)
+		ctx.setShowWarning(true)
+		ctx.setShowInfo(true)
+		ctx.setShowDebug(false)
+	}
+	else {
+		ctx.setEnableOutput(true)
+		ctx.setShowError(true)
+		ctx.setShowWarning(true)
+		ctx.setShowInfo(true)
+		ctx.setShowDebug(true)
+	}
+}
+
+func handleVerbosityParams
+{
+	var nargs = new vector<CommandLineArgument>
+	var vl = verbosityLevel
+	foreach arg in args {
+		if arg.isFlag("v0") {
+			vl = 0
+		}
+		else if arg.isFlag("v1") {
+			vl = 1
+		}
+		else if arg.isFlag("v2") {
+			vl = 2
+		}
+		else if arg.isFlag("v3") {
+			vl = 3
+		}
+		else if arg.isFlag("v4") || arg.isFlag("vv") || arg.isFlag("debug") {
+			vl = 4
+		}
+		else {
+			nargs += arg
+		}
+	}
+	args = nargs
+	if vl != verbosityLevel:
+		setVerbosityLevel(vl)
 }
 
 func execute virtual abstract as bool
