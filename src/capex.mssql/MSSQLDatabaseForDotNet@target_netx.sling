@@ -178,6 +178,7 @@ class Statement is SQLStatement
 
 class ResultSet is SQLResultSetIterator
 {
+	var ctx public as LoggingContext
 	var reader public as !"System.Data.SqlClient.SqlDataReader"
 	var connection public as !"System.Data.SqlClient.SqlConnection"
 	var columnCount = -1
@@ -212,16 +213,24 @@ class ResultSet is SQLResultSetIterator
 
 	func step override as bool
 	{
+		assert reader
+		var v = false
+		var error as string = null
 		lang "cs" {{{
-			if(reader == null) {
-				return(false);
+			try {
+				v = reader.Read();
 			}
-			if(reader.Read() == false) {
+			catch(System.Exception e) {
+				v = false;
+				error = e.ToString();
+			}
+			if(v == false) {
 				close();
-				return(false);
 			}
 		}}}
-		return true
+		if String.isNotEmpty(error):
+			Log.error(ctx, error)
+		return v
 	}
 
 	func getColumnCount override as int
@@ -437,6 +446,7 @@ func query(stmt as SQLStatement) override as SQLResultSetIterator
 	if reader {
 		v = new ResultSet()
 		v.reader = reader
+		v.ctx = getLogger()
 		v.connection = connection
 	}
 	if error:
