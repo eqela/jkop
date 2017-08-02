@@ -1,0 +1,308 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithValue #widget:
+
+class MyContainer is CustomContainerWidget
+{
+	prop widget as Widget
+
+	func onWidgetHeightChanged(height as int #notLiteral) override
+	{
+		foreach child in Widget.getChildren(this):
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+	}
+
+	func computeWidgetLayout(widthConstraint as int #notLiteral) override
+	{
+		foreach child in Widget.getChildren(this) {
+			Widget.layout(child, Widget.getWidth(widget))
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+		}
+		Widget.setLayoutSize(this, widthConstraint, Widget.getHeight(this))
+	}
+}
+
+ui LayerWidget
+{
+	CanvasWidget background {
+		color = Color.white()
+		outlineWidth = context.getHeightValue("100um")
+		outlineColor = Color.black()
+	}
+	LayerWidget {
+		marginLeft = context.getHeightValue("1000um")
+		AlignWidget {
+			LabelWidget label : 0.0, 0.5 {
+				text = "Select"
+			}
+		}
+	}
+	AlignWidget {
+		ImageWidget icon : 1.0, 0.5 {
+			imageResource = "arrow_down"
+			imageWidth = context.getHeightValue("7000um")
+			imageHeight = context.getHeightValue("7000um")
+		}
+	}
+}
+
+prop defaultNoRecordMessage = "No record found"
+prop widgetOutlineColor as Color
+var widgetItems as KeyValueList<string, string>
+var widgetValueChangeHandler as function
+var itemscontainer as VerticalBoxWidget
+var myContainer as MyContainer
+var container as LayerWidget
+var shown = false
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	itemscontainer = VerticalBoxWidget.forContext(context)
+	var input final = TextInputWidget.forType(context, TextInputWidget.TYPE_DEFAULT, "Search")
+	input.setWidgetPadding(context.getHeightValue("1000um"))
+	input.setWidgetTextChangeHandler(func {
+		onWidgetTextChanged(input.getWidgetText())
+	})
+	var canvas = CanvasWidget.forColor(context, Color.white())
+	canvas.setWidgetOutlineWidth(context.getHeightValue("100um"))
+	if widgetOutlineColor {
+		background.setWidgetOutlineColor(widgetOutlineColor)
+		canvas.setWidgetOutlineColor(widgetOutlineColor)
+	}
+	else {
+		canvas.setWidgetOutlineColor(Color.black())
+	}
+	var vbox = VerticalBoxWidget.forContext(context)
+	vbox.addWidget(LayerWidget.forWidget(context, input, context.getHeightValue("500um")))
+	vbox.addWidget(LayerWidget.forWidget(context, itemscontainer, context.getHeightValue("500um")))
+	container = new LayerWidget(context)
+	container.addWidget(canvas)
+	container.addWidget(vbox)
+	Widget.setWidgetClickHandler(this, func {
+		if not shown {
+			showPopup()
+		}
+		else {
+			closePopup()
+		}
+	})
+}
+
+func setWidgetPlaceholder(text as string) as this
+{
+	label.setWidgetText(text)
+	return this
+}
+
+func setWidgetImageResource(resource as string) as this
+{
+	icon.setWidgetImageResource(resource)
+	return this
+}
+
+func setWidgetBackgroundColor(color as Color) as this
+{
+	background.setWidgetColor(color)
+	return this
+}
+
+func onWidgetTextChanged(value as string)
+{
+	clearItems()
+	searchStringFromItems(value)
+}
+
+func searchStringFromItems(value as string)
+{
+	if not widgetItems || widgetItems.count() < 1:
+		addItemToList(null)
+	var isEmpty = false
+	if String.isEmpty(value):
+		isEmpty = true
+	var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
+	while it {
+		var item = it.next()
+		if not item:
+			break
+		if not isEmpty {
+			if String.contains(String.toLowerCase(item.value), String.toLowerCase(value)):
+				addItemToList(item.value)
+		}
+		else {
+			addItemToList(item.value)
+		}
+	}
+	if Vector.getSize(Widget.getChildren(itemscontainer)) < 1:
+		addItemToList(null)
+}
+
+func clearItems
+{
+	assert itemscontainer
+	Widget.removeChildrenOf(itemscontainer)
+}
+
+func setWidgetItems(items as KeyValueList<string, string>)
+{
+	widgetItems = items
+	assert widgetItems
+	var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
+	while it {
+		var item = it.next()
+		if not item:
+			break
+		addItemToList(item.value)
+	}
+}
+
+func createWidgetItem(title as string) virtual as Widget
+{
+	var textColor = context.getStyleColor(VALUE "__THIS__", "textColor")
+	if not textColor:
+		textColor = Color.black()
+	var backgroundColor = context.getStyleColor(VALUE "__THIS__", "itemBackgroundColor")
+	if not backgroundColor:
+		backgroundColor = Color.white()
+	var padding = context.getStylePixels(VALUE "__THIS__", "padding")
+	if padding < 1:
+		padding = context.getHeightValue("1000um")
+	var fontSize = context.getStylePixels(VALUE "__THIS__", "fontSize")
+	if fontSize < 1:
+		fontSize = context.getHeightValue("2mm")
+	var t = title
+	if String.isEmpty(t):
+		t = defaultNoRecordMessage
+	var ttitle final = t
+	var lbl = LabelWidget.forText(context, ttitle)
+	lbl.setWidgetTextColor(textColor)
+	var layer = new LayerWidget(context)
+	layer.addWidget(CanvasWidget.forColor(context, backgroundColor))
+	layer.addWidget(LayerWidget.forWidget(context, lbl, padding))
+	if String.isNotEmpty(title) {
+		Widget.setWidgetClickHandler(layer, func {
+			label.setWidgetText(ttitle)
+			closePopup()
+			onWidgetSelectionChanged()
+		})
+	}
+	return layer
+}
+
+func onWidgetSelectionChanged
+{
+	if widgetValueChangeHandler:
+		widgetValueChangeHandler()
+}
+
+func showPopup
+{
+	assert container
+	if shown:
+		return
+	var thisWidget final = this
+	var parentLayer as LayerWidget
+	var parent = Widget.getParent(thisWidget)
+	while parent {
+		if parent is LayerWidget:
+			parentLayer = parent as! LayerWidget
+		parent = Widget.getParent(parent)
+	}
+	assert parentLayer:
+		ERROR("No LayerWidget was found in the widget tree. Cannot show suggestions dropdown!")
+	myContainer = new MyContainer(context)
+	myContainer.setWidget(thisWidget)
+	myContainer.addWidget(container)
+	parentLayer.addWidget(myContainer)
+	var animationDestY final = Widget.getAbsoluteY(thisWidget)
+	var ay final = context.getHeightValue("3mm")
+	Widget.move(container, Widget.getAbsoluteX(thisWidget), (animationDestY + ay) as int)
+	var anim = WidgetAnimation.forDuration(context, 300)
+	anim.addCallback(func(completion as double) {
+		var bgf = completion * 1.5
+		if bgf > 1.0:
+			bgf = 1.0
+		Widget.move(container, Widget.getAbsoluteX(thisWidget), (animationDestY + ((1.0 - completion) * ay)) as int)
+	})
+	anim.start()
+	shown = true
+}
+
+func closePopup
+{
+	if not shown:
+		return
+	var anim = WidgetAnimation.forDuration(context, 300)
+	anim.addFadeOut(myContainer, true)
+	anim.start()
+	shown = false
+}
+
+func addItemToList(item as string)
+{
+	var v = createWidgetItem(item)
+	if v:
+		itemscontainer.addWidget(v)
+}
+
+func findIndexForWidgetValue(value as string) private as int
+{
+	var v = -1
+	if widgetItems {
+		var n = 0
+		var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
+		while it {
+			var item = it.next()
+			if not item:
+				break
+			if item.value == value {
+				v = n
+				break
+			}
+			n++
+		}
+	}
+	return v
+}
+
+func getSelectedWidgetValue as string
+{
+	var index = findIndexForWidgetValue(label.getWidgetText())
+	if not widgetItems || index < 0:
+		return null
+	return widgetItems.getKey(index)
+}
+
+func setSelectedWidgetValue(value as string):
+	label.setWidgetText(value)
+
+func setWidgetValue(value as object):
+	setSelectedWidgetValue(cape.String.asString(value))
+
+func getWidgetValue as object:
+	return getSelectedWidgetValue()
+
+func setWidgetValueChangeHandler(handler as function):
+	widgetValueChangeHandler = handler
