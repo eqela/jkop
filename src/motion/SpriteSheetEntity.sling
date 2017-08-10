@@ -24,69 +24,68 @@
 
 class is SpriteEntity imports cave imports cape:
 
-var sprite protected as Sprite
-var imageSheet private as array<Texture>
-var arraySize private as int
-var currentFrame private = -1
-var textureSprite private as TextureSprite
-var delay private as long
+var imageSheet as array<Texture>
+var currentFrame = -1
+var delay as long
 var timeVal as TimeValue
+prop spriteWidth as double
+prop spriteHeight as double
 
 func initialize override
 {
 	base.initialize()
-	sprite = base.sprite
-	textureSprite = sprite as TextureSprite
 	timeVal = TimeValue.forSeconds(1)
 }
 
 func setImageSheet(imgs as vector<Image>) as bool
 {
-	if(imgs == null) {
-		return(false)
-	}
+	assert imgs
 	currentFrame = -1
 	imageSheet = new Texture[Vector.getSize(imgs)]
 	var i = 0
-	foreach(txt as Image in imgs) {
+	foreach txt as Image in imgs {
 		imageSheet[i] = scene.createTextureForImage(txt)
 		i++
 	}
-	arraySize = SIZE(imageSheet)
-	return(true)
+	return true
 }
 
 func setFramesPerSecond(fps as int)
 {
 	var v = 1000 / fps
-	if(timeVal != null) {
+	if timeVal:
 		timeVal.setMicroSeconds(v*1000)
-	}
 	delay = v * 1000
 }
 
 func nextFrame as bool
 {
-	if(imageSheet == null || arraySize < 1) {
-		sprite = null
-		return(false)
+	if imageSheet == null || SIZE(imageSheet) < 1 {
+		cleanupSprite()
+		return false
 	}
 	currentFrame++
-	if(currentFrame >= arraySize) {
+	if currentFrame >= SIZE(imageSheet):
 		currentFrame = 0
+	var texture = imageSheet[currentFrame]
+	var textureSprite = sprite as TextureSprite
+	if not textureSprite {
+		if sprite:
+			cleanupSprite()
+		sprite = layer.addTextureSpriteForSize(texture, spriteWidth, spriteHeight)
 	}
-	if(textureSprite != null) {
-		textureSprite.setTexture(imageSheet[currentFrame])
+	else {
+		textureSprite.setTextureWithSize(imageSheet[currentFrame], spriteWidth, spriteHeight)
 	}
-	return(true)
+	return true
 }
 
 func tick(gameTime as TimeValue, delta as double) override
 {
 	base.tick(gameTime, delta)
-	if(timeVal != null) {
+	if timeVal {
 		var timeDiff = TimeValue.diff(gameTime, timeVal) % 1000000
-		if(timeDiff >= delay) {
+		if timeDiff >= delay {
 			timeVal.setMicroSeconds(gameTime.getMicroSeconds())
 			timeVal.setSeconds(gameTime.getSeconds())
 			nextFrame()
