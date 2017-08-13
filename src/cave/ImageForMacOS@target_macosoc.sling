@@ -1,0 +1,178 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Image imports cape:
+
+depend "objc-header-h:<AppKit/AppKit.h>"
+depend "objc-framework:CoreGraphics"
+
+func forFile(file as File) static as this
+{
+	var v = new this()
+	assert v.readFromFile(file)
+	return v
+}
+
+func forNSImage(nsImage as !"NSImage") static as this
+{
+	var v = new this()
+	v.nsImage = nsImage
+	return v
+}
+
+func forBuffer(data as buffer) static as this
+{
+	var v = new this()
+	assert v.readFromBuffer(data)
+	return v
+}
+
+var nsImage public as !"NSImage"
+
+func readFromBuffer(data as buffer) as bool
+{
+	assert data
+	var img as !"NSImage"
+	lang "objc" {{{
+		img = [[NSImage alloc] initWithData:data];
+	}}}
+	assert img
+	this.nsImage = img
+	return true
+}
+
+func readFromFile(file as File) as bool
+{
+	assert file
+	var pp = file.getPath()
+	assert String.isNotEmpty(pp)
+	var img as !"NSImage"
+	lang "objc" {{{
+		img = [[NSImage alloc] initByReferencingFile:pp];
+	}}}
+	assert img
+	this.nsImage = img
+	return true
+}
+
+func getPixelWidth override as int
+{
+	if nsImage == null:
+		return 0
+	var v as int
+	lang "objc" {{{
+		v = nsImage.size.width;
+	}}}
+	return v
+}
+
+func getPixelHeight override as int
+{
+	if nsImage == null:
+		return 0
+	var v as int
+	lang "objc" {{{
+		v = nsImage.size.height;
+	}}}
+	return v
+}
+
+func scaleToSize(w as int, h as int) override as Image
+{
+	if w < 0 || h < 0:
+		return this
+	var imageData #used = toJPGData()
+	var img as !"NSImage"
+	var maxSize = w
+	if maxSize < h:
+		maxSize = h
+	lang "objc" {{{
+		CFDataRef cfDataRef = CFDataCreate(NULL, [imageData bytes], [imageData length]);
+		CGImageSourceRef cgImageSrcRef = CGImageSourceCreateWithData(cfDataRef, NULL);
+		CFDictionaryRef options = (__bridge CFDictionaryRef) @{
+			(id) kCGImageSourceCreateThumbnailWithTransform : @YES,
+			(id) kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+			(id) kCGImageSourceThumbnailMaxPixelSize : @(maxSize)
+		};
+		CGImageRef cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef, 0, options);
+		CFRelease(cgImageSrcRef);
+		CGSize cgSize = CGSizeMake(w, h);
+		CGContextRef cgContextRef = CGBitmapContextCreate(NULL, cgSize.width, cgSize.height, 8, 0, CGColorSpaceCreateDeviceRGB(), kCGImageAlphaNoneSkipFirst);
+		CGRect cgRect = CGRectMake(0.0, 0.0, w, h);
+		CGContextDrawImage(cgContextRef, cgRect, cgImageRefInput);
+		CGImageRelease(cgImageRefInput);
+		CGImageRef cgImageRefOutput = CGBitmapContextCreateImage(cgContextRef);
+		img = [[NSImage alloc] initWithCGImage:cgImageRefOutput size:NSZeroSize];
+	}}}
+	assert img
+	return forNSImage(img)
+}
+
+func scaleToWidth(w as int) override as Image
+{
+	var h = ((getPixelHeight() as double) / ((getPixelWidth() as double) * (w as double))) as int
+	return scaleToSize(w, h)
+}
+
+func scaleToHeight(h as int) override as Image
+{
+	var w = ((getPixelWidth() as double) / ((getPixelHeight() as double) * (h as double))) as int
+	return scaleToSize(w, h)
+}
+
+func crop(x as int, y as int, w as int, h as int) override stub as Image
+func toRGBAData override stub as buffer
+
+func toJPGData override as buffer
+{
+	/*
+	assert nsImage
+	var v as buffer
+	lang "objc" {{{
+		v = UIImageJPEGRepresentation(uiImage, 1.0);
+	}}}
+	return(v)
+	*/
+	ERROR "Not implemented"
+	return null
+}
+
+func toPNGData override as buffer
+{
+	/*
+	assert nsImage
+	var v as buffer
+	lang "objc" {{{
+		v = UIImagePNGRepresentation(uiImage);
+	}}}
+	return(v)
+	*/
+	ERROR "Not implemented"
+	return null
+}
+
+func releaseImage override
+{
+	nsImage = null
+}

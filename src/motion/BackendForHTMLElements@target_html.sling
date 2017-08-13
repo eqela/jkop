@@ -27,11 +27,29 @@ class is Backend imports cape imports cave:
 class MyColorTexture is Texture
 {
 	var color public as Color
+
+	func getPixelWidth as int:
+		return 0
+
+	func getPixelHeight as int:
+		return 0
 }
 
 class MyImageTexture is Texture
 {
 	var image public as Image
+
+	func getPixelWidth as int
+	{
+		assert image
+		return image.getPixelWidth()
+	}
+
+	func getPixelHeight as int
+	{
+		assert image
+		return image.getPixelHeight()
+	}
 }
 
 class DomElementSprite is Sprite
@@ -94,21 +112,6 @@ class DomElementSprite is Sprite
 	{
 		mywidth = wpx / widthFactor
 		myheight = hpx / heightFactor
-	}
-
-	func resize(w as double, h as double)
-	{
-		if(w == mywidth && h == myheight) {
-			return
-		}
-		var wpx #used = w * widthFactor as int
-		var hpx #used = h * heightFactor as int
-		lang "js" {{{
-			this.element.style.width = ~~wpx;
-			this.element.style.height = ~~hpx;
-		}}}
-		mywidth = w
-		myheight = h
 	}
 
 	func updateTransform
@@ -216,41 +219,38 @@ class MyTextureSprite is DomElementSprite is TextureSprite
 {
 	prop layer as MySpriteLayer
 
-	func setTexture(texture as Texture)
+	func resize(w as double, h as double)
 	{
-		setTextureWithSize(texture, getWidth(), getHeight())
+		if(w == mywidth && h == myheight) {
+			return
+		}
+		var wpx #used = w * widthFactor as int
+		var hpx #used = h * heightFactor as int
+		lang "js" {{{
+			this.element.style.width = ~~wpx;
+			this.element.style.height = ~~hpx;
+		}}}
+		mywidth = w
+		myheight = h
 	}
+
+	func setTexture(texture as Texture):
+		setTextureWithSize(texture, getWidth(), getHeight())
 
 	func setTextureWithSize(texture as Texture, width as double, height as double)
 	{
-		if(texture == null || (width <= 0.0 && height <= 0.0)) {
+		if texture == null || (width <= 0.0 && height <= 0.0):
 			return
-		}
-		var w = width
-		var h = height
-		var imgt = texture as MyImageTexture
-		if(imgt != null) {
-			var image = imgt.image
-			if(image != null) {
-				if(w <= 0.0) {
-					w = image.getPixelWidth() * h / image.getPixelHeight()
-				}
-				if(h <= 0.0) {
-					h = image.getPixelHeight() * w / image.getPixelWidth()
-				}
-			}
-		}
-		if(w <= 0.0) {
-			w = h
-		}
-		if(h <= 0.0) {
-			h = w
-		}
-		if(w <= 0.0 || h <= 0.0) {
+		var w = SpriteUtil.getAspectWidth(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		var h = SpriteUtil.getAspectHeight(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		if w <= 0.0:
+			w = height
+		if h <= 0.0:
+			h = width
+		if w <= 0.0 || h <= 0.0:
 			return
-		}
-		if(texture is MyColorTexture) {
-			if(element == null) {
+		if texture is MyColorTexture {
+			if element == null {
 				setElement(HTMLDOM.createElement("div"))
 				HTMLDOM.appendChild(parent, element)
 			}
@@ -258,16 +258,10 @@ class MyTextureSprite is DomElementSprite is TextureSprite
 			setBackgroundColor((texture as! MyColorTexture).color)
 			return
 		}
-		if(texture is MyImageTexture) {
-			var img = (texture as! MyImageTexture).image as ImageForHTML
-			if(img == null) {
-				return
-			}
-			var bm = img.image
-			if(bm == null) {
-				return
-			}
-			if(element == null) {
+		if texture is MyImageTexture {
+			var img = assert (texture as! MyImageTexture).image as ImageForHTML
+			var bm = assert img.image
+			if element == null {
 				setElement(HTMLDOM.createElement("img"))
 				HTMLDOM.appendChild(parent, element)
 				lang "js" {{{
@@ -277,7 +271,7 @@ class MyTextureSprite is DomElementSprite is TextureSprite
 			resize(w, h)
 			return
 		}
-		ERROR("Unknown texture type")
+		ERROR "Unknown texture type"
 	}
 }
 
@@ -297,6 +291,7 @@ class MyTextSprite is DomElementSprite is TextSprite
 			setElement(HTMLDOM.createElement("div"))
 			HTMLDOM.setStyle(element, "cursor", "default")
 			HTMLDOM.setStyle(element, "white-space", "nowrap")
+			HTMLDOM.setStyle(element, "line-height", "1")
 			HTMLDOM.appendChild(parent, element)
 		}
 		var textColor = desc.getTextColor()
@@ -381,21 +376,21 @@ class MySpriteLayer is DomElementSprite is SpriteLayer
 
 	func getLayerWidthFactor as double
 	{
-		if(layerWidthFactor == 0.0 && referenceWidth > 0.0) {
+		if layerWidthFactor == 0.0 && referenceWidth > 0.0 {
 			var rwidth as double
 			lang "js" {{{
 				rwidth = this.element.offsetWidth;
 			}}}
 			layerWidthFactor = rwidth / referenceWidth
 		}
-		return(layerWidthFactor)
+		return layerWidthFactor
 	}
 
 	func getLayerHeightFactor as double
 	{
-		if(layerHeightFactor == 0.0) {
+		if layerHeightFactor == 0.0 {
 			var rh = getReferenceHeight()
-			if(rh > 0.0) {
+			if rh > 0.0 {
 				var rheight as double
 				lang "js" {{{
 					rheight = this.element.offsetHeight;
@@ -403,7 +398,7 @@ class MySpriteLayer is DomElementSprite is SpriteLayer
 				layerHeightFactor = rheight / rh
 			}
 		}
-		return(layerHeightFactor)
+		return layerHeightFactor
 	}
 
 	func addTextureSpriteForSize(texture as Texture, width as double, height as double) as TextureSprite
@@ -414,7 +409,7 @@ class MySpriteLayer is DomElementSprite is SpriteLayer
 		v.setHeightFactor(getLayerHeightFactor())
 		v.setLayer(this)
 		v.setTextureWithSize(texture, width, height)
-		return(v)
+		return v
 	}
 
 	func addTextSprite(text as TextProperties) as TextSprite
@@ -425,48 +420,38 @@ class MySpriteLayer is DomElementSprite is SpriteLayer
 		v.setWidthFactor(getLayerWidthFactor())
 		v.setHeightFactor(getLayerHeightFactor())
 		v.setText(text)
-		return(v)
+		return v
 	}
 
 	func addContainerSprite(width as double, height as double) as ContainerSprite
 	{
-		ERROR("Not implemented")
-		return(null)
+		ERROR "Not implemented"
+		return null
 	}
 
 	func removeSprite(sprite as Sprite)
 	{
 		var sp = sprite as DomElementSprite
-		if(sp != null) {
+		if sp:
 			sp.removeFromContainer()
-		}
 	}
 
-	func removeAllSprites
-	{
+	func removeAllSprites:
 		HTMLDOM.setInnerHTML(element, "")
-	}
 
-	func setReferenceWidth(rw as double)
-	{
+	func setReferenceWidth(rw as double):
 		referenceWidth = rw
-	}
 
-	func setReferenceHeight(rh as double)
-	{
+	func setReferenceHeight(rh as double):
 		referenceHeight = rh
-	}
 
-	func getReferenceWidth as double
-	{
-		return(referenceWidth)
-	}
+	func getReferenceWidth as double:
+		return referenceWidth
 
 	func getReferenceHeight as double
 	{
-		if(referenceHeight > 0.0) {
-			return(referenceHeight)
-		}
+		if referenceHeight > 0.0:
+			return referenceHeight
 		var ww as double
 		var hh as double
 		lang "js" {{{
@@ -478,26 +463,20 @@ class MySpriteLayer is DomElementSprite is SpriteLayer
 
 	func getPPI private as int
 	{
-		if(ppi < 0) {
-			if(context != null) {
+		if ppi < 0 {
+			if context:
 				ppi = context.getScreenDensity()
-			}
-			if(ppi < 0) {
+			if ppi < 0:
 				ppi = 96
-			}
 		}
-		return(ppi)
+		return ppi
 	}
 
-	func getHeightValue(spec as string) as double
-	{
-		return(cave.Length.asPoints(spec, getPPI()) / getLayerHeightFactor())
-	}
+	func getHeightValue(spec as string) as double:
+		return cave.Length.asPoints(spec, getPPI()) / getLayerHeightFactor()
 
-	func getWidthValue(spec as string) as double
-	{
-		return(cave.Length.asPoints(spec, getPPI()) / getLayerWidthFactor())
-	}
+	func getWidthValue(spec as string) as double:
+		return cave.Length.asPoints(spec, getPPI()) / getLayerWidthFactor()
 }
 
 func forScene(scene as Scene, context as GuiApplicationContextForHTML, domElement as object) static as this
@@ -877,7 +856,7 @@ func cleanup
 	sceneManager = null
 }
 
-func createSpriteLayer as SpriteLayer
+func createSpriteLayer override as SpriteLayer
 {
 	var ee = HTMLDOM.createElement("div")
 	HTMLDOM.setStyle(ee, "position", "absolute")
@@ -890,41 +869,34 @@ func createSpriteLayer as SpriteLayer
 	var v = new MySpriteLayer()
 	v.setContext(context)
 	v.setElement(ee)
-	return(v)
+	return v
 }
 
-func createImageFromResource(name as string) as Image
-{
-	return(context.getResourceImage(name))
-}
+func createImageFromResource(name as string) override as Image:
+	return context.getResourceImage(name)
 
-func createTextureForImage(image as Image) as Texture
+func createTextureForImage(image as Image) override as Texture
 {
 	var v = new MyImageTexture()
 	v.image = image
-	return(v)
+	return v
 }
 
-func createTextureForColor(color as Color) as Texture
+func createTextureForColor(color as Color) override as Texture
 {
 	var v = new MyColorTexture()
 	v.color = color
-	return(v)
+	return v
 }
 
-func deleteSpriteLayer(layer as SpriteLayer)
+func deleteSpriteLayer(layer as SpriteLayer) override
 {
 	var l = layer as MySpriteLayer
-	if(l != null) {
+	if l:
 		l.removeFromContainer()
-	}
 }
 
-func deleteTexture(texture as Texture)
-{
-}
-
-func deleteAllTextures
+func deleteTexture(texture as Texture) override
 {
 }
 

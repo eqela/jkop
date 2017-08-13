@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class is Screen is Backend imports cape, cave:
+class is Screen implements !"NSWindowDelegate" imports cape, cave:
 
 depend "objc-header-m:<AppKit/AppKit.h>"
 depend "objc-framework:AppKit"
@@ -36,7 +36,7 @@ func forScene(scene as Scene, context as GuiApplicationContextForMacOS) static a
 	if cc == null:
 		cc = new GuiApplicationContextForMacOS()
 	v.setContext(cc)
-	v.setScene(scene)
+	v.initialize(scene)
 	return v
 }
 
@@ -55,11 +55,12 @@ func initializeApplicationMenu(appName as string) static
 }
 
 prop context as GuiApplicationContextForMacOS
-prop scene as Scene
+var backend as BackendForSpriteKit
 
 ctor
 {
 	lang "objc" {{{
+		self.delegate = self;
 		NSScreen* screen = [NSScreen mainScreen];
 		NSRect rect = [screen frame];
 		int mask = NSBorderlessWindowMask;
@@ -70,15 +71,41 @@ ctor
 		[self setLevel:NSMainMenuWindowLevel+1];
 		[self setHidesOnDeactivate:YES];
 		[self setFrameOrigin:CGPointMake(0, 0)];
-		SKView* skview = [[SKView alloc] init];
-		[self setContentView:skview];
 	}}}
 }
 
-func createSpriteLayer stub as SpriteLayer
-func createImageFromResource(name as string) stub as Image
-func createTextureForImage(image as Image) stub as Texture
-func createTextureForColor(color as Color) stub as Texture
-func deleteSpriteLayer(layer as SpriteLayer) stub
-func deleteTexture(texture as Texture) stub
-func deleteAllTextures stub
+func canBecomeKeyWindow as bool:
+	return true
+
+func initialize(scene as Scene)
+{
+	var view as !"SKView*"
+	lang "objc" {{{
+		view = [[SKView alloc] init];
+		[self setContentView:view];
+	}}}
+	backend = new BackendForSpriteKit()
+	backend.initialize(context, view, scene, Environment.getVariable("MOTION_SK_DEBUG") == "yes")
+}
+
+func windowDidResize(notification as !"NSNotification*")
+{
+}
+
+func windowWillClose(notification as !"NSNotification*")
+{
+	backend.cleanup()
+}
+
+func windowDidChangeOcclusionState(notification as !"NSNotification*")
+{
+	var isVisible = lang "objc" bool {{{ (self.occlusionState & NSWindowOcclusionStateVisible) == NSWindowOcclusionStateVisible ? YES : NO }}}
+	if isVisible {
+		if backend:
+			backend.start()
+	}
+	else {
+		if backend:
+			backend.stop()
+	}
+}

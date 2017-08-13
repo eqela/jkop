@@ -80,22 +80,6 @@ class ViewSprite is Sprite
 		myheight = hpx / heightFactor
 	}
 
-	func resize(w as double, h as double)
-	{
-		if(w == mywidth && h == myheight) {
-			return
-		}
-		var wpx #used = w * widthFactor as int
-		var hpx #used = h * heightFactor as int
-		lang "java" {{{
-			int x = (int)view.getX();
-			int y = (int)view.getY();
-			view.layout(x, y, x+wpx, y+hpx);
-		}}}
-		mywidth = w
-		myheight = h
-	}
-
 	func setRotation(angle as double)
 	{
 		if(myAngle == angle) {
@@ -190,6 +174,22 @@ class MyTextureSprite is ViewSprite is TextureSprite
 	prop context as !"android.content.Context"
 	prop layer as MySpriteLayer
 
+	func resize(w as double, h as double)
+	{
+		if(w == mywidth && h == myheight) {
+			return
+		}
+		var wpx #used = w * widthFactor as int
+		var hpx #used = h * heightFactor as int
+		lang "java" {{{
+			int x = (int)view.getX();
+			int y = (int)view.getY();
+			view.layout(x, y, x+wpx, y+hpx);
+		}}}
+		mywidth = w
+		myheight = h
+	}
+
 	func setTexture(texture as Texture)
 	{
 		setTextureWithSize(texture, getWidth(), getHeight())
@@ -197,35 +197,21 @@ class MyTextureSprite is ViewSprite is TextureSprite
 
 	func setTextureWithSize(texture as Texture, width as double, height as double)
 	{
-		if(texture == null || (width <= 0.0 && height <= 0.0)) {
+		if texture == null || (width <= 0.0 && height <= 0.0):
 			return
-		}
-		var w = width
-		var h = height
-		var imgt = texture as ImageTexture
-		if(imgt != null) {
-			var image = imgt.getImage()
-			if(image != null) {
-				if(w <= 0.0) {
-					w = image.getPixelWidth() * h / image.getPixelHeight()
-				}
-				if(h <= 0.0) {
-					h = image.getPixelHeight() * w / image.getPixelWidth()
-				}
-			}
-		}
-		if(w <= 0.0) {
-			w = h
-		}
-		if(h <= 0.0) {
-			h = w
-		}
-		if(w <= 0.0 || h <= 0.0) {
+		var w = SpriteUtil.getAspectWidth(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		var h = SpriteUtil.getAspectHeight(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		if w <= 0.0:
+			w = height
+		if h <= 0.0:
+			h = width
+		if w <= 0.0 || h <= 0.0:
 			return
-		}
-		if(texture is ColorTexture) {
+		if w <= 0.0 || h <= 0.0:
+			return
+		if texture is ColorTexture {
 			var view = getView()
-			if(view == null) {
+			if view == null {
 				view = new !"android.view.View"(context)
 				setView(view)
 			}
@@ -233,17 +219,11 @@ class MyTextureSprite is ViewSprite is TextureSprite
 			setBackgroundColor((texture as! ColorTexture).getColor())
 			return
 		}
-		if(texture is ImageTexture) {
-			var img = (texture as! ImageTexture).getImage() as ImageForAndroid
-			if(img == null) {
-				return
-			}
-			var bm = img.getAndroidBitmap()
-			if(bm == null) {
-				return
-			}
+		if texture is ImageTexture {
+			var img = assert (texture as! ImageTexture).getImage() as ImageForAndroid
+			var bm = assert img.getAndroidBitmap()
 			var view = getView() as !"android.widget.ImageView"
-			if(view == null) {
+			if view == null {
 				view = new !"android.widget.ImageView"(context)
 				setView(view)
 			}
@@ -254,7 +234,7 @@ class MyTextureSprite is ViewSprite is TextureSprite
 			view.setImageBitmap(bm)
 			return
 		}
-		ERROR("Unknown texture type")
+		ERROR "Unknown texture type"
 	}
 }
 
@@ -432,37 +412,25 @@ class MySpriteLayer is ViewSprite is ContainerSprite is SpriteLayer
 		v.setContext(view.getContext())
 		v.setLayer(this)
 		v.setTextureWithSize(texture, width, height)
-		var vv = v.getView()
-		if(vv == null) {
-			return(null)
-		}
+		var vv = assert v.getView()
 		var vg = view as !"android.view.ViewGroup"
-		if(vg != null) {
+		if vg:
 			vg.addView(vv)
-		}
-		return(v)
+		return v
 	}
 
 	func addTextSprite(text as TextProperties) as TextSprite
 	{
-		if(view == null) {
-			return(null)
-		}
+		assert view
 		var v = new TextViewSprite(context)
 		v.setWidthFactor(getLayerWidthFactor())
 		v.setHeightFactor(getLayerHeightFactor())
-		if(v.initialize(view.getContext(), text) == false) {
-			return(null)
-		}
-		var vv = v.getView()
-		if(vv == null) {
-			return(null)
-		}
+		assert v.initialize(view.getContext(), text)
+		var vv = assert v.getView()
 		var vg = view as !"android.view.ViewGroup"
-		if(vg != null) {
+		if vg:
 			vg.addView(vv)
-		}
-		return(v)
+		return v
 	}
 
 	func addContainerSprite(width as double, height as double) as ContainerSprite
@@ -551,11 +519,29 @@ class MySpriteLayer is ViewSprite is ContainerSprite is SpriteLayer
 class ColorTexture is Texture
 {
 	prop color as Color
+
+	func getPixelWidth as int:
+		return 0
+
+	func getPixelHeight as int:
+		return 0
 }
 
 class ImageTexture is Texture
 {
 	prop image as Image
+
+	func getPixelWidth as int
+	{
+		assert image
+		return image.getPixelWidth()
+	}
+
+	func getPixelHeight as int
+	{
+		assert image
+		return image.getPixelHeight()
+	}
 }
 
 class MyLayeredContainerView is !"android.view.ViewGroup"
@@ -714,57 +700,37 @@ func onSizeChanged(w as int, h as int)
 	}
 }
 
-func createSpriteLayer as SpriteLayer
+func createSpriteLayer override as SpriteLayer
 {
-	if(androidView == null) {
-		return(null)
-	}
+	assert androidView
 	var v = new MySpriteLayer(androidContext, androidView.getContext())
 	v.setParentView(androidView)
-	var vv = v.getView()
-	if(vv == null) {
-		return(null)
-	}
+	var vv = assert v.getView()
 	androidView.addView(vv)
 	vv.layout(0, 0, androidView.getWidth(), androidView.getHeight())
-	return(v)
+	return v
 }
 
-func createImageFromResource(name as string) as Image
+func createImageFromResource(name as string) override as Image
 {
-	if(androidView == null) {
-		return(null)
-	}
-	return(ImageForAndroid.forResource(name, androidView.getContext()))
+	assert androidView
+	return ImageForAndroid.forResource(name, androidView.getContext())
 }
 
-func createTextureForImage(image as Image) as Texture
-{
-	return(new ImageTexture().setImage(image))
-}
+func createTextureForImage(image as Image) override as Texture:
+	return new ImageTexture().setImage(image)
 
-func createTextureForColor(color as Color) as Texture
-{
-	return(new ColorTexture().setColor(color))
-}
+func createTextureForColor(color as Color) override as Texture:
+	return new ColorTexture().setColor(color)
 
-func deleteSpriteLayer(layer as SpriteLayer)
+func deleteSpriteLayer(layer as SpriteLayer) override
 {
-	if(androidView == null) {
-		return
-	}
-	var ll = layer as MySpriteLayer
-	if(ll == null) {
-		return
-	}
+	assert androidView
+	var ll = assert layer as MySpriteLayer
 	androidView.removeView(ll.getView())
 }
 
-func deleteTexture(texture as Texture)
-{
-}
-
-func deleteAllTextures
+func deleteTexture(texture as Texture) override
 {
 }
 

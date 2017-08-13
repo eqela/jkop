@@ -22,19 +22,31 @@
  * SOFTWARE.
  */
 
+**
+** The Random class provides means to generate random number of different kinds.
+**
+
 class:
 
-IFDEF("target_cs") {
+IFDEF "target_cs" {
 	lang "cs" {{{
 		System.Random random;
 	}}}
 }
-ELSE IFDEF("target_java") {
-	lang "java" {{{ java.util.Random random; }}}
+
+IFDEF "target_java" {
+	lang "java" {{{
+		java.util.Random random;
+	}}}
 }
-ELSE IFDEF("target_objc") {
-	var seed as int64
+
+IFDEF "target_objc" {
+	depend "objc-header-m:<stdlib.h>"
 }
+
+**
+** Creates a new random number generator.
+**
 
 ctor
 {
@@ -44,14 +56,27 @@ ctor
 		}}}
 	}
 	ELSE IFDEF("target_java") {
-		lang "java" {{{ random = new java.util.Random(); }}}
+		lang "java" {{{
+			random = new java.util.Random();
+		}}}
 	}
 }
+
+**
+** Creates a new random number generator, and uses the given integer "seed"
+** as the seed for the generator, if applicable.
+**
 
 ctor(seed as int64)
 {
 	setSeed(seed)
 }
+
+**
+** Initializes the random number generator with the given seed, if applicable.
+** Note that the exact behavior is platform dependent: Not all platforms require
+** nor utilize a seed at all.
+**
 
 func setSeed(seed as int64)
 {
@@ -65,121 +90,155 @@ func setSeed(seed as int64)
 			random.setSeed(seed);
 		}}}
 	}
-	ELSE IFDEF("target_objc") {
-		this.seed = seed
-	}
 }
+
+**
+** Used to retrieve a random boolean value (true or false)
+**
 
 func nextBoolean as bool
 {
-	if(nextInt() % 2 == 0) {
-		return(false)
-	}
-	return(true)
+	if nextInt() % 2 == 0:
+		return false
+	return true
 }
+
+**
+** Used to retrieve random integer values between -2147483647 (inclusive)
+** and 2147483648 (exclusive).
+**
 
 func nextInt as int32
 {
-	IFDEF("target_cs") {
-		return(lang "cs" int32 {{{ random.Next() }}})
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next() }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" int32 {{{ random.nextInt() }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt() }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(nextInt(-Math.pow(2, 31) as int32, (Math.pow(2, 31) as int32) - 1))
+	ELSE IFDEF "target_js" {
+		return nextInt(-Math.pow(2, 31) as int32, (Math.pow(2, 31) as int32) - 1)
 	}
-	ELSE {
-		ERROR("Not implemented")
-		return(0)
-	}
-}
-
-func nextInt(n as int32) as int32
-{
-	IFDEF("target_cs") {
-		return(lang "cs" int32 {{{ random.Next(n) }}})
-	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" int32 {{{ random.nextInt(n) }}})
-	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" int32 {{{ Math.floor((Math.random() * n) + 1) }}})
+	ELSE IFDEF "target_objc" {
+		return nextInt(-2147483647, 2147483648)
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(0)
+		ERROR "Not implemented"
+		return 0
 	}
 }
 
 **
-** Used to retrieve integer values from "s" (inclusive) and "e" (exclusive)
+** Used to retrieve integer values from 0 (inclusive) and "n" (exclusive)
+**
+
+func nextInt(n as int32) as int32
+{
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next(n) }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt(n) }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" int32 {{{ Math.floor((Math.random() * n) + 1) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return nextInt(0, n)
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+**
+** Used to retrieve integer values between "s" (inclusive) and "e" (exclusive)
 **
 
 func nextInt(s as int32, e as int32) as int32
 {
-	IFDEF("target_cs") {
-		return(lang "cs" int32 {{{ random.Next(s, e) }}})
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next(s, e) }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" int32 {{{ random.nextInt(e - s + 1) + s }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt(e - s + 1) + s }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" int32 {{{ Math.floor(Math.random() * (e - s) + s) }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" int32 {{{ Math.floor(Math.random() * (e - s) + s) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" int32 {{{ s + arc4random_uniform(e-s) }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(0)
+		ERROR "Not implemented"
+		return 0
 	}
 }
 
+**
+** Used to retrieve an array of random bytes.
+**
+
 func nextBytes(buf as array<int8>)
 {
-	IFDEF("target_cs") {
+	IFDEF "target_cs" {
 		lang "cs" {{{
 			random.NextBytes((byte[])(System.Array)buf);
 		}}}
 	}
-	ELSE IFDEF("target_java") {
-		lang "java" {{{ random.nextBytes(buf); }}}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			random.nextBytes(buf);
+		}}}
 	}
 	ELSE {
-		ERROR("Not implemented")
+		var sz = SIZE buf
+		for(var n=0; n<sz; n++):
+			buf[n] = nextInt(-127, 128) as int8
 	}
 }
+
+**
+** Used to retrieve a random double-precision floating point number with value
+** between 0.0 (inclusive) and 1.0 (exclusive).
+**
 
 func nextDouble as double
 {
-	IFDEF("target_cs") {
-		return(lang "cs" double {{{ random.NextDouble() }}})
+	IFDEF "target_cs" {
+		return lang "cs" double {{{ random.NextDouble() }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" double {{{ random.nextDouble() }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" double {{{ random.nextDouble() }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" double {{{ Math.random() }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" double {{{ Math.random() }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(0.0)
+		var n = nextInt(2147483648)
+		return((n as double) / 2147483648.0)
 	}
 }
+
+**
+** Used to retrieve a random single-precision floating point number with value
+** between 0.0 (inclusive) and 1.0 (exclusive).
+**
 
 func nextFloat as float
 {
-	IFDEF("target_cs") {
-		return(lang "cs" float {{{ (float)random.NextDouble() }}})
+	IFDEF "target_cs" {
+		return lang "cs" float {{{ (float)random.NextDouble() }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" float {{{ random.nextFloat() }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" float {{{ random.nextFloat() }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" float {{{ Math.random().toFixed(8) }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" float {{{ Math.random().toFixed(8) }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(0.0f)
+		var n = nextInt(2147483648)
+		return((n as float) / (2147483648 as float))
 	}
 }
-
-func nextGaussian stub as double
