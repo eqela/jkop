@@ -24,6 +24,140 @@
 
 class is AudioManager imports cape, cave:
 
+depend "objc-header-m:<AppKit/NSSound.h>"
+
+class MyAudioClip is AudioClip is Runnable
+{
+	var filePath as string #used
+
+	func run
+	{
+		lang "objc" {{{
+			NSSound* sound = [[NSSound alloc] initWithContentsOfFile:filePath byReference:NO];
+			[sound play];
+		}}}
+	}
+
+	func play as bool
+	{
+		Thread.start(this)
+		return true
+	}
+
+	func initialize(clipId as string) as bool
+	{
+		assert clipId
+		var sound as !"NSSound"
+		lang "objc" {{{
+			filePath = [[NSBundle mainBundle] pathForResource:clipId ofType:@"mp3"];
+			if(filePath != nil) {
+				sound = [[NSSound alloc] initWithContentsOfFile:filePath byReference:NO];
+			}
+		}}}
+		assert sound
+		return true
+	}
+}
+
+class MyAudioStream is AudioStream
+{
+	prop context as GuiApplicationContextForMacOS
+	var sound as !"NSSound"
+
+	func initialize(clipId as string) as bool
+	{
+		assert clipId
+		lang "objc" {{{
+			NSString* pp = [[NSBundle mainBundle] pathForResource:clipId ofType:@"mp3"];
+			if(pp != nil) {
+				sound = [[NSSound alloc] initWithContentsOfFile:pp byReference:NO];
+			}
+		}}}
+		assert sound:
+			Log.error(context, "Failed to initialize audio player for `" .. clipId .. "'")
+		Log.debug(context, "Initialized audio player for `" .. clipId .. "'")
+		return true
+	}
+
+	func play as bool
+	{
+		assert sound
+		lang "objc" {{{
+			if(sound.isPlaying) {
+				[sound resume];
+			}
+			else {
+				[sound play];
+			}
+		}}}
+		return true
+	}
+
+	func pause as bool
+	{
+		assert sound
+		lang "objc" {{{
+			[sound pause];
+		}}}
+		return true
+	}
+
+	func stop as bool
+	{
+		assert sound
+		lang "objc" {{{
+			[sound stop];
+		}}}
+		return true
+	}
+
+	func seek(sec as int) as bool
+	{
+		assert sound
+		lang "objc" {{{
+			[sound setCurrentTime:sec];
+		}}}
+		return true
+	}
+
+	func getCurrentTime as int
+	{
+		assert sound
+		return lang "objc" int {{{ [sound currentTime] }}}
+	}
+
+	func getDuration as int
+	{
+		assert sound
+		return lang "objc" int {{{ [sound duration] }}}
+	}
+
+	func setLooping(v as bool) as bool
+	{
+		assert sound
+		if v {
+			lang "objc" {{{
+				[sound setLoops:YES];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[sound setLoops:NO];
+			}}}
+		}
+		return true
+	}
+
+	func setVolume(v as double) as bool
+	{
+		assert sound
+		lang "objc" {{{
+			[sound setVolume:v];
+		}}}
+		return true
+	}
+}
+
 func forApplication(context as ApplicationContext) static as this
 {
 	var ctx = assert context as GuiApplicationContextForMacOS:
@@ -37,12 +171,15 @@ prop context as GuiApplicationContextForMacOS
 
 func getClipForResource(id as string) override as AudioClip
 {
-	ERROR "Not implemented"
-	return null
+	var v = new MyAudioClip()
+	assert v.initialize(id)
+	return v
 }
 
 func getStreamForResource(id as string) override as AudioStream
 {
-	ERROR "Not implemented"
-	return null
+	var v = new MyAudioStream()
+	v.setContext(context)
+	assert v.initialize(id)
+	return v
 }
