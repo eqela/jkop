@@ -240,13 +240,15 @@ class MyTextSprite is MySprite is TextSprite
 		if bold || italic {
 			IFDEF "target_iosoc" {
 				lang "objc" {{{
-					UIFontDescriptor* ud = [UIFontDescriptor fontDescriptorWithFamily:v];
+					UIFontDescriptor* ud = [UIFontDescriptor fontDescriptorWithName:v size:18];
+					int traits = 0;
 					if(bold) {
-						ud.symbolicTraits |= UIFontDescriptorTraitBold;
+						traits |= UIFontDescriptorTraitBold;
 					}
 					if(italic) {
-						ud.symbolicTraits |= UIFontDescriptorTraitItalic;
+						traits |= UIFontDescriptorTraitItalic;
 					}
+					ud = [ud fontDescriptorWithSymbolicTraits:traits];
 					UIFont* uf = [UIFont fontWithDescriptor:ud size:18];
 					if(uf) {
 						v = uf.fontName;
@@ -581,91 +583,134 @@ class MyScene is !"SKScene"
 		lastFrame = thisDouble
 	}
 
-	func updateKeyEvent(event as !"NSEvent*")
-	{
+	IFDEF "target_macosoc" {
+		func updateKeyEvent(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSString* str = [event characters];
+				NSString* strw = [event charactersIgnoringModifiers];
+				if([str length] == 1) {
+					unichar cc = [str characterAtIndex:0];
+					if(cc >= 0xF700 && cc <= 0xF8FF) {
+						str = nil;
+					}
+				}
+				int flag = [event modifierFlags];
+				if(flag & NSEventModifierFlagShift) {
+					[keyEvent setShift:YES];
+				}
+				if(flag & NSEventModifierFlagControl) {
+					str = strw;
+					[keyEvent setControl:YES];
+				}
+				if(flag & NSEventModifierFlagCommand) {
+					[keyEvent setCommand:YES];
+				}
+				if(flag & NSEventModifierFlagOption) {
+					[keyEvent setAlt:YES];
+				}
+				[keyEvent setKeyCode:[event keyCode]];
+				[keyEvent setStringValue:str];
+			}}}
+		}
+
+		func keyDown(event as !"NSEvent*")
+		{
+			keyEvent.clear()
+			keyEvent.setAction(KeyEvent.ACTION_DOWN)
+			parent.onKeyEvent(keyEvent)
+		}
+
+		func keyUp(event as !"NSEvent*")
+		{
+			keyEvent.clear()
+			keyEvent.setAction(KeyEvent.ACTION_UP)
+			parent.onKeyEvent(keyEvent)
+		}
+
+		func mouseDown(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.DOWN
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
+		func mouseUp(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.UP
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
+		func mouseExited(event as !"NSEvent*")
+		{
+		}
+
+		func mouseMoved(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.MOVE
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+	}
+
+	IFDEF "target_iosoc" {
+		func onTouchEvent(id as int, action as int, x as int, y as int)
+		{
+			pointerEvent.pointerId = id
+			if action == 0 {
+				pointerEvent.action = PointerEvent.MOVE
+			}
+			else if action == 1 {
+				pointerEvent.action = PointerEvent.DOWN
+			}
+			else if action == 2 {
+				pointerEvent.action = PointerEvent.UP
+			}
+			pointerEvent.x = x
+			pointerEvent.y = y
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
 		lang "objc" {{{
-			NSString* str = [event characters];
-			NSString* strw = [event charactersIgnoringModifiers];
-			if([str length] == 1) {
-				unichar cc = [str characterAtIndex:0];
-				if(cc >= 0xF700 && cc <= 0xF8FF) {
-					str = nil;
+			- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:1 x:tapPoint.x y:tapPoint.y];
 				}
 			}
-			int flag = [event modifierFlags];
-			if(flag & NSEventModifierFlagShift) {
-				[keyEvent setShift:YES];
+			- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:0 x:tapPoint.x y:tapPoint.y];
+				}
 			}
-			if(flag & NSEventModifierFlagControl) {
-				str = strw;
-				[keyEvent setControl:YES];
+			- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:2 x:tapPoint.x y:tapPoint.y];
+				}
 			}
-			if(flag & NSEventModifierFlagCommand) {
-				[keyEvent setCommand:YES];
-			}
-			if(flag & NSEventModifierFlagOption) {
-				[keyEvent setAlt:YES];
-			}
-			[keyEvent setKeyCode:[event keyCode]];
-			[keyEvent setStringValue:str];
 		}}}
-	}
-
-	func keyDown(event as !"NSEvent*")
-	{
-		keyEvent.clear()
-		keyEvent.setAction(KeyEvent.ACTION_DOWN)
-		parent.onKeyEvent(keyEvent)
-	}
-
-	func keyUp(event as !"NSEvent*")
-	{
-		keyEvent.clear()
-		keyEvent.setAction(KeyEvent.ACTION_UP)
-		parent.onKeyEvent(keyEvent)
-	}
-
-	func mouseDown(event as !"NSEvent*")
-	{
-		lang "objc" {{{
-			NSPoint cp = [event locationInWindow];
-		}}}
-		pointerEvent.pointerId = 0
-		pointerEvent.action = PointerEvent.DOWN
-		pointerEvent.x = lang "objc" int {{{ cp.x }}}
-		pointerEvent.y = lang "objc" int {{{ cp.y }}}
-		pointerEvent.isConsumed = false
-		parent.onPointerEvent(pointerEvent)
-	}
-
-	func mouseUp(event as !"NSEvent*")
-	{
-		lang "objc" {{{
-			NSPoint cp = [event locationInWindow];
-		}}}
-		pointerEvent.pointerId = 0
-		pointerEvent.action = PointerEvent.UP
-		pointerEvent.x = lang "objc" int {{{ cp.x }}}
-		pointerEvent.y = lang "objc" int {{{ cp.y }}}
-		pointerEvent.isConsumed = false
-		parent.onPointerEvent(pointerEvent)
-	}
-
-	func mouseExited(event as !"NSEvent*")
-	{
-	}
-
-	func mouseMoved(event as !"NSEvent*")
-	{
-		lang "objc" {{{
-			NSPoint cp = [event locationInWindow];
-		}}}
-		pointerEvent.pointerId = 0
-		pointerEvent.action = PointerEvent.MOVE
-		pointerEvent.x = lang "objc" int {{{ cp.x }}}
-		pointerEvent.y = lang "objc" int {{{ cp.y }}}
-		pointerEvent.isConsumed = false
-		parent.onPointerEvent(pointerEvent)
 	}
 }
 
@@ -711,7 +756,9 @@ func onPointerEvent(event as PointerEvent)
 			beh = skScene.size.height;
 		}}}
 	}
-	event.y = beh - event.y
+	IFDEF "target_macosoc" {
+		event.y = beh - event.y
+	}
 	event.x = event.x / (bew as double)
 	event.y = event.y / (beh as double)
 	var scene = sceneManager.getCurrentScene()
