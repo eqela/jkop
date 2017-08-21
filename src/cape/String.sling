@@ -673,12 +673,42 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 	}
 	ELSE IFDEF("target_js") {
 		var uintArray as array<uint8>
-		lang "js" {{{
-			uintArray = new Uint8Array(str.length);
-			for(var c = 0; c < str.length; c++) {
-				uintArray[c] = str.charCodeAt(c);
-			}
-		}}}
+		if(equalsIgnoreCase(charset, "UTF-8") || equalsIgnoreCase(charset, "UTF8")) {
+			lang "js" {{{
+				uintArray = [];
+				for(var i = 0; i < str.length; i++) {
+					var cc = str.charCodeAt(i);
+					if(cc < 0x80) {
+						uintArray.push(cc);
+					}
+					else if(cc < 0x800) {
+						uintArray.push(0xc0 | (cc >> 6));
+						uintArray.push(0x80 | (cc & 0x3f));
+					}
+					else if(cc < 0xd800 || cc >= 0xe000) {
+						uintArray.push(0xe0 | (cc >> 12));
+						uintArray.push(0x80 | ((cc >> 6) & 0x3f));
+						uintArray.push(0x80 | (cc & 0x3f));
+					}
+					else {
+						i++;
+						cc = (((cc & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff)) + 0x10000;
+						uintArray.push(0xf0 | (cc >> 18));
+						uintArray.push(0x80 | ((cc >> 12) & 0x3f));
+						uintArray.push(0x80 | ((cc >> 6) & 0x3f));
+						uintArray.push(0x80 | (cc & 0x3f));
+					}
+				}
+			}}}
+		}
+		else if(equalsIgnoreCase(charset, "UTF-16") || equalsIgnoreCase(charset, "UTF16")) {
+			lang "js" {{{
+				uintArray = new Uint8Array(str.length);
+				for(var c = 0; c < str.length; c++) {
+					uintArray[c] = str.charCodeAt(c);
+				}
+			}}}
+		}
 		return(uintArray)
 	}
 	ELSE {
