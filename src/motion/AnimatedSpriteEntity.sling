@@ -1,0 +1,170 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+**
+** The AnimatedSpriteEntity class provides a sprite entity class that enables
+** different forms of animation, including (1) frame-by-frame animation of the sprite
+** image using sprite sheet images, (2) time-based movement of the sprite using
+** xSpeed and ySpeed, and (3) time-based rotation of the sprite using rotateSpeed.
+**
+
+class is SpriteEntity imports cave imports cape:
+
+var imageSheet as vector<Texture>
+var currentFrame = -1
+var frameDelay as long
+var timeVal as TimeValue
+var spriteWidth as double
+var spriteHeight as double
+var heightFactor as double
+prop xSpeed as double
+prop ySpeed as double
+prop rotateSpeed as double
+
+func initialize override
+{
+	base.initialize()
+	timeVal = TimeValue.forSeconds(1)
+}
+
+**
+** Sets the "sprite sheet" for this frame, composed of a collection of images
+** that will be used to animate the appearance of the sprite. The "fps" parameter
+** determines how many frames (images) will be displayed per second. The width
+** and height parameters are used to determine the displayed size of the sprites
+** on screen. Note: If height <= 0.0, the height will be automatically determined
+** based on the given width, and the aspect ratio of the frame images.
+**
+
+func setFrameImages(imgs as vector<Image>, fps as long, width as double, height as double = 0.0) as bool
+{
+	assert imgs
+	spriteWidth = width
+	spriteHeight = height
+	currentFrame = -1
+	imageSheet = new vector<Texture>
+	heightFactor = 0.0
+	foreach txt as Image in imgs {
+		var texture = scene.createTextureForImage(txt)
+		if texture:
+			imageSheet += texture
+		if heightFactor <= 0.0:
+			heightFactor = (txt.getPixelHeight() as double) / (txt.getPixelWidth() as double)
+	}
+	setFramesPerSecond(fps)
+	return true
+}
+
+**
+** Sets the "sprite sheet" for this frame, composed of a collection of textures
+** that will be used to animate the appearance of the sprite. The "fps" parameter
+** determines how many frames (images) will be displayed per second. The width
+** and height parameters are used to determine the displayed size of the sprites
+** on screen. Note: If height <= 0.0, the height will be automatically determined
+** based on the given width, and the aspect ratio of the frame images.
+**
+
+func setFrameTextures(imgs as vector<Texture>, fps as long, width as double, height as double = 0.0) as bool
+{
+	assert imgs
+	spriteWidth = width
+	spriteHeight = height
+	currentFrame = -1
+	imageSheet = new vector<Texture>
+	heightFactor = 0.0
+	foreach img in imgs {
+		imageSheet += img
+		if heightFactor <= 0.0:
+			heightFactor = (img.getPixelHeight() as double) / (img.getPixelWidth() as double)
+	}
+	setFramesPerSecond(fps)
+	return true
+}
+
+**
+** Sets a new speed (for x and y axis, as well as for rotation) for this
+** entity. Afterwards, the sprite will move to a random direction while rotating
+** with a random speed.
+**
+
+func setRandomSpeed
+{
+	var d = layer.getReferenceWidth() / 10.0
+	var r = Random.getSharedInstance()
+	xSpeed = d * r.nextDouble()
+	ySpeed = d * r.nextDouble()
+	rotateSpeed = r.nextDouble() * Math.M_PI
+}
+
+**
+** Change the number of frames to be displayed per second. Note that this will
+** only have effect if a sprite sheet animation has been enabled by calling
+** setFrames() first.
+**
+
+func setFramesPerSecond(fps as int)
+{
+	var v = 1000 / fps
+	if timeVal:
+		timeVal.setMicroSeconds(v*1000)
+	frameDelay = v * 1000
+}
+
+func nextFrame private as bool
+{
+	currentFrame++
+	if currentFrame >= SIZE(imageSheet):
+		currentFrame = 0
+	var texture = imageSheet[currentFrame]
+	var textureSprite = sprite as TextureSprite
+	var sh = spriteHeight
+	if sh <= 0.0:
+		sh = heightFactor * spriteWidth
+	if not textureSprite {
+		if sprite:
+			cleanupSprite()
+		sprite = layer.addTextureSpriteForSize(texture, spriteWidth, sh)
+	}
+	else {
+		textureSprite.setTextureWithSize(imageSheet[currentFrame], spriteWidth, sh)
+	}
+	return true
+}
+
+func tick(gameTime as TimeValue, delta as double) override
+{
+	base.tick(gameTime, delta)
+	if imageSheet && timeVal {
+		var timeDiff = TimeValue.diff(gameTime, timeVal) % 1000000
+		if timeDiff >= frameDelay {
+			timeVal.setMicroSeconds(gameTime.getMicroSeconds())
+			timeVal.setSeconds(gameTime.getSeconds())
+			nextFrame()
+		}
+	}
+	if xSpeed != 0.0 || ySpeed != 0.0:
+		move(getX() + xSpeed * delta, getY() + ySpeed * delta)
+	if rotateSpeed:
+		setRotation(getRotation() + rotateSpeed * delta)
+}
