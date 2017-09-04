@@ -33,10 +33,9 @@ var instance static as this
 
 func getInstance(ctx as AndroidApplicationContext) static as this
 {
-	if(instance == null) {
+	if not instance:
 		instance = new this(ctx)
-	}
-	return(instance)
+	return instance
 }
 
 lang "java" {{{
@@ -61,10 +60,9 @@ func startLocationUpdates(callback as function<void,bool>) override
 	var perms = new string[] { "android.permission.ACCESS_FINE_LOCATION", "android.permission.ACCESS_COARSE_LOCATION" }
 	var cb final = callback
 	context.requestPermissions(perms, func(status as bool) {
-		if(status == false) {
-			if(cb != null) {
+		if not status {
+			if cb:
 				cb(false)
-			}
 			return
 		}
 		var v = true
@@ -88,9 +86,8 @@ func startLocationUpdates(callback as function<void,bool>) override
 				v = false;
 			}
 		}}}
-		if(cb != null) {
+		if cb:
 			cb(v)
-		}
 	})
 }
 
@@ -106,52 +103,36 @@ func stopLocationUpdates override
 func getLastLocation(callback as function<void, GeoLocation, Error>) override
 {
 	var error #used = Error.forCode("failedToGetLastLocation")
-	var location as GeoLocation
 	lang "java" {{{
 		if(locationManager == null) {
 			callback.execute(null, error);
 		}
 		try {
-			android.location.Location loc = null;
-			android.location.Location gpsLocation = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER);
-			android.location.Location networkLocation = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER);
-			if(gpsLocation != null && networkLocation != null) {
-				double timeDelta = gpsLocation.getTime() - networkLocation.getTime();
-				int limit = 1000 * 5;
-				if(timeDelta < 0) {
-					timeDelta = -timeDelta;
+			java.util.List<java.lang.String> providers = locationManager.getProviders(true);
+			android.location.Location location = null;
+			for (java.lang.String provider : providers) {
+				android.location.Location loc = locationManager.getLastKnownLocation(provider);
+				if(loc == null) {
+					continue;
 				}
-				if(timeDelta > limit) {
-					if(gpsLocation.getTime() >= networkLocation.getTime()) {
-						loc = gpsLocation;
-					}
-					else {
-						loc = networkLocation;
-					}
+				if(location == null || loc.getAccuracy() < location.getAccuracy()) {
+					location = loc;
 				}
-				else {
-					loc = gpsLocation;
-				}
+			}
+			if(location == null) {
+				callback.execute(null, error);
 			}
 			else {
-				if(gpsLocation != null) {
-					loc = gpsLocation;
-				}
-				if(networkLocation != null) {
-					loc = networkLocation;
-				}
-			}
-			if(loc != null) {
-				location = new GeoLocation();
-				location.setLatitude(loc.getLatitude());
-				location.setLongitude(loc.getLongitude());
+				GeoLocation myLocation = new GeoLocation();
+				myLocation.setLatitude(location.getLatitude());
+				myLocation.setLongitude(location.getLongitude());
+				callback.execute(myLocation, null);
 			}
 		}
 		catch(java.lang.Exception e) {
 			callback.execute(null, error);
 		}
 	}}}
-	callback(location, null)
 }
 
 lang "java" {{{

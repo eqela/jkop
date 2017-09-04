@@ -37,6 +37,8 @@ IFDEF("target_android")
 	var created = false
 	var gmap as !"com.google.android.gms.maps.GoogleMap"
 	var markers as map<string, MapMarker>
+	var hasSize as bool
+	var isDone as bool
 
 	func onWidgetResized
 	{
@@ -54,6 +56,23 @@ IFDEF("target_android")
 				layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
 			}
 		}}}
+		if not hasSize:
+			hasSize = true
+		hasSizeAndMapInitialize()
+	}
+
+	func hasSizeAndMapInitialize
+	{
+		if isDone:
+			return
+		if hasSize && mapInitialized {
+			placeQueuedMarkers()
+			if coordinateQueue:
+				doZoomToCoordinates()
+			if centerQueue:
+				doMoveToCenter()
+			isDone = true
+		}
 	}
 
 	func onMapReady(map as !"com.google.android.gms.maps.GoogleMap")
@@ -106,16 +125,9 @@ IFDEF("target_android")
 				}
 			});
 		}}}
-		if(mapInitialized == false) {
+		if mapInitialized == false:
 			mapInitialized = true
-		}
-		placeQueuedMarkers()
-		if(coordinateQueue != null) {
-			doZoomToCoordinates()
-		}
-		if(centerQueue != null) {
-			doMoveToCenter()
-		}
+		hasSizeAndMapInitialize()
 	}
 }
 
@@ -524,6 +536,7 @@ prop centerLon = 0.0
 prop defaultZoomLevel = 14
 prop zoomInCenter = true
 prop streetViewEnabled as bool
+prop markerSize as int
 var context as GuiApplicationContext
 var mapClickHandler as function<void,double,double>
 var markerQueue as vector<MyMapMarker>
@@ -540,6 +553,7 @@ ctor(context as GuiApplicationContext) private
 		}}}
 	}
 	this.context = context
+	markerSize = context.getHeightValue("6mm")
 }
 
 func onWidgetAddedToScreen(screen as ScreenForWidget)
@@ -629,7 +643,6 @@ func placeQueuedMarkers
 
 func doAddMapMarker(marker as MyMapMarker) private
 {
-	var markerSize #used = context.getHeightValue("10mm") as int
 	IFDEF("target_html") {
 		var ico #used = marker.getIcon() as ImageForHTML
 		lang "js" {{{
@@ -747,7 +760,7 @@ func doZoomToCoordinates
 				com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(lat, lon);
 				llbounds.include(pos);
 			}
-			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 100));
+			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70));
 		}}}
 	}
 	ELSE IFDEF("target_html") {
