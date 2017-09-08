@@ -40,22 +40,25 @@ var client as WebClient
 func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
 {
 	assert listener
-	assert client {
+	assert client:
 		listener.onQueryAddressErrorReceived(Error.forCode("noWebClientInstance"))
-	}
 	var list final = listener
 	client.query("GET", host .. apiKey .. "&latlng=" .. String.forDouble(latitude) .. "," .. String.forDouble(longitude), null, null, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
 		var data = assert JSONParser.parse(body) as DynamicMap:
 			list.onQueryAddressErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
 		var results = data.getDynamicVector("results")
-		assert results || results.getSize() > 0:
+		if not results || results.getSize < 1 {
 			list.onQueryAddressErrorReceived(Error.forCode("noResultFound"))
+			return
+		}
 		foreach(result as DynamicMap in results.toVector()) {
 			if not result:
 				continue
 			var addressComponents = result.getDynamicVector("address_components")
-			assert addressComponents || addressComponents.getSize() > 0:
+			if not addressComponents || addressComponents.getSize() < 1 {
 				list.onQueryAddressErrorReceived(Error.forCode("noaddressComponentsFound"))
+				return
+			}
 			var v = new PhysicalAddress()
 			foreach(addressComponent as DynamicMap in addressComponents.toVector()) {
 				if not addressComponent:
@@ -128,8 +131,10 @@ func queryLocation(address as string, listener as GeoCoderLocationListener) as b
 		var data = assert JSONParser.parse(body) as DynamicMap
 			list.onQueryLocationErrorReceived(Error.forCode("invalidResponseFromGoogleMapsAPI"))
 		var results = data.getDynamicVector("results")
-		assert results || results.getSize() < 1:
-			list.onQueryLocationErrorReceived(Error.forCode("noResultFound"))
+		if not results || results.getSize < 1 {
+			list.onQueryAddressErrorReceived(Error.forCode("noResultFound"))
+			return
+		}
 		foreach result as DynamicMap in results.toVector() {
 			if result == null:
 				continue
