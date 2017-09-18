@@ -118,11 +118,13 @@ const TYPE_STREET_ADDRESS = 9
 
 const ALIGN_LEFT = 0
 const ALIGN_RIGHT = 1
+const ALIGN_CENTER = 2
 
 var widgetContext as GuiApplicationContext
 var widgetType as int
 var widgetPlaceholder as string
 var widgetText as string
+var widgetFontBold as bool
 var widgetTextAlign as int
 var widgetPaddingLeft = 0
 var widgetPaddingTop = 0
@@ -204,6 +206,9 @@ func setWidgetStyle(style as string) as this
 	widgetFontSize = widgetContext.getStylePixels(style, "fontSize")
 	if widgetFontSize < 1.0:
 		widgetFontSize = widgetContext.getHeightValue("3mm")
+	var fr = widgetContext.getStyleString(style, "fontResource")
+	if String.isNotEmpty(fr):
+		setWidgetFontResource(fr)
 	widgetTextColor = widgetContext.getStyleColor(style, "textColor")
 	widgetBackgroundColor = widgetContext.getStyleColor(style, "backgroundColor")
 	setWidgetPadding(widgetContext.getStylePixels(style, "padding"))
@@ -470,6 +475,7 @@ func setWidgetType(type as int) as this
 	ELSE {
 		ERROR("Not implemented")
 	}
+	updateWidgetFont()
 	return(this)
 }
 
@@ -561,6 +567,15 @@ func getWidgetPlaceholder as string
 	return(widgetPlaceholder)
 }
 
+func setWidgetFontBold(bold as bool)
+{
+	widgetFontBold = bold
+	updateWidgetFont()
+}
+
+func getWidgetFontBold as bool:
+	return widgetFontBold
+
 func setWidgetPadding(padding as int #notLiteral)
 {
 	setWidgetPadding(padding, padding, padding, padding)
@@ -644,11 +659,28 @@ func setWidgetFontSize(fontSize as double #notLiteral) as this
 	return(this)
 }
 
+func dismissKeyboard
+{
+	IFDEF "target_android" {
+		var actx #used = (widgetContext as! GuiApplicationContextForAndroid).getActivityContext()
+		lang "java" {{{
+			clearFocus();
+			android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager)actx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+			im.hideSoftInputFromWindow(getWindowToken(), 0);
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
 func updateWidgetFont private
 {
 	IFDEF("target_html") {
 		HTMLDOM.setFontFamily(element, widgetFontFamily)
 		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+		if widgetFontBold:
+			HTMLDOM.setStyle(element, "font-weight", "bold")
 	}
 	ELSE IFDEF("target_iosoc") {
 		// FIXME: Setting the font family
@@ -659,12 +691,16 @@ func updateWidgetFont private
 	ELSE IFDEF("target_android") {
 		lang "java" {{{
 			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+			int style = android.graphics.Typeface.NORMAL;
+			if(widgetFontBold == true) {
+				style = android.graphics.Typeface.BOLD;
+			}
 			if(widgetFontResource != null) {
 				android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
-				setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
+				setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), style);
 			}
 			else {
-				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+				setTypeface(android.graphics.Typeface.create(widgetFontFamily, style));
 			}
 		}}}
 	}
@@ -776,9 +812,31 @@ func setWidgetTextAlign(align as int) as this
 				setGravity(android.view.Gravity.RIGHT);
 			}}}
 		}
+		else if align == ALIGN_CENTER {
+			lang "java" {{{
+				setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+			}}}
+		}
 		else {
 			lang "java" {{{
 				setGravity(android.view.Gravity.LEFT);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_uwp" {
+		if align == ALIGN_LEFT {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
+			}}}
+		}
+		else if align == ALIGN_RIGHT {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Right;
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
 			}}}
 		}
 	}
