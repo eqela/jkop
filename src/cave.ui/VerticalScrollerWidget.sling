@@ -39,12 +39,7 @@ IFDEF "target_iosoc"
 
 	lang "objc" {{{
 		- (void) scrollViewDidScroll:(UIScrollView *) scrollView {
-			if([scrollView.panGestureRecognizer translationInView:scrollView].y > 0) {
-				[self onScroll:1];
-			}
-			else {
-				[self onScroll:0];
-			}
+			[self onScroll:[scrollView.panGestureRecognizer translationInView:scrollView].y];
 		}
 
 		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
@@ -52,12 +47,6 @@ IFDEF "target_iosoc"
 			[super touchesBegan:touches withEvent:event];
 		}
 	}}}
-
-	func onScroll(direction as int)
-	{
-		if onScrolledHandler:
-			onScrolledHandler(direction)
-	}
 }
 
 IFDEF "target_android"
@@ -65,27 +54,8 @@ IFDEF "target_android"
 	basetype !"android.widget.ScrollView" type extends
 	basetype Widget type isAlso
 
-	func onScrollChanged(x as int, y as int, oldx as int, oldy as int)
-	{
-		if not onScrolledHandler:
-			return
-		var h = Widget.getHeight(this)
-		var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
-		if((y + h) >= ch) {
-			onScrolledHandler(0)
-			return
-		}
-		if y < 0 || oldy < 0 {
-			onScrolledHandler(1)
-			return
-		}
-		if(y > oldy) {
-			onScrolledHandler(0)
-		}
-		else if (y < oldy) {
-			onScrolledHandler(1)
-		}
-	}
+	func onScrollChanged(x as int, y as int, oldx as int, oldy as int):
+		onScroll(y)
 }
 
 IFDEF "target_html"
@@ -109,6 +79,9 @@ IFDEF "target_html"
 			HTMLDOM.removeStyle(element, "overflow")
 			HTMLDOM.setStyle(element, "overflow-x", "hidden")
 		}
+		HTMLDOM.addEventListener(element, "scroll", func {
+			onScroll(lang "js" int {{{ element.scrollTop }}})
+		})
 	}
 
 	var noScrollBarStyleCreated static = false
@@ -142,7 +115,26 @@ IFDEF "target_uwp"
 	// FIXME: onScrolledHandler
 }
 
+var lastScrollY private = 0
+var lastChildHeight private = -1
+
+func onScroll(scrollY as int) private
+{
+	if onScrolledHandler && lastScrollY != scrollY:
+		onScrolledHandler(lastScrollY < scrollY ? 0 : 1)
+	if onScrolledNearEndHandler {
+		var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
+		assert ch > 0 && lastChildHeight != ch
+		var h = Widget.getHeight(this)
+		if((ch - scrollY) < (h * 2)) {
+			lastChildHeight = ch
+			onScrolledNearEndHandler()
+		}
+	}
+}
+
 prop onScrolledHandler as function<void, int>
+prop onScrolledNearEndHandler as function<void>
 var layoutHeight = -1
 var heightChanged = false
 
