@@ -94,7 +94,7 @@ ELSE IFDEF "target_iosoc" {
 
 	lang "objc" {{{
 		- (void)captureOutput:(AVCaptureOutput *)captureOutput didOutputMetadataObjects:(NSArray *)metadataObjects fromConnection:(AVCaptureConnection *)connection {
-			if ([metadataObjects count] != 0 && self->detectedBarcodes == nil) {
+			if ([metadataObjects count] != 0 &&) {
 				NSMutableArray *bco = [[NSMutableArray alloc] init];
 				for (AVMetadataObject *barcodeMetadata in metadataObjects) {
 					for (NSString *supportedBarcode in supportedFormat) {
@@ -106,7 +106,7 @@ ELSE IFDEF "target_iosoc" {
 								[obj setDisplayValue:[barcodeObject stringValue]];
 								[obj setFormat:supportedBarcode];
 								[bco addObject:obj];
-								[self onReceiveDetection:(NSArray *)bco];
+								[self onReceiveDetection: obj];
 							});
 							return;
 						}
@@ -140,10 +140,9 @@ const FORMAT_QRCODE = 1
 const FOTMAT_EAN13 = 2
 const FORMAT_UPCA = 3
 
-prop widgetOnBarcodesDetectedHandler as function
+prop widgetOnBarcodesDetectedHandler as function<void, BarcodeObject>
 prop widgetPrimaryCamera as int
 prop widgetFormat = FORMAT_ALL
-var detectedBarcodes as vector<BarcodeObject>
 var widgetContext as GuiApplicationContext
 
 ctor(ctx as GuiApplicationContext)
@@ -165,7 +164,10 @@ ctor(ctx as GuiApplicationContext)
 	widgetContext = ctx
 }
 
-dtor
+dtor:
+	cleanUp()
+
+func cleanUp
 {
 	IFDEF "target_android" {
 		lang "java" {{{
@@ -214,22 +216,20 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 				@Override
 				public void receiveDetections(com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode> detections) {
 					android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> barcodes = detections.getDetectedItems();
-					if(barcodes.size() != 0 && detectedBarcodes == null) {
-						final java.util.ArrayList<BarcodeObject> bco = new java.util.ArrayList<BarcodeObject>();
+					if(barcodes.size() > 0) {
 						for(int i = 0; i < barcodes.size(); i ++) {
 							com.google.android.gms.vision.barcode.Barcode bc = barcodes.valueAt(i);
-							BarcodeObject obj = new BarcodeObject();
+							final BarcodeObject obj = new BarcodeObject();
 							obj.setRawValue(bc.rawValue);
 							obj.setDisplayValue(bc.displayValue);
 							obj.setFormat(bc.format);
 							obj.setValueFormat(bc.valueFormat);
-							bco.add(obj);
+							thisWidget.post(new java.lang.Runnable() {
+								public void run() {
+									thisWidget.onReceiveDetection(obj);
+								}
+							});
 						}
-						thisWidget.post(new java.lang.Runnable() {
-							public void run() {
-								thisWidget.onReceiveDetection(bco);
-							}
-						});
 					}
 				}
 			});
@@ -292,9 +292,8 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 	}
 }
 
-func onWidgetRemovedFromScreen(screen as ScreenForWidget)
-{
-}
+func onWidgetRemovedFromScreen(screen as ScreenForWidget):
+	cleanUp()
 
 func tryCameraPreview private
 {
@@ -324,13 +323,9 @@ func tryCameraPreview private
 	}
 }
 
-func onReceiveDetection(bcobjs as vector<BarcodeObject>) private
+func onReceiveDetection(bcobj as BarcodeObject) private
 {
-	assert bcobjs
-	detectedBarcodes = bcobjs
+	assert bcobj
 	if widgetOnBarcodesDetectedHandler:
-		widgetOnBarcodesDetectedHandler()
+		widgetOnBarcodesDetectedHandler(bcobj)
 }
-
-func getDetectedBarcodes as vector<BarcodeObject>:
-	return detectedBarcodes
