@@ -26,40 +26,63 @@ class:
 
 func getPathSeparator static as char
 {
-	IFDEF("target_cs") {
-		return(lang "cs" char {{{ System.IO.Path.DirectorySeparatorChar }}})
+	IFDEF "target_cs" {
+		return lang "cs" char {{{ System.IO.Path.DirectorySeparatorChar }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" char {{{ java.io.File.separatorChar }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" char {{{ java.io.File.separatorChar }}}
+	}
+	ELSE IFDEF "target_browser" {
+		return '/'
+	}
+	ELSE IFDEF "target_darwin" {
+		return '/'
+	}
+	ELSE IFDEF "target_windows" {
+		return '\\'
 	}
 	ELSE {
-		if(OS.isWindows()) {
-			return('\\')
-		}
-		return('/')
+		if OS.isWindows():
+			return '\\'
+		return '/'
 	}
 }
 
 func isAbsolutePath(path as string) static as bool
 {
-	if(path == null) {
-		return(false)
+	assert path
+	IFDEF "target_android" {
+		return String.startsWith(path, "/")
 	}
-	var sep = getPathSeparator()
-	var c0 = String.getChar(path, 0)
-	if(c0 == sep) {
-		return(true)
+	ELSE IFDEF "target_darwin" {
+		return String.startsWith(path, "/")
 	}
-	if(Character.isAlpha(c0) && OS.isWindows() && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\') {
-		return(true)
+	ELSE IFDEF "target_browser" {
+		return String.startsWith(path, "/")
 	}
-	return(false)
+	ELSE IFDEF "target_windows" {
+		var c0 = String.getChar(path, 0)
+		if c0 == '\\':
+			return true
+		if Character.isAlpha(c0) && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\':
+			return true
+		return false
+	}
+	ELSE {
+		var sep = getPathSeparator()
+		var c0 = String.getChar(path, 0)
+		if c0 == sep:
+			return true
+		if Character.isAlpha(c0) && OS.isWindows() && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\':
+			return true
+		return false
+	}
 }
 
 func getVariables static as map<string,string>
 {
-	ERROR("Not implemented")
-	return(null)
+	ERROR "Not implemented"
+	return null
 }
 
 func getVariable(key as string) static as string
@@ -83,6 +106,13 @@ func getVariable(key as string) static as string
 		var v as string
 		lang "objc" {{{
 			v = [[[NSProcessInfo processInfo] environment] objectForKey:key];
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_nodejs" {
+		var v as string
+		lang "js" {{{
+			v = process.env[key];
 		}}}
 		return v
 	}
@@ -118,29 +148,32 @@ func getCurrentDirectory static as File
 	}
 }
 
-func findInPath(command as string) static private as File
-{
-	var path = getVariable("PATH")
-	if(String.isEmpty(path)) {
-		return(null)
-	}
-	var separator = ':'
-	if(OS.isWindows()) {
-		separator = ';'
-	}
-	foreach(dir in String.split(path, separator)) {
-		var pp = File.forPath(dir).entry(command).asExecutable()
-		if(pp.isFile()) {
-			return(pp)
+IFNDEF "target_browser" {
+	func findInPath(command as string) static private as File
+	{
+		var path = getVariable("PATH")
+		assert String.isNotEmpty(path)
+		var separator = ':'
+		if OS.isWindows():
+			separator = ';'
+		foreach dir in String.split(path, separator) {
+			var pp = File.forPath(dir).entry(command).asExecutable()
+			if pp.isFile():
+				return pp
 		}
+		return null
 	}
-	return(null)
 }
 
 func findCommand(command as string) static as File
 {
-	assert command
-	return findInPath(command)
+	IFDEF "target_browser" {
+		return null
+	}
+	ELSE {
+		assert command
+		return findInPath(command)
+	}
 }
 
 func getTemporaryDirectory static as File
@@ -261,13 +294,30 @@ func getProgramFilesX86Directory static as File
 
 func getApplicationsDirectory static as File
 {
-	if OS.isMacOS() {
+	IFDEF "target_browser" {
+		return null
+	}
+	ELSE IFDEF "target_android" {
+		return null
+	}
+	ELSE IFDEF "target_darwin" {
 		var v = File.forPath("/Applications")
 		if v.isDirectory() == false:
 			v = null
 		return v
 	}
-	return null
+	ELSE IFDEF "target_windows" {
+		return null
+	}
+	ELSE {
+		if OS.isMacOS() {
+			var v = File.forPath("/Applications")
+			if v.isDirectory() == false:
+				v = null
+			return v
+		}
+		return null
+	}
 }
 
 func getCurrentApplicationId static as string
