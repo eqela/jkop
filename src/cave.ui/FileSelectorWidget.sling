@@ -30,11 +30,19 @@ IFDEF("target_android")
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
 }
 
+IFDEF("target_html") {
+	var inputElement as object
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
 {
 	this.context = context
+	IFDEF("target_html") {
+		inputElement = HTMLDOM.createElement("input")
+		HTMLDOM.setAttribute(inputElement, "type", "file")
+	}
 }
 
 func openFileDialog(widget as Widget, type as string, callback as function<void, buffer, string, string, Error>)
@@ -136,9 +144,9 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 		})
 	}
 	ELSE IFDEF("target_html") {
-		lang "js" {{{
-			function handleFiles() {
-				var files = fileSelector.files;
+		HTMLDOM.addEventListener(inputElement, "change", func {
+			lang "js" {{{
+				var files = this.inputElement.files;
 				if(typeof files === "undefined" || files === null) {
 					console.log("undefined files");
 					return;
@@ -149,7 +157,7 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 					return;
 				}
 				var mimeType = file.type;
-				var path = fileSelector.value;
+				var path = this.inputElement.value;
 				var filename = path.substring(path.lastIndexOf("\\")+1);
 				var reader = new FileReader();
 				reader.onload = function(res) {
@@ -166,12 +174,10 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 					}
 				};
 				reader.readAsArrayBuffer(file);
-			}
-			var fileSelector = document.createElement('input');
-			fileSelector.setAttribute('type', 'file');
-			fileSelector.setAttribute('accept', type);
-			fileSelector.addEventListener("change", handleFiles, false);
-			fileSelector.click();
+			}}}
+		})
+		lang "js" {{{
+			this.inputElement.click();
 		}}}
 	}
 	ELSE {
