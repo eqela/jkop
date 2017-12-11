@@ -22,159 +22,158 @@
  * SOFTWARE.
  */
 
-class #widget:
+class #widget #deprecated:
 
-class DefaultTabItemWidget is TabItemWidget #widget
+class TabHeaderWidget #widget
 {
 	ui LayerWidget
 	{
-		CanvasWidget background {
-			color = Color.white()
+		CanvasWidget headerBackground {
 		}
-		LayerWidget {
-			margin = context.getHeightValue("2mm")
-			LabelWidget title {
-				text = "New Tab"
+		LayerWidget headerPadding {
+			LabelWidget headerTitle {
+				text = "Tab Header"
 			}
 		}
 	}
 
-	ctor(ctx as GuiApplicationContext)
+	prop index as int
+	prop container as parent
+
+	func initializeWidget override
 	{
-		base(ctx)
-		forceCreateWidget()
-	}
-
-	func setTabTitle(txt as string):
-		title.setWidgetText(txt)
-
-	func onTabSelected
-	{
-		background.setWidgetColor(Color.white())
-		title.setWidgetTextColor(Color.black())
-	}
-
-	func onTabDeselected
-	{
-		background.setWidgetColor(Color.instance("#f2f2f2"))
-		title.setWidgetTextColor(Color.white())
-	}
-}
-
-class DefaultTabItemCreator is TabItemCreator
-{
-	prop context as GuiApplicationContext
-
-	func createTabItemWidgetFor(title as string) as TabItemWidget
-	{
-		var v = new DefaultTabItemWidget(context)
-		v.setTabTitle(title)
-		return v
-	}
-}
-
-class TabObject
-{
-	var item public as TabItemWidget
-	var content public as Widget
-
-	func setOnTabClickHandler(handler as function<void, this>)
-	{
-		var hdl final = handler
-		var obj final = this
-		Widget.setWidgetClickHandler(item as! Widget, func {
-			hdl(obj)
+		base.initializeWidget()
+		Widget.setWidgetClickHandler(this, func {
+			container.updateSelectedTab(index)
 		})
 	}
-}
 
-class MyContainerWidget is LayerWidget #widget
-{
-	prop widgetParent as parent
+	func setHeaderMargin(tabHeaderPadding as int #notLiteral):
+		headerPadding.setWidgetMargin(tabHeaderPadding)
 
-	func onChildWidgetRemoved(widget as Widget) override
-	{
-		Widget.onChanged(this)
-		var w = widget as TabContentWidget
-		if w && widgetParent {
-			var title = w.getTabContentTitle()
-			var tab = widgetParent.getTabObject(title)
-			Widget.removeFromParent(tab.item)
-			widgetParent.removeTabObject(title)
-		}
-	}
+	func setHeaderTitle(text as string):
+		headerTitle.setWidgetText(text)
+
+	func setHeaderTitleAlign(align as int):
+		headerTitle.setWidgetTextAlign(align)
+
+	func setHeaderBackground(color as Color):
+		headerBackground.setWidgetColor(color)
+
+	func setHeaderOutlineColor(color as Color):
+		headerBackground.setWidgetOutlineColor(color)
+
+	func setWidgetRoundingRadius(radius as int #notLiteral):
+		headerBackground.setWidgetRoundingRadius(radius)
+
+	func setHeaderOutlineWidth(width as int #notLiteral):
+		headerBackground.setWidgetOutlineWidth(width)
+
+	func setHeaderTextColor(color as Color):
+		headerTitle.setWidgetTextColor(color)
 }
 
 ui LayerWidget
 {
-	VerticalBoxWidget {
-		HorizontalBoxWidget tabTitleContainer {
-			spacing = context.getHeightValue("500um")
+	VerticalBoxWidget container {
+		LayerWidget {
+			CanvasWidget tabHeadersBackground {
+				color = Color.white()
+			}
+			HorizontalBoxWidget tabHeaders {
+			}
 		}
-		MyContainerWidget tabContentContainer : 1.0 {
-			parent = this
+		LayerWidget : 1.0 {
+			CanvasWidget background {
+				color = Color.white()
+			}
+			LayerWidget content {
+			}
 		}
 	}
 }
 
-ctor(ctx as GuiApplicationContext)
+prop widgetTabOutlineColor as Color
+prop widgetTabOutlineWidth as int #notLiteral
+prop widgetContentOutlineColor as Color
+prop widgetContentOutlineWidth as int #notLiteral
+prop widgetTabContent as vector<DynamicMap>
+prop widgetSelectedTabBackgroundColor as Color
+prop widgetSelectedTabTextColor as Color
+prop widgetUnselectedTabBackgroundColor as Color
+prop widgetUnselectedTabTextColor as Color
+prop widgetTabHeaderTitleMargin as int #notLiteral
+prop widgetRoundingRadius as int #notLiteral
+prop widgetTextAlign as int #notLiteral
+prop widgetContentSpacing as int #notLiteral
+prop widgetTabContentRoundingRadius as int #notLiteral
+prop widgetOnTabChangeListener as function<void, int, Widget>
+
+func initializeWidget override
 {
-	base(ctx)
-	tabItemCreator = new DefaultTabItemCreator().setContext(ctx)
-	tabCollection = new map<string, TabObject>
-	forceCreateWidget()
+	base.initializeWidget()
+	assert widgetTabContent
+	container.setWidgetSpacing(widgetContentSpacing)
+	if widgetContentOutlineColor:
+		background.setWidgetOutlineColor(widgetContentOutlineColor)
+	background.setWidgetOutlineWidth(widgetContentOutlineWidth)
+	background.setWidgetRoundingRadius(widgetTabContentRoundingRadius)
+	tabHeadersBackground.setWidgetRoundingRadius(widgetRoundingRadius)
+	for(var i = 0; i < Vector.getSize(widgetTabContent); i++) {
+		var d = Vector.get(widgetTabContent, i)
+		if not d:
+			continue
+		var h = new TabHeaderWidget(context)
+		h.setHeaderMargin(widgetTabHeaderTitleMargin)
+		h.setContainer(this)
+		h.setIndex(i)
+		h.setHeaderTitle(d.getString("header"))
+		h.setHeaderTitleAlign(widgetTextAlign)
+		if widgetTabOutlineColor:
+			h.setHeaderOutlineColor(widgetTabOutlineColor)
+		h.setHeaderOutlineWidth(widgetTabOutlineWidth)
+		tabHeaders.addWidget(h, 1.0)
+	}
+	updateSelectedTab(0)
 }
 
-prop tabItemCreator as TabItemCreator
-var tabCollection as map<string, TabObject>
-var currentTab as TabObject
-
-func addTab(widget as TabContentWidget)
+func updateSelectedTab(idx as int)
 {
-	assert widget
-	var title = widget.getTabContentTitle()
-	var tab = getTabObject(title)
-	var newTab = false
-	if not tab {
-		var v = tabItemCreator.createTabItemWidgetFor(title)
-		if v {
-			tabTitleContainer.addWidget(v)
-			tab = new TabObject()
-			tab.item = v
-			tab.content = widget
-			tab.setOnTabClickHandler(func(to as TabObject) {
-				updateSelectedTab(to, false)
-			})
-			addTabObject(title, tab)
-			newTab = true
+	var w = Widget.getChildren(tabHeaders)
+	for(var i = 0; i < SIZE(w); i++) {
+		if i == idx {
+			if not widgetSelectedTabBackgroundColor:
+				widgetSelectedTabBackgroundColor = Color.white()
+			if not widgetSelectedTabTextColor:
+				widgetSelectedTabTextColor = Color.black()
+			(w[idx] as TabHeaderWidget).setHeaderBackground(widgetSelectedTabBackgroundColor)
+			(w[idx] as TabHeaderWidget).setHeaderTextColor(widgetSelectedTabTextColor)
+			(w[idx] as TabHeaderWidget).setWidgetRoundingRadius(widgetRoundingRadius)
+			continue
 		}
+		if not widgetUnselectedTabBackgroundColor:
+			widgetUnselectedTabBackgroundColor = Color.forRGB(128,128,128)
+		if not widgetUnselectedTabTextColor:
+			widgetUnselectedTabTextColor = Color.forRGB(80,80,80)
+		(w[i] as TabHeaderWidget).setHeaderBackground(widgetUnselectedTabBackgroundColor)
+		(w[i] as TabHeaderWidget).setHeaderTextColor(widgetUnselectedTabTextColor)
+		(w[i] as TabHeaderWidget).setWidgetRoundingRadius(widgetRoundingRadius)
 	}
-	if tab:
-		updateSelectedTab(tab, newTab)
+	updateContent(idx)
 }
 
-func addTabObject(title as string, tab as TabObject) private:
-	Map.set(tabCollection, title, tab)
-
-func getTabObject(title as string) private as TabObject:
-	return Map.get(tabCollection, title)
-
-func removeTabObject(title as string) private:
-	Map.remove(tabCollection, title)
-
-func updateSelectedTab(tab as TabObject, newTab as bool) private
+func updateContent(idx as int) private
 {
-	assert tab != currentTab
-	if currentTab {
-		currentTab.item.onTabDeselected()
-		Widget.setVisible(currentTab.content, false)
-	}
-	currentTab = tab
-	currentTab.item.onTabSelected()
-	if newTab {
-		tabContentContainer.addWidget(currentTab.content)
-	}
-	else {
-		Widget.setVisible(currentTab.content, true)
-	}
+	Widget.removeChildrenOf(content)
+	var v = assert Vector.get(widgetTabContent, idx)
+	var w = assert v.get("widget") as Widget
+	content.addWidget(w)
+	if widgetOnTabChangeListener:
+		widgetOnTabChangeListener(idx, w)
+}
+
+func setWidgetSelectedTab(index as int)
+{
+	if index < SIZE(widgetTabContent):
+		updateSelectedTab(index)
 }
