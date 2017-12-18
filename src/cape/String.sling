@@ -52,6 +52,8 @@ func asString(obj as object) static as string
 		return forBoolean((obj as! BooleanObject).toBoolean())
 	if obj is CharacterObject:
 		return forCharacter((obj as! CharacterObject).toCharacter())
+	if obj is buffer:
+		return forBufferHex(obj as! buffer)
 	if obj is BufferObject {
 		var v = (obj as! BufferObject).toBuffer()
 		if not v:
@@ -69,55 +71,43 @@ func asString(obj as object) static as string
 ** Converts an integer to a string
 **
 
-func asString(value as int) static as string
-{
-	return(forInteger(value))
-}
+func asString(value as int) static as string:
+	return forInteger(value)
 
 **
 ** Converts a double to a string
 **
 
-func asString(value as double) static as string
-{
-	return(forDouble(value))
-}
+func asString(value as double) static as string:
+	return forDouble(value)
 
 **
 ** Converts a buffer to a string
 **
 
-func asString(value as buffer) static as string
-{
-	return(forUTF8Buffer(value))
-}
+func asString(value as buffer) static as string:
+	return forUTF8Buffer(value)
 
 **
 ** Converts a boolean to a string
 **
 
-func asString(value as bool) static as string
-{
-	return(forBoolean(value))
-}
+func asString(value as bool) static as string:
+	return forBoolean(value)
 
 **
 ** Converts a character to a string
 **
 
-func asString(value as char) static as string
-{
-	return(forCharacter(value))
-}
+func asString(value as char) static as string:
+	return forCharacter(value)
 
 **
 ** Converts a float to a string
 **
 
-func asString(value as float) static as string
-{
-	return(forFloat(value))
-}
+func asString(value as float) static as string:
+	return forFloat(value)
 
 **
 ** Checks if a string is empty (ie., either the object is a null pointer or
@@ -138,10 +128,8 @@ func isEmpty(str as string) static as bool
 ** empty, false if the string is empty.
 **
 
-func isNotEmpty(str as string) static as bool
-{
+func isNotEmpty(str as string) static as bool:
 	return not isEmpty(str)
-}
 
 **
 ** Constructs a new string, given a buffer of bytes and the name of the
@@ -163,9 +151,8 @@ func forBuffer(data as buffer, encoding as string) static as string
 IFDEF("target_cs") {
 	func getDataLength(data as buffer) private static as int
 	{
-		if(data == null) {
-			return(0)
-		}
+		if data == null:
+			return 0
 		var v as int
 		lang "cs" {{{
 			v = data.Length;
@@ -178,7 +165,7 @@ IFDEF("target_cs") {
 				}
 			}
 		}}}
-		return(v)
+		return v
 	}
 }
 
@@ -189,16 +176,14 @@ IFDEF("target_cs") {
 
 func forASCIIBuffer(data as buffer #used) static as string
 {
-	if(data == null) {
-		return(null)
+	assert data
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}})
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}})
-	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		var v as string
 		lang "java" {{{
 			try {
@@ -208,25 +193,21 @@ func forASCIIBuffer(data as buffer #used) static as string
 				System.err.println(e.toString());
 			}
 		}}}
-		return(v)
+		return v
 	}
-	ELSE IFDEF("target_js") {
-		if(data == null) {
-			return(null)
-		}
+	ELSE IFDEF "target_js" {
 		var sb = new StringBuilder()
 		var uintArray as array<uint8>
 		lang "js" {{{
 			uintArray = new Uint8Array(data);
 		}}}
-		for(var i = 0; i < SIZE(uintArray); i++) {
+		for(var i = 0; i < SIZE(uintArray); i++):
 			sb.append(lang "js" string {{{ String.fromCharCode(uintArray[i]) }}})
-		}
-		return(sb.toString())
+		return sb.toString()
 	}
 	ELSE {
-		ERROR("Not implemented.")
-		return(null)
+		ERROR "Not implemented."
+		return null
 	}
 }
 
@@ -237,16 +218,14 @@ func forASCIIBuffer(data as buffer #used) static as string
 
 func forUTF8Buffer(data as buffer #used) static as string
 {
-	if(data == null) {
-		return(null)
+	assert data
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}})
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}})
-	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		var v as string
 		lang "java" {{{
 			try {
@@ -256,9 +235,9 @@ func forUTF8Buffer(data as buffer #used) static as string
 				System.err.println(e.toString());
 			}
 		}}}
-		return(v)
+		return v
 	}
-	ELSE IFDEF("target_js") {
+	ELSE IFDEF "target_js" {
 		var sb = new StringBuilder()
 		var ci = CharacterIteratorForBuffer.forBuffer(data)
 		ci.moveToNextChar()
@@ -269,11 +248,11 @@ func forUTF8Buffer(data as buffer #used) static as string
 			sb.append(c)
 			ci.moveToNextChar()
 		}
-		return(sb.toString())
+		return sb.toString()
 	}
 	ELSE {
-		ERROR("Not implemented.")
-		return(null)
+		ERROR "Not implemented."
+		return null
 	}
 }
 

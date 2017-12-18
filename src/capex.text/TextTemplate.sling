@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class:
 
 class TagData private
 {
@@ -34,24 +34,34 @@ class TagData private
 	}
 }
 
-func forFile(file as File, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, logContext as LoggingContext = null) static as this
+func processFile(file as File, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
 {
-	if(file == null) {
-		return(null)
-	}
-	var text = file.getContentsString("UTF-8")
-	if(text == null) {
-		return(null)
-	}
+	var v = assert forFile(file, markerBegin, markerEnd)
+	return v.execute(vars)
+}
+
+func processString(text as string, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
+{
+	var v = assert forString(text, markerBegin, markerEnd)
+	return v.execute(vars)
+}
+
+func forFile(file as File, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+{
+	assert file
+	var text = assert file.getContentsString("UTF-8")
 	var ids = includeDirs
-	if(ids == null) {
+	if not ids {
 		ids = new vector<File>
 		ids += file.getParent()
 	}
-	return(forString(text, markerBegin, markerEnd, type, ids, logContext))
+	return forString(text, markerBegin, markerEnd, type, ids, includeFileData, logContext)
 }
 
-func forString(text as string, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, logContext as LoggingContext = null) static as this
+func forHTMLFile(file as File, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this:
+	return forFile(file, "<%", "%>", TYPE_HTML, includeDirs, includeFileData, logContext)
+
+func forString(text as string, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
 {
 	var v = new this()
 	v.setLogContext(logContext)
@@ -59,13 +69,14 @@ func forString(text as string, markerBegin as string, markerEnd as string, type 
 	v.setType(type)
 	v.setMarkerBegin(markerBegin)
 	v.setMarkerEnd(markerEnd)
-	if(v.prepare(includeDirs) == false) {
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
 		v = null
-	}
-	return(v)
+	return v
 }
 
-func forHTMLString(text as string, includeDirs as vector<File> = null, logContext as LoggingContext = null) static as this
+func forHTMLString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
 {
 	var v = new this()
 	v.setLogContext(logContext)
@@ -73,13 +84,14 @@ func forHTMLString(text as string, includeDirs as vector<File> = null, logContex
 	v.setType(TYPE_HTML)
 	v.setMarkerBegin("<%")
 	v.setMarkerEnd("%>")
-	if(v.prepare(includeDirs) == false) {
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
 		v = null
-	}
-	return(v)
+	return v
 }
 
-func forJSONString(text as string, includeDirs as vector<File> = null, logContext as LoggingContext = null) static as this
+func forJSONString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
 {
 	var v = new this()
 	v.setLogContext(logContext)
@@ -87,10 +99,11 @@ func forJSONString(text as string, includeDirs as vector<File> = null, logContex
 	v.setType(TYPE_JSON)
 	v.setMarkerBegin("{{")
 	v.setMarkerEnd("}}")
-	if(v.prepare(includeDirs) == false) {
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
 		v = null
-	}
-	return(v)
+	return v
 }
 
 const TYPE_GENERIC = 0
@@ -104,6 +117,8 @@ prop markerEnd as string
 prop logContext as LoggingContext
 prop type = TYPE_GENERIC
 prop languagePreferences as vector<string>
+prop includeDirs as vector<File>
+prop includeFileData as map<string,object>
 
 func setLanguagePreference(language as string)
 {
@@ -113,7 +128,43 @@ func setLanguagePreference(language as string)
 	}
 }
 
-func tokenizeString(inputdata as string, includeDirs as vector<File>) private as vector<object>
+func getIncludeFileContent(fileName as string) as string
+{
+	assert fileName
+	var ff as File
+	if includeFileData {
+		var o = includeFileData[fileName]
+		if o {
+			if o is string:
+				return o as! string
+			if o is buffer:
+				return String.forUTF8Buffer(o as! buffer)
+			if o is File:
+				ff = o as! File
+		}
+	}
+	if not ff {
+		if Environment.isAbsolutePath(fileName):
+			ff = File.forPath(fileName)
+	}
+	if not ff {
+		foreach includeDir in includeDirs {
+			var x = File.forRelativePath(fileName, includeDir)
+			if x.isFile() {
+				ff = x
+				break
+			}
+		}
+	}
+	assert ff && ff.isFile():
+		Log.warning(logContext, "Included file was not found: `" .. fileName .. "'")
+	var cc = ff.getContentsString("UTF-8")
+	if not cc:
+		Log.warning(logContext, "Failed to read included file: `" .. ff.getPath() .. "'")
+	return cc
+}
+
+func tokenizeString(inputdata as string) private as vector<object>
 {
 	if(markerBegin == null || markerEnd == null) {
 		Log.error(logContext, "No template markers were given")
@@ -148,41 +199,19 @@ func tokenizeString(inputdata as string, includeDirs as vector<File>) private as
 					var words = String.quotedStringToVector(tts, ' ')
 					if(Vector.get(words, 0) == "include") {
 						var fileName = Vector.get(words, 1)
-						if(String.isEmpty(fileName)) {
+						if String.isEmpty(fileName) {
 							Log.warning(logContext, "Include tag with empty filename. Ignoring it.")
 						}
 						else {
-							var ff as File
-							if(Environment.isAbsolutePath(fileName)) {
-								ff = File.forPath(fileName)
-							}
-							else {
-								foreach(includeDir in includeDirs) {
-									var x = File.forRelativePath(fileName, includeDir)
-									if(x.isFile()) {
-										ff = x
-										break
-									}
-								}
-							}
-							if(ff == null || ff.isFile() == false) {
-								Log.warning(logContext, "Included file was not found: `" .. fileName .. "'")
-							}
-							else {
-								var cc = ff.getContentsString("UTF-8")
-								if(cc == null) {
-									Log.warning(logContext, "Failed to read included file: `" .. ff.getPath() .. "'")
+							var cc = getIncludeFileContent(fileName)
+							if cc {
+								var nt = forString(cc, markerBegin, markerEnd, type, includeDirs, includeFileData)
+								if nt == null {
+									Log.warning(logContext, "Failed to process included template file: `" .. fileName .. "'")
 								}
 								else {
-									var nt = forString(cc, markerBegin, markerEnd, type, includeDirs)
-									if(nt == null) {
-										Log.warning(logContext, "Failed to read included template file: `" .. ff.getPath() .. "'")
-									}
-									else {
-										foreach(token in nt.getTokens()) {
-											v += token
-										}
-									}
+									foreach token in nt.getTokens():
+										v += token
 								}
 							}
 						}
@@ -242,69 +271,55 @@ func tokenizeString(inputdata as string, includeDirs as vector<File>) private as
 	return(v)
 }
 
-func prepare(includeDirs as vector<File>) as bool
+func prepare as bool
 {
-	var str = text
-	if(str == null) {
+	var str = assert text:
 		Log.error(logContext, "No input string was specified.")
-		return(false)
-	}
-	tokens = tokenizeString(str, includeDirs)
-	if(tokens == null) {
-		return(false)
-	}
-	return(true)
+	assert tokens = tokenizeString(str)
+	return true
 }
 
-func execute(vars as DynamicMap, includeDirs as vector<File> = null) as string
+func execute(vars as DynamicMap, importDirs as vector<File> = null) as string
 {
-	if(tokens == null) {
+	assert tokens:
 		Log.error(logContext, "TextTemplate has not been prepared")
-		return(null)
-	}
 	var result = new StringBuilder()
-	if(doExecute(tokens, vars, result, includeDirs) == false) {
-		return(null)
-	}
-	return(result.toString())
+	assert doExecute(tokens, vars, result, importDirs)
+	return result.toString()
 }
 
 func substituteVariables(orig as string, vars as DynamicMap) private as string
 {
-	if(orig == null) {
-		return(orig)
-	}
-	if(String.indexOf(orig, "${") < 0) {
-		return(orig)
-	}
+	if orig == null:
+		return orig
+	if String.indexOf(orig, "${") < 0:
+		return orig
 	var sb = new StringBuilder()
 	var varbuf as StringBuilder
 	var flag = false
 	var it = String.iterate(orig)
-	while(it != null) {
+	while it {
 		var c = it.getNextChar()
-		if(c <= 0) {
+		if c <= 0:
 			break
-		}
-		if(varbuf != null) {
-			if(c == '}') {
+		if varbuf {
+			if c == '}' {
 				var varname = varbuf.toString()
-				if(vars != null) {
+				if vars {
 					var varcut as string
-					if(String.indexOf(varname, '!') > 0) {
+					if String.indexOf(varname, '!') > 0 {
 						var sp as Iterator<string> #force = Vector.iterate(String.split(varname, '!', 2))
 						varname = sp.next()
 						varcut = sp.next()
 					}
 					var r = getVariableValueString(vars, varname)
-					if(String.isEmpty(varcut) == false) {
+					if String.isEmpty(varcut) == false {
 						var itc = String.iterate(varcut)
 						var cx as char
 						while((cx = itc.getNextChar()) > 0) {
 							var n = String.lastIndexOf(r, cx)
-							if(n < 0) {
+							if n < 0:
 								break
-							}
 							r = String.subString(r, 0, n)
 						}
 					}
@@ -317,9 +332,9 @@ func substituteVariables(orig as string, vars as DynamicMap) private as string
 			}
 			continue
 		}
-		if(flag == true) {
+		if flag == true {
 			flag = false
-			if(c == '{') {
+			if c == '{' {
 				varbuf = new StringBuilder()
 			}
 			else {
@@ -328,13 +343,13 @@ func substituteVariables(orig as string, vars as DynamicMap) private as string
 			}
 			continue
 		}
-		if(c == '$') {
+		if c == '$' {
 			flag = true
 			continue
 		}
 		sb.append(c)
 	}
-	return(sb.toString())
+	return sb.toString()
 }
 
 func getVariableValue(vars as DynamicMap, varname as string) as object
@@ -421,7 +436,7 @@ func getVariableValueVector(vars as DynamicMap, varname as string) as vector<obj
 	return(null)
 }
 
-func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<object>, result as StringBuilder, includeDirs as vector<File>) as bool
+func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<object>, result as StringBuilder, importDirs as vector<File>) as bool
 {
 	if(tag == null) {
 		return(false)
@@ -449,7 +464,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 				vars.set("__for_parity", "odd")
 			}
 			vars.set(varname, o)
-			if(doExecute(data, vars, result, includeDirs) == false) {
+			if(doExecute(data, vars, result, importDirs) == false) {
 				return(false)
 			}
 			if(index == 0) {
@@ -493,7 +508,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 					return(true)
 				}
 			}
-			if(doExecute(data, vars, result, includeDirs) == false) {
+			if(doExecute(data, vars, result, importDirs) == false) {
 				return(false)
 			}
 			return(true)
@@ -511,7 +526,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 			if(rvalue != lvalue) {
 				return(true)
 			}
-			if(doExecute(data, vars, result, includeDirs) == false) {
+			if(doExecute(data, vars, result, importDirs) == false) {
 				return(false)
 			}
 			return(true)
@@ -520,7 +535,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 			if(rvalue == lvalue) {
 				return(true)
 			}
-			if(doExecute(data, vars, result, includeDirs) == false) {
+			if(doExecute(data, vars, result, importDirs) == false) {
 				return(false)
 			}
 			return(true)
@@ -531,7 +546,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 	return(false)
 }
 
-func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuilder, includeDirs as vector<File>) private as bool
+func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuilder, importDirs as vector<File>) private as bool
 {
 	if(data == null) {
 		return(true)
@@ -560,7 +575,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 		if(tagname == "end") {
 			blockctr --
 			if(blockctr == 0 && blockdata != null) {
-				if(handleBlock(vars, blocktag, blockdata, result, includeDirs) == false) {
+				if(handleBlock(vars, blocktag, blockdata, result, importDirs) == false) {
 					Log.error(logContext, "Handling of a block failed")
 					continue
 				}
@@ -699,7 +714,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				continue
 			}
 			var ff as File
-			foreach(dir in includeDirs) {
+			foreach(dir in importDirs) {
 				ff = File.forRelativePath(filename, dir)
 				if(ff != null && ff.isFile()) {
 					break
@@ -719,12 +734,12 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				content = HTMLString.sanitize(content)
 			}
 			else if(type == "template") {
-				var t = forString(content, markerBegin, markerEnd, this.type, includeDirs)
+				var t = forString(content, markerBegin, markerEnd, this.type, importDirs)
 				if(t == null) {
 					Log.error(logContext, "Failed to parse imported template file: `" .. ff.getPath() .. "'")
 					continue
 				}
-				if(doExecute(t.getTokens(), vars, result, includeDirs) == false) {
+				if(doExecute(t.getTokens(), vars, result, importDirs) == false) {
 					Log.error(logContext, "Failed to process imported template file: `" .. ff.getPath() .. "'")
 					continue
 				}
@@ -792,10 +807,10 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 		}
 		else {
 			if(type == TYPE_HTML) {
-				onHTMLTag(vars, result, includeDirs, tagname, words)
+				onHTMLTag(vars, result, importDirs, tagname, words)
 			}
 			else if(type == TYPE_JSON) {
-				onJSONTag(vars, result, includeDirs, tagname, words)
+				onJSONTag(vars, result, importDirs, tagname, words)
 			}
 			else {
 				; // Ignore unknown tags so they can be used for extensions
@@ -824,7 +839,7 @@ func basename(path as string) private as string
 	return(v)
 }
 
-func onHTMLTag(vars as DynamicMap, result as StringBuilder, includeDirs as vector<File>, tagname as string, words as vector<string>) private
+func onHTMLTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
 {
 	if(tagname == "link") {
 		var path = substituteVariables(Vector.get(words, 1), vars)
@@ -861,7 +876,7 @@ func encodeJSONString(s as string, sb as StringBuilder)
 	}
 }
 
-func onJSONTag(vars as DynamicMap, result as StringBuilder, includeDirs as vector<File>, tagname as string, words as vector<string>) private
+func onJSONTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
 {
 	if(tagname == "quotedstring") {
 		var string = substituteVariables(Vector.get(words, 1), vars)
