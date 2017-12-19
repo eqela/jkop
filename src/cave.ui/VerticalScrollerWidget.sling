@@ -39,12 +39,7 @@ IFDEF "target_iosoc"
 
 	lang "objc" {{{
 		- (void) scrollViewDidScroll:(UIScrollView *) scrollView {
-			if([scrollView.panGestureRecognizer translationInView:scrollView].y > 0) {
-				[self onScroll:1];
-			}
-			else {
-				[self onScroll:0];
-			}
+			[self onScroll:scrollView.contentOffset.y];
 		}
 
 		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
@@ -52,12 +47,6 @@ IFDEF "target_iosoc"
 			[super touchesBegan:touches withEvent:event];
 		}
 	}}}
-
-	func onScroll(direction as int)
-	{
-		if onScrolledHandler:
-			onScrolledHandler(direction)
-	}
 }
 
 IFDEF "target_android"
@@ -65,27 +54,8 @@ IFDEF "target_android"
 	basetype !"android.widget.ScrollView" type extends
 	basetype Widget type isAlso
 
-	func onScrollChanged(x as int, y as int, oldx as int, oldy as int)
-	{
-		if not onScrolledHandler:
-			return
-		var h = Widget.getHeight(this)
-		var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
-		if((y + h) >= ch) {
-			onScrolledHandler(0)
-			return
-		}
-		if y < 0 || oldy < 0 {
-			onScrolledHandler(1)
-			return
-		}
-		if(y > oldy) {
-			onScrolledHandler(0)
-		}
-		else if (y < oldy) {
-			onScrolledHandler(1)
-		}
-	}
+	func onScrollChanged(x as int, y as int, oldx as int, oldy as int):
+		onScroll(y)
 }
 
 IFDEF "target_html"
@@ -109,6 +79,9 @@ IFDEF "target_html"
 			HTMLDOM.removeStyle(element, "overflow")
 			HTMLDOM.setStyle(element, "overflow-x", "hidden")
 		}
+		HTMLDOM.addEventListener(element, "scroll", func {
+			onScroll(lang "js" int {{{ element.scrollTop }}})
+		})
 	}
 
 	var noScrollBarStyleCreated static = false
@@ -124,8 +97,10 @@ IFDEF "target_html"
 			style = className .. "::-webkit-scrollbar { display: none; }"
 		}
 		else if HTMLDOM.isFirefox() {
-			style = className .. " { overflow-y: hidden; }\n" ..
-				className .. ":hover { overflow-y: auto; }"
+			if not HTMLDOM.isMobile() {
+				style = className .. " { overflow-y: hidden; }\n" ..
+					className .. ":hover { overflow-y: auto; }"
+			}
 		}
 		if style {
 			HTMLDOM.setInnerHTML(styleElement, style)
@@ -140,6 +115,23 @@ IFDEF "target_uwp"
 	basetype !"Windows.UI.Xaml.Controls.UserControl"
 	basetype Widget type isAlso
 	// FIXME: onScrolledHandler
+}
+
+var currentScrollY private = 0
+var lastScrollY private = 0
+var nearEnd private = false
+
+func isNearEnd as bool:
+	return nearEnd
+
+func onScroll(scrollY as int) private
+{
+	currentScrollY = scrollY
+	var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
+	if ch > 0:
+		nearEnd = ((ch - currentScrollY) < (Widget.getHeight(this) * 2)) ? true : false
+	if onScrolledHandler && lastScrollY != currentScrollY:
+		onScrolledHandler(lastScrollY < currentScrollY ? 0 : 1)
 }
 
 prop onScrolledHandler as function<void, int>

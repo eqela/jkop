@@ -245,6 +245,73 @@ IFDEF "target_macosoc"
 	basetype Widget type isAlso
 }
 
+IFDEF "target_reactjs"
+{
+	depend "js:React:react"
+	basetype !"React.Component" type extends
+	basetype Widget type isAlso
+
+	func getWidgetFontSizeHTMLString as string:
+		return String.forDouble(this.widgetFontSize) .. "px"
+
+	func getWidgetPaddingHTMLString as string:
+		return String.forInteger(widgetPadding) .. "px"
+
+	func getWidgetBackgroundColorHTMLString as string
+	{
+		if widgetBackgroundColor:
+			return HTMLDOM.colorToRGBA(widgetBackgroundColor)
+		return "rgba(0,0,0,0)"
+	}
+
+	func getWidgetTextColorHTMLString as string:
+		return HTMLDOM.colorToRGBA(widgetTextColor)
+
+	func widgetHasCustomAppearance as bool:
+		return widgetBackgroundColor || widgetTextColor || widgetPadding > 0
+
+	func getWidgetItemsAsJSX as object
+	{
+		var v as object
+		lang "js" {{{
+			v = [];
+		}}}
+		if widgetItems {
+			var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
+			while it {
+				var item = it.next()
+				if not item:
+					break
+				lang "js" {{{
+					v.push(<option value={item.key}>{item.value}</option>);
+				}}}
+			}
+		}
+		return v
+	}
+
+	lang "js" {{{
+		render() {
+			var style = {
+				fontFamily: this.widgetFontFamily,
+				fontSize: this.getWidgetFontSizeHTMLString()
+			};
+			if(this.widgetHasCustomAppearance()) {
+				style.backgroundColor = this.getWidgetBackgroundColorHTMLString();
+				style.color = this.getWidgetTextColorHTMLString();
+				style.padding = this.getWidgetPaddingHTMLString();
+				style.appearance = "none";
+				style.WebkitAppearance = "none";
+				style.MozAppearance = "none";
+				style.border = "0px";
+				style.borderRadius = "0px";
+			};
+			var opts = this.getWidgetItemsAsJSX();
+			return(<select style={style} onChange={this.onWidgetSelectionChanged} ref={(select) => { this.selectElement = select; }}>{opts}</select>);
+		}
+	}}}
+}
+
 IFDEF("target_html")
 {
 	basetype Widget
@@ -372,6 +439,11 @@ func updateWidgetFont private
 			(adapter as! MyAdapter).setWidgetPadding(widgetPadding)
 		}
 	}
+	ELSE IFDEF "target_reactjs" {
+		lang "js" {{{
+			this.forceUpdate();
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -484,6 +556,11 @@ func updateWidgetAppearance private
 			HTMLDOM.removeStyle(element, "padding")
 		}
 	}
+	ELSE IFDEF "target_reactjs" {
+		lang "js" {{{
+			this.forceUpdate();
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -540,6 +617,11 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 				HTMLDOM.appendChild(element, option)
 			}
 		}
+	}
+	ELSE IFDEF "target_reactjs" {
+		lang "js" {{{
+			this.forceUpdate();
+		}}}
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
@@ -703,6 +785,9 @@ func getSelectedWidgetIndex as int
 	ELSE IFDEF("target_html") {
 		return(lang "js" int {{{ this.element.selectedIndex }}})
 	}
+	ELSE IFDEF "target_reactjs" {
+		return lang "js" int {{{ this.selectElement.selectedIndex }}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 		return(-1)
@@ -733,6 +818,11 @@ func setSelectedWidgetIndex(index as int)
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
 			this.element.selectedIndex = v;
+		}}}
+	}
+	ELSE IFDEF "target_reactjs" {
+		lang "js" {{{
+			this.selectElement.selectedIndex = v;
 		}}}
 	}
 	ELSE {

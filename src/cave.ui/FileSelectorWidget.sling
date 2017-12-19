@@ -30,11 +30,19 @@ IFDEF("target_android")
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
 }
 
+IFDEF("target_html") {
+	var inputElement as object
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
 {
 	this.context = context
+	IFDEF("target_html") {
+		inputElement = HTMLDOM.createElement("input")
+		HTMLDOM.setAttribute(inputElement, "type", "file")
+	}
 }
 
 func openFileDialog(widget as Widget, type as string, callback as function<void, buffer, string, string, Error>)
@@ -58,8 +66,12 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 				return
 			}
 			if(resultCode != lang "java" int {{{ android.app.Activity.RESULT_OK }}}) {
-				if(cb != null) {
-					cb(null, null, null, null)
+				assert cb
+				if resultCode == lang "java" int {{{ android.app.Activity.RESULT_CANCELED }}} {
+					cb(null, null, null, Error.forCode("canceled"))
+				}
+				else {
+					cb(null, null, null, Error.forCode("unknownResult"))
 				}
 				return
 			}
@@ -133,8 +145,9 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
-			function handleFiles() {
-				var files = fileSelector.files;
+			var elm = this.inputElement;
+			elm.addEventListener("change", function fileHandler() {
+				var files = elm.files;
 				if(typeof files === "undefined" || files === null) {
 					console.log("undefined files");
 					return;
@@ -145,7 +158,7 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 					return;
 				}
 				var mimeType = file.type;
-				var path = fileSelector.value;
+				var path = elm.value;
 				var filename = path.substring(path.lastIndexOf("\\")+1);
 				var reader = new FileReader();
 				reader.onload = function(res) {
@@ -158,16 +171,14 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 							else {
 								cb(result, filename, mimeType, null);
 							}
+							elm.removeEventListener("change", fileHandler);
 						}
+
 					}
 				};
 				reader.readAsArrayBuffer(file);
-			}
-			var fileSelector = document.createElement('input');
-			fileSelector.setAttribute('type', 'file');
-			fileSelector.setAttribute('accept', type);
-			fileSelector.addEventListener("change", handleFiles, false);
-			fileSelector.click();
+			});
+			elm.click();
 		}}}
 	}
 	ELSE {

@@ -52,7 +52,14 @@ func asString(obj as object) static as string
 		return forBoolean((obj as! BooleanObject).toBoolean())
 	if obj is CharacterObject:
 		return forCharacter((obj as! CharacterObject).toCharacter())
-	// FIXME: BufferObject
+	if obj is buffer:
+		return forBufferHex(obj as! buffer)
+	if obj is BufferObject {
+		var v = (obj as! BufferObject).toBuffer()
+		if not v:
+			return ""
+		return forBufferHex(v)
+	}
 	var js = JSONEncoder.encode(obj)
 	if js:
 		return js
@@ -64,55 +71,43 @@ func asString(obj as object) static as string
 ** Converts an integer to a string
 **
 
-func asString(value as int) static as string
-{
-	return(forInteger(value))
-}
+func asString(value as int) static as string:
+	return forInteger(value)
 
 **
 ** Converts a double to a string
 **
 
-func asString(value as double) static as string
-{
-	return(forDouble(value))
-}
+func asString(value as double) static as string:
+	return forDouble(value)
 
 **
 ** Converts a buffer to a string
 **
 
-func asString(value as buffer) static as string
-{
-	return(forUTF8Buffer(value))
-}
+func asString(value as buffer) static as string:
+	return forUTF8Buffer(value)
 
 **
 ** Converts a boolean to a string
 **
 
-func asString(value as bool) static as string
-{
-	return(forBoolean(value))
-}
+func asString(value as bool) static as string:
+	return forBoolean(value)
 
 **
 ** Converts a character to a string
 **
 
-func asString(value as char) static as string
-{
-	return(forCharacter(value))
-}
+func asString(value as char) static as string:
+	return forCharacter(value)
 
 **
 ** Converts a float to a string
 **
 
-func asString(value as float) static as string
-{
-	return(forFloat(value))
-}
+func asString(value as float) static as string:
+	return forFloat(value)
 
 **
 ** Checks if a string is empty (ie., either the object is a null pointer or
@@ -133,10 +128,8 @@ func isEmpty(str as string) static as bool
 ** empty, false if the string is empty.
 **
 
-func isNotEmpty(str as string) static as bool
-{
+func isNotEmpty(str as string) static as bool:
 	return not isEmpty(str)
-}
 
 **
 ** Constructs a new string, given a buffer of bytes and the name of the
@@ -145,27 +138,21 @@ func isNotEmpty(str as string) static as bool
 
 func forBuffer(data as buffer, encoding as string) static as string
 {
-	if(data == null) {
-		return(null)
-	}
-	if(equalsIgnoreCase("UTF8", encoding) || equalsIgnoreCase("UTF-8", encoding)) {
-		return(forUTF8Buffer(data))
-	}
-	if(equalsIgnoreCase("UCS2", encoding) || equalsIgnoreCase("UCS-2", encoding)) {
-		return(forUCS2Buffer(data))
-	}
-	if(equalsIgnoreCase("ASCII", encoding)) {
-		return(forASCIIBuffer(data))
-	}
-	return(null)
+	assert data
+	if equalsIgnoreCase("UTF8", encoding) || equalsIgnoreCase("UTF-8", encoding):
+		return forUTF8Buffer(data)
+	if equalsIgnoreCase("UCS2", encoding) || equalsIgnoreCase("UCS-2", encoding):
+		return forUCS2Buffer(data)
+	if equalsIgnoreCase("ASCII", encoding):
+		return forASCIIBuffer(data)
+	return null
 }
 
 IFDEF("target_cs") {
 	func getDataLength(data as buffer) private static as int
 	{
-		if(data == null) {
-			return(0)
-		}
+		if data == null:
+			return 0
 		var v as int
 		lang "cs" {{{
 			v = data.Length;
@@ -178,7 +165,7 @@ IFDEF("target_cs") {
 				}
 			}
 		}}}
-		return(v)
+		return v
 	}
 }
 
@@ -189,44 +176,38 @@ IFDEF("target_cs") {
 
 func forASCIIBuffer(data as buffer #used) static as string
 {
-	if(data == null) {
-		return(null)
+	assert data
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}})
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}})
-	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		var v as string
 		lang "java" {{{
 			try {
 				v = new java.lang.String(data, "US-ASCII");
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				System.err.println(e.toString());
 			}
 		}}}
-		return(v)
+		return v
 	}
-	ELSE IFDEF("target_js") {
-		if(data == null) {
-			return(null)
-		}
+	ELSE IFDEF "target_js" {
 		var sb = new StringBuilder()
 		var uintArray as array<uint8>
 		lang "js" {{{
 			uintArray = new Uint8Array(data);
 		}}}
-		for(var i = 0; i < SIZE(uintArray); i++) {
+		for(var i = 0; i < SIZE(uintArray); i++):
 			sb.append(lang "js" string {{{ String.fromCharCode(uintArray[i]) }}})
-		}
-		return(sb.toString())
+		return sb.toString()
 	}
 	ELSE {
-		ERROR("Not implemented.")
-		return(null)
+		ERROR "Not implemented."
+		return null
 	}
 }
 
@@ -237,44 +218,41 @@ func forASCIIBuffer(data as buffer #used) static as string
 
 func forUTF8Buffer(data as buffer #used) static as string
 {
-	if(data == null) {
-		return(null)
+	assert data
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}})
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}})
-	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		var v as string
 		lang "java" {{{
 			try {
 				v = new java.lang.String(data, "UTF-8");
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				System.err.println(e.toString());
 			}
 		}}}
-		return(v)
+		return v
 	}
-	ELSE IFDEF("target_js") {
+	ELSE IFDEF "target_js" {
 		var sb = new StringBuilder()
-		var ci = new CharacterIteratorForBuffer(data)
+		var ci = CharacterIteratorForBuffer.forBuffer(data)
 		ci.moveToNextChar()
 		loop {
-			if(ci.hasEnded()) {
+			if ci.hasEnded():
 				break
-			}
 			var c = ci.getCurrentChar()
 			sb.append(c)
 			ci.moveToNextChar()
 		}
-		return(sb.toString())
+		return sb.toString()
 	}
 	ELSE {
-		ERROR("Not implemented.")
-		return(null)
+		ERROR "Not implemented."
+		return null
 	}
 }
 
@@ -294,7 +272,7 @@ func forUCS2Buffer(data as buffer #used) static as string
 			try {
 				v = new java.lang.String(data, "UCS-2");
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				System.err.println(e.toString());
 			}
 		}}}
@@ -507,6 +485,25 @@ func forIntegerHex(vv as int #used) static as string
 }
 
 **
+** Converts a buffer of bytes to a string using the "base-16" or hexadecimal notation.
+**
+
+func forBufferHex(buffer as buffer) static as string
+{
+	var size = assert Buffer.getSize(buffer)
+	var sb = new StringBuilder()
+	var p = 0
+	while p < size {
+		var s = forIntegerHex(Buffer.getByte(buffer, p))
+		if getLength(s) < 2:
+			sb.append('0')
+		sb.append(s)
+		p ++
+	}
+	return sb.toString()
+}
+
+**
 ** Converts a character to a string. The result will be a single-character string.
 **
 
@@ -607,41 +604,33 @@ func toUTF8Buffer(str as string) static as buffer
 
 func toBuffer(str as string, charset as string) static as buffer
 {
-	if(str == null || charset == null) {
-		return(null)
-	}
-	IFDEF("target_objc") {
-		if(equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset)) {
+	assert str
+	assert charset
+	IFDEF "target_objc" {
+		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
 			var v as buffer
 			lang "objc" {{{
 				v = [[str dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
 			}}}
-			return(v)
+			return v
 		}
 	}
-	var bytes = getBytesUnsigned(str, charset)
-	if(bytes == null) {
-		return(null)
-	}
-	var c = SIZE(bytes)
-	var bb = MALLOC(c)
+	var bytes = assert getBytesUnsigned(str, charset)
+	var c = SIZE bytes
+	var bb = MALLOC c
 	var n as int
-	for(n=0; n<c; n++) {
+	for(n=0; n<c; n++):
 		Buffer.setByte(bb, n, bytes[n])
-	}
-	return(bb)
+	return bb
 }
 
-func getBytesUnsigned(str as string) private static as uint8[]
-{
-	return(getBytesUnsigned(str, "UTF-8"))
-}
+func getBytesUnsigned(str as string) private static as uint8[]:
+	return getBytesUnsigned(str, "UTF-8")
 
 func getBytesUnsigned(str as string #used, charset as string) private static as uint8[]
 {
-	if(str == null || charset == null) {
-		return(null)
-	}
+	assert str
+	assert charset
 	IFDEF("target_cs") {
 		var bytes as uint8[]
 		lang "cs" {{{
@@ -665,7 +654,7 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 			try {
 				v = str.getBytes(charset);
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				System.err.println(e.toString());
 			}
 		}}}
@@ -745,7 +734,7 @@ func getBytesSigned(str as string #used, charset as string) private static as in
 			try {
 				v = str.getBytes(charset);
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				System.err.println(e.toString());
 			}
 		}}}
@@ -1702,6 +1691,17 @@ func toCharArray(str as string #used) static as char[]
 	ELSE IFDEF "target_js" {
 		return lang "js" char[] {{{ str }}}
 	}
+	ELSE IFDEF "target_objc" {
+		var ca as char[]
+		lang "objc" {{{
+			ca = [[NSMutableArray alloc] init];
+			for (int i = 0; i < [str length]; i++) {
+				char cchar = [str characterAtIndex:i];
+				[ca addObject:[NSNumber numberWithChar:cchar]];
+			}
+		}}}
+		return ca
+	}
 	ELSE {
 		ERROR "Not Implemented"
 		return null
@@ -1894,7 +1894,7 @@ func toDouble(str as string #used) static as double
 					v = java.lang.Double.parseDouble(str);
 				}
 			}
-			catch(Exception e) {
+			catch(java.lang.Exception e) {
 				v = 0.0;
 			}
 		}}}
@@ -1922,7 +1922,7 @@ func toDouble(str as string #used) static as double
 **
 
 func iterate(string as string) static as CharacterIterator:
-	return new CharacterIteratorForString(string)
+	return CharacterIteratorForString.forString(string)
 
 **
 ** Creates a new string that contains the same contents as "string", but with

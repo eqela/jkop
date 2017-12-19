@@ -55,6 +55,9 @@ func forPath(path as string) static as this
 	ELSE IFDEF "target_objc" {
 		return FileForObjC.forPath(path)
 	}
+	ELSE IFDEF "target_nodejs" {
+		return FileForNodeJS.forPath(path)
+	}
 	ELSE {
 		ERROR "Not implemented."
 		return new FileInvalid()
@@ -326,9 +329,20 @@ func createFifo virtual as bool
 
 func isExecutable virtual as bool
 {
-	if OS.isWindows():
-		return hasExtension("exe") || hasExtension("bat") || hasExtension("com")
-	return stat().getExecutable()
+	IFDEF "target_browser" {
+		return false
+	}
+	ELSE IFDEF "target_android" {
+		return stat().getExecutable()
+	}
+	ELSE IFDEF "target_darwin" {
+		return stat().getExecutable()
+	}
+	ELSE {
+		if OS.isWindows():
+			return hasExtension("exe") || hasExtension("bat") || hasExtension("cmd") || hasExtension("com")
+		return stat().getExecutable()
+	}
 }
 
 **
@@ -443,7 +457,7 @@ func onError(v as string) protected
 
 func readLines as Iterator<string>
 {
-	var rd = assert read()
+	var rd = assert PrintReader.forReader(read())
 	return new ReadLineIterator().setReader(rd)
 }
 
@@ -666,7 +680,7 @@ func withExtension(ext as string) virtual as this
 **
 ** Returns a new file object that represents the same path as the current object,
 ** but converted into executable format of the same, if applicable. In practice,
-** this adds the executable filename extension "exe", "com" or "bat" on a Windows
+** this adds the executable filename extension "exe", "com", "bat" or "cmd" on a Windows
 ** based platform, if such a file exists. While this would have no effect on a
 ** Unix-like operating system, you can use this for cross platform compatibility
 ** between Windows and other operating systems.
@@ -674,21 +688,35 @@ func withExtension(ext as string) virtual as this
 
 func asExecutable virtual as this
 {
-	if OS.isWindows() {
-		if hasExtension("exe") == false && hasExtension("bat") == false && hasExtension("com") == false {
-			var exe = withExtension("exe")
-			if exe.isFile():
-				return exe
-			var bat = withExtension("bat")
-			if bat.isFile():
-				return bat
-			var com = withExtension("com")
-			if com.isFile():
-				return com
-			return exe
-		}
+	IFDEF "target_android" {
+		return this
 	}
-	return this
+	ELSE IFDEF "target_darwin" {
+		return this
+	}
+	ELSE IFDEF "target_browser" {
+		return this
+	}
+	ELSE {
+		if OS.isWindows() {
+			if hasExtension("exe") == false && hasExtension("bat") == false && hasExtension("cmd") == false && hasExtension("com") == false {
+				var exe = withExtension("exe")
+				if exe.isFile():
+					return exe
+				var bat = withExtension("bat")
+				if bat.isFile():
+					return bat
+				var cmd = withExtension("cmd")
+				if cmd.isFile():
+					return cmd
+				var com = withExtension("com")
+				if com.isFile():
+					return com
+				return exe
+			}
+		}
+		return this
+	}
 }
 
 **
@@ -897,9 +925,10 @@ func getContentsBuffer virtual as buffer
 	onError(null)
 	var reader = assert read()
 	var sz = reader.getSize()
-	var b = MALLOC(sz)
-	if reader.read(b) < sz:
-		return null
+	var b = MALLOC sz
+	var rsz = reader.read(b)
 	reader.close()
+	if rsz < sz:
+		return null
 	return b
 }

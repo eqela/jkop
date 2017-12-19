@@ -71,7 +71,36 @@ IFDEF "target_html"
 	func prepareElement(element as object) override
 	{
 		base.prepareElement(element)
-		HTMLDOM.setStyle(element, "overflow-x", "scroll")
+		if HTMLDOM.isFirefox() == false {
+			HTMLDOM.setStyle(element, "overflow-x", "scroll")
+		}
+		else {
+			HTMLDOM.removeStyle(element, "overflow")
+			HTMLDOM.setStyle(element, "overflow-y", "hidden")
+		}
+	}
+
+	var noScrollBarStyleCreated static = false
+
+	func createNoScrollBarStyle static
+	{
+		if noScrollBarStyleCreated:
+			return
+		var styleElement = HTMLDOM.createElement("style")
+		var className = "." .. VALUE "__THIS__" .. "WithNoScrollBar"
+		var style as string
+		if HTMLDOM.isWebKit() {
+			style = className .. "::-webkit-scrollbar { display: none; }"
+		}
+		else if HTMLDOM.isFirefox() {
+			style = className .. " { overflow-x: hidden; }\n" ..
+				className .. ":hover { overflow-x: auto; }"
+		}
+		if style {
+			HTMLDOM.setInnerHTML(styleElement, style)
+			HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), styleElement)
+		}
+		noScrollBarStyleCreated = true
 	}
 }
 
@@ -141,4 +170,19 @@ func addWidget(widget as Widget) as this
 {
 	Widget.addChild(this, widget)
 	return(this)
+}
+
+func setWidgetScrollBarDisabled(value as bool)
+{
+	IFDEF "target_html" {
+		if value {
+			createNoScrollBarStyle()
+			HTMLDOM.setStyle(element, "-ms-overflow-style", "none")
+			HTMLDOM.addToClassList(element, VALUE "__THIS__" .. "WithNoScrollBar")
+		}
+		else {
+			HTMLDOM.setStyle(element, "-ms-overflow-style", "scrollbar")
+			HTMLDOM.removeFromClassList(element, VALUE "__THIS__" .. "WithNoScrollBar")
+		}
+	}
 }

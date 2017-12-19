@@ -58,6 +58,14 @@ IFDEF "target_iosoc"
 			return YES;
 		}
 
+		- (void)textFieldDidBeginEditing:(UITextField *)textField {
+			[self onFocusListener];
+		}
+
+		- (void)textFieldDidEndEditing:(UITextField *)textField {
+			[self onLoseFocusListener];
+		}
+
 		- (CGRect)textRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
 		}
@@ -72,6 +80,25 @@ IFDEF "target_macosoc"
 {
 	basetype !"NSTextField" type extends
 	basetype Widget type isAlso
+}
+
+IFDEF "target_reactjs"
+{
+	depend "js:React:react"
+	basetype !"React.Component" type extends
+	basetype Widget type isAlso
+
+	lang "js" {{{
+		render() {
+			function handleKeypress(e) {
+				var k = e.which || e.keyCode;
+				if(k == 13) {
+					this.onEnterKeyListener();
+				}
+			};
+			return(<input border="0" onInput={onChangeListener} onKeypress={handleKeypress} />);
+		}
+	}}}
 }
 
 IFDEF "target_html"
@@ -165,6 +192,16 @@ ctor(context as GuiApplicationContext)
 						return(true);
 					}
 					return(false);
+				}
+			});
+			setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
+				public void onFocusChange(android.view.View view, boolean hasFocus) {
+					if(hasFocus) {
+						onFocusListener();
+					}
+					else {
+						onLoseFocusListener();
+					}
 				}
 			});
 		}}}
@@ -683,9 +720,19 @@ func updateWidgetFont private
 			HTMLDOM.setStyle(element, "font-weight", "bold")
 	}
 	ELSE IFDEF("target_iosoc") {
-		// FIXME: Setting the font family
+		var ff = widgetFontFamily
+		if cape.String.isEmpty(ff):
+			ff = "Arial"
 		lang "objc" {{{
-			[self setMinimumFontSize:widgetFontSize];
+			UIFont* font = [UIFont fontWithName:ff size:widgetFontSize];
+			if(font == nil) {
+				font = [UIFont fontWithName:@"Arial" size:widgetFontSize];
+			}
+			if(widgetFontBold == YES) {
+				UIFontDescriptor * fontD = [font.fontDescriptor fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold];
+    			font = [UIFont fontWithDescriptor:fontD size:widgetFontSize];
+			}
+			[self setFont:font];
 		}}}
 	}
 	ELSE IFDEF("target_android") {

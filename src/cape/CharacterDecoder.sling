@@ -28,7 +28,7 @@ const UTF8 = 0
 const ASCII = 1
 const UCS2 = 2
 var encoding = 0
-var current = 0 as char
+var current protected = 0 as char
 var currentSize = 0
 var ended = false
 
@@ -40,268 +40,209 @@ func copyTo(o as this)
 	o.ended = ended
 }
 
-func moveToPreviousByte virtual as bool
-{
-	return(false)
-}
+func moveToPreviousByte virtual as bool:
+	return false
 
-func moveToNextByte virtual as bool
-{
-	return(false)
-}
+func moveToNextByte virtual as bool:
+	return false
 
-func getCurrentByte virtual as int
-{
-	return(0)
-}
+func getCurrentByte virtual as int:
+	return 0
 
 func setEncoding(ee as string) as this
 {
-	if(String.equalsIgnoreCase(ee, "UTF8") || String.equalsIgnoreCase(ee, "UTF-8")) {
+	if String.equalsIgnoreCase(ee, "UTF8") || String.equalsIgnoreCase(ee, "UTF-8") {
 		encoding = UTF8
 		currentSize = 1
-		return(this)
+		return this
 	}
-	if(String.equalsIgnoreCase(ee, "ASCII")) {
+	if String.equalsIgnoreCase(ee, "ASCII") {
 		encoding = ASCII
 		currentSize = 1
-		return(this)
+		return this
 	}
-	if(String.equalsIgnoreCase(ee, "UCS2") || String.equalsIgnoreCase(ee, "UCS-2")) {
+	if String.equalsIgnoreCase(ee, "UCS2") || String.equalsIgnoreCase(ee, "UCS-2") {
 		encoding = UCS2
 		currentSize = 2
-		return(this)
+		return this
 	}
-	return(null)
+	return null
 }
 
 func moveToPreviousChar as bool
 {
 	var cs = currentSize
-	if(cs > 1) {
+	if cs > 1 {
 		var n as int
-		for(n=0; n<cs-1; n++) {
-			if(moveToPreviousByte() == false) {
-				return(false)
-			}
-		}
+		for(n=0; n<cs-1; n++):
+			assert moveToPreviousByte()
 	}
 	var v = doMoveToPreviousChar()
-	if(v == false && cs > 1) {
+	if v == false && cs > 1 {
 		var n as int
-		for(n=0; n<cs-1; n++) {
+		for(n=0; n<cs-1; n++):
 			moveToNextByte()
-		}
 	}
-	if(v && ended) {
+	if v && ended:
 		ended = false
-	}
-	return(v)
+	return v
 }
 
 func doMoveToPreviousChar as bool
 {
-	if(encoding == UTF8) {
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+	if encoding == UTF8 {
+		assert moveToPreviousByte()
 		var c2 = getCurrentByte() as int
-		if(c2 <= 0x7F) {
+		if c2 <= 0x7F {
 			current = c2 as char
 			currentSize = 1
-			return(true)
+			return true
 		}
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+		assert moveToPreviousByte()
 		var c1 = getCurrentByte() as int
 		if((c1 & 0xC0) == 0xC0) {
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var v = ((c1 & 0x1F) << 6) as int
 			v += (c2 & 0x3F) as int
 			current = v as char
 			currentSize = 2
-			return(true)
+			return true
 		}
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+		assert moveToPreviousByte()
 		var c0 = getCurrentByte() as int
 		if((c0 & 0xE0) == 0xE0) {
-			if(moveToNextByte() == false) {
-				return(false)
-			}
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
+			assert moveToNextByte()
 			var v = ((c0 & 0x0F) << 12) as int
 			v += ((c1 & 0x3F) << 6) as int
 			v += (c2 & 0x3F) as int
 			current = v as char
 			currentSize = 3
-			return(true)
+			return true
 		}
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+		assert moveToPreviousByte()
 		var cm1 = getCurrentByte() as int
 		if((cm1 & 0xF0) == 0xF0) {
-			if(moveToNextByte() == false) {
-				return(false)
-			}
-			if(moveToNextByte() == false) {
-				return(false)
-			}
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
+			assert moveToNextByte()
+			assert moveToNextByte()
 			var v = ((cm1 & 0x07) << 18) as int
 			v += ((c0 & 0x3F) << 12) as int
 			v += ((c1 & 0x3F) << 6) as int
 			v += (c2 & 0x3F) as int
 			current = v as char
 			currentSize = 4
-			return(true)
+			return true
 		}
 		moveToNextByte()
 		moveToNextByte()
 		moveToNextByte()
 		moveToNextByte()
-		return(false)
+		return false
 	}
-	if(encoding == ASCII) {
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+	if encoding == ASCII {
+		assert moveToPreviousByte()
 		current = getCurrentByte() as char
-		return(true)
+		return true
 	}
-	if(encoding == UCS2) {
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+	if encoding == UCS2 {
+		assert moveToPreviousByte()
 		var c1 = getCurrentByte() as int
-		if(moveToPreviousByte() == false) {
-			return(false)
-		}
+		assert moveToPreviousByte()
 		var c0 = getCurrentByte() as int
-		if(moveToNextByte() == false) {
-			return(false)
-		}
+		assert moveToNextByte()
 		current = (c0 << 8 & c1) as char
-		return(true)
+		return true
 	}
-	return(false)
+	PRINT "Unsupported encoding in CharacterDecoder: " .. String.forInteger(encoding)
+	return false
 }
 
 func moveToNextChar as bool
 {
 	var v = doMoveToNextChar()
-	if(v == false) {
+	if v == false {
 		current = 0 as char
 		ended = true
 	}
-	return(v)
+	return v
 }
 
 func doMoveToNextChar as bool
 {
-	if(encoding == UTF8) {
-		if(moveToNextByte() == false) {
-			return(false)
-		}
+	if encoding == UTF8 {
+		assert moveToNextByte()
 		var b1 = getCurrentByte()
 		var v = -1
 		if((b1 & 0xF0) == 0xF0) { // 4 bytes
 			v = ((b1 & 0x07) << 18) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b2 = getCurrentByte()
 			v += ((b2 & 0x3F) << 12) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b3 = getCurrentByte()
 			v += ((b3 & 0x3F) << 6) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b4 = getCurrentByte()
 			v += (b4 & 0x3F) as int
 			currentSize = 4
 		}
 		else if((b1 & 0xE0) == 0xE0) { // 3 bytes
 			v = ((b1 & 0x0F) << 12) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b2 = getCurrentByte()
 			v += ((b2 & 0x3F) << 6) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b3 = getCurrentByte()
 			v += (b3 & 0x3F) as int
 			currentSize = 3
 		}
 		else if((b1 & 0xC0) == 0xC0) { // 2 bytes
 			v = ((b1 & 0x1F) << 6) as int
-			if(moveToNextByte() == false) {
-				return(false)
-			}
+			assert moveToNextByte()
 			var b2 = getCurrentByte()
 			v += (b2 & 0x3F) as int
 			currentSize = 2
 		}
-		else if(b1 <= 0x7F) { // 1 byte
+		else if b1 <= 0x7F { // 1 byte
 			v = b1 as int
 			currentSize = 1
 		}
 		else { // invalid byte
-			return(false)
+			return false
 		}
 		current = v as char
-		return(true)
+		return true
 	}
-	if(encoding == ASCII) {
-		if(moveToNextByte() == false) {
-			return(false)
-		}
+	if encoding == ASCII {
+		assert moveToNextByte()
 		current = getCurrentByte() as char
-		return(true)
+		return true
 	}
-	if(encoding == UCS2) {
-		if(moveToNextByte() == false) {
-			return(false)
-		}
+	if encoding == UCS2 {
+		assert moveToNextByte()
 		var c0 = getCurrentByte() as int
-		if(moveToNextByte() == false) {
-			return(false)
-		}
+		assert moveToNextByte()
 		var c1 = getCurrentByte() as int
 		current = (c0 << 8 & c1) as char
-		return(true)
+		return true
 	}
-	return(false)
+	PRINT "Unsupported encoding in CharacterDecoder: " .. String.forInteger(encoding)
+	return false
 }
 
-func getCurrentChar as char
-{
-	return(current)
-}
+func getCurrentChar as char:
+	return current
 
 func getNextChar as char
 {
-	if(moveToNextChar() == false) {
-		return(0 as char)
-	}
-	return(current)
+	if moveToNextChar() == false:
+		return 0 as char
+	return current
 }
 
-func hasEnded as bool
-{
-	return(ended)
-}
+func hasEnded as bool:
+	return ended
+
+func getCurrentPosition abstract as int
+func setCurrentPosition(position as int) abstract

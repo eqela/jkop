@@ -26,8 +26,8 @@ class is ScreenAwareWidget imports capex.map #widget:
 
 IFDEF("target_android")
 {
-	depend "gradle:com.google.android.gms:play-services-maps:9.0.0"
-	depend "gradle:com.google.android.gms:play-services-location:9.0.0"
+	depend "gradle:com.google.android.gms:play-services-maps:11.0.0"
+	depend "gradle:com.google.android.gms:play-services-location:11.0.0"
 	depend "androidPermission:android.permission.INTERNET"
 	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
 	basetype !"com.google.android.gms.maps.MapView" type extends
@@ -85,11 +85,12 @@ IFDEF("target_android")
 			settings.setIndoorLevelPickerEnabled(true);
 			settings.setMapToolbarEnabled(true);
 			settings.setMyLocationButtonEnabled(false);
-			settings.setRotateGesturesEnabled(true);
+			settings.setRotateGesturesEnabled(mapSettings.getCanRotate());
+			settings.setTiltGesturesEnabled(mapSettings.getCanTilt());
+			settings.setZoomGesturesEnabled(mapSettings.getCanZoom());
 			settings.setScrollGesturesEnabled(true);
-			settings.setTiltGesturesEnabled(true);
 			settings.setZoomControlsEnabled(true);
-			settings.setZoomGesturesEnabled(true);
+			mapSettings.setSettingObject(settings);
 			map.setBuildingsEnabled(true);
 			map.setIndoorEnabled(true);
 			map.setMyLocationEnabled(false);
@@ -116,12 +117,30 @@ IFDEF("target_android")
 			map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
 				public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
 					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
+					if(mkr.details == null) {
+						return(null);
+					}
 					cave.ui.LabelWidget tx = cave.ui.LabelWidget.forText(context, mkr.details);
 					return(tx);
 				}
 
 				public android.view.View getInfoWindow(com.google.android.gms.maps.model.Marker marker) {
 					return(null);
+				}
+			});
+			map.setOnCameraMoveStartedListener(new com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener() {
+				public void onCameraMoveStarted(int reason) {
+					onCameraStartMoving();
+				}
+			});
+			map.setOnCameraMoveListener(new com.google.android.gms.maps.GoogleMap.OnCameraMoveListener() {
+				public void onCameraMove() {
+					onCameraMoving();
+				}
+			});
+			map.setOnCameraIdleListener(new com.google.android.gms.maps.GoogleMap.OnCameraIdleListener() {
+				public void onCameraIdle() {
+					onCameraStopMoving();
 				}
 			});
 		}}}
@@ -345,14 +364,29 @@ IFDEF("target_iosoc")
 		{
 			if(self->mapInitialized == false) {
 				self->mapInitialized = true;
+				[self placeQueuedMarkers];
+				if(self->coordinateQueue != nil) {
+					[self doZoomToCoordinates];
+				}
+				if(self->centerQueue != nil) {
+					[self doMoveToCenter];
+				}
 			}
-			[self placeQueuedMarkers];
-			if(self->coordinateQueue != nil) {
-				[self doZoomToCoordinates];
-			}
-			if(self->centerQueue != nil) {
-				[self doMoveToCenter];
-			}
+		}
+
+		- (void) mapView:(GMSMapView *)mapView willMove:(BOOL)gesture
+		{
+			[self onCameraStartMoving];
+		}
+
+		- (void) mapView:(GMSMapView *)mapView didChangeCameraPosition:(GMSCameraPosition *)position
+		{
+			[self onCameraMoving];
+		}
+
+		- (void) mapView:(GMSMapView *)mapView idleAtCameraPosition:(GMSCameraPosition *)position
+		{
+			[self onCameraStopMoving];
 		}
 	}}}
 
@@ -480,11 +514,30 @@ class MyMapMarker is MapMarker
 					((com.google.android.gms.maps.model.Marker)markerObject).remove();
 				}}}
 			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setMap:nil];
+				}}}
+			}
 			ELSE {
 				ERROR "Not implemented."
 			}
 		}
 		removed = true
+	}
+
+	func rotate(deg as double)
+	{
+		IFDEF "target_android" {
+			lang "java" {{{
+				((com.google.android.gms.maps.model.Marker)markerObject).setRotation((float)deg);
+			}}}
+		}
+		ELSE IFDEF "target_iosoc" {
+			lang "objc" {{{
+				[(GMSMarker*)self->markerObject setRotation:deg];
+			}}}
+		}
 	}
 
 	func setInfoDetail(dtl as string, callback as function)
@@ -515,6 +568,92 @@ class MyMapMarker is MapMarker
 	}
 }
 
+class MapCamera public
+{
+	prop angle as double
+	prop bearing as double
+	prop zoom as double
+	prop latitude as double
+	prop longitude as double
+}
+
+class MyMapSettings public
+{
+	var canZoom = true
+	var canTilt = true
+	var canRotate = true
+	prop settingObject as object
+
+	func setCanZoom(enable as bool)
+	{
+		canZoom = enable
+		if settingObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.UiSettings)settingObject).setZoomGesturesEnabled(canZoom);
+				}}}
+			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setZoomGestures:canZoom];
+				}}}
+			}
+			ELSE {
+				"Not implemented"
+			}
+		}
+	}
+
+	func setCanTilt(enable as bool)
+	{
+		canTilt = enable
+		if settingObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.UiSettings)settingObject).setTiltGesturesEnabled(canTilt);
+				}}}
+			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setTiltGestures:canTilt];
+				}}}
+			}
+			ELSE {
+				"Not implemented"
+			}
+		}
+	}
+
+	func setCanRotate(enable as bool)
+	{
+		canRotate = enable
+		if settingObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.UiSettings)settingObject).setRotateGesturesEnabled(canRotate);
+				}}}
+			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setRotateGestures:canRotate];
+				}}}
+			}
+			ELSE {
+				"Not implemented"
+			}
+		}
+	}
+
+	func getCanZoom as bool:
+		return canZoom
+
+	func getCanTilt as bool:
+		return canTilt
+
+	func getCanRotate as bool:
+		return canRotate
+}
+
 func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
 {
 	IFDEF("target_iosoc") {
@@ -537,11 +676,17 @@ prop defaultZoomLevel = 14
 prop zoomInCenter = true
 prop streetViewEnabled as bool
 prop markerSize as int
+prop widgetMapCameraStartMovingHandler as function
+prop widgetMapCameraMovingHandler as function
+prop widgetMapCameraStopMovingHandler as function
 var context as GuiApplicationContext
 var mapClickHandler as function<void,double,double>
 var markerQueue as vector<MyMapMarker>
 var coordinateQueue as vector<DynamicMap>
+var coordinateQueueMoveWithAnimation as bool
 var centerQueue as GeoLocation
+var centerQueueMoveWithAnimation as bool
+var mapSettings as MyMapSettings
 var mapInitialized = false
 
 ctor(context as GuiApplicationContext) private
@@ -554,6 +699,7 @@ ctor(context as GuiApplicationContext) private
 	}
 	this.context = context
 	markerSize = context.getHeightValue("6mm")
+	mapSettings = new MyMapSettings()
 }
 
 func onWidgetAddedToScreen(screen as ScreenForWidget)
@@ -569,10 +715,11 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			[settings setCompassButton:YES];
 			[settings setIndoorPicker:YES];
 			[settings setMyLocationButton:YES];
-			[settings setRotateGestures:YES];
+			[settings setRotateGestures:[mapSettings getCanRotate]];
 			[settings setScrollGestures:YES];
-			[settings setTiltGestures:YES];
-			[settings setZoomGestures:YES];
+			[settings setTiltGestures:[mapSettings getCanTilt]];
+			[settings setZoomGestures:[mapSettings getCanZoom]];
+			[mapSettings setSettingObject: settings];
 		}}}
 		if(zoomInCenter) {
 			lang "objc" {{{
@@ -644,7 +791,7 @@ func placeQueuedMarkers
 func doAddMapMarker(marker as MyMapMarker) private
 {
 	IFDEF("target_html") {
-		var ico #used = marker.getIcon() as ImageForHTML
+		var ico #used = marker.getIcon() as ImageForBrowser
 		lang "js" {{{
 			var mkropt = { position: { lat: marker.getLat(), lng: marker.getLon() },
 				map: this.mapObject,
@@ -687,10 +834,17 @@ func doAddMapMarker(marker as MyMapMarker) private
 		markers[markerId]= marker
 	}
 	ELSE IFDEF("target_iosoc") {
+		var img as ImageForIOS
+		if marker.getIcon() {
+			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForIOS
+		}
 		lang "objc" {{{
 			GMSMarker* mm = [GMSMarker markerWithPosition:CLLocationCoordinate2DMake([marker getLat], [marker getLon])]; 
 			mm.title = [marker getTitle];
 			// mm.label = [marker getLabel];
+			if(img != nil) {
+				mm.icon = img->uiImage;
+			}
 			mm.map = self;
 			marker->markerObject = mm;
 		}}}
@@ -700,48 +854,78 @@ func doAddMapMarker(marker as MyMapMarker) private
 	}
 }
 
-func moveToCenter(lat as double, lon as double)
+func moveToCenter(lat as double, lon as double, animated as bool = false)
 {
 	centerQueue = new GeoLocation().setLatitude(lat).setLongitude(lon)
+	centerQueueMoveWithAnimation = animated
 	if mapInitialized:
 		doMoveToCenter()
 }
 
-func doMoveToCenter
+func doMoveToCenter private
 {
 	assert centerQueue
-	IFDEF("target_iosoc") {
-		lang "objc" {{{
-			GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:[centerQueue getLatitude] longitude:[centerQueue getLongitude] zoom:self->defaultZoomLevel
-				bearing:0 viewingAngle:45];
-			[self animateToCameraPosition:camera];
+	moveCamera(new MapCamera()
+		.setLatitude(centerQueue.getLatitude())
+		.setLongitude(centerQueue.getLongitude())
+		.setZoom(defaultZoomLevel)
+		.setAngle(45)
+		.setBearing(0), centerQueueMoveWithAnimation)
+}
+
+func moveCamera(camera as MapCamera, animated as bool)
+{
+	assert camera
+	IFDEF "target_android" {
+		lang "java" {{{
+			com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
+				.target(new com.google.android.gms.maps.model.LatLng(camera.getLatitude(), camera.getLongitude()))
+				.zoom((float)camera.getZoom())
+				.bearing((float)camera.getBearing())
+				.tilt((float)camera.getAngle())
+				.build();
+			com.google.android.gms.maps.CameraUpdate update = com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition);
+			if(animated) {
+				gmap.animateCamera(update);
+			}
+			else {
+				gmap.moveCamera(update);
+			}
 		}}}
 	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
-			this.mapObject.setCenter({ "lat" : this.centerQueue.getLatitude(), "lng" : this.centerQueue.getLongitude() });
+			var latlon = { "lat" : camera.getLatitude(), "lng" : camera.getLongitude() };
+			if(animated) {
+				this.mapObject.panTo(latlon);
+			}
+			else {
+				this.mapObject.setCenter(latlon);
+			}
 		}}}
 	}
-	ELSE IFDEF("target_android") {
-		lang "java" {{{
-			com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
-				.target(new com.google.android.gms.maps.model.LatLng(centerQueue.getLatitude(), centerQueue.getLongitude()))
-				.zoom(defaultZoomLevel)
-				.bearing(0)
-				.tilt(45)
-				.build();
-			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			GMSCameraPosition *camerapos = [GMSCameraPosition cameraWithLatitude:[camera getLatitude] longitude:[camera getLongitude] zoom:[camera getZoom]
+				bearing:[camera getBearing] viewingAngle:[camera getAngle]];
+			if(animated) {
+				[self animateToCameraPosition:camerapos];
+			}
+			else {
+				[self moveCamera:[GMSCameraUpdate setCamera:camerapos]];
+			}
 		}}}
 	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 }
 
-func zoomToCoordinates(coors as vector<DynamicMap>)
+func zoomToCoordinates(coors as vector<DynamicMap>, animated as bool = true)
 {
 	if(mapInitialized) {
 		coordinateQueue = coors
+		coordinateQueueMoveWithAnimation = animated
 		doZoomToCoordinates()
 	}
 	else {
@@ -760,7 +944,13 @@ func doZoomToCoordinates
 				com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(lat, lon);
 				llbounds.include(pos);
 			}
-			gmap.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70));
+			com.google.android.gms.maps.CameraUpdate update = com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70);
+			if(coordinateQueueMoveWithAnimation) {
+				gmap.animateCamera(update);
+			}
+			else {
+				gmap.moveCamera(update);
+			}
 		}}}
 	}
 	ELSE IFDEF("target_html") {
@@ -771,10 +961,96 @@ func doZoomToCoordinates
 				var latlon = new google.maps.LatLng({ lat: bound.getDouble("latitude"), lng: bound.getDouble("longitude")});
 				bounds.extend(latlon);
 			}
-			this.mapObject.fitBounds(bounds);
+			if(this.coordinateQueueMoveWithAnimation) {
+				this.mapObject.panToBounds(bounds);
+			}
+			else {
+				this.mapObject.fitBounds(bounds);
+			}
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		lang "objc" {{{
+			GMSMutablePath *path = [GMSMutablePath path];
+			for(CapeDynamicMap *coor in coordinateQueue) {
+				if(coor == nil) {
+					continue;
+				}
+				[path addCoordinate:CLLocationCoordinate2DMake([coor getDouble:@"latitude" defval:0.0], [coor getDouble:@"longitude" defval:0.0])];
+			}
+			GMSCoordinateBounds *bounds = [[GMSCoordinateBounds alloc] initWithPath:path];
+			GMSCameraUpdate* update = [GMSCameraUpdate fitBounds:bounds withPadding:70.0f];
+			if(coordinateQueueMoveWithAnimation) {
+				[self animateWithCameraUpdate:update];
+			}
+			else {
+				[self moveCamera:update];
+			}
 		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
 	}
 }
+
+func getMapCenterLatitude as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		return lang "java" double {{{ gmap.getCameraPosition().target.latitude }}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].target.latitude }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0.0
+	}
+}
+
+func getMapCenterLongitude as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		return lang "java" double {{{ gmap.getCameraPosition().target.longitude }}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].target.longitude }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0.0
+	}
+}
+
+func getMapCenterLocationAsDynamicMap as DynamicMap:
+	return new DynamicMap().set("latitude", getMapCenterLatitude()).set("longitude", getMapCenterLongitude())
+
+func onCameraStartMoving
+{
+	if widgetMapCameraStartMovingHandler:
+		widgetMapCameraStartMovingHandler()
+}
+
+func onCameraMoving
+{
+	if widgetMapCameraMovingHandler:
+		widgetMapCameraMovingHandler()
+}
+
+func onCameraStopMoving
+{
+	if widgetMapCameraStopMovingHandler:
+		widgetMapCameraStopMovingHandler()
+}
+
+func setMapCanBeZoom(enable as bool):
+	mapSettings.setCanZoom(enable)
+
+func setMapCanBeTilt(enable as bool):
+	mapSettings.setCanTilt(enable)
+
+func setMapCanBeRotate(enable as bool):
+	mapSettings.setCanRotate(enable)
