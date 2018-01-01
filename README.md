@@ -24,9 +24,8 @@ graphical user interfaces
 * **motion**: Framework for development of high speed motion graphics, including
 games and other highly graphical applications.
 
-(NOTE: **sympathy**, a server-side web application and network service
-development platform, used to be a part of Jkop, but is currently fully developed
-and maintained in its own repository, see https://github.com/eqela/sympathy)
+* **sympathy**: Framework for the development of web servers, web services
+and other server-side components.
 
 Jkop is fully written in the [Sling Programming Language](http://eqdn.tech/sling),
 and also serves as the default application development framework for Sling applications.
@@ -39,5 +38,4 @@ Jkop source code is also available for other languages. See also:
 More information:
 
 * Jkop website: http://www.jkop.org
-* Eqela Appdev chat on Gitter: https://gitter.im/eqela/appdev
 * Documentation and tutorials: http://eqdn.tech/jkop
