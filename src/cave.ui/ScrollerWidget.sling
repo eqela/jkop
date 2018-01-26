@@ -28,34 +28,7 @@ func forWidget(context as GuiApplicationContext, widget as Widget) static as thi
 {
 	var v = new this(context)
 	v.addWidget(widget)
-	return(v)
-}
-
-IFDEF "target_iosoc"
-{
-	basetype !"UIScrollView" type extends
-	basetype !"UIScrollViewDelegate" type implements
-	basetype Widget type isAlso
-
-	lang "objc" {{{
-		- (void) scrollViewDidScroll:(UIScrollView *) scrollView {
-			[self onScroll:scrollView.contentOffset.y];
-		}
-
-		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
-			[self endEditing:YES];
-			[super touchesBegan:touches withEvent:event];
-		}
-	}}}
-}
-
-IFDEF "target_android"
-{
-	basetype !"android.widget.ScrollView" type extends
-	basetype Widget type isAlso
-
-	func onScrollChanged(x as int, y as int, oldx as int, oldy as int):
-		onScroll(y)
+	return v
 }
 
 IFDEF "target_html"
@@ -72,15 +45,9 @@ IFDEF "target_html"
 	func prepareElement(element as object) override
 	{
 		base.prepareElement(element)
-		if HTMLDOM.isFirefox() == false {
-			HTMLDOM.setStyle(element, "overflow-y", "scroll")
-		}
-		else {
-			HTMLDOM.removeStyle(element, "overflow")
-			HTMLDOM.setStyle(element, "overflow-x", "hidden")
-		}
+		HTMLDOM.setStyle(element, "overflow", "scroll")
 		HTMLDOM.addEventListener(element, "scroll", func {
-			onScroll(lang "js" int {{{ element.scrollTop }}})
+			onScroll(lang "js" int {{{ element.scrollLeft }}}, lang "js" int {{{ element.scrollTop }}})
 		})
 	}
 
@@ -98,8 +65,8 @@ IFDEF "target_html"
 		}
 		else if HTMLDOM.isFirefox() {
 			if not HTMLDOM.isMobile() {
-				style = className .. " { overflow-y: hidden; }\n" ..
-					className .. ":hover { overflow-y: auto; }"
+				style = className .. " { overflow: hidden; }\n" ..
+					className .. ":hover { overflow: auto; }"
 			}
 		}
 		if style {
@@ -110,58 +77,58 @@ IFDEF "target_html"
 	}
 }
 
-IFDEF "target_uwp"
+func onScroll(scrollX as int, scrollY as int) private
 {
-	basetype !"Windows.UI.Xaml.Controls.UserControl"
-	basetype Widget type isAlso
-	// FIXME: onScrolledHandler
-}
-
-var currentScrollY private = 0
-var lastScrollY private = 0
-var nearEnd private = false
-
-func isNearEnd as bool:
-	return nearEnd
-
-func onScroll(scrollY as int) private
-{
+	currentScrollX = scrollX
+	var cw = Widget.getWidth(Vector.get(Widget.getChildren(this), 0))
+    valueX = (currentScrollX / (cw - Widget.getWidth(this))) * widgetMaximumValueX
+	if cw > 0:
+		nearEndX = ((cw - currentScrollX) < (Widget.getWidth(this) * 2))
+	if widgetOnScrolledHandlerX && lastScrollX != currentScrollX {
+		widgetOnScrolledHandlerX(lastScrollX < currentScrollX ? 0 : 1)
+        lastScrollX = currentScrollX
+    }
 	currentScrollY = scrollY
 	var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
+    valueY = (scrollY / (ch - Widget.getHeight(this))) * widgetMaximumValueY
 	if ch > 0:
-		nearEnd = ((ch - currentScrollY) < (Widget.getHeight(this) * 2)) ? true : false
-	if onScrolledHandler && lastScrollY != currentScrollY {
-		onScrolledHandler(lastScrollY < currentScrollY ? 0 : 1)
-		lastScrollY = currentScrollY
-	}
+		nearEndY = ((ch - currentScrollY) < (Widget.getHeight(this) * 2))
+	if widgetOnScrolledHandlerY && lastScrollY != currentScrollY {
+		widgetOnScrolledHandlerY(lastScrollY < currentScrollY ? 0 : 1)
+        lastScrollY = currentScrollY
+    }
 }
 
-prop onScrolledHandler as function<void, int>
-var layoutHeight = -1
-var heightChanged = false
+prop widgetOnScrolledHandlerX as function<void, int>
+prop widgetOnScrolledHandlerY as function<void, int>
+prop widgetMaximumValueX = 1000.0
+prop widgetMaximumValueY = 1000.0
+var layoutHeight private = -1
+var layoutWidth private = -1
+var heightChanged private = false
+var valueX private = 0.0
+var valueY private = 0.0
+var currentScrollX private = 0
+var currentScrollY private = 0
+var lastScrollX private = 0
+var lastScrollY private = 0
+var nearEndX private = false
+var nearEndY private = false
+
+func isNearEndX as bool:
+	return nearEndX
+
+func isNearEndY as bool:
+	return nearEndY
+
+func getValueX as double:
+    return valueX
+
+func getValueY as double:
+    return valueY
 
 ctor(context as GuiApplicationContext)
 {
-	IFDEF("target_android") {
-		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		var xx = (context as! cave.GuiApplicationContextForAndroid).getActivityContext()
-		lang "java" {{{
-			setFillViewport(true);
-			setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
-			setFocusable(true);
-			setFocusableInTouchMode(true);
-		}}}
-	}
-	IFDEF("target_iosoc") {
-		lang "objc" {{{
-			self.delegate = self;
-		}}}
-	}
-	IFDEF "target_uwp" {
-		lang "cs" {{{
-			this.Content = new Windows.UI.Xaml.Controls.ScrollViewer();
-		}}}
-	}
 }
 
 func setWidgetScrollBarDisabled(value as bool)
@@ -181,8 +148,8 @@ func setWidgetScrollBarDisabled(value as bool)
 
 func onWidgetHeightChanged(height as int #notLiteral)
 {
-	foreach(child in Widget.getChildren(this)) {
-		if(height > layoutHeight) {
+	foreach child in Widget.getChildren(this) {
+		if height > layoutHeight {
 			Widget.resizeHeight(child, height)
 		}
 		else {
@@ -203,17 +170,15 @@ func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 {
 	var mw as int
 	var mh as int
-	foreach(child in Widget.getChildren(this)) {
+	foreach child in Widget.getChildren(this) {
 		Widget.move(child, 0, 0)
-		Widget.layout(child, widthConstraint, heightChanged)
+		Widget.layout(child, -1, heightChanged)
 		var cw = Widget.getWidth(child)
 		var ch = Widget.getHeight(child)
-		if(cw > mw) {
+		if cw > mw:
 			mw = cw
-		}
-		if(ch > mh) {
+		if ch > mh:
 			mh = ch
-		}
 	}
 	var mh2 = mh
 	var eh = Widget.getHeight(this)
@@ -221,17 +186,18 @@ func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 		mh2 = eh
 	heightChanged = false
 	layoutHeight = mh
-	Widget.setLayoutSize(this, mw, mh2)
-	IFDEF("target_iosoc") {
-		lang "objc" {{{
-			self.contentSize = CGSizeMake(mw,mh);
-		}}}
+    layoutWidth = mw
+	if widthConstraint < 0 {
+		Widget.setLayoutSize(this, mw, mh2)
 	}
-	return(true)
+	else {
+		Widget.setLayoutSize(this, widthConstraint, mh2)
+	}
+	return true
 }
 
 func addWidget(widget as Widget) as this
 {
 	Widget.addChild(this, widget)
-	return(this)
+	return this
 }
