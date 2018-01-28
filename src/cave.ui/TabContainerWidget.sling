@@ -93,6 +93,7 @@ class DefaultTabItemCreator is TabItemCreator
 
 class TabObject
 {
+	var title public as string
 	var item public as TabItemWidget
 	var content public as Widget
 
@@ -143,12 +144,12 @@ ctor(ctx as GuiApplicationContext)
 {
 	base(ctx)
 	tabItemCreator = new DefaultTabItemCreator().setContext(ctx)
-	tabCollection = new map<string, TabObject>
+	tabCollection = new vector<TabObject>
 	forceCreateWidget()
 }
 
 prop tabItemCreator as TabItemCreator
-var tabCollection as map<string, TabObject>
+var tabCollection as vector<TabObject>
 var currentTab as TabObject
 
 func addTab(widget as TabContentWidget)
@@ -162,12 +163,13 @@ func addTab(widget as TabContentWidget)
 		if v {
 			tabTitleContainer.addWidget(v)
 			tab = new TabObject()
+			tab.title = title
 			tab.item = v
 			tab.content = widget
 			tab.setOnTabClickHandler(func(to as TabObject) {
 				updateSelectedTab(to, false)
 			})
-			addTabObject(title, tab)
+			addTabObject(tab)
 			newTab = true
 		}
 	}
@@ -175,14 +177,26 @@ func addTab(widget as TabContentWidget)
 		updateSelectedTab(tab, newTab)
 }
 
-func addTabObject(title as string, tab as TabObject) private:
-	Map.set(tabCollection, title, tab)
+func addTabObject(tab as TabObject) private:
+	tabCollection += tab
 
-func getTabObject(title as string) private as TabObject:
-	return Map.get(tabCollection, title)
+func getTabObject(title as string) private as TabObject
+{
+	var tabObject as TabObject
+	foreach tab as TabObject in tabCollection {
+		if tab.title == title {
+			tabObject = tab
+			break
+		}
+	}
+	return tabObject
+}
 
-func removeTabObject(title as string) private:
-	Map.remove(tabCollection, title)
+func removeTabObject(title as string) private
+{
+	var tab = assert getTabObject(title)
+	Vector.removeValue(tabCollection, tab)
+}
 
 func updateSelectedTab(tab as TabObject, newTab as bool) private
 {
@@ -211,4 +225,26 @@ func setWidgetContentOutlineWidth(width as int) as this
 {
 	canvas.setWidgetOutlineWidth(width)
 	return this
+}
+
+func getTabItemWidget(title as string) as TabItemWidget
+{
+	var tabObject = assert getTabObject(title)
+	return tabObject.item
+}
+
+func getActiveTabIndex as int
+{
+	var index = -1
+	if not currentTab:
+		return index
+	var counter = 0
+	foreach tab as TabObject in tabCollection {
+		if tab == currentTab {
+			index = counter
+			break
+		}
+		counter++
+	}
+	return index
 }
