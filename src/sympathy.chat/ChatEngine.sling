@@ -35,7 +35,7 @@ var ctx protected as LoggingContext
 var connectionSize private as int
 var random private as Random
 
-func authenticateConnection(data as buffer) abstract as string
+func authenticateConnection(data as buffer, callback as function<void, string>) abstract
 func getUser(userId as string) abstract as ChatUser
 func getUserCount abstract as int
 func createChannel(message as ChatMessage) abstract as ChatChannel
@@ -115,47 +115,48 @@ func onDataReceived(data as buffer, connection as ChatConnectionHandler)
 
 func onAuthenticateConnection(data as buffer, connection as ChatConnectionHandler) private
 {
-	var userId = authenticateConnection(data)
-	assert String.isNotEmpty(userId) {
-		logError("No userId returned by authenticateConnection() abstract method. Closing the connection instead.")
-		connection.close()
-	}
-	var user = assert getUser(userId) {
-		logError("No ChatUser instance returned by getUser() abstract method. Closing the connection instead.")
-		connection.close()
-	}
-	connection.setUser(user)
-	loop {
-		var connectionId = generateId()
-		assert String.isNotEmpty(connectionId) {
-			logError("No connectionId returned by generateId() abstract method. Closing the connection instead.")
+	authenticateConnection(data, func(userId as string) {
+		assert String.isNotEmpty(userId) {
+			logError("No userId returned by authenticateConnection() abstract method. Closing the connection instead.")
 			connection.close()
 		}
-		if user.getConnection(connectionId) == null {
-			connection.setConnectionId(connectionId)
-			break
+		var user = assert getUser(userId) {
+			logError("No ChatUser instance returned by getUser() abstract method. Closing the connection instead.")
+			connection.close()
 		}
-	}
-	user.addConnection(connection)
-	connectionSize++
-	logDebug("New connection. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(getUserCount()) .. ") connected")
-	var message = assert createAcknowledgeCommand(userId) {
-		logError("Failed to create an acknowledge command message that the client is connected. Closing the connection instead.")
-		connection.close()
-	}
-	assert message.getMessageType() == ChatMessage.COMMAND_TYPE {
-		logError("Acknowledge command message not of type command. Closing the connection instead.")
-		connection.close()
-	}
-	var r = connection.sendMessage(message)
-	assert r > 0 {
-		logError("Failed to send message. Closing the connection instead.")
-		connection.close()
-	}
-	if user.getConnectionCount() == 1 {
-		logDebug("User: '" .. user.getUserId() .. "' is now online")
-		onUserOnline(user)
-	}
+		connection.setUser(user)
+		loop {
+			var connectionId = generateId()
+			assert String.isNotEmpty(connectionId) {
+				logError("No connectionId returned by generateId() abstract method. Closing the connection instead.")
+				connection.close()
+			}
+			if user.getConnection(connectionId) == null {
+				connection.setConnectionId(connectionId)
+				break
+			}
+		}
+		user.addConnection(connection)
+		connectionSize++
+		logDebug("New connection. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(getUserCount()) .. ") connected")
+		var message = assert createAcknowledgeCommand(userId) {
+			logError("Failed to create an acknowledge command message that the client is connected. Closing the connection instead.")
+			connection.close()
+		}
+		assert message.getMessageType() == ChatMessage.COMMAND_TYPE {
+			logError("Acknowledge command message not of type command. Closing the connection instead.")
+			connection.close()
+		}
+		var r = connection.sendMessage(message)
+		assert r > 0 {
+			logError("Failed to send message. Closing the connection instead.")
+			connection.close()
+		}
+		if user.getConnectionCount() == 1 {
+			logDebug("User: '" .. user.getUserId() .. "' is now online")
+			onUserOnline(user)
+		}
+	})
 }
 
 func onUserDisconnect(userId as string, connection as ChatConnectionHandler)
