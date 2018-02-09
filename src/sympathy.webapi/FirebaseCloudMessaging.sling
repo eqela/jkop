@@ -33,66 +33,61 @@ class MyHTTPClientListener is HTTPClientListener
 
 	func onError(message as string) override
 	{
-		if(listener != null) {
+		if listener:
 			listener(null, Error.forMessage(message))
-		}
 	}
 
 	func onAborted override
 	{
-		if(listener != null) {
+		if listener:
 			listener(null, Error.forCode("aborted"))
-		}
 	}
 
 	func onDataReceived(buffer as buffer) override as bool
 	{
 		body = Buffer.append(body, buffer)
-		return(true)
+		return true
 	}
 
 	func onResponseCompleted override
 	{
 		base.onResponseCompleted()
-		if(listener != null) {
-			var json = JSONParser.parse(body) as DynamicMap
-			if(json == null) {
+		if listener {
+			var json = assert JSONParser.parse(body) as DynamicMap:
 				listener(null, Error.forMessage("Invalid JSON Format from Google: " .. String.asString(body)))
-				return
-			}
 			listener(json, null)
 		}
 	}
 }
 
-func send(serverKey as string, registrationIds as DynamicVector, notification as DynamicMap, data as DynamicMap, listener as function<void,DynamicMap,Error>) static
+func send(fcmServerKey as string, registrationIds as DynamicVector, notification as DynamicMap, data as DynamicMap, listener as function<void,DynamicMap,Error>) static
 {
-	if(String.isEmpty(serverKey)) {
-		listener(null, Error.forCode("missingServerKey"))
-		return
-	}
-	var body = new DynamicMap()
+	assert String.isNotEmpty(fcmServerKey):
+		listener(null, Error.forCode("missingFCMServerKey"))
 	var sz = registrationIds.getSize()
-	if(sz == 1) {
+	var body = new DynamicMap()
+	assert sz > 0:
+		listener(null, Error.forCode("missingRegistrationId"))
+	if sz == 1 {
 		body.set("to", String.asString(registrationIds.get(0)))
 	}
-	else if(sz > 1) {
+	else if sz > 1 {
 		body.set("registration_ids", registrationIds)
 	}
-	else {
-		listener(null, Error.forCode("missingRegistrationId"))
-		return
-	}
-	if(notification != null) {
+	body.set("priority", "high")
+	body.set("content_available", true)
+	if notification:
 		body.set("notification", notification)
-	}
-	if(data != null) {
+	if data:
 		body.set("data", data)
-	}
-	var json = JSONEncoder.encode(body)
+	var v = new JSONEncoder()
+	v.setNiceFormatting(false)
+	var json = v.execute(body)
+	assert String.isNotEmpty(json):
+		listener(null, Error.forCode("jsonEncodingFailed"))
 	var op = new HTTPClientOperation()
 	op.setAcceptInvalidCertificate(true)
 	var req = HTTPClientRequest.forPOST("https://fcm.googleapis.com/fcm/send", "application/json", String.toUTF8Buffer(json))
-	req.addHeader("Authorization", "key=" .. serverKey)
+	req.addHeader("Authorization", "key=" .. fcmServerKey)
 	op.executeRequest(req, new MyHTTPClientListener().setListener(listener))
 }
