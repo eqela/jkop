@@ -36,13 +36,13 @@ var connectionSize private as int
 var random private as Random
 
 func authenticateConnection(data as buffer, callback as function<void, string>) abstract
-func getUser(userId as string) abstract as ChatUser
-func getUserCount abstract as int
-func createChannel(message as ChatMessage) abstract as ChatChannel
-func getChannel(channelId as string) abstract as ChatChannel
-func createAcknowledgeCommand(userId as string) abstract as ChatMessage
-func createMessage(data as buffer) abstract as ChatMessage
-func checkRecipients(recipients as DynamicVector) abstract as bool
+func getUser(userId as string, callback as function<void, ChatUser>) abstract
+func getUserCount(callback as function<void, int>) abstract
+func createChannel(message as ChatMessage, callback as function<void, ChatChannel>) abstract
+func getChannel(channelId as string, callback as function<void, ChatChannel>) abstract
+func createAcknowledgeCommand(userId as string, callback as function<void, ChatMessage>) abstract
+func createMessage(data as buffer, callback as function<void, ChatMessage>) abstract
+func checkRecipients(recipients as DynamicVector, callback as function<void, bool>) abstract
 func onUserOnline(user as ChatUser) abstract
 func onUserOffline(user as ChatUser) abstract
 func onNewCommandMessage(message as ChatMessage, connection as ChatConnectionHandler) abstract
@@ -120,55 +120,65 @@ func onAuthenticateConnection(data as buffer, connection as ChatConnectionHandle
 			logError("No userId returned by authenticateConnection() abstract method. Closing the connection instead.")
 			connection.close()
 		}
-		var user = assert getUser(userId) {
-			logError("No ChatUser instance returned by getUser() abstract method. Closing the connection instead.")
-			connection.close()
-		}
-		connection.setUser(user)
-		loop {
-			var connectionId = generateId()
-			assert String.isNotEmpty(connectionId) {
-				logError("No connectionId returned by generateId() abstract method. Closing the connection instead.")
+		getUser(userId, func(user as ChatUser) {
+			assert user {
+				logError("No ChatUser instance returned by getUser() abstract method. Closing the connection instead.")
 				connection.close()
 			}
-			if not user.getConnection(connectionId) {
-				connection.setConnectionId(connectionId)
-				break
+			connection.setUser(user)
+			loop {
+				var connectionId = generateId()
+				assert String.isNotEmpty(connectionId) {
+					logError("No connectionId returned by generateId() abstract method. Closing the connection instead.")
+					connection.close()
+				}
+				if not user.getConnection(connectionId) {
+					connection.setConnectionId(connectionId)
+					break
+				}
 			}
-		}
-		user.addConnection(connection)
-		connectionSize++
-		logDebug("New connection. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(getUserCount()) .. ") connected")
-		var message = assert createAcknowledgeCommand(userId) {
-			logError("Failed to create an acknowledge command message that the client is connected. Closing the connection instead.")
-			connection.close()
-		}
-		assert message.getMessageType() == ChatMessage.COMMAND_TYPE {
-			logError("Acknowledge command message not of type command. Closing the connection instead.")
-			connection.close()
-		}
-		var r = connection.sendMessage(message)
-		assert r > 0 {
-			logError("Failed to send message. Closing the connection instead.")
-			connection.close()
-		}
-		if user.getConnectionCount() == 1 {
-			logDebug("User: '" .. user.getUserId() .. "' is now online")
-			onUserOnline(user)
-		}
+			user.addConnection(connection)
+			connectionSize++
+			getUserCount(func(count as int) {
+				logDebug("New connection. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(count) .. ") connected")
+			})
+			createAcknowledgeCommand(userId, func(message as ChatMessage) {
+				assert message {
+					logError("Failed to create an acknowledge command message that the client is connected. Closing the connection instead.")
+					connection.close()
+				}
+				assert message.getMessageType() == ChatMessage.COMMAND_TYPE {
+					logError("Acknowledge command message not of type command. Closing the connection instead.")
+					connection.close()
+				}
+				var r = connection.sendMessage(message)
+				assert r > 0 {
+					logError("Failed to send message. Closing the connection instead.")
+					connection.close()
+				}
+				if user.getConnectionCount() == 1 {
+					logDebug("User: '" .. user.getUserId() .. "' is now online")
+					onUserOnline(user)
+				}
+			})
+		})
 	})
 }
 
 func onUserDisconnect(userId as string, connection as ChatConnectionHandler)
 {
-	var user = assert getUser(userId)
-	user.removeConnection(connection)
-	connectionSize--
-	logDebug("Connection closed. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(getUserCount()) .. ") connected")
-	if not user.isOnline() {
-		logDebug("User: '" .. user.getUserId() .. "' is now offline with last active on: " .. String.forLongInteger(user.getLastActive()))
-		onUserOffline(user)
-	}
+	getUser(userId, func(user as ChatUser) {
+		assert user
+		user.removeConnection(connection)
+		connectionSize--
+		getUserCount(func(count as int) {
+			logDebug("Connection closed. Now: (" .. String.forInteger(connectionSize) .. "/" .. String.forInteger(count) .. ") connected")
+		})
+		if not user.isOnline() {
+			logDebug("User: '" .. user.getUserId() .. "' is now offline with last active on: " .. String.forLongInteger(user.getLastActive()))
+			onUserOffline(user)
+		}
+	})
 }
 
 func onParseData(data as buffer, connection as ChatConnectionHandler) private
@@ -178,92 +188,142 @@ func onParseData(data as buffer, connection as ChatConnectionHandler) private
 		logError("No data buffer received. Closing the connection instead.")
 		connection.close()
 	}
-	var message = assert createMessage(data) {
-		logError("No ChatMessage instance returned by createMessage() abstract method. Closing the connection instead.")
-		connection.close()
-	}
-	switch message.getMessageType() {
-		case ChatMessage.COMMAND_TYPE: {
-			// We would want to have commands
-			// like: SEEN, TYPING, ONLINE, OFFLINE,
-			// UPLOADING_FILE, DONE_UPLOADING_FILE, etc.
-			onNewCommandMessage(message, connection)
-			break
-		}
-		case ChatMessage.DATA_TYPE: {
-			onNewDataMessage(message, connection)
-			break
-		}
-		case ChatMessage.UNKNOWN_TYPE: {
-			;
-		}
-		default: {
-			logError("ChatMessage message type is invalid. Closing the connection instead.")
+	createMessage(data, func(message as ChatMessage) {
+		assert message {
+			logError("No ChatMessage instance returned by createMessage() abstract method. Closing the connection instead.")
 			connection.close()
 		}
-	}
+		switch message.getMessageType() {
+			case ChatMessage.COMMAND_TYPE: {
+				// We would want to have commands
+				// like: SEEN, TYPING, ONLINE, OFFLINE,
+				// UPLOADING_FILE, DONE_UPLOADING_FILE, etc.
+				onNewCommandMessage(message, connection)
+				break
+			}
+			case ChatMessage.DATA_TYPE: {
+				onNewDataMessage(message, connection)
+				break
+			}
+			case ChatMessage.UNKNOWN_TYPE: {
+				;
+			}
+			default: {
+				logError("ChatMessage message type is invalid. Closing the connection instead.")
+				connection.close()
+			}
+		}
+	})
 }
 
 func onNewDataMessage(message as ChatMessage, connection as ChatConnectionHandler)
 {
+	assert message:
+		connection.close()
 	var channelId = message.getChannelId()
 	if String.isEmpty(channelId) {
-		channelId = createChannelAndGetId(message)
-		message.setChannelId(channelId)
+		createChannelAndGetId(message, func(newChannelId as string) {
+			message.setChannelId(newChannelId)
+			getChannel(newChannelId, func(channel as ChatChannel) {
+				assert channel:
+					connection.close()
+				channel.onNewDataMessage(message)
+			})
+		})
+		return
 	}
-	var c = assert getChannel(channelId):
-		connection.close()
-	c.onNewDataMessage(message)
+	getChannel(channelId, func(channel as ChatChannel) {
+		assert channel:
+			connection.close()
+		channel.onNewDataMessage(message)
+	})
 }
 
-func createChannelAndGetId(message as ChatMessage) private as string
+func createChannelAndGetId(message as ChatMessage, callback as function<void, string>) private
 {
-	assert message
-	assert checkRecipients(message.getRecipients()):
-		logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
-	var channel = assert createChannel(message):
-		logError("No ChatChannel instance returned by createChannel() abstract method.")
-	var channelId = channel.getChannelId()
-	assert String.isNotEmpty(channelId):
-		logError("Created ChatChannel instance returned by createChannel() abstract method doesn't have channelId.")
-	logDebug("New channel '" .. channelId .. "' created")
-	return channelId
+	assert message:
+		callback(null)
+	checkRecipients(message.getRecipients(), func(valid as bool) {
+		assert valid {
+			logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
+			callback(null)
+		}
+		createChannel(message, func(channel as ChatChannel) {
+			assert channel {
+				logError("No ChatChannel instance returned by createChannel() abstract method.")
+				callback(null)
+			}
+			var channelId = channel.getChannelId()
+			assert String.isNotEmpty(channelId) {
+				logError("Created ChatChannel instance returned by createChannel() abstract method doesn't have channelId.")
+				callback(null)
+			}
+			logDebug("New channel '" .. channelId .. "' created")
+			callback(channelId)
+		})
+	})
 }
 
 func broadcastMessage(message as ChatMessage)
 {
 	assert message
 	var recipients = message.getRecipients()
-	assert checkRecipients(recipients):
-		logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
-	foreach(userId as string in recipients.toVector()) {
-		var user = assert getUser(userId):
-			logError("Invalid recipient with userId: '" .. userId .. "'. Stopping broadcast message.")
-		if not user.isOnline() {
-			logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
-			if message.getMessageType() == ChatMessage.DATA_TYPE:
-				notifyUserForNewDataMessage(user, message)
-			continue
-		}
-		var brokenConnections = new vector<string>
-		foreach(connectionId as string in user.getConnectionIds()) {
-			var connection = user.getConnection(connectionId)
-			if connection == null{
-				brokenConnections += connectionId
-				continue
+	checkRecipients(recipients, func(valid as bool) {
+		assert valid:
+			logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
+		getUsersForUserIds(recipients, null, func(users as DynamicVector) {
+			assert users && users.getSize() > 1:
+				logError("No recipients or recipient count is less than two returned by getUsersForUserIds() method.")
+			foreach user as ChatUser in users.toVector() {
+				assert user:
+					logError("Invalid recipient with userId: '" .. user.getUserId() .. "'. Stopping broadcast message.")
+				if not user.isOnline() {
+					logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
+					if message.getMessageType() == ChatMessage.DATA_TYPE:
+						notifyUserForNewDataMessage(user, message)
+					continue
+				}
+				var brokenConnections = new vector<string>
+				foreach connectionId as string in user.getConnectionIds() {
+					var connection = user.getConnection(connectionId)
+					if not connection {
+						brokenConnections += connectionId
+						continue
+					}
+					var r = connection.sendMessage(message)
+					if r < 1:
+						brokenConnections += connectionId
+				}
+				foreach connectionId as string in brokenConnections:
+					user.removeConnectionForId(connectionId)
+				if not user.isOnline() {
+					logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
+					if message.getMessageType() == ChatMessage.DATA_TYPE:
+						notifyUserForNewDataMessage(user, message)
+					continue
+				}
 			}
-			var r = connection.sendMessage(message)
-			if r < 1 {
-				brokenConnections += connectionId
-			}
-		}
-		foreach(connectionId as string in brokenConnections):
-			user.removeConnectionForId(connectionId)
-		if not user.isOnline() {
-			logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
-			if message.getMessageType() == ChatMessage.DATA_TYPE:
-				notifyUserForNewDataMessage(user, message)
-			continue
-		}
+		})
+	})
+}
+
+func getUsersForUserIds(userIds as DynamicVector, users as DynamicVector, callback as function<void, DynamicVector>) private
+{
+	if not userIds || userIds.getSize() < 1 {
+		callback(users)
+		return
 	}
+	var userId = userIds.get(0) as string
+	assert String.isNotEmpty(userId):
+		callback(users)
+	userIds.remove(0)
+	getUser(userId, func(user as ChatUser) {
+		assert user:
+			callback(users)
+		var list = users
+		if not list:
+			list = new DynamicVector()
+		list.append(user)
+		getUsersForUserIds(userIds, list, callback)
+	})
 }
