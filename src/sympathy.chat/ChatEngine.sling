@@ -38,15 +38,16 @@ var random private as Random
 func authenticateConnection(data as buffer, callback as function<void, string>) abstract
 func getUser(userId as string, callback as function<void, ChatUser>) abstract
 func getUserCount(callback as function<void, int>) abstract
-func createChannel(message as ChatMessage, callback as function<void, ChatChannel>) abstract
+func createAndSaveChannel(recipients as DynamicVector, creatorUserId as string, callback as function<void, ChatChannel>) abstract
 func getChannel(channelId as string, callback as function<void, ChatChannel>) abstract
 func createAcknowledgeCommand(userId as string, callback as function<void, ChatMessage>) abstract
-func createMessage(data as buffer, callback as function<void, ChatMessage>) abstract
-func checkRecipients(recipients as DynamicVector, callback as function<void, bool>) abstract
+func createMessage(data as buffer) abstract as ChatMessage
+func saveMessage(message as ChatMessage, newChannelId as string, callback as function<void, Error>) abstract
 func onUserOnline(user as ChatUser) abstract
 func onUserOffline(user as ChatUser) abstract
 func onNewCommandMessage(message as ChatMessage, connection as ChatConnectionHandler) abstract
 func notifyUserForNewDataMessage(user as ChatUser, message as ChatMessage) abstract
+func checkRecipientsAndSender(recipients as DynamicVector, creatorUserId as string, callback as function<void, bool>) abstract
 
 ctor
 {
@@ -183,72 +184,84 @@ func onUserDisconnect(userId as string, connection as ChatConnectionHandler)
 
 func onParseData(data as buffer, connection as ChatConnectionHandler) private
 {
-	assert connection
 	assert data {
 		logError("No data buffer received. Closing the connection instead.")
 		connection.close()
 	}
-	createMessage(data, func(message as ChatMessage) {
-		assert message {
-			logError("No ChatMessage instance returned by createMessage() abstract method. Closing the connection instead.")
+	var message = assert createMessage(data) {
+		logError("No ChatMessage instance returned by createMessage() abstract method. Closing the connection instead.")
+		connection.close()
+	}
+	assert String.isEmpty(message.getMessageId()) {
+		logError("ChatMessage instance returned by createMessage() abstract method should not be saved and have message id yet. Closing the connection instead.")
+		connection.close()
+	}
+	switch message.getMessageType() {
+		case ChatMessage.COMMAND_TYPE: {
+			// We would want to have commands
+			// like: SEEN, TYPING, ONLINE, OFFLINE,
+			// UPLOADING_FILE, DONE_UPLOADING_FILE, etc.
+			onNewCommandMessage(message, connection)
+			break
+		}
+		case ChatMessage.DATA_TYPE: {
+			onNewDataMessage(message, connection)
+			break
+		}
+		default: {
+			logError("ChatMessage message type is invalid. Closing the connection instead.")
 			connection.close()
 		}
-		switch message.getMessageType() {
-			case ChatMessage.COMMAND_TYPE: {
-				// We would want to have commands
-				// like: SEEN, TYPING, ONLINE, OFFLINE,
-				// UPLOADING_FILE, DONE_UPLOADING_FILE, etc.
-				onNewCommandMessage(message, connection)
-				break
-			}
-			case ChatMessage.DATA_TYPE: {
-				onNewDataMessage(message, connection)
-				break
-			}
-			case ChatMessage.UNKNOWN_TYPE: {
-				;
-			}
-			default: {
-				logError("ChatMessage message type is invalid. Closing the connection instead.")
-				connection.close()
-			}
-		}
-	})
+	}
 }
 
 func onNewDataMessage(message as ChatMessage, connection as ChatConnectionHandler)
 {
-	assert message:
+	assert message && message.getMessageType() == ChatMessage.DATA_TYPE:
+		connection.close()
+	var creatorUserId = message.getCreatorUserId()
+	assert String.isNotEmpty(creatorUserId):
 		connection.close()
 	var channelId = message.getChannelId()
 	if String.isEmpty(channelId) {
-		createChannelAndGetId(message, func(newChannelId as string) {
-			message.setChannelId(newChannelId)
+		createChannelAndGetId(message.getRecipients(), creatorUserId, func(newChannelId as string) {
 			getChannel(newChannelId, func(channel as ChatChannel) {
-				assert channel:
+				assert channel && String.equals(channel.getChannelId(), newChannelId):
 					connection.close()
-				channel.onNewDataMessage(message)
+				onSaveMessage(message, channel, connection)
 			})
 		})
 		return
 	}
 	getChannel(channelId, func(channel as ChatChannel) {
-		assert channel:
+		assert channel && String.equals(channel.getChannelId(), channelId):
 			connection.close()
+		onSaveMessage(message, channel, connection)
+	})
+}
+
+func onSaveMessage(message as ChatMessage, channel as ChatChannel, connection as ChatConnectionHandler) private
+{
+	saveMessage(message, channel.getChannelId(), func(error as Error) {
+		assert not error:
+			connection.close()
+		assert String.isNotEmpty(message.getMessageId()):
+			connection.close()
+		assert String.equals(message.getChannelId(), channel.getChannelId()):
+			connection.close()
+		// FIXME:
 		channel.onNewDataMessage(message)
 	})
 }
 
-func createChannelAndGetId(message as ChatMessage, callback as function<void, string>) private
+func createChannelAndGetId(recipients as DynamicVector, creatorUserId as string, callback as function<void, string>) private
 {
-	assert message:
-		callback(null)
-	checkRecipients(message.getRecipients(), func(valid as bool) {
+	checkRecipientsAndSender(recipients, creatorUserId, func(valid as bool) {
 		assert valid {
-			logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
+			logError("No creatorUserId or recipients or recipient count is less than two returned by checkRecipientsAndSender() method.")
 			callback(null)
 		}
-		createChannel(message, func(channel as ChatChannel) {
+		createAndSaveChannel(recipients, creatorUserId, func(channel as ChatChannel) {
 			assert channel {
 				logError("No ChatChannel instance returned by createChannel() abstract method.")
 				callback(null)
@@ -266,11 +279,13 @@ func createChannelAndGetId(message as ChatMessage, callback as function<void, st
 
 func broadcastMessage(message as ChatMessage)
 {
+	// FIXME:
 	assert message
 	var recipients = message.getRecipients()
-	checkRecipients(recipients, func(valid as bool) {
+	var creatorUserId = message.getCreatorUserId()
+	checkRecipientsAndSender(recipients, creatorUserId, func(valid as bool) {
 		assert valid:
-			logError("No recipients or recipient count is less than two returned by checkRecipients() method.")
+			logError("No creatorUserId or recipients or recipient count is less than two returned by checkRecipientsAndSender() method.")
 		getUsersForUserIds(recipients, null, func(users as DynamicVector) {
 			assert users && users.getSize() > 1:
 				logError("No recipients or recipient count is less than two returned by getUsersForUserIds() method.")
