@@ -111,7 +111,7 @@ func saveMessage(message as ChatMessage, newChannelId as string, callback as fun
 func onUserOnline(user as ChatUser) abstract
 func onUserOffline(user as ChatUser) abstract
 func onNewCommandMessage(message as ChatMessage, connection as ChatConnectionHandler) abstract
-func notifyUserForNewDataMessage(user as ChatUser, message as ChatMessage) abstract
+func handleOfflineRecipients(recipients as DynamicVector, message as ChatMessage) abstract
 func checkRecipientsAndSender(recipients as DynamicVector, creatorUserId as string, callback as function<void, bool>) abstract
 
 ctor
@@ -367,8 +367,7 @@ func onSaveMessage(message as ChatMessage, channel as ChatChannel, connection as
 			connection.close()
 		assert String.equals(message.getChannelId(), channel.getChannelId()):
 			connection.close()
-		// FIXME:
-		channel.onNewDataMessage(message)
+		channel.onNewDataMessage(message, connection)
 	})
 }
 
@@ -409,68 +408,37 @@ func getUserLastActive(userId as string) as long
 
 func broadcastMessage(message as ChatMessage)
 {
-	// FIXME:
 	assert message
 	var recipients = message.getRecipients()
+	assert recipients && recipients.getSize() > 0
 	var creatorUserId = message.getCreatorUserId()
-	checkRecipientsAndSender(recipients, creatorUserId, func(valid as bool) {
-		assert valid:
-			logError("No creatorUserId or recipients or recipient count is less than two returned by checkRecipientsAndSender() method.")
-		getUsersForUserIds(recipients, null, func(users as DynamicVector) {
-			assert users && users.getSize() > 1:
-				logError("No recipients or recipient count is less than two returned by getUsersForUserIds() method.")
-			foreach user as ChatUser in users.toVector() {
-				assert user:
-					logError("Invalid recipient with userId: '" .. user.getUserId() .. "'. Stopping broadcast message.")
-				if not user.isOnline() {
-					logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
-					if message.getMessageType() == ChatMessage.DATA_TYPE:
-						notifyUserForNewDataMessage(user, message)
-					continue
-				}
-				var brokenConnections = new vector<string>
-				foreach connectionId as string in user.getConnectionIds() {
-					var connection = user.getConnection(connectionId)
-					if not connection {
-						brokenConnections += connectionId
-						continue
-					}
-					var r = connection.sendMessage(message)
-					if r < 1:
-						brokenConnections += connectionId
-				}
-				foreach connectionId as string in brokenConnections:
-					user.removeConnection(connectionId)
-				if not user.isOnline() {
-					logDebug("User: '" .. user.getUserId() .. "' is offline with last active on: " .. String.forLongInteger(user.getLastActive()) .. ". Sending notification instead.")
-					if message.getMessageType() == ChatMessage.DATA_TYPE:
-						notifyUserForNewDataMessage(user, message)
-					continue
-				}
+	if String.isNotEmpty(creatorUserId) && recipients.contains(creatorUserId):
+		recipients.removeValue(creatorUserId)
+	var offlineRecipients = new DynamicVector()
+	foreach userId in recipients.toVectorOfStrings() {
+		if not isUserOnline(userId) {
+			logDebug("User: '" .. userId .. "' is offline with last active on: " .. String.forLongInteger(getUserLastActive(userId)) .. ". Would send a notification instead.")
+			offlineRecipients.append(userId)
+			continue
+		}
+		var brokenConnections = new vector<string>
+		foreach connectionId in getUserConnectionIds(userId) {
+			var connection = getUserConnection(userId, connectionId)
+			if not connection || not connection.isOpen() {
+				brokenConnections += connectionId
+				continue
 			}
-		})
-	})
-}
-
-func getUsersForUserIds(userIds as DynamicVector, users as DynamicVector, callback as function<void, DynamicVector>) private
-{
-	if not userIds || userIds.getSize() < 1 {
-		callback(users)
-		return
+			var r = connection.sendMessage(message)
+			if r < 1:
+				brokenConnections += connectionId
+		}
+		foreach connectionId in brokenConnections:
+			removeUserConnection(userId, connectionId)
+		if not isUserOnline(userId) {
+			logDebug("User: '" .. userId .. "' is offline with last active on: " .. String.forLongInteger(getUserLastActive(userId)) .. ". Would send a notification instead.")
+			offlineRecipients.append(userId)
+		}
 	}
-	var userId = userIds.get(0) as string
-	assert String.isNotEmpty(userId):
-		callback(users)
-	userIds.remove(0)
-	var engine final = this
-	getUser(userId, func(user as ChatUser) {
-		assert user:
-			callback(users)
-		user.setEngine(engine)
-		var list = users
-		if not list:
-			list = new DynamicVector()
-		list.append(user)
-		getUsersForUserIds(userIds, list, callback)
-	})
+	if offlineRecipients.getSize() > 0:
+		handleOfflineRecipients(recipients, message)
 }
