@@ -22,6 +22,56 @@
  * SOFTWARE.
  */
 
-interface:
+class is WebClient:
 
 func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	lang "cs" {{{
+		var rq = System.Net.WebRequest.Create(url);
+		rq.Method = method;
+	}}}
+	if headers {
+		var it = headers.iterate()
+		while it {
+			var pair = it.next()
+			if not pair:
+				break
+			lang "cs" {{{
+				rq.Headers[pair.key] = pair.value;
+			}}}
+		}
+	}
+	if body {
+		lang "cs" {{{
+			rq.ContentLength = body.Length;
+			System.IO.Stream stream = rq.GetRequestStream();
+			stream.Write(body, 0, body.Length);
+			stream.Close();
+		}}}
+	}
+	var status = 0
+	var hdrs = new KeyValueList<string,string>()
+	var rbody as buffer
+	lang "cs" {{{
+		var resp = (System.Net.HttpWebResponse)rq.GetResponse();
+		if(resp != null) {
+			status = (int)resp.StatusCode;
+			foreach(string key in resp.Headers.AllKeys) {
+				hdrs.add(key, resp.Headers[key]);
+			}
+		}
+		var rs = resp.GetResponseStream();
+		if(rs != null) {
+			byte[] buffer = new byte[16*1024];
+			using(System.IO.MemoryStream ms = new System.IO.MemoryStream()) {
+				int read;
+				while((read = rs.Read(buffer, 0, buffer.Length)) > 0) {
+					ms.Write(buffer, 0, read);
+				}
+				rbody = ms.ToArray();
+			}
+		}
+	}}}
+	if callback:
+		callback(String.forInteger(status), hdrs, rbody)
+}
