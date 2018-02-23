@@ -163,6 +163,7 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 		}}}
 	}
 
+	prop onCancelCallback as function
 	prop socket as TCPSocket
 	var blockingQueue private as !"java.util.concurrent.BlockingQueue<TCPClientTask>"
 
@@ -217,7 +218,7 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 			close()
 			if c != null {
 				var e = new TCPErrorEvent()
-				e.setError(Error.forMessage("Failed to establish a connection"))
+				e.setError(Error.forMessage("Failed to establish a connection to socket"))
 				e.setCallback(c)
 				sendEvent(e)
 			}
@@ -272,14 +273,14 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 	func onDoInBackground private
 	{
 		loop {
-			var t = popTask()
-			assert t
 			var isCancelled = lang "java" bool {{{ isCancelled() }}}
 			if isCancelled {
 				close()
 				return
 			}
-			else if t is TCPConnectTask {
+			var t = popTask()
+			assert t
+			if t is TCPConnectTask {
 				onConnectTask(t as! TCPConnectTask)
 				continue
 			}
@@ -300,6 +301,12 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 		}
 	}
 
+	func onCancelTask
+	{
+		if onCancelCallback:
+			onCancelCallback()
+	}
+
 	func onTaskUpdate(e as TCPEvent) private
 	{
 		assert e
@@ -308,6 +315,7 @@ class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
 			var c = v.getCallback()
 			if c != null:
 				c(v.getError())
+			onCancelTask()
 			return
 		}
 		var c = e.getCallback()
@@ -337,6 +345,9 @@ func initializeWorker private
 	socket = TCPSocket.create()
 	worker = new AsyncWorker()
 	worker.setSocket(socket)
+	worker.setOnCancelCallback(func {
+		deinitializeWorker()
+	})
 	lang "java" {{{
 		try {
 			worker.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
@@ -369,14 +380,14 @@ func connect(address as string, port as int, callback as function<void,Error>) o
 {
 	initializeWorker()
 	assert worker {
-		callback(Error.forMessage("Failed to establish a connection"))
+		callback(Error.forMessage("Failed to establish a connection. No worker found"))
 	}
 	var t = new TCPConnectTask()
 	t.setAddress(address)
 	t.setPort(port)
 	t.setCallback(callback)
 	if worker.pushTask(t) == false:
-		callback(Error.forMessage("Failed to establish a connection"))
+		callback(Error.forMessage("Failed to establish a connection. Failed to push task"))
 }
 
 func receive(callback as function<void,buffer,int>) override
