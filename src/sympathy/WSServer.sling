@@ -24,19 +24,21 @@
 
 class is NetworkServer:
 
+import capex.net
+
 prop createConnectionHandlerObject as function<WSServerConnectionHandler>
+prop maintenanceTimerDelay as long = 7 * 60
+var maintenanceTimer as IOManagerTimer
 
 ctor:
 	setPort(8080)
 
 func createConnectionObject override as NetworkConnection
 {
-	assert createConnectionHandlerObject {
+	assert createConnectionHandlerObject:
 		logError("No 'createConnectionHandlerObject' set. Cannot create connection object handlers!")
-	}
-	var handler = assert createConnectionHandlerObject() {
+	var handler = assert createConnectionHandlerObject():
 		logError("Failed to create connection object. No connection handler object returned!")
-	}
 	var connection = new WSServerConnection()
 	connection.setConnectionHandler(handler)
 	handler.setConnection(connection)
@@ -55,3 +57,37 @@ func logInfo(message as string):
 
 func logDebug(message as string):
 	Log.debug(logContext, message)
+
+func onMaintenanceTimer private as bool
+{
+	onMaintenance()
+	return true
+}
+
+func onMaintenance virtual
+{
+	forEachConnection(func(connection as NetworkConnection) {
+		var wsConnection = assert connection as WSServerConnection
+		wsConnection.onMaintenance()
+	})
+}
+
+func initialize override as bool
+{
+	assert base.initialize()
+	if maintenanceTimerDelay < 1 {
+		logDebug("Maintenance timer disabled")
+	}
+	else {
+		logDebug("Starting a maintenance timer with a " .. String.forInteger(maintenanceTimerDelay) .. " second delay.")
+		maintenanceTimer = ioManager.startTimer(maintenanceTimerDelay * 1000000, onMaintenanceTimer)
+		if maintenanceTimer == null:
+			logError("Failed to start maintenance timer")
+	}
+	return true
+}
+
+func cleanup override
+{
+	base.cleanup()
+}
