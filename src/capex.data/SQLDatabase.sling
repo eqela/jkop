@@ -56,13 +56,12 @@ func ensureTableExists(table as SQLTableInfo) virtual as bool
 {
 	assert table
 	var name = table.getName()
-	if cape.String.isEmpty(name):
-		return false
+	assert String.isNotEmpty(name)
 	if tableExists(name):
 		return true
 	assert execute(prepareCreateTableStatement(name, table.getColumns()))
 	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
-		if execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())) == false:
+		if not execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())):
 			execute(prepareDeleteTableStatement(name))
 	}
 	return true
@@ -78,11 +77,11 @@ func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) 
 func createColumnSelectionString(columns as array) private as string
 {
 	if not columns || SIZE(columns) < 1:
-		return("*")
+		return "*"
 	var sb = new StringBuilder()
 	var first = true
 	foreach column as string in columns {
-		if first == false:
+		if not first:
 			sb.append(", ")
 		sb.append(column)
 		first = false
@@ -92,13 +91,12 @@ func createColumnSelectionString(columns as array) private as string
 
 func createOrderByString(order as array) private as string
 {
-	if not order || SIZE(order) < 1:
-		return null
+	assert order && SIZE(order) > 0
 	var sb = new StringBuilder()
 	sb.append(" ORDER BY ")
 	var first = true
 	foreach rule in order {
-		if first == false:
+		if not first:
 			sb.append(", ")
 		if rule is SQLOrderingRule {
 			var sr = rule as! SQLOrderingRule
@@ -163,15 +161,10 @@ func prepareCountRecordsStatement(table as string, criteria as map) virtual as S
 		}
 	}
 	sb.append(';')
-	var sql = sb.toString()
-	var stmt = prepare(sql)
-	if not stmt:
-		return null
+	var stmt = assert prepare(sb.toString())
 	if keys {
-		foreach key as string in keys {
-			var val = String.asString(Map.get(criteria, key))
-			stmt.addParamString(val)
-		}
+		foreach key as string in keys:
+			stmt.addParamString(String.asString(Map.get(criteria, key)))
 	}
 	return stmt
 }
@@ -236,8 +229,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 
 func prepareQueryDistinctValuesStatement(table as string, column as string) virtual as SQLStatement
 {
-	if String.isEmpty(table) || String.isEmpty(column):
-		return null
+	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var sb = new StringBuilder()
 	sb.append("SELECT DISTINCT ")
 	sb.append(column)
@@ -249,8 +241,7 @@ func prepareQueryDistinctValuesStatement(table as string, column as string) virt
 
 func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLStatement
 {
-	if String.isEmpty(table) || not data || data.getCount() < 1:
-		return null
+	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.append("INSERT INTO ")
 	sb.append(table)
@@ -272,9 +263,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLS
 		first = false
 	}
 	sb.append(" );")
-	var stmt = prepare(sb.toString())
-	if not stmt:
-		return null
+	var stmt = assert prepare(sb.toString())
 	foreach key in keys {
 		var o = data.get(key)
 		if o is string || o is StringObject {
@@ -295,6 +284,9 @@ func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLS
 		else if o is buffer {
 			stmt.addParamBlob(o as buffer)
 		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
+		}
 		else {
 			var s = o as string
 			if not s:
@@ -307,8 +299,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLS
 
 func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
 {
-	if String.isEmpty(table) || data == null || data.getCount() < 1:
-		return null
+	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.append("UPDATE ")
 	sb.append(table)
@@ -344,15 +335,16 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 		}
 	}
 	sb.append(';')
-	var stmt = prepare(sb.toString())
-	if not stmt:
-		return null
+	var stmt = assert prepare(sb.toString())
 	foreach o in params {
 		if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
 		}
 		else if o is buffer {
 			stmt.addParamBlob(o as! buffer)
+		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
 		}
 		else {
 			var s = String.asString(o)
@@ -397,6 +389,9 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) virtual as 
 		}
 		else if o is buffer {
 			stmt.addParamBlob(o as! buffer)
+		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
 		}
 		else {
 			var s = String.asString(o)
