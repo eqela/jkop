@@ -27,6 +27,7 @@ class is ConsoleApplicationMain:
 import capex.util
 
 var configFile as File
+var existingConfiguration as StringSet
 
 func initialize override as bool
 {
@@ -37,6 +38,22 @@ func initialize override as bool
 			assert not configFile:
 				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.getComplete() .. "'")
 			configFile = File.forPath(arg.getStringValue())
+			continue
+		}
+		if arg.isOption() {
+			var orig = arg.getStringValue()
+			if String.startsWith(orig, "O") {
+				var option = String.getSubString(orig, 1)
+				if String.isNotEmpty(option) {
+					var value = arg.getStringValue()
+					var error = new Error()
+					assert acceptConfiguration(option, value, null, error):
+						Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. option .. "'"))
+					if not existingConfiguration:
+						existingConfiguration = new StringSet()
+					existingConfiguration.add(option)
+				}
+			}
 		}
 	}
 	if configFile {
@@ -51,6 +68,8 @@ func initialize override as bool
 					break
 				var key = v.key
 				var value = v.value
+				if existingConfiguration && existingConfiguration.contains(key):
+					continue
 				assert acceptConfiguration(key, value, configFile.getParent(), error):
 					Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. key .. "'"))
 			}
