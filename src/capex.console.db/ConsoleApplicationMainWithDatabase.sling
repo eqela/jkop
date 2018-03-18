@@ -1,0 +1,44 @@
+class is ConsoleApplicationMain abstract:
+
+import capex.console
+import capex.data
+import sympathy.db
+
+prop databaseConnectionString as string
+var db public as SQLDatabase
+
+func ensureTableExists(table as SQLTableInfo) as bool
+{
+	assert table:
+		Log.error(ctx, "null table object")
+	assert db.ensureTableExists(table):
+		Log.error(ctx, "Failed to create table: `" .. table.getName() .. "'")
+	return true
+}
+
+func initialize override as bool
+{
+	assert base.initialize()
+	databaseConnectionString = Environment.getVariable("DB_CONNECTION_STRING")
+	var dbarg as CommandLineArgument
+	foreach arg in args {
+		if arg.isOption("db") {
+			dbarg = arg
+			databaseConnectionString = arg.getStringValue()
+			break
+		}
+	}
+	assert String.isNotEmpty(databaseConnectionString):
+		Log.error(ctx, "No database connection string defined. Use either the DB_CONNECTION_STRING environment variable or -db=... on the command line.")
+	assert db = SQLDatabaseProvider.getDatabase(ctx, databaseConnectionString):
+		Log.error(ctx, "Unable to connect to database: `" .. databaseConnectionString .. "'")
+	if dbarg {
+		var nargs = new vector<CommandLineArgument>
+		foreach arg in args {
+			if arg != dbarg:
+				nargs += arg
+		}
+		args = nargs
+	}
+	return true
+}

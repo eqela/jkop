@@ -373,8 +373,7 @@ func prepare(sql as string) override as SQLStatement:
 
 func execute(stmt as SQLStatement) override as bool
 {
-	var ss = stmt as Statement
-	assert ss
+	var ss = assert stmt as Statement
 	var v = true
 	var error as string = null
 	lang "cs" {{{
@@ -403,10 +402,42 @@ func execute(stmt as SQLStatement) override as bool
 	return v
 }
 
-func query(stmt as SQLStatement) override as SQLResultSetIterator
+func executeUpdateDelete(stmt as SQLStatement) override as int
 {
 	var ss = stmt as Statement
-	assert ss
+	if not ss:
+		return 0
+	var v = 0
+	var error as string = null
+	lang "cs" {{{
+		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
+			try {
+				System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+				cmd.CommandTimeout = 0;
+				if(ss.getIsStoredProcedure()) {
+					cmd.CommandType = System.Data.CommandType.StoredProcedure;
+				}
+				System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+				if(pa != null) {
+					cmd.Parameters.AddRange(ss.getParamArray());
+				}
+				conn.Open();
+				v = cmd.ExecuteNonQuery();
+			}
+			catch(System.Exception e) {
+				error = e.ToString();
+				v = 0;
+			}
+		}
+	}}}
+	if error:
+		Log.error(getLogger(), error)
+	return v
+}
+
+func query(stmt as SQLStatement) override as SQLResultSetIterator
+{
+	var ss = assert stmt as Statement
 	var v as ResultSet = null
 	var error as string = null
 	var reader as !"System.Data.SqlClient.SqlDataReader"
@@ -460,21 +491,20 @@ func close(callback as function) override
 
 func execute(stmt as SQLStatement, callback as function<void, bool>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(false)
-	}
 	var v = execute(stmt)
+	if callback:
+		callback(v)
+}
+
+func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override
+{
+	var v = executeUpdateDelete(stmt)
 	if callback:
 		callback(v)
 }
 
 func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(null)
-	}
 	var v = query(stmt)
 	if callback:
 		callback(v)
