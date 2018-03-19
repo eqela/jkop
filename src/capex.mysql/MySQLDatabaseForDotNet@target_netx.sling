@@ -365,8 +365,7 @@ func prepare(sql as string) override as SQLStatement:
 
 func execute(stmt as SQLStatement) override as bool
 {
-	var ss = stmt as Statement
-	assert ss
+	var ss = assert stmt as Statement
 	var v = true
 	var error as string = null
 	lang "cs" {{{
@@ -383,10 +382,30 @@ func execute(stmt as SQLStatement) override as bool
 	return v
 }
 
-func query(stmt as SQLStatement) override as SQLResultSetIterator
+func executeUpdateDelete(stmt as SQLStatement) override as int
 {
 	var ss = stmt as Statement
-	assert ss
+	if not ss:
+		return 0
+	var v = 0
+	var error as string = null
+	lang "cs" {{{
+		try {
+			v = MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			v = 0;
+			error = e.ToString();
+		}
+	}}}
+	if String.isNotEmpty(error):
+		Log.error(getLogger(), error)
+	return v
+}
+
+func query(stmt as SQLStatement) override as SQLResultSetIterator
+{
+	var ss = assert stmt as Statement
 	var v as ResultSet = null
 	var error as string = null
 	var rdr as !"MySql.Data.MySqlClient.MySqlDataReader"
@@ -417,21 +436,20 @@ func close(callback as function) override
 
 func execute(stmt as SQLStatement, callback as function<void, bool>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(false)
-	}
 	var v = execute(stmt)
+	if callback:
+		callback(v)
+}
+
+func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override
+{
+	var v = executeUpdateDelete(stmt)
 	if callback:
 		callback(v)
 }
 
 func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(null)
-	}
 	var v = query(stmt)
 	if callback:
 		callback(v)

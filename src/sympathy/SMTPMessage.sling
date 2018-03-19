@@ -22,7 +22,16 @@
  * SOFTWARE.
  */
 
-class imports capex.text:
+class:
+
+import capex.text
+
+func forTemplate(template as string, data as DynamicMap = null) static as this
+{
+	var v = new this()
+	v.initializeFromTemplate(template, data)
+	return v
+}
 
 var rcptsTo as DynamicVector
 var rcptsCC as DynamicVector
@@ -41,6 +50,51 @@ var counter private static = 0
 
 ctor:
 	date = VerboseDateTimeString.forUTCNow()
+
+func initializeFromTemplate(template as string, data as DynamicMap = null)
+{
+	var tt = assert template
+	if data:
+		tt = TextTemplate.processString(tt, "<%", "%>", data)
+	var boundary = String.getIndexOf(tt, "\n\n")
+	if boundary < 0:
+		boundary = String.getIndexOf(tt, "\r\n\r\n")
+	if boundary > 0 {
+		var hdr = String.getSubString(tt, 0, boundary)
+		if hdr {
+			foreach line in String.split(hdr, '\n') {
+				line = String.strip(line)
+				var comps = String.split(line, ':', 2)
+				var key = String.strip(Vector.get(comps, 0))
+				var val = String.strip(Vector.get(comps, 1))
+				if String.isEmpty(key):
+					continue
+				if key == "replyTo" {
+					setReplyTo(val)
+				}
+				else if key == "subject" {
+					setSubject(val)
+				}
+				else if key == "contentType" {
+					setContentType(val)
+				}
+				else if key == "myName" {
+					setMyName(val)
+				}
+				else if key == "myAddress" {
+					setMyAddress(val)
+				}
+				else {
+					; // ignore unknown header
+				}
+			}
+		}
+		setText(String.strip(String.getSubString(tt, boundary)))
+	}
+	else {
+		setText(String.strip(tt))
+	}
+}
 
 func onChanged private:
 	messageBody = null
@@ -276,16 +330,18 @@ func getMessageBody virtual as string
 			first = false
 		}
 	}
-	// FIXME - How about the BCC?
 	sb.append("\r\nSubject: ")
 	sb.append(subject)
 	sb.append("\r\nContent-Type: ")
 	sb.append(contentType)
 	sb.append("\r\nDate: ")
 	sb.append(date)
-	sb.append("\r\nMessage-ID: <")
-	sb.append(messageID)
-	sb.append(">\r\n\r\n")
+	if String.isNotEmpty(messageID) {
+		sb.append("\r\nMessage-ID: <")
+		sb.append(messageID)
+		sb.append(">")
+	}
+	sb.append("\r\n\r\n")
 	sb.append(text)
 	messageBody = sb.toString()
 	return messageBody
