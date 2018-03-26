@@ -94,6 +94,7 @@ class DefaultTabItemCreator is TabItemCreator
 class TabObject
 {
 	var title public as string
+	var index public as int
 	var item public as TabItemWidget
 	var content public as Widget
 
@@ -209,6 +210,8 @@ ctor(ctx as GuiApplicationContext)
 	forceCreateWidget()
 }
 
+prop beforeTabSwitchEventHandler as function<void, int, dynamic>
+prop tabSwitchEventHandler as function<void, int>
 prop tabItemCreator as TabItemCreator
 var tabCollection as vector<TabObject>
 var currentTab as TabObject
@@ -224,6 +227,7 @@ func addTab(widget as TabContentWidget)
 	var tab = new TabObject()
 	tab.title = title
 	tab.item = v
+	tab.index = SIZE(tabCollection)
 	tab.content = widget
 	tab.setOnTabClickHandler(func(to as TabObject) {
 		updateSelectedTab(to, false)
@@ -260,14 +264,23 @@ func updateSelectedTab(tab as TabObject, newTab as bool) private
 		currentTab.item.onTabDeselected()
 		Widget.setVisible(currentTab.content, false)
 	}
+	var oldTab = currentTab
 	currentTab = tab
 	currentTab.item.onTabSelected()
+	if beforeTabSwitchEventHandler {
+		var tabCancel = new Boolean()
+		beforeTabSwitchEventHandler(currentTab.index, tabCancel)
+		if tabCancel.toBoolean():
+			return
+	}
 	if newTab {
 		tabContentContainer.addWidget(currentTab.content)
 	}
 	else {
 		Widget.setVisible(currentTab.content, true)
 	}
+	if tabSwitchEventHandler:
+		tabSwitchEventHandler(oldTab.index)
 }
 
 func setWidgetContentOutlineColor(color as Color) as this
@@ -290,18 +303,9 @@ func getTabItemWidget(title as string) as TabItemWidget
 
 func getActiveTabIndex as int
 {
-	var index = -1
 	if not currentTab:
-		return index
-	var counter = 0
-	foreach tab as TabObject in tabCollection {
-		if tab == currentTab {
-			index = counter
-			break
-		}
-		counter++
-	}
-	return index
+		return -1
+	return currentTab.index
 }
 
 func setTabEnabled(index as int, enable as bool)

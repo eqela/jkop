@@ -22,53 +22,31 @@
  * SOFTWARE.
  */
 
-class is ConnectedSocket abstract:
+class:
 
-func create static as this
+func encode(data as buffer, width as int, height as int) static as buffer
 {
-	return(new TCPSocketImpl())
-}
-
-func createAndConnect(address as string, port as int) static as this
-{
-	var v = create()
-	if(v == null) {
-		return(null)
+	assert SIZE(data) > 0
+	var buffer as buffer
+	IFDEF "target_dotnet" {
+		var des = new !"System.IO.MemoryStream"()
+		lang "cs" {{{
+			try {
+				System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(width, height);
+				System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
+					new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
+					System.Drawing.Imaging.ImageLockMode.WriteOnly,
+					bmp.PixelFormat
+				);
+				System.Runtime.InteropServices.Marshal.Copy(data, 0, bmpData.Scan0, data.Length);
+				bmp.UnlockBits(bmpData);
+				bmp.Save(des, System.Drawing.Imaging.ImageFormat.Png);
+			}
+			catch(System.Exception e) {
+				return(null);
+			}
+		}}}
+		buffer = lang "cs" buffer {{{ des.GetBuffer() }}}
 	}
-	if(v.connect(address, port) == false) {
-		v = null
-	}
-	return(v)
+	return buffer
 }
-
-func createAndListen(port as int) static as this
-{
-	var v = create()
-	if(v == null) {
-		return(null)
-	}
-	if(v.listen(port) == false) {
-		v = null
-	}
-	return(v)
-}
-
-prop lastErrorDescription as string
-
-func getRemoteAddress abstract as string
-func getRemotePort abstract as int
-func getLocalAddress abstract as string
-func getLocalPort abstract as int
-func connect(address as string, port as int) abstract as bool
-func listen(port as int) abstract as bool
-func accept abstract as this
-func setBlocking(blocking as bool) abstract as bool
-func close abstract
-func read(buffer as buffer) abstract as int
-
-func readWithTimeout(buffer as buffer, timeout as int) virtual as int
-{
-	return(read(buffer))
-}
-
-func write(buffer as buffer, size as int) abstract as int
