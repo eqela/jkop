@@ -26,416 +26,222 @@ class is TCPClient imports cape:
 
 depend "androidPermission:android.permission.INTERNET"
 
-interface TCPClientTask
+class Task implements !"java.lang.Runnable"
 {
-}
+	ctor(h as function):
+		handler = h
 
-class TCPEvent
-{
-	prop callback as function<void, Error>
-}
+	var handler as function
 
-class TCPResponseEvent is TCPEvent
-{
-	prop data as buffer
-	prop size as int
-}
-
-class TCPErrorEvent is TCPEvent
-{
-	prop error as Error
-}
-
-class TCPConnectTask is TCPClientTask
-{
-	prop address as string
-	prop port as int
-	prop callback as function<void, Error>
-}
-
-class TCPSendTask is TCPClientTask
-{
-	prop data as buffer
-	prop size as int
-	prop callback as function<void, Error>
-}
-
-class TCPDisconnectTask is TCPClientTask
-{
-	prop callback as function<void, Error>
-}
-
-class AsyncListener is !"android.os.AsyncTask<Void, TCPEvent, Void>"
-{
-	prop callback as function<void, buffer, int>
-	prop socket as TCPSocket
-	var receiveBuffer private as buffer
-
-	ctor:
-		receiveBuffer = MALLOC(64 * 1024)
-
-	dtor:
-		receiveBuffer = null
-
-	func sendEvent(e as TCPEvent) private
+	func run
 	{
-		lang "java" {{{
-			publishProgress(e);
-		}}}
+		if handler:
+			handler()
+	}
+}
+
+class TCPClientThread extends !"android.os.HandlerThread"
+{
+	ctor(name as string, hdrl as !"android.os.Handler")
+	{
+		base(name)
+		uiHandler = hdrl
 	}
 
-	func close private
+	var uiHandler as !"android.os.Handler"
+	var myHandler as !"android.os.Handler"
+	var readThreadIsRunning static volatile as bool
+	var readThreadStopFlag static volatile as bool
+	var receiveCallback as function<void, buffer, int>
+	var errorCallback as function
+	var taskQueue as Queue<Task>
+	var socket as TCPSocket
+
+	func onLooperPrepared
 	{
-		if socket != null {
-			socket.close()
-			socket = null
+		myHandler = new !"android.os.Handler"(lang "java" !"android.os.Looper" {{{ getLooper() }}})
+		if taskQueue {
+			loop {
+				var t = taskQueue.pop()
+				if not t:
+					break
+				doExecuteInTCPThread(t)
+			}
 		}
 	}
 
-	func onDoInBackground private
+	func startThread
 	{
-		loop {
-			var isCancelled = lang "java" bool {{{ isCancelled() }}}
-			if isCancelled {
-				close()
-				sendEvent(new TCPResponseEvent().setSize(-1))
-				return
-			}
-			assert socket {
-				sendEvent(new TCPResponseEvent().setSize(-1))
-			}
-			var r = socket.read(receiveBuffer)
-			if r < 0 {
-				close()
-				sendEvent(new TCPResponseEvent().setSize(r))
-				return
-			}
-			else if r == 0 {
-				continue
-			}
-			sendEvent(new TCPResponseEvent().setData(receiveBuffer).setSize(r))
-		}
+		base.start()
+		socket = TCPSocket.create()
 	}
 
-	func onTaskUpdate(e as TCPEvent) private
+	func stopThread
 	{
-		assert e
-		if e is TCPErrorEvent {
-			if callback != null:
-				callback(null, 0)
+		base.quit()
+		socket = null
+		if readThreadIsRunning:
+			readThreadStopFlag = true
+	}
+
+	func setErrorCallback(ec as function):
+		errorCallback = ec
+
+	func isRunning as bool:
+		return lang "java" bool {{{ isAlive() }}}
+
+	func executeErrorCallback(callback as function<void, Error>, error as Error = null)
+	{
+		assert callback
+		var c final = callback
+		var e final = error
+		executeInUIThread(func {
+			if e && errorCallback:
+				errorCallback()
+			c(e)
+		})
+	}
+
+	func executeResponseCallback(buffer as buffer, size as int)
+	{
+		assert receiveCallback
+		var c final = receiveCallback
+		var b final = buffer
+		var s final = size
+		executeInUIThread(func {
+			c(b, s)
+		})
+	}
+
+	func executeInUIThread(f as function):
+		uiHandler.post(new Task(f))
+
+	func executeInTCPThread(f as function)
+	{
+		assert f
+		if not myHandler {
+			if not taskQueue:
+				taskQueue = new Queue<Task>()
+			taskQueue.push(new Task(f))
 			return
 		}
-		else if e is TCPResponseEvent {
-			var v = e as! TCPResponseEvent
-			if callback != null:
-				callback(v.getData(), v.getSize())
-		}
+		doExecuteInTCPThread(new Task(f))
 	}
 
-	lang "java" {{{
-		protected Void doInBackground(Void... o) {
-			onDoInBackground();
-			return null;
-		}
+	func doExecuteInTCPThread(task as Task):
+		myHandler.post(task)
 
-		protected void onProgressUpdate(TCPEvent... e) {
-			onTaskUpdate(e[0]);
-		}
-	}}}
-}
-
-class AsyncWorker is !"android.os.AsyncTask<Void, TCPEvent, Void>"
-{
-	ctor
+	func runReadThread private
 	{
-		lang "java" {{{
-			blockingQueue = new java.util.concurrent.LinkedBlockingQueue<TCPClientTask>();
-		}}}
-	}
-
-	dtor
-	{
-		lang "java" {{{
-			if(blockingQueue != null) {
-				blockingQueue.clear();
-				blockingQueue = null;
-			}
-		}}}
-	}
-
-	prop onCancelCallback as function
-	prop socket as TCPSocket
-	var blockingQueue private as !"java.util.concurrent.BlockingQueue<TCPClientTask>"
-
-	func pushTask(t as TCPClientTask) as bool
-	{
-		var v = true
-		assert blockingQueue
-		lang "java" {{{
-			try {
-				blockingQueue.put(t);
-			}
-			catch(java.lang.Exception e) {
-				v = false;
-				e.printStackTrace();
-			}
-		}}}
-		return(v)
-	}
-
-	func popTask private as TCPClientTask
-	{
-		var v as TCPClientTask
-		assert blockingQueue
-		lang "java" {{{
-			try {
-				v = blockingQueue.take();
-			}
-			catch(java.lang.Exception e) {
-				v = null;
-				e.printStackTrace();
-			}
-		}}}
-		return(v)
-	}
-
-	func close private
-	{
-		if socket != null {
-			socket.close()
-			socket = null
-		}
-	}
-
-	func onConnectTask(t as TCPConnectTask) private
-	{
-		assert t {
-			close()
-		}
-		var c = t.getCallback()
-		assert socket
-		if socket.connect(t.getAddress(), t.getPort()) == false {
-			close()
-			if c != null {
-				var e = new TCPErrorEvent()
-				e.setError(Error.forMessage("Failed to establish a connection to socket"))
-				e.setCallback(c)
-				sendEvent(e)
-			}
-			return
-		}
-		if c != null {
-			var e = new TCPEvent()
-			e.setCallback(c)
-			sendEvent(e)
-		}
-	}
-
-	func onSendTask(t as TCPSendTask) private
-	{
-		assert t
-		var data = t.getData()
-		var size = t.getSize()
-		var c = t.getCallback()
-		assert socket {
-			close()
-			if c != null {
-				var e = new TCPErrorEvent()
-				e.setError(Error.forMessage("No open connection"))
-				e.setCallback(c)
-				sendEvent(e)
-			}
-		}
-		if socket.write(data, size) < 1 {
-			close()
-			if c != null {
-				var e = new TCPErrorEvent()
-				e.setError(Error.forMessage("Failed to send"))
-				e.setCallback(c)
-				sendEvent(e)
-			}
-			return
-		}
-		if c != null {
-			var e = new TCPEvent()
-			e.setCallback(c)
-			sendEvent(e)
-		}
-	}
-
-	func sendEvent(e as TCPEvent) private
-	{
-		lang "java" {{{
-			publishProgress(e);
-		}}}
-	}
-
-	func onDoInBackground private
-	{
-		loop {
-			var isCancelled = lang "java" bool {{{ isCancelled() }}}
-			if isCancelled {
-				close()
-				return
-			}
-			var t = popTask()
-			assert t
-			if t is TCPConnectTask {
-				onConnectTask(t as! TCPConnectTask)
-				continue
-			}
-			else if t is TCPDisconnectTask {
-				close()
-				var c = (t as! TCPDisconnectTask).getCallback()
-				if c != null {
-					var e = new TCPEvent()
-					e.setCallback(c)
-					sendEvent(e)
+		assert readThreadIsRunning == false
+		var ts = new Task(func {
+			var receiveBuffer final = MALLOC(64 * 1024)
+			while readThreadStopFlag == false {
+				var r final = socket.read(receiveBuffer)
+				if r < 0 {
+					return
 				}
-				continue
+				else if r == 0 {
+					continue
+				}
+				executeInTCPThread(func {
+					executeResponseCallback(receiveBuffer, r)
+				})
 			}
-			else if t is TCPSendTask {
-				onSendTask(t as! TCPSendTask)
-				continue
+			readThreadIsRunning = false
+			readThreadStopFlag = false
+		})
+		var readThread = new !"java.lang.Thread"(ts)
+		readThread.start()
+		readThreadIsRunning = true
+	}
+
+	func connect(address as string, port as int, callback as function<void, Error>)
+	{
+		var a final = address
+		var p final = port
+		var c final = callback
+		executeInTCPThread(func {
+			if socket.connect(a, p) == false {
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
+				return
 			}
-		}
+			if c:
+				executeErrorCallback(c)
+			runReadThread()
+		})
 	}
 
-	func onCancelTask
+	func disconnect(callback as function<void, Error>)
 	{
-		if onCancelCallback:
-			onCancelCallback()
+		var c final = callback
+		executeInTCPThread(func {
+			socket.close()
+			executeErrorCallback(c)
+		})
 	}
 
-	func onTaskUpdate(e as TCPEvent) private
+	func receive(callback as function<void, buffer, int>):
+		receiveCallback = callback
+
+	func send(data as buffer, size as int, callback as function<void, Error>)
 	{
-		assert e
-		if e is TCPErrorEvent {
-			var v = e as! TCPErrorEvent
-			var c = v.getCallback()
-			if c != null:
-				c(v.getError())
-			onCancelTask()
-			return
-		}
-		var c = e.getCallback()
-		if c != null:
-			c(null)
+		var d final = data
+		var s final = size
+		var c final = callback
+		executeInTCPThread(func {
+			if socket.write(d, s) < 1 {
+				socket.close()
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to send"))
+				return
+			}
+			if c:
+				executeErrorCallback(c)
+		})
 	}
-
-	lang "java" {{{
-		protected Void doInBackground(Void... o) {
-			onDoInBackground();
-			return null;
-		}
-
-		protected void onProgressUpdate(TCPEvent... e) {
-			onTaskUpdate(e[0]);
-		}
-	}}}
 }
 
-var worker private as AsyncWorker
-var listener private as AsyncListener
-var socket private as TCPSocket
+var thread as TCPClientThread
+var counter static = 0
 
-func initializeWorker private
+func initializeThread
 {
-	deinitializeWorker()
-	socket = TCPSocket.create()
-	worker = new AsyncWorker()
-	worker.setSocket(socket)
-	worker.setOnCancelCallback(func {
-		deinitializeWorker()
-	})
-	lang "java" {{{
-		try {
-			worker.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
-		}
-		catch(java.lang.Exception e) {
-			e.printStackTrace();
-			worker = null;
-		}
-	}}}
+	if thread:
+		destroyThread()
+	thread = new TCPClientThread("JkopTCPClientThread" .. String.asString(counter++), new !"android.os.Handler"())
+	thread.setErrorCallback(destroyThread)
+	thread.startThread()
 }
 
-func deinitializeWorker private
+func destroyThread
 {
-	if worker != null {
-		lang "java" {{{
-			worker.cancel(true);
-		}}}
-		worker = null
-	}
-	if listener != null {
-		lang "java" {{{
-			listener.cancel(true);
-		}}}
-		listener = null
-	}
-	socket = null
+	if thread.isRunning():
+		thread.stopThread()
+	thread = null
 }
 
 func connect(address as string, port as int, callback as function<void,Error>) override
 {
-	initializeWorker()
-	assert worker {
-		callback(Error.forMessage("Failed to establish a connection. No worker found"))
-	}
-	var t = new TCPConnectTask()
-	t.setAddress(address)
-	t.setPort(port)
-	t.setCallback(callback)
-	if worker.pushTask(t) == false:
-		callback(Error.forMessage("Failed to establish a connection. Failed to push task"))
+	initializeThread()
+	thread.connect(address, port, callback)
 }
 
 func receive(callback as function<void,buffer,int>) override
 {
-	if listener != null {
-		listener.setCallback(callback)
-		return
-	}
-	assert callback
-	assert socket
-	listener = new AsyncListener()
-	listener.setSocket(socket)
-	listener.setCallback(callback)
-	lang "java" {{{
-		try {
-			listener.executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR);
-		}
-		catch(java.lang.Exception e) {
-			e.printStackTrace();
-			listener = null;
-		}
-	}}}
+	assert thread
+	thread.receive(callback)
 }
 
 func send(data as buffer, size as int, callback as function<void,Error>) override
 {
-	assert worker {
-		callback(Error.forMessage("No open connection"))
-	}
-	var t = new TCPSendTask()
-	t.setData(data)
-	t.setSize(size)
-	t.setCallback(callback)
-	if worker.pushTask(t) == false:
-		callback(Error.forMessage("Failed to send data"))
+	assert thread
+	thread.send(data, size, callback)
 }
 
 func disconnect(callback as function<void,Error>) override
 {
-	assert worker {
-		callback(Error.forMessage("No open connection"))
-	}
-	var t = new TCPDisconnectTask()
-	var c final = callback
-	t.setCallback(func(e as Error) {
-		deinitializeWorker()
-		c(e)
-	})
-	if worker.pushTask(t) == false:
-		callback(Error.forMessage("Failed to close the connection"))
+	assert thread
+	thread.disconnect(callback)
 }
