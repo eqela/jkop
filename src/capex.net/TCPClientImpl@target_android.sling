@@ -50,9 +50,6 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 
 	var uiHandler as !"android.os.Handler"
 	var myHandler as !"android.os.Handler"
-	var readThreadIsRunning volatile as bool
-	var readThreadStopFlag volatile as bool
-	var receiveCallback as function<void, buffer, int>
 	var errorCallback as function
 	var taskQueue as Queue<Task>
 	var socket as TCPSocket
@@ -80,8 +77,6 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	{
 		base.quit()
 		socket = null
-		if readThreadIsRunning:
-			readThreadStopFlag = true
 	}
 
 	func setErrorCallback(ec as function):
@@ -102,10 +97,9 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		})
 	}
 
-	func executeResponseCallback(buffer as buffer, size as int)
+	func executeResponseCallback(callback as function<void, buffer, int>, buffer as buffer, size as int)
 	{
-		assert receiveCallback
-		var c final = receiveCallback
+		var c final = callback
 		var b final = buffer
 		var s final = size
 		executeInUIThread(func {
@@ -131,31 +125,6 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	func doExecuteInTCPThread(task as Task):
 		myHandler.post(task)
 
-	func runReadThread private
-	{
-		assert readThreadIsRunning == false
-		var ts = new Task(func {
-			var receiveBuffer final = MALLOC(64 * 1024)
-			while readThreadStopFlag == false {
-				var r final = socket.read(receiveBuffer)
-				if r < 0 {
-					break
-				}
-				else if r == 0 {
-					continue
-				}
-				executeInTCPThread(func {
-					executeResponseCallback(receiveBuffer, r)
-				})
-			}
-			readThreadIsRunning = false
-			readThreadStopFlag = false
-		})
-		var readThread = new !"java.lang.Thread"(ts)
-		readThread.start()
-		readThreadIsRunning = true
-	}
-
 	func connect(address as string, port as int, callback as function<void, Error>)
 	{
 		var a final = address
@@ -169,7 +138,6 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 			}
 			if c:
 				executeErrorCallback(c)
-			runReadThread()
 		})
 	}
 
@@ -177,19 +145,40 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	{
 		var c final = callback
 		executeInTCPThread(func {
-			socket.close()
+			if socket:
+				socket.close()
 			executeErrorCallback(c)
 		})
 	}
 
-	func receive(callback as function<void, buffer, int>):
-		receiveCallback = callback
+	func receive(callback as function<void, buffer, int>)
+	{
+		assert callback
+		var c final = callback
+		var b final = MALLOC(64 * 1024)
+		var t = new Task(func {
+			assert socket:
+				executeResponseCallback(c, null, -1)
+			var r = socket.read(b)
+			assert r > -1 {
+				socket.close()
+				executeResponseCallback(c, null, -1)
+			}
+			executeResponseCallback(c, b, r)
+		})
+		var readThread = new !"java.lang.Thread"(t)
+		readThread.start()
+	}
 
 	func send(data as buffer, size as int, callback as function<void, Error>)
 	{
 		var d final = data
 		var s final = size
 		var c final = callback
+		assert socket {
+			if c:
+				executeErrorCallback(c, Error.forMessage("Failed to send. No instance of TCPSocket"))
+		}
 		executeInTCPThread(func {
 			if socket.write(d, s) < 1 {
 				socket.close()
