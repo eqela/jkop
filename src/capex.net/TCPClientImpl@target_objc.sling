@@ -24,6 +24,18 @@
 
 class is TCPClient is ConnectedSocket implements !"NSStreamDelegate" imports cape:
 
+class ReadQueueItem
+{
+	ctor(buffer as buffer, size as int)
+	{
+		setBuffer(buffer)
+		setSize(size)
+	}
+
+	prop buffer as buffer
+	prop size as int
+}
+
 class SendTask
 {
 	prop data as buffer
@@ -33,11 +45,11 @@ class SendTask
 
 var inputStream private as !"NSInputStream*"
 var outputStream private as !"NSOutputStream*"
-var receiveBuffer private as buffer
 var sendTaskQueue private as vector<SendTask>
 var sendTaskQueueMaxSize private = 1024 * 1024
 var connectCallback private as function<void, Error>
 var receiveCallback private as function<void, buffer, int>
+var readQueue as Queue<ReadQueueItem>
 
 lang "objc" {{{
 	-(void)stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
@@ -67,12 +79,12 @@ lang "objc" {{{
 }}}
 
 ctor:
-	receiveBuffer = MALLOC(64 * 1024)
+	readQueue = new Queue<ReadQueueItem>()
 
 dtor
 {
 	close()
-	receiveBuffer = null
+	readQueue = null
 	sendTaskQueue = null
 	connectCallback = null
 	receiveCallback = null
@@ -102,11 +114,22 @@ func onStreamClosed private:
 
 func onBytesAvailable private
 {
-	var r = read(receiveBuffer)
+	var rb = MALLOC(64 * 1024)
+	var r = read(rb)
 	if r < 0:
 		close()
-	if receiveCallback != null:
-		receiveCallback(receiveBuffer, r)
+	var rqi = new ReadQueueItem(rb, r)
+	readQueue.push(rqi)
+	onReadUpdate()
+}
+
+func onReadUpdate private
+{
+	assert receiveCallback
+	var rqi = assert readQueue.pop()
+	var rcb = receiveCallback
+	receiveCallback = null
+	rcb(rqi.getBuffer(), rqi.getSize())
 }
 
 func read(data as buffer) private as int
@@ -210,6 +233,7 @@ func receive(callback as function<void,buffer,int>) override
 {
 	assert (callback && inputStream)
 	receiveCallback = callback
+	onReadUpdate()
 }
 
 func send(data as buffer, size as int, callback as function<void,Error>) override
