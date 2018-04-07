@@ -78,10 +78,31 @@ class FacebookHTTPClientListener is HTTPClientListener
 	}
 }
 
-func getUserProfile(fbUserId as string, fbAccessToken as string, listener as function<void,DynamicMap,Error>) static
+func getUserProfile(fbUserId as string, fbAccessToken as string, listener as function<void,DynamicMap,Error>) static:
+	getUserProfile(fbUserId, fbAccessToken, null, listener)
+
+func getUserProfile(fbUserId as string, fbAccessToken as string, fields as DynamicVector, listener as function<void,DynamicMap,Error>) static
 {
+	var f as string
+	if fields && fields.getSize() > 0 {
+		var sb = new StringBuilder()
+		var first = true
+		foreach field in fields.toVectorOfStrings() {
+			var v = String.strip(field)
+			if String.isEmpty(v):
+				continue
+			if not first:
+				sb.append(',')
+			first = false
+			sb.append(v)
+		}
+		f = sb.toString()
+	}
+	if String.isEmpty(f):
+		f = "id,address,about,birthday,email,gender,education,first_name,last_name"
 	var op = new HTTPClientOperation()
 	op.setAcceptInvalidCertificate(true)
-	var req = HTTPClientRequest.forGET("https://graph.facebook.com/" .. fbUserId .. "?fields=id,last_name,first_name,email&access_token=" .. fbAccessToken)
+	var req = HTTPClientRequest.forGET("https://graph.facebook.com/" .. fbUserId .. "?fields=" .. f .."&access_token=" .. fbAccessToken)
 	op.executeRequest(req, new FacebookHTTPClientListener().setListener(listener))
+	op.closeConnection(null)
 }
