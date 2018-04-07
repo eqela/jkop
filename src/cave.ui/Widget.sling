@@ -59,6 +59,8 @@ IFDEF "target_html"
 	import cape
 
 	var element public as object
+	var width public as int
+	var height public as int
 
 	ctor
 	{
@@ -417,6 +419,12 @@ func getAbsoluteX(widget as this) static as int
 			v = location[0];
 		}}}
 	}
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+			v = (NSInteger)(location.x);
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -437,6 +445,12 @@ func getAbsoluteY(widget as this) static as int
 			int[] location = new int[2];
 			widget.getLocationOnScreen(location);
 			v = location[1];
+		}}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+			v = (NSInteger)(location.y);
 		}}}
 	}
 	ELSE {
@@ -461,9 +475,15 @@ func getWidth(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		lang "js" {{{
-			v = widget.element.offsetWidth;
-		}}}
+		if widget.width < 1 {
+			lang "js" {{{
+				v = widget.element.getBoundingClientRect().width;
+			}}}
+			widget.width = v
+		}
+		else {
+			v = widget.width
+		}
 	}
 	ELSE IFDEF "target_uwp" {
 		v = Math.ceil(getMyWidgetInfo(widget).w as double) as int
@@ -490,9 +510,15 @@ func getHeight(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		lang "js" {{{
-			v = widget.element.offsetHeight;
-		}}}
+		if widget.height < 1 {
+			lang "js" {{{
+				v = widget.element.getBoundingClientRect().height;
+			}}}
+			widget.height = v
+		}
+		else {
+			v = widget.height
+		}
 	}
 	ELSE IFDEF "target_uwp" {
 		v = Math.ceil(getMyWidgetInfo(widget).h as double) as int
@@ -655,6 +681,8 @@ func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as
 			widget.element.style.width = ~~width + "px";
 			widget.element.style.height = ~~height + "px";
 		}}}
+		widget.width = width
+		widget.height = height
 	}
 	ELSE IFDEF "target_uwp" {
 		var wi = getMyWidgetInfo(widget)
@@ -734,14 +762,19 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 			if widthConstraint >= 0 {
 				HTMLDOM.setStyle(widget.element, "white-space", "normal")
 				HTMLDOM.setStyle(widget.element, "width", String.forInteger(widthConstraint) .. "px")
+				widget.width = widthConstraint
 			}
 			else {
 				HTMLDOM.setStyle(widget.element, "white-space", "nowrap")
 				HTMLDOM.setStyle(widget.element, "width", "auto")
 				var ww = getWidth(widget)
 				HTMLDOM.setStyle(widget.element, "width", String.forInteger(ww + 1) .. "px")
+				widget.width = ww + 1
 			}
 			HTMLDOM.setStyle(widget.element, "height", "auto")
+			lang "js" {{{
+				widget.height = widget.element.offsetHeight;
+			}}}
 			if widget is ResizeAwareWidget:
 				(widget as! ResizeAwareWidget).onWidgetResized()
 		}
@@ -1286,7 +1319,7 @@ func setVisible(widget as this, visible as bool) static
 		}
 	}
 	ELSE IFDEF "target_iosoc" {
-		var hidden = not visible
+		var hidden #used = not visible
 		lang "objc" {{{
 			[widget setHidden:hidden];
 		}}}
