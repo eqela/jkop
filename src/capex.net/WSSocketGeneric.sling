@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -783,7 +783,7 @@ func connect(url as string, protocols as string) override
 		client.disconnect(func(de as Error) {
 			var c = getOnErrorCallback()
 			if c != null:
-				c()
+				c(de)
 		})
 		client = null
 	}
@@ -791,12 +791,18 @@ func connect(url as string, protocols as string) override
 	assert client {
 		var c = getOnErrorCallback()
 		if c != null:
-			c()
+			c(Error.forMessage("No TCPClient configured"))
+		var cc = getOnCloseCallback()
+		if cc:
+			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 	}
 	var u final = assert URL.forString(url) {
 		var c = getOnErrorCallback()
 		if c != null:
-			c()
+			c(Error.forMessage("URL provided is invalid"))
+		var cc = getOnCloseCallback()
+		if cc:
+			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 	}
 	var port = u.getPortInt()
 	if port < 1 {
@@ -814,13 +820,19 @@ func connect(url as string, protocols as string) override
 				client.disconnect(func(de as Error) {
 					var c = getOnErrorCallback()
 					if c != null:
-						c()
+						c(de)
+					var cc = getOnCloseCallback()
+					if cc:
+						cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 				})
 			})
 		}
 		var c = getOnErrorCallback()
 		if c != null:
-			c()
+			c(e)
+		var cc = getOnCloseCallback()
+		if cc:
+			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 	})
 }
 
@@ -830,7 +842,10 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 	if size < 1 {
 		var c = getOnErrorCallback()
 		if c != null:
-			c()
+			c(Error.forMessage("Data size is invalid"))
+		var cc = getOnCloseCallback()
+		if cc:
+			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 		return
 	}
 	parser.onDataReceived(data, size)
@@ -843,34 +858,40 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 		if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
 			var c = getOnErrorCallback()
 			if c != null:
-				c()
+				c(Error.forMessage("Invalid WebSocket Headers(1)"))
+			var cc = getOnCloseCallback()
+			if cc:
+				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 			return
 		}
 		else if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
 			var c = getOnErrorCallback()
 			if c != null:
-				c()
+				c(Error.forMessage("Invalid WebSocket Headers(2)"))
+			var cc = getOnCloseCallback()
+			if cc:
+				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 			return
 		}
 		else if String.equalsIgnoreCase("upgrade", headers.getHeader("connection")) == false {
 			var c = getOnErrorCallback()
 			if c != null:
-				c()
+				c(Error.forMessage("Invalid WebSocket Headers(3)"))
+			var cc = getOnCloseCallback()
+			if cc:
+				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 			return
 		}
 		else if String.equals(accept, headers.getHeader("sec-websocket-accept")) == false {
 			var c = getOnErrorCallback()
 			if c != null:
-				c()
+				c(Error.forMessage("Invalid WebSocket Headers(4)"))
+			var cc = getOnCloseCallback()
+			if cc:
+				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 			return
 		}
-		client.receive(func(d as buffer, sz as int) {
-			if processData(d, sz) == false {
-				var c = getOnCloseCallback()
-				if c:
-					c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			}
-		})
+		client.receive(receiveData)
 		var c = getOnOpenCallback()
 		if c != null:
 			c()
@@ -878,7 +899,23 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 	}
 	var c = getOnErrorCallback()
 	if c != null:
-		c()
+		c(Error.forMessage("Invalid WebSocket HTTP Status"))
+	var cc = getOnCloseCallback()
+	if cc:
+		cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+}
+
+func receiveData(buffer as buffer, size as int)
+{
+	if size != 0 {
+		if processData(buffer, size) == false {
+			var c = getOnCloseCallback()
+			if c:
+				c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+			return
+		}
+	}
+	client.receive(receiveData)
 }
 
 func send(message as WSMessage) override
@@ -903,7 +940,10 @@ func doSend(message as MyWSMessage) private
 		assert e
 		var c = getOnErrorCallback()
 		if c != null:
-			c()
+			c(e)
+		var cc = getOnCloseCallback()
+		if cc:
+			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 	})
 }
 
@@ -919,7 +959,7 @@ func close(statusCode as int, reason as string) override
 		}
 		var ec = getOnErrorCallback()
 		if ec != null:
-			ec()
+			ec(e)
 		if c != null:
 			c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
 	})

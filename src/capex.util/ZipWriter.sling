@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,6 +31,56 @@ func forOutputFile(file as File) static as this
 	}
 	// FIXME: For Java, use classes in java.util.zip
 	return null
+}
+
+func writeToZipRecursive(ctx as LoggingContext, dest as File, source as File, truncateDirectoryName as bool) static as bool
+{
+	assert dest:
+		Log.error(ctx, "No destination file specified for ZIP writer")
+	assert source:
+		Log.error(ctx, "No source file specified for ZIP writer")
+	var zip = assert forOutputFile(dest):
+		Log.error(ctx, "Failed to create ZIP writer for file: `" .. dest.getPath() .. "'")
+	var pd = assert source.getParent():
+		Log.error(ctx, "Directory has no parent: `" .. source.getPath() .. "'")
+	var parentPath = pd.getPath()
+	assert String.isNotEmpty(parentPath):
+		Log.error(ctx, "Parent path is empty: `" .. source.getPath() .. "'")
+	var parentPathLength = String.getLength(parentPath)
+	if truncateDirectoryName:
+		parentPathLength = String.getLength(source.getPath())
+	if source.isFile() {
+		assert zip.addFile(source, source.baseName()) {
+			Log.error(ctx, "Failed to add to ZIP file: `" .. source.getPath() .. "'")
+			zip.close()
+			dest.remove()
+		}
+		zip.close()
+		return true
+	}
+	var ff = FileFinder.forRoot(source)
+	loop {
+		var file = ff.next()
+		if not file:
+			break
+		if file.isFile() == false:
+			continue
+		var fpath = file.getPath()
+		if String.isEmpty(fpath):
+			continue
+		var partialPath = String.getSubString(fpath, parentPathLength + 1)
+		if String.isEmpty(partialPath):
+			continue
+		partialPath = String.replace(partialPath, '\\', '/')
+		assert zip.addFile(file, partialPath) {
+			Log.error(ctx, "Failed to add to ZIP file: `" .. file.getPath() .. "'")
+			zip.close()
+			dest.remove()
+		}
+	}
+	assert zip.close():
+		Log.error(ctx, "Failed to finalize ZIP archive: `" .. dest.getPath() .. "'")
+	return true
 }
 
 // func addBuffer(buffer as buffer, filename as string) as bool

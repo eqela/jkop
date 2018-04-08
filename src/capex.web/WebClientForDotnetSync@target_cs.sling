@@ -1,0 +1,90 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient:
+
+func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	lang "cs" {{{
+		var rq = System.Net.WebRequest.Create(url);
+		rq.Method = method;
+	}}}
+	if headers {
+		var it = headers.iterate()
+		while it {
+			var pair = it.next()
+			if not pair:
+				break
+			if String.equalsIgnoreCase(pair.key, "content-type") {
+				lang "cs" {{{
+					rq.ContentType = pair.value;
+				}}}
+			}
+			else {
+				lang "cs" {{{
+					rq.Headers[pair.key] = pair.value;
+				}}}
+			}
+		}
+	}
+	if body {
+		lang "cs" {{{
+			rq.ContentLength = body.Length;
+			System.IO.Stream stream = rq.GetRequestStream();
+			stream.Write(body, 0, body.Length);
+			stream.Close();
+		}}}
+	}
+	var status = 0
+	var hdrs = new KeyValueList<string,string>()
+	var rbody as buffer
+	lang "cs" {{{
+		System.Net.HttpWebResponse resp = null;
+		try {
+			resp = (System.Net.HttpWebResponse)rq.GetResponse();
+		}
+		catch(System.Net.WebException e) {
+			resp = (System.Net.HttpWebResponse)e.Response;
+		}
+		if(resp != null) {
+			status = (int)resp.StatusCode;
+			foreach(string key in resp.Headers.AllKeys) {
+				hdrs.add(key, resp.Headers[key]);
+			}
+		}
+		var rs = resp.GetResponseStream();
+		if(rs != null) {
+			byte[] buffer = new byte[16*1024];
+			using(System.IO.MemoryStream ms = new System.IO.MemoryStream()) {
+				int read;
+				while((read = rs.Read(buffer, 0, buffer.Length)) > 0) {
+					ms.Write(buffer, 0, read);
+				}
+				rbody = ms.ToArray();
+			}
+		}
+	}}}
+	if callback:
+		callback(String.forInteger(status), hdrs, rbody)
+}

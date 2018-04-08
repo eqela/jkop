@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -130,8 +130,10 @@ func onScroll(scrollY as int) private
 	var ch = Widget.getHeight(Vector.get(Widget.getChildren(this), 0))
 	if ch > 0:
 		nearEnd = ((ch - currentScrollY) < (Widget.getHeight(this) * 2)) ? true : false
-	if onScrolledHandler && lastScrollY != currentScrollY:
+	if onScrolledHandler && lastScrollY != currentScrollY {
 		onScrolledHandler(lastScrollY < currentScrollY ? 0 : 1)
+		lastScrollY = currentScrollY
+	}
 }
 
 prop onScrolledHandler as function<void, int>
@@ -190,6 +192,13 @@ func onWidgetHeightChanged(height as int #notLiteral)
 	heightChanged = true
 }
 
+func setWidgetLayoutChanged
+{
+}
+
+func hasWidgetLayoutChanged as bool:
+	return false
+
 func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 {
 	var mw as int
@@ -225,4 +234,30 @@ func addWidget(widget as Widget) as this
 {
 	Widget.addChild(this, widget)
 	return(this)
+}
+
+func scrollToBottom(animate as bool = true)
+{
+	var child = assert Vector.get(Widget.getChildren(this), 0)
+	var y #used = Widget.getHeight(child) - Widget.getHeight(this)
+	assert y > 0
+	var x #used = Widget.getX(child)
+	IFDEF "target_android" {
+		lang "java" {{{
+			if(animate == true) {
+				smoothScrollTo(x, y);
+			}
+			else {
+				scrollTo(x, y);
+			}
+		}}}
+	}
+	IFDEF "target_ios" {
+		lang "objc" {{{
+			[self setContentOffset:CGPointMake(x, y) animated:animate];
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
 }

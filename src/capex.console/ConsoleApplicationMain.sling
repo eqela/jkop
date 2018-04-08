@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,14 +28,7 @@ func executeMain(app as this, args as array<string>) static as int
 {
 	if not app:
 		return -1
-	app.args = ConsoleApplication.parseCommandLineArguments(args)
-	if not app.initialize():
-		return 1
-	var r = app.execute()
-	Log.status(app.ctx, null)
-	if r:
-		return 0
-	return 1
+	return app.executeWithArgumentArray(args)
 }
 
 var stdout public as PrintWriter
@@ -43,12 +36,50 @@ var stdin public as PrintReader
 var ctx public as ConsoleApplicationContext
 var args public as vector<CommandLineArgument>
 var verbosityLevel = 3
+var terminal as Terminal
 
 ctor
 {
 	stdin = Stdin.instance()
 	stdout = Stdout.instance()
 	ctx = new ConsoleApplicationContext()
+}
+
+func getTerminal as Terminal
+{
+	if not terminal:
+		terminal = Terminal.forCurrent()
+	return terminal
+}
+
+func print(string as string)
+{
+	if stdout:
+		stdout.print(string)
+}
+
+func println(string as string)
+{
+	if stdout:
+		stdout.println(string)
+}
+
+func readLine as string
+{
+	var tt = getTerminal()
+	if tt:
+		return tt.readLine()
+	if stdin:
+		return stdin.readLine()
+	return null
+}
+
+func readLineWithoutEcho as string
+{
+	var tt = getTerminal()
+	if tt:
+		return tt.readLineWithoutEcho()
+	return readLine()
 }
 
 func initialize virtual as bool:
@@ -120,6 +151,41 @@ func handleVerbosityParams
 	args = nargs
 	if vl != verbosityLevel:
 		setVerbosityLevel(vl)
+}
+
+func executeWithArgumentArray(args as array<string>) virtual as int
+{
+	if args:
+		this.args = ConsoleApplication.parseCommandLineArguments(args)
+	if not initialize():
+		return 1
+	var r = execute()
+	Log.status(ctx, null)
+	if r:
+		return 0
+	return 1
+}
+
+func executeWithArgumentVector(args as vector<string>) virtual as int
+{
+	var arga as array<string>
+	if args {
+		arga = new string[Vector.getSize(args)]
+		var n = 0
+		foreach arg in args:
+			args[n++] = arg
+	}
+	return executeWithArgumentArray(arga)
+}
+
+func executeWithParsedArguments(args as vector<CommandLineArgument>) as bool
+{
+	this.args = args
+	if not initialize():
+		return false
+	var r = execute()
+	Log.status(ctx, null)
+	return r
 }
 
 func execute virtual abstract as bool

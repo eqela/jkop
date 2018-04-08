@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,9 +22,10 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class:
 
 prop apiUrl as string
+prop webClient as WebClient
 
 func getFullURL(api as string) virtual as string
 {
@@ -46,7 +47,7 @@ func getFullURL(api as string) virtual as string
 	return url .. "/" .. api
 }
 
-func toUTF8Buffer(data as DynamicMap) private as buffer
+func toUTF8Buffer(data as DynamicMap) as buffer
 {
 	assert data
 	return String.toUTF8Buffer(JSONEncoder.encode(data))
@@ -125,7 +126,9 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 		hrs = new KeyValueList<string,string>()
 		hrs.add("Content-Type", "application/json")
 	}
-	var webClient = assert NativeWebClient.instance():
+	if not webClient:
+		webClient = NativeWebClient.instance()
+	assert webClient:
 		onError(Error.forCode("noWebClient"), errorCallback)
 	var ll final = callback
 	customizeRequestHeaders(hrs)
@@ -163,4 +166,34 @@ func uploadFile(url as string, data as buffer, mimeType as string, callback as f
 	var hdrs = new KeyValueList<string,string>()
 	hdrs.add("content-type", mt)
 	sendRequest("POST", getFullURL(url), hdrs, data, callback, errorCallback)
+}
+
+func getWithStatus(url as string, callback as function<void, DynamicMap, Error>)
+{
+	var cb final = callback
+	var okcb = func(v as DynamicMap) {
+		var data = v.getDynamicMap("data")
+		if data == null:
+			data = new DynamicMap()
+		cb(data, null)
+	}
+	var errcb = func(err as Error) {
+		cb(null, err)
+	}
+	sendRequest("GET", getFullURL(url), null, null, okcb, errcb)
+}
+
+func postWithStatus(url as string, data as DynamicMap, callback as function<void, DynamicMap, Error>)
+{
+	var cb final = callback
+	var okcb = func(v as DynamicMap) {
+		var data = v.getDynamicMap("data")
+		if data == null:
+			data = new DynamicMap()
+		cb(data, null)
+	}
+	var errcb = func(err as Error) {
+		cb(null, err)
+	}
+	sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data), okcb, errcb)
 }

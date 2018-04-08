@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Sympathy
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,7 +24,7 @@
 
 class is MySQLDatabase imports cape imports capex.data:
 
-IFDEF("target_mono") {
+IFDEF "target_mono" {
 	depend "dll:System.Data.dll"
 }
 
@@ -75,11 +75,8 @@ class Statement is SQLStatement
 		params += param
 	}
 
-	func getNextParamName as string
-	{
-		pcounter ++
-		return "@p" .. String.forInteger(pcounter)
-	}
+	func getNextParamName as string:
+		return "@p" .. String.forInteger(++ pcounter)
 
 	func addParamString(val as string) as SQLStatement:
 		return setParamString(null, val)
@@ -368,8 +365,7 @@ func prepare(sql as string) override as SQLStatement:
 
 func execute(stmt as SQLStatement) override as bool
 {
-	var ss = stmt as Statement
-	assert ss
+	var ss = assert stmt as Statement
 	var v = true
 	var error as string = null
 	lang "cs" {{{
@@ -386,10 +382,30 @@ func execute(stmt as SQLStatement) override as bool
 	return v
 }
 
-func query(stmt as SQLStatement) override as SQLResultSetIterator
+func executeUpdateDelete(stmt as SQLStatement) override as int
 {
 	var ss = stmt as Statement
-	assert ss
+	if not ss:
+		return 0
+	var v = 0
+	var error as string = null
+	lang "cs" {{{
+		try {
+			v = MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray());
+		}
+		catch(System.Exception e) {
+			v = 0;
+			error = e.ToString();
+		}
+	}}}
+	if String.isNotEmpty(error):
+		Log.error(getLogger(), error)
+	return v
+}
+
+func query(stmt as SQLStatement) override as SQLResultSetIterator
+{
+	var ss = assert stmt as Statement
 	var v as ResultSet = null
 	var error as string = null
 	var rdr as !"MySql.Data.MySqlClient.MySqlDataReader"
@@ -420,21 +436,20 @@ func close(callback as function) override
 
 func execute(stmt as SQLStatement, callback as function<void, bool>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(false)
-	}
 	var v = execute(stmt)
+	if callback:
+		callback(v)
+}
+
+func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override
+{
+	var v = executeUpdateDelete(stmt)
 	if callback:
 		callback(v)
 }
 
 func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
 {
-	var ss = assert stmt as Statement {
-		if callback:
-			callback(null)
-	}
 	var v = query(stmt)
 	if callback:
 		callback(v)
@@ -444,9 +459,8 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 {
 	query(stmt, func(it as SQLResultSetIterator) {
 		if callback {
-			assert it {
+			assert it:
 				callback(null)
-			}
 			var v = it.next()
 			it.close()
 			callback(v)
@@ -457,18 +471,15 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 func tableExists(table as string, callback as function<void, bool>) override
 {
 	var databaseName = getDatabaseName()
-	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) {
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName):
 		callback(false)
-	}
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;") {
+	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;"):
 		callback(false)
-	}
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	querySingleRow(stmt, func(sr as DynamicMap) {
-		assert sr {
+		assert sr:
 			callback(false)
-		}
 		callback(String.equalsIgnoreCase(table, sr.getString("TABLE_NAME")))
 	})
 }

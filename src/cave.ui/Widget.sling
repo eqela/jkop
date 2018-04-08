@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2017 Job and Esther Technologies, Inc.
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -59,6 +59,8 @@ IFDEF "target_html"
 	import cape
 
 	var element public as object
+	var cachedWidth public as int
+	var cachedHeight public as int
 
 	ctor
 	{
@@ -127,15 +129,15 @@ IFDEF "target_uwp"
 func onWidgetAddedToParent(widget as this) static
 {
 	assert widget
-	if widget is CustomContainerWidget:
-		(widget as! CustomContainerWidget).onWidgetAddedToParent()
+	if widget is ParentAwareWidget:
+		(widget as! ParentAwareWidget).onWidgetAddedToParent()
 }
 
 func onWidgetRemovedFromParent(widget as this) static
 {
 	assert widget
-	if widget is CustomContainerWidget:
-		(widget as! CustomContainerWidget).onWidgetRemovedFromParent()
+	if widget is ParentAwareWidget:
+		(widget as! ParentAwareWidget).onWidgetRemovedFromParent()
 }
 
 func notifyOnAddedToScreen(widget as this, screen as ScreenForWidget) static
@@ -158,9 +160,8 @@ func addChild(parent as this, child as this) static
 {
 	assert parent
 	assert child
-	var ccw = child as CustomContainerWidget
-	if ccw:
-		ccw.tryInitializeWidget()
+	if child is ParentAwareWidget:
+		(child as! ParentAwareWidget).onWidgetAddingToParent()
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[parent addSubview:child];
@@ -198,7 +199,7 @@ func addChild(parent as this, child as this) static
 	ELSE {
 		ERROR("Not implemented.")
 	}
-	var pp = parent as CustomContainerWidget
+	var pp = parent as ContainerWidget
 	if pp:
 		pp.onChildWidgetAdded(child)
 	onWidgetAddedToParent(child)
@@ -211,7 +212,7 @@ func removeFromParent(child as this) static as this
 {
 	assert child
 	var parentWidget = assert getParent(child)
-	var pp = parentWidget as CustomContainerWidget
+	var pp = parentWidget as ContainerWidget
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[child removeFromSuperview];
@@ -264,7 +265,7 @@ func getParent(widget as this) static as this
 {
 	assert widget
 	IFDEF "target_iosoc" {
-		if widget is CustomContainerWidget && (widget as! CustomContainerWidget).getScreenForWidget():
+		if widget is ContainerWidget && (widget as! ContainerWidget).getScreenForWidget():
 			return null
 		return lang "objc" this {{{ [widget superview] }}}
 	}
@@ -418,6 +419,12 @@ func getAbsoluteX(widget as this) static as int
 			v = location[0];
 		}}}
 	}
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+			v = (NSInteger)(location.x);
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -438,6 +445,12 @@ func getAbsoluteY(widget as this) static as int
 			int[] location = new int[2];
 			widget.getLocationOnScreen(location);
 			v = location[1];
+		}}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		lang "objc" {{{
+			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+			v = (NSInteger)(location.y);
 		}}}
 	}
 	ELSE {
@@ -462,12 +475,20 @@ func getWidth(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		lang "js" {{{
-			v = widget.element.offsetWidth;
-		}}}
+		if isRootWidget(widget):
+			widget.cachedWidth = 0
+		if widget.cachedWidth < 1 {
+			lang "js" {{{
+				v = widget.element.getBoundingClientRect().width;
+			}}}
+			widget.cachedWidth = v
+		}
+		else {
+			v = widget.cachedWidth
+		}
 	}
 	ELSE IFDEF "target_uwp" {
-		v = cape.Math.ceil(getMyWidgetInfo(widget).w as double) as int
+		v = Math.ceil(getMyWidgetInfo(widget).w as double) as int
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -491,12 +512,20 @@ func getHeight(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		lang "js" {{{
-			v = widget.element.offsetHeight;
-		}}}
+		if isRootWidget(widget):
+			widget.cachedHeight = 0
+		if widget.cachedHeight < 1 {
+			lang "js" {{{
+				v = widget.element.getBoundingClientRect().height;
+			}}}
+			widget.cachedHeight = v
+		}
+		else {
+			v = widget.cachedHeight
+		}
 	}
 	ELSE IFDEF "target_uwp" {
-		v = cape.Math.ceil(getMyWidgetInfo(widget).h as double) as int
+		v = Math.ceil(getMyWidgetInfo(widget).h as double) as int
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -544,7 +573,7 @@ func move(widget as this, x as int #notLiteral, y as int #notLiteral) static
 
 func isRootWidget(widget as this) static as bool
 {
-	var cw = assert widget as CustomContainerWidget
+	var cw = assert widget as ContainerWidget
 	var pp = getParent(cw)
 	if not pp:
 		return true
@@ -558,8 +587,8 @@ func findScreen(widget as this) static as Screen
 	IFDEF "target_iosoc" {
 		var pp = widget
 		while pp {
-			if pp is CustomContainerWidget {
-				var screen = (pp as! CustomContainerWidget).getScreenForWidget()
+			if pp is ContainerWidget {
+				var screen = (pp as! ContainerWidget).getScreenForWidget()
 				if screen:
 					return screen
 			}
@@ -611,14 +640,14 @@ func findScreen(widget as this) static as Screen
 	}
 }
 
-func findRootWidget(widget as this) static as CustomContainerWidget
+func findRootWidget(widget as this) static as ContainerWidget
 {
 	var v = widget
 	loop {
 		if not v:
 			break
 		if isRootWidget(v):
-			return v as CustomContainerWidget
+			return v as ContainerWidget
 		v = getParent(v)
 	}
 	return null
@@ -627,7 +656,7 @@ func findRootWidget(widget as this) static as CustomContainerWidget
 func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as int #notLiteral) static as bool
 {
 	if isRootWidget(widget) {
-		var ccw = widget as CustomContainerWidget
+		var ccw = widget as ContainerWidget
 		if ccw && ccw.getAllowResize() == false:
 			return false
 	}
@@ -656,6 +685,8 @@ func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as
 			widget.element.style.width = ~~width + "px";
 			widget.element.style.height = ~~height + "px";
 		}}}
+		widget.cachedWidth = width
+		widget.cachedHeight = height
 	}
 	ELSE IFDEF "target_uwp" {
 		var wi = getMyWidgetInfo(widget)
@@ -735,14 +766,19 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 			if widthConstraint >= 0 {
 				HTMLDOM.setStyle(widget.element, "white-space", "normal")
 				HTMLDOM.setStyle(widget.element, "width", String.forInteger(widthConstraint) .. "px")
+				widget.cachedWidth = widthConstraint
 			}
 			else {
 				HTMLDOM.setStyle(widget.element, "white-space", "nowrap")
 				HTMLDOM.setStyle(widget.element, "width", "auto")
 				var ww = getWidth(widget)
 				HTMLDOM.setStyle(widget.element, "width", String.forInteger(ww + 1) .. "px")
+				widget.cachedWidth = ww + 1
 			}
 			HTMLDOM.setStyle(widget.element, "height", "auto")
+			lang "js" {{{
+				widget.cachedHeight = widget.element.offsetHeight;
+			}}}
 			if widget is ResizeAwareWidget:
 				(widget as! ResizeAwareWidget).onWidgetResized()
 		}
@@ -895,15 +931,19 @@ IFDEF "target_uwp" {
 	var singleClick static #used = false
 }
 
+func togglePointerEventHandling(widget as this, value as bool) static
+{
+	var cw = assert widget as ContainerWidget
+	cw.togglePointerEventHandling(value)
+}
+
 func setWidgetClickHandler(widget as this, handler as function) static
 {
-	if widget is CustomContainerWidget {
-		if not handler {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
-		}
-		else {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
-		}
+	if handler {
+		togglePointerEventHandling(widget, true)
+	}
+	else {
+		togglePointerEventHandling(widget, false)
 	}
 	IFDEF "target_iosoc" {
 		var forwarder = new WidgetClickForwarder()
@@ -963,13 +1003,11 @@ func setWidgetClickHandler(widget as this, handler as function) static
 
 func setWidgetDoubleClickHandler(widget as this, handler as function) static
 {
-	if widget is CustomContainerWidget {
-		if not handler {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
-		}
-		else {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
-		}
+	if handler {
+		togglePointerEventHandling(widget, true)
+	}
+	else {
+		togglePointerEventHandling(widget, false)
 	}
 	IFDEF "target_uwp" {
 		if existingWidgetDoubleClickHandler {
@@ -988,6 +1026,10 @@ func setWidgetDoubleClickHandler(widget as this, handler as function) static
 			}}}
 		}
 	}
+	ELSE IFDEF "target_html" {
+		assert handler
+		HTMLDOM.addEventListener(widget.element, "dblclick", handler)
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -995,13 +1037,11 @@ func setWidgetDoubleClickHandler(widget as this, handler as function) static
 
 func setWidgetLongClickHandler(widget as this, handler as function) static
 {
-	if widget is CustomContainerWidget {
-		if not handler {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
-		}
-		else {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
-		}
+	if handler {
+		togglePointerEventHandling(widget, true)
+	}
+	else {
+		togglePointerEventHandling(widget, false)
 	}
 	IFDEF "target_iosoc" {
 		var forwarder = new WidgetLongPressForwarder()
@@ -1048,13 +1088,11 @@ func setWidgetLongClickHandler(widget as this, handler as function) static
 
 func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, double, double> = null, onTouchHandler as function<void, double, double> = null, onEndHandler as function<void, double, double> = null) static
 {
-	if widget is CustomContainerWidget {
-		if onStartHandler == null && onTouchHandler == null && onEndHandler == null {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(false)
-		}
-		else {
-			(widget as! CustomContainerWidget).togglePointerEventHandling(true)
-		}
+	if onStartHandler == null && onTouchHandler == null && onEndHandler == null {
+		togglePointerEventHandling(widget, false)
+	}
+	else {
+		togglePointerEventHandling(widget, true)
 	}
 	IFDEF "target_android" {
 		var othf final #used = onTouchHandler
@@ -1157,19 +1195,21 @@ func removeChildrenOf(widget as this) static
 		removeFromParent(child)
 }
 
-func onChanged(widget as this) static
+func onLayoutChanged(widget as this) static
 {
 	assert widget
-	var ccw = widget as CustomContainerWidget
-	if ccw && ccw.getWidgetChanged():
+	var wwl = widget as WidgetWithLayout
+	if wwl && wwl.hasWidgetLayoutChanged() {
+		// already processed, no need to redo..
 		return
+	}
 	if isRootWidget(widget) {
-		(widget as! CustomContainerWidget).scheduleLayout()
+		(widget as! ContainerWidget).scheduleLayout()
 	}
 	else {
 		var pp = getParent(widget) as this
 		if pp {
-			onChanged(pp)
+			onLayoutChanged(pp)
 		}
 		else {
 			var root = findRootWidget(widget)
@@ -1177,8 +1217,8 @@ func onChanged(widget as this) static
 				root.scheduleLayout()
 		}
 	}
-	if ccw:
-		ccw.setWidgetChanged(true)
+	if wwl:
+		wwl.setWidgetLayoutChanged()
 }
 
 func setAlpha(widget as this, alpha as double) static
@@ -1215,6 +1255,16 @@ func setRotation(widget as this, degrees as double) static
 		lang "objc" {{{
 			[widget setTransform:CGAffineTransformMakeRotation((CGFloat)degrees)];
 		}}}
+	}
+	ELSE IFDEF "target_html" {
+		var element = widget.element
+		var ang = degrees * 180.0 / Math.M_PI
+		var str = "rotate(" .. String.forInteger(ang as int) .. "deg)"
+		HTMLDOM.setStyle(element, "transform", str)
+		HTMLDOM.setStyle(element, "webkitTransform", str)
+		HTMLDOM.setStyle(element, "msTransform", str)
+		HTMLDOM.setStyle(element, "oTransform", str)
+		HTMLDOM.setStyle(element, "mozTransform", str)
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1272,14 +1322,38 @@ func setVisible(widget as this, visible as bool) static
 			HTMLDOM.setStyle(widget.element, "visibility", "hidden")
 		}
 	}
+	ELSE IFDEF "target_iosoc" {
+		var hidden #used = not visible
+		lang "objc" {{{
+			[widget setHidden:hidden];
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
 }
 
+func getVisible(widget as this) static as bool
+{
+	assert widget
+	IFDEF "target_html" {
+		var visible = false
+		if String.equals(HTMLDOM.getStyle(widget.element, "visibility"), "visible"):
+			visible = true
+		return visible
+	}
+	ELSE IFDEF "target_iosoc" {
+		return lang "objc" bool {{{ !widget.hidden }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return false
+	}
+}
+
 IFDEF "target_html"
 {
-	func addToDomElement(widget as CustomContainerWidget, parentElement as object) static
+	func addToDomElement(widget as ContainerWidget, parentElement as object) static
 	{
 		assert widget
 		assert parentElement
@@ -1297,8 +1371,8 @@ IFDEF "target_html"
 		HTMLDOM.setStyle(widget.element, "width", "100%")
 		HTMLDOM.setStyle(widget.element, "height", "100%")
 		HTMLDOM.appendChild(parentElement, widget.element)
-		widget.tryInitializeWidget()
-		onWidgetAddedToParent(widget)
+		widget.onWidgetAddingToParent()
+		widget.onWidgetAddedToParent()
 		widget.scheduleLayout()
 	}
 }
