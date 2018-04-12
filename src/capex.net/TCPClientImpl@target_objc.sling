@@ -206,6 +206,31 @@ func close private
 	}
 }
 
+func connectSSL(address as string, port as int, callback as function<void,Error>) override
+{
+	assert callback
+	assert address {
+		callback(Error.forMessage("No address specified"))
+	}
+	connectCallback = callback
+	close()
+	lang "objc" {{{
+		CFReadStreamRef readStream;
+		CFWriteStreamRef writeStream;
+		CFStreamCreatePairWithSocketToHost(NULL, (__bridge CFStringRef)address, port, &readStream, &writeStream); 
+		inputStream = (__bridge_transfer NSInputStream *)readStream;
+		outputStream = (__bridge_transfer NSOutputStream *)writeStream;
+		[inputStream setDelegate:self];
+		[outputStream setDelegate:self];
+		[inputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[outputStream scheduleInRunLoop:[NSRunLoop currentRunLoop] forMode:NSDefaultRunLoopMode];
+		[inputStream setProperty:NSStreamSocketSecurityLevelNegotiatedSSL forKey:NSStreamSocketSecurityLevelKey];
+		[outputStream setProperty:NSStreamSocketSecurityLevelNegotiatedSSL forKey:NSStreamSocketSecurityLevelKey];
+		[inputStream open];
+		[outputStream open];
+	}}}
+}
+
 func connect(address as string, port as int, callback as function<void,Error>) override
 {
 	assert callback
