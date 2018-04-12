@@ -52,7 +52,7 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	var myHandler as !"android.os.Handler"
 	var errorCallback as function
 	var taskQueue as Queue<Task>
-	var socket as TCPSocket
+	var socket as ConnectedSocket
 
 	func onLooperPrepared
 	{
@@ -134,13 +134,37 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		}
 	}
 
+	func connectSSL(address as string, port as int, callback as function<void, Error>)
+	{
+		var a final = address
+		var p final = port
+		var c final = callback
+		executeInTCPThread(func {
+			var s = assert socket as TCPSocket:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
+			assert s.connect(a, p) {
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
+			}
+			var ss = assert SSLSocket.forClient(s, a) {
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
+			}
+			socket = ss
+			if c:
+				executeErrorCallback(c)
+		})
+	}
+
 	func connect(address as string, port as int, callback as function<void, Error>)
 	{
 		var a final = address
 		var p final = port
 		var c final = callback
 		executeInTCPThread(func {
-			if socket.connect(a, p) == false {
+			var s = assert socket as TCPSocket:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
+			if s.connect(a, p) == false {
 				if c:
 					executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
 				return
@@ -220,7 +244,11 @@ func destroyThread private
 	thread = null
 }
 
-func connectSSL(address as string, port as int, callback as function<void,Error>) override stub
+func connectSSL(address as string, port as int, callback as function<void,Error>) override
+{
+	initializeThread()
+	thread.connectSSL(address, port, callback)
+}
 
 func connect(address as string, port as int, callback as function<void,Error>) override
 {
