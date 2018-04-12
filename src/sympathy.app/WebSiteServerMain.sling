@@ -22,6 +22,41 @@
  * SOFTWARE.
  */
 
-type = "library"
-preFilters += "@cape"
-preFilters += "@sympathy"
+class is WebServer:
+
+import sympathy
+import sympathy.app
+
+prop templateDir = Environment.getAppDirectory().entry("templates")
+prop resourceDir = Environment.getAppDirectory().entry("resources")
+prop handler as WebSiteServerHandler
+
+func configure(key as string, value as string, relativeTo as File, error as Error) override as bool
+{
+	if key == "templates" {
+		templateDir = File.forRelativePath(value, relativeTo)
+		return true
+	}
+	if key == "resources" {
+		resourceDir = File.forRelativePath(value, relativeTo)
+		return true
+	}
+	return base.configure(key, value, relativeTo, error)
+}
+
+func initializeServer(server as HTTPServer) override as bool
+{
+	assert base.initializeServer(server)
+	assert handler:
+		Log.error(ctx, "No handler")
+	handler.setTemplateDir(templateDir)
+	handler.setResourceDir(resourceDir)
+	server.pushRequestHandler(handler)
+	return true
+}
+
+func executeForHandler(handler as WebSiteServerHandler, args as array<string>) as int
+{
+	setHandler(handler)
+	return executeMain(args)
+}

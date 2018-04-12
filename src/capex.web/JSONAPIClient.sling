@@ -26,6 +26,7 @@ class:
 
 prop apiUrl as string
 prop webClient as WebClient
+prop debugCallback as function<void,string>
 
 func getFullURL(api as string) virtual as string
 {
@@ -110,8 +111,11 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 	var ecb final = errorCallback
 	doSendRequest(method, url, headers, data, func(responseHeaders as KeyValueList<string,string>, body as buffer) {
 		assert body:
-			onError(Error.forCode("failedToConnect"), ecb)
-		var jsonResponseBody = assert JSONParser.parse(String.forUTF8Buffer(body)) as DynamicMap:
+			onError(Error.forCode("requestFailed"), ecb)
+		var responseString = String.forUTF8Buffer(body)
+		if debugCallback:
+			debugCallback("Received response: `" .. responseString .. "'")
+		var jsonResponseBody = assert JSONParser.parse(responseString) as DynamicMap:
 			onError(Error.forCode("invalidServerResponse"), ecb)
 		if not handleAsError(jsonResponseBody, ecb):
 			ll(jsonResponseBody)
@@ -134,10 +138,12 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 	customizeRequestHeaders(hrs)
 	onStartSendRequest()
 	var ecb final = errorCallback
+	if debugCallback:
+		debugCallback("Sending request: `" .. String.forUTF8Buffer(data) .. "'")
 	webClient.query(method, url, hrs, data, func(status as string, responseHeaders as KeyValueList<string,string>, body as buffer) {
 		onEndSendRequest()
 		assert body:
-			onError(Error.forCode("failedToConnect"), ecb)
+			onError(Error.forCode("requestFailed"), ecb)
 		ll(responseHeaders, body)
 	})
 }
@@ -183,7 +189,7 @@ func getWithStatus(url as string, callback as function<void, DynamicMap, Error>)
 	sendRequest("GET", getFullURL(url), null, null, okcb, errcb)
 }
 
-func postWithStatus(url as string, data as DynamicMap, callback as function<void, DynamicMap, Error>)
+func postWithStatus(url as string, data as DynamicMap, headers as KeyValueList<string,string>, callback as function<void, DynamicMap, Error>)
 {
 	var cb final = callback
 	var okcb = func(v as DynamicMap) {
@@ -195,5 +201,5 @@ func postWithStatus(url as string, data as DynamicMap, callback as function<void
 	var errcb = func(err as Error) {
 		cb(null, err)
 	}
-	sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data), okcb, errcb)
+	sendRequest("POST", getFullURL(url), headers, toUTF8Buffer(data), okcb, errcb)
 }
