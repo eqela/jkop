@@ -22,17 +22,41 @@
  * SOFTWARE.
  */
 
-class is TCPSocket:
+class is WebServer:
 
-func getRemoteAddress override stub as string
-func getRemotePort override stub as int
-func getLocalAddress override stub as string
-func getLocalPort override stub as int
-func connect(address as string, port as int) override stub as bool
-func listen(port as int) override stub as bool
-func accept override stub as TCPSocket
-func setBlocking(blocking as bool) override stub as bool
-func getBlocking override stub as bool
-func close override stub
-func read(buffer as buffer) override stub as int
-func write(buffer as buffer, size as int) override stub as int
+import sympathy
+import sympathy.app
+
+prop templateDir = Environment.getAppDirectory().entry("templates")
+prop resourceDir = Environment.getAppDirectory().entry("resources")
+prop handler as WebSiteServerHandler
+
+func configure(key as string, value as string, relativeTo as File, error as Error) override as bool
+{
+	if key == "templates" {
+		templateDir = File.forRelativePath(value, relativeTo)
+		return true
+	}
+	if key == "resources" {
+		resourceDir = File.forRelativePath(value, relativeTo)
+		return true
+	}
+	return base.configure(key, value, relativeTo, error)
+}
+
+func initializeServer(server as HTTPServer) override as bool
+{
+	assert base.initializeServer(server)
+	assert handler:
+		Log.error(ctx, "No handler")
+	handler.setTemplateDir(templateDir)
+	handler.setResourceDir(resourceDir)
+	server.pushRequestHandler(handler)
+	return true
+}
+
+func executeForHandler(handler as WebSiteServerHandler, args as array<string>) as int
+{
+	setHandler(handler)
+	return executeMain(args)
+}
