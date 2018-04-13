@@ -94,17 +94,16 @@ ELSE IFDEF "target_iosoc" {
 
 	lang "objc" {{{
 		- (void)captureOutput:(AVCaptureOutput *)captureOutput didOutputMetadataObjects:(NSArray *)metadataObjects fromConnection:(AVCaptureConnection *)connection {
-			if ([metadataObjects count] != 0 &&) {
+			if ([metadataObjects count] != 0) {
 				for (AVMetadataObject *barcodeMetadata in metadataObjects) {
 					for (NSString *supportedBarcode in supportedFormat) {
 						if ([supportedBarcode isEqualToString:barcodeMetadata.type]) {
 							AVMetadataMachineReadableCodeObject *barcodeObject = (AVMetadataMachineReadableCodeObject *)[self->preview transformedMetadataObjectForMetadataObject:barcodeMetadata];
 							dispatch_sync(dispatch_get_main_queue(), ^{
-								CaveGoogleVisionBarcodeObject *obj = [[CaveGoogleVisionBarcodeObject alloc] init];
+								CavePhotoBarcodeObject *obj = [[CavePhotoBarcodeObject alloc] init];
 								[obj setRawValue:[barcodeObject stringValue]];
 								[obj setDisplayValue:[barcodeObject stringValue]];
 								[obj setFormat:supportedBarcode];
-								[bco addObject:obj];
 								[self onReceiveDetection: obj];
 							});
 							return;
@@ -136,7 +135,7 @@ const CAMERA_BACK = 0
 const CAMERA_FRONT = 1
 const FORMAT_ALL = 0
 const FORMAT_QRCODE = 1
-const FOTMAT_EAN13 = 2
+const FORMAT_EAN13 = 2
 const FORMAT_UPCA = 3
 
 prop widgetOnBarcodesDetectedHandler as function<void, BarcodeObject>
@@ -198,19 +197,23 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			else if(widgetFormat == FORMAT_QRCODE) {
 				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE);
 			}
-			else if(widgetFormat == FOTMAT_EAN13) {
+			else if(widgetFormat == FORMAT_EAN13) {
 				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13);
 			}
 			else if(widgetFormat == FORMAT_UPCA) {
 				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A);
 			}
 			barcodeDetector = bdb.build();
+			int cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK;
+			if(widgetPrimaryCamera == CAMERA_FRONT) {
+				cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT;
+			}
 			cameraSource = new com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
-				.setFacing(com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK)
+				.setFacing(cameraFacing)
 				.setAutoFocusEnabled(true)
 				.build();
 			barcodeDetector.setProcessor(new com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode>() {
-				
+
 				@Override
 				public void release() {
 				}
@@ -239,7 +242,7 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 	}
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
-			if(self->widgetFormat == CaveGoogleVisionBarcodeScannerWidgetFORMAT_ALL)
+			if(self->widgetFormat == CavePhotoBarcodeScannerWidgetFORMAT_ALL)
 			{
 				supportedFormat = @[AVMetadataObjectTypeUPCECode,
 							AVMetadataObjectTypeCode39Code,
@@ -252,22 +255,22 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 							AVMetadataObjectTypeQRCode,
 							AVMetadataObjectTypeAztecCode];
 			}
-			else if(self->widgetFormat == CaveGoogleVisionBarcodeScannerWidgetFORMAT_QRCODE)
+			else if(self->widgetFormat == CavePhotoBarcodeScannerWidgetFORMAT_QRCODE)
 			{
 				supportedFormat = @[AVMetadataObjectTypeQRCode];
 			}
-			else if(self->widgetFormat == CaveGoogleVisionBarcodeScannerWidgetFOTMAT_EAN13)
+			else if(self->widgetFormat == CavePhotoBarcodeScannerWidgetFORMAT_EAN13)
 			{
 				supportedFormat = @[AVMetadataObjectTypeEAN13Code];
 			}
-			else if(self->widgetFormat == CaveGoogleVisionBarcodeScannerWidgetFORMAT_UPCA)
+			else if(self->widgetFormat == CavePhotoBarcodeScannerWidgetFORMAT_UPCA)
 			{
 				supportedFormat = @[AVMetadataObjectTypeUPCECode];
 			}
 			[self->session beginConfiguration];
 
 			AVCaptureDeviceInput *input = nil;
-			if (widgetPrimaryCamera == CaveGoogleVisionBarcodeScannerWidgetCAMERA_BACK)
+			if (widgetPrimaryCamera == CavePhotoBarcodeScannerWidgetCAMERA_BACK)
 			{
 				input = [self captureDeviceInputForPosition:AVCaptureDevicePositionBack];
 			}

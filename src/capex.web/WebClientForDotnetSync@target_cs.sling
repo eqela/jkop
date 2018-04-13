@@ -49,12 +49,22 @@ func query(method as string, url as string, headers as KeyValueList<string,strin
 		}
 	}
 	if body {
+		var wrote = false
 		lang "cs" {{{
-			rq.ContentLength = body.Length;
-			System.IO.Stream stream = rq.GetRequestStream();
-			stream.Write(body, 0, body.Length);
-			stream.Close();
+			try {
+				rq.ContentLength = body.Length;
+				System.IO.Stream stream = rq.GetRequestStream();
+				stream.Write(body, 0, body.Length);
+				stream.Close();
+				wrote = true;
+			}
+			catch(System.Exception e) {
+			}
 		}}}
+		assert wrote {
+			if callback:
+				callback("0", null, null)
+		}
 	}
 	var status = 0
 	var hdrs = new KeyValueList<string,string>()
@@ -73,16 +83,23 @@ func query(method as string, url as string, headers as KeyValueList<string,strin
 				hdrs.add(key, resp.Headers[key]);
 			}
 		}
-		var rs = resp.GetResponseStream();
-		if(rs != null) {
-			byte[] buffer = new byte[16*1024];
-			using(System.IO.MemoryStream ms = new System.IO.MemoryStream()) {
-				int read;
-				while((read = rs.Read(buffer, 0, buffer.Length)) > 0) {
-					ms.Write(buffer, 0, read);
+		try {
+			var rs = resp.GetResponseStream();
+			if(rs != null) {
+				byte[] buffer = new byte[16*1024];
+				using(System.IO.MemoryStream ms = new System.IO.MemoryStream()) {
+					int read;
+					while((read = rs.Read(buffer, 0, buffer.Length)) > 0) {
+						ms.Write(buffer, 0, read);
+					}
+					rbody = ms.ToArray();
 				}
-				rbody = ms.ToArray();
 			}
+		}
+		catch(System.Exception e) {
+			status = 0;
+			hdrs = null;
+			rbody = null;
 		}
 	}}}
 	if callback:
