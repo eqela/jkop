@@ -134,7 +134,6 @@ IFDEF "target_iosoc"
 
 func onDataReceived(data as DynamicMap) virtual
 {
-	;
 }
 
 IFDEF "target_android"
@@ -145,26 +144,41 @@ IFDEF "target_android"
 
 	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
 	var permissionRequestListener as function<void,bool>
-	var broadcastReceiver private as AndroidBroadcastReceiver
 
-	func onStart
+	func registerBroadcastReceiver(broadcastReceiver as AndroidBroadcastReceiver) as bool
 	{
-		broadcastReceiver = new AndroidBroadcastReceiver();
-		broadcastReceiver.setBroadcastReceiveCallback(onDataReceived)
+		assert broadcastReceiver
+		var action = broadcastReceiver.getAction()
+		assert String.isNotEmpty(action)
+		broadcastReceiver.setCallback(onDataReceived)
 		var intentFilter = new !"android.content.IntentFilter"();
-		intentFilter.addAction(AndroidBroadcastReceiver.SLING_ACTION);
+		intentFilter.addAction(action);
 		lang "java" {{{
 			registerReceiver(broadcastReceiver, intentFilter);
 		}}}
+		return true
+	}
+
+	func onStart
+	{
 		base.onStart()
+		onStartScreen()
 	}
 
 	func onStop
 	{
+		base.onStop()
+		onStopScreen()
+	}
+
+	func unregisterBroadcastReceiver(broadcastReceiver as AndroidBroadcastReceiver) as bool
+	{
+		if not broadcastReceiver:
+			return true
 		lang "java" {{{
 			unregisterReceiver(broadcastReceiver);
 		}}}
-		base.onStop()
+		return true
 	}
 
 	func onCreate(savedInstance as !"android.os.Bundle")
@@ -426,6 +440,14 @@ func createContext private as GuiApplicationContext
 }
 
 func onPrepareScreen virtual
+{
+}
+
+func onStartScreen virtual
+{
+}
+
+func onStopScreen virtual
 {
 }
 
