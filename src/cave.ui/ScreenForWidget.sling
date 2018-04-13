@@ -132,14 +132,40 @@ IFDEF "target_iosoc"
 	}
 }
 
+func onDataReceived(data as DynamicMap) virtual
+{
+	;
+}
+
 IFDEF "target_android"
 {
 	basetype !"android.app.Activity" type extends
 	basetype cave.Screen type isAlso
 	basetype CompatibleAndroidActivity
 
-	var permissionRequestListener as function<void,bool>
 	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
+	var permissionRequestListener as function<void,bool>
+	var broadcastReceiver private as AndroidBroadcastReceiver
+
+	func onStart
+	{
+		broadcastReceiver = new AndroidBroadcastReceiver();
+		broadcastReceiver.setBroadcastReceiveCallback(onDataReceived)
+		var intentFilter = new !"android.content.IntentFilter"();
+		intentFilter.addAction(AndroidBroadcastReceiver.SLING_ACTION);
+		lang "java" {{{
+			registerReceiver(broadcastReceiver, intentFilter);
+		}}}
+		base.onStart()
+	}
+
+	func onStop
+	{
+		lang "java" {{{
+			unregisterReceiver(broadcastReceiver);
+		}}}
+		base.onStop()
+	}
 
 	func onCreate(savedInstance as !"android.os.Bundle")
 	{
@@ -152,6 +178,23 @@ IFDEF "target_android"
 		}}}
 		onPrepareScreen()
 		initialize()
+
+		// FIXME: Should we handle the data first before initialize?
+
+		var data = new DynamicMap()
+		lang "java" {{{
+			if(getIntent().getExtras() != null) {
+				for(java.lang.String key : getIntent().getExtras().keySet()) {
+					java.lang.Object value = getIntent().getExtras().get(key);
+					data.set(key, value);
+				}
+			}
+		}}}
+		if data.getCount() > 0 {
+			var v = new DynamicMap()
+			v.set("data", data)
+			onDataReceived(v)
+		}
 	}
 
 	func setPermissionRequestListener(listener as function<void,bool>)
