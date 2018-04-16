@@ -132,31 +132,44 @@ IFDEF "target_iosoc"
 	}
 }
 
-func onDataReceived(data as DynamicMap) virtual
-{
-}
-
 IFDEF "target_android"
 {
+	class AndroidBroadcastReceiver extends !"android.content.BroadcastReceiver"
+	{
+		prop callback as function<void, DynamicMap>
+		prop action as string
+
+		func onReceive(context as !"android.content.Context", intent as !"android.content.Intent")
+		{
+			assert callback
+			var data = assert JSONParser.parse(lang "java" string {{{ intent.getStringExtra("data") }}})
+			callback(data)
+		}
+	}
+
 	basetype !"android.app.Activity" type extends
 	basetype cave.Screen type isAlso
 	basetype CompatibleAndroidActivity
 
 	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
 	var permissionRequestListener as function<void,bool>
+	var callbackMap private as DynamicMap
 
-	func registerBroadcastReceiver(broadcastReceiver as AndroidBroadcastReceiver) as bool
+	func registerBroadcastReceiver(action as string, callback as function<void, DynamicMap>) as object
 	{
-		assert broadcastReceiver
-		var action = broadcastReceiver.getAction()
-		assert String.isNotEmpty(action)
-		broadcastReceiver.setCallback(onDataReceived)
+		assert String.isNotEmpty(action) && callback
+		if not callbackMap:
+			callbackMap = new DynamicMap()
+		callbackMap.set(action, callback)
+		var broadcastReceiver = new AndroidBroadcastReceiver()
+		broadcastReceiver.setCallback(callback)
+		broadcastReceiver.setAction(action)
 		var intentFilter = new !"android.content.IntentFilter"();
 		intentFilter.addAction(action);
 		lang "java" {{{
 			registerReceiver(broadcastReceiver, intentFilter);
 		}}}
-		return true
+		return broadcastReceiver
 	}
 
 	func onStart
@@ -171,10 +184,12 @@ IFDEF "target_android"
 		onStopScreen()
 	}
 
-	func unregisterBroadcastReceiver(broadcastReceiver as AndroidBroadcastReceiver) as bool
+	func unregisterBroadcastReceiver(o as object) as bool
 	{
-		if not broadcastReceiver:
-			return true
+		var broadcastReceiver = assert o as AndroidBroadcastReceiver
+		var action = broadcastReceiver.getAction()
+		assert String.isNotEmpty(action)
+		callbackMap.remove(action)
 		lang "java" {{{
 			unregisterReceiver(broadcastReceiver);
 		}}}
@@ -192,20 +207,15 @@ IFDEF "target_android"
 		}}}
 		onPrepareScreen()
 		initialize()
+		assert lang "java" bool {{{ getIntent().getExtras() != null }}}
 		var data = new DynamicMap()
 		lang "java" {{{
-			if(getIntent().getExtras() != null) {
-				for(java.lang.String key : getIntent().getExtras().keySet()) {
-					java.lang.Object value = getIntent().getExtras().get(key);
-					data.set(key, value);
-				}
+			for(java.lang.String key : getIntent().getExtras().keySet()) {
+				java.lang.Object value = getIntent().getExtras().get(key);
+				data.set(key, value);
 			}
 		}}}
-		if data.getCount() > 0 {
-			var v = new DynamicMap()
-			v.set("data", data)
-			onDataReceived(v)
-		}
+		onStartScreenWithData(data)
 	}
 
 	func setPermissionRequestListener(listener as function<void,bool>)
@@ -441,6 +451,10 @@ func onPrepareScreen virtual
 }
 
 func onStartScreen virtual
+{
+}
+
+func onStartScreenWithData(data as DynamicMap) virtual
 {
 }
 
