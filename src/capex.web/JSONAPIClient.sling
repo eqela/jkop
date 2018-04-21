@@ -24,6 +24,8 @@
 
 class:
 
+prop redirectionEnabled = false
+prop redirectionLimit = 5
 prop apiUrl as string
 prop webClient as WebClient
 prop debugCallback as function<void,string>
@@ -122,9 +124,11 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 	}, ecb)
 }
 
-func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void,Error> = null)
+func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void,Error> = null, redirectCount as int = 0)
 {
 	assert callback
+	assert redirectCount <= redirectionLimit:
+		onError(Error.instance("tooManyRedirections", "Too many redirections."), errorCallback)
 	var hrs = headers
 	if not hrs {
 		hrs = new KeyValueList<string,string>()
@@ -134,17 +138,54 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 		webClient = NativeWebClient.instance()
 	assert webClient:
 		onError(Error.forCode("noWebClient"), errorCallback)
-	var ll final = callback
 	customizeRequestHeaders(hrs)
-	onStartSendRequest()
+	var hrsf final = hrs
+	var cb final = callback
 	var ecb final = errorCallback
+	var urlf final = url
+	var dataf final = data
+	var methodf final = method
+	onStartSendRequest()
 	if debugCallback:
 		debugCallback("Sending request: `" .. String.forUTF8Buffer(data) .. "'")
-	webClient.query(method, url, hrs, data, func(status as string, responseHeaders as KeyValueList<string,string>, body as buffer) {
+	webClient.query(methodf, urlf, hrsf, dataf, func(statusCode as string, responseHeaders as KeyValueList<string,string>, body as buffer) {
 		onEndSendRequest()
+		if redirectionEnabled {
+			var code = String.toInteger(statusCode)
+			if code >= 300 && code <= 399 && responseHeaders {
+				var location as string
+				var allow as string
+				var rhs as vector<KeyValuePair<string, string>> #force = responseHeaders.asVector()
+				foreach kvp in rhs {
+					if String.isNotEmpty(location) && String.isNotEmpty(allow):
+						break
+					if String.equalsIgnoreCase(kvp.key, "Location") {
+						location = kvp.value
+					}
+					else if String.equalsIgnoreCase(kvp.key, "Allow") {
+						allow = kvp.value
+					}
+				}
+				var m = new DynamicMap()
+				foreach v in String.split(allow, ','):
+					m.set(String.toUpperCase(String.strip(v)), v)
+				if((m.getCount() == 1 || m.getCount() == 2) && (m.containsKey("GET") || m.containsKey("OPTIONS")) && String.isNotEmpty(location)) {
+					if not String.startsWith(location, "http"):
+						location = getFullURL(location)
+					var o = URL.forString(urlf)
+					var n = URL.forString(location)
+					if o && n && String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
+						n.setPort(o.getPort())
+						location = n.toString()
+					}
+					doSendRequest(methodf, location, hrsf, dataf, cb, ecb, redirectCount + 1)
+					return
+				}
+			}
+		}
 		assert body:
-			onError(Error.forCode("requestFailed"), ecb)
-		ll(responseHeaders, body)
+			onError(Error.instance("failedToConnect", "Failed to connect to server. Please check your internet connection and then try again."), ecb)
+		cb(responseHeaders, body)
 	})
 }
 
