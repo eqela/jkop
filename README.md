@@ -1,14 +1,19 @@
 Jkop - A universal software development framework
 =================================================
 
-Jkop is a comprehensive application development framework,
-intended to support the development of different kinds of
-applications on multiple programming languages and operating
-systems. Currently, Jkop fully supports development in Sling,
-Java, C#, Objective-C and JavaScript, and is actively tested on
-Android, iOS, macOS / Mac OS X, Windows, Linux and the web. Support
-for C++ is also substantial but not as comprehensive. The framework
-is divided in the following logical components:
+Jkop is a multi-platform, multi-language application development framework and API,
+intended to support the development of different kinds of applications on multiple
+programming languages and operating systems. Originally developed in Sling, the code
+is translated to different programming languages to support the different platforms.
+Currently Jkop fully supports development in Sling, Java, C#, Objective-C and JavaScript,
+and is actively tested on Android, iOS, macOS / Mac OS X, Windows, Linux and the web.
+Support for C++ is also substantial but not as comprehensive.
+
+Quick links for Java programmers:
+
+[![Maven Central](https://maven-badges.herokuapp.com/maven-central/com.eqela/jkop-java-console/badge.svg)](https://maven-badges.herokuapp.com/maven-central/com.eqela/jkop-java-console) [![Javadocs](http://www.javadoc.io/badge/com.eqela/jkop-java-console.svg)](http://www.javadoc.io/doc/com.eqela/jkop-java-console)
+
+The framework is divided in the following logical components:
 
 * **cape** ("Common API for Everything"): Common application development
 functionality, including string manipulation, data structures,
