@@ -24,7 +24,8 @@
 
 class:
 
-const REDIRECTION_LIMIT = 5
+prop redirectionEnabled = false
+prop redirectionLimit = 5
 prop apiUrl as string
 prop webClient as WebClient
 prop debugCallback as function<void,string>
@@ -126,7 +127,7 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void,Error> = null, redirectCount as int = 0)
 {
 	assert callback
-	assert redirectCount <= REDIRECTION_LIMIT:
+	assert redirectCount <= redirectionLimit:
 		onError(Error.instance("tooManyRedirections", "Too many redirections."), errorCallback)
 	var hrs = headers
 	if not hrs {
@@ -147,35 +148,37 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 	var methodf final = method
 	webClient.query(methodf, urlf, hrsf, dataf, func(statusCode as string, responseHeaders as KeyValueList<string,string>, body as buffer) {
 		onEndSendRequest()
-		var code = String.toInteger(statusCode)
-		if code >= 300 && code <= 399 && responseHeaders {
-			var location as string
-			var allow as string
-			var rhs as vector<KeyValuePair<string, string>> #force = responseHeaders.asVector()
-			foreach kvp in rhs {
-				if String.isNotEmpty(location) && String.isNotEmpty(allow):
-					break
-				if String.equalsIgnoreCase(kvp.key, "Location") {
-					location = kvp.value
+		if redirectionEnabled {
+			var code = String.toInteger(statusCode)
+			if code >= 300 && code <= 399 && responseHeaders {
+				var location as string
+				var allow as string
+				var rhs as vector<KeyValuePair<string, string>> #force = responseHeaders.asVector()
+				foreach kvp in rhs {
+					if String.isNotEmpty(location) && String.isNotEmpty(allow):
+						break
+					if String.equalsIgnoreCase(kvp.key, "Location") {
+						location = kvp.value
+					}
+					else if String.equalsIgnoreCase(kvp.key, "Allow") {
+						allow = kvp.value
+					}
 				}
-				else if String.equalsIgnoreCase(kvp.key, "Allow") {
-					allow = kvp.value
+				var m = new DynamicMap()
+				foreach v in String.split(allow, ','):
+					m.set(String.toUpperCase(String.strip(v)), v)
+				if((m.getCount() == 1 || m.getCount() == 2) && (m.containsKey("GET") || m.containsKey("OPTIONS")) && String.isNotEmpty(location)) {
+					if not String.startsWith(location, "http"):
+						location = getFullURL(location)
+					var o = URL.forString(urlf)
+					var n = URL.forString(location)
+					if o && n && String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
+						n.setPort(o.getPort())
+						location = n.toString()
+					}
+					doSendRequest(methodf, location, hrsf, dataf, cb, ecb, redirectCount + 1)
+					return
 				}
-			}
-			var m = new DynamicMap()
-			foreach v in String.split(allow, ','):
-				m.set(String.toUpperCase(String.strip(v)), v)
-			if((m.getCount() == 1 || m.getCount() == 2) && (m.containsKey("GET") || m.containsKey("OPTIONS")) && String.isNotEmpty(location)) {
-				if not String.startsWith(location, "http"):
-					location = getFullURL(location)
-				var o = URL.forString(urlf)
-				var n = URL.forString(location)
-				if o && n && String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
-					n.setPort(o.getPort())
-					location = n.toString()
-				}
-				doSendRequest(methodf, location, hrsf, dataf, cb, ecb, redirectCount + 1)
-				return
 			}
 		}
 		assert body:
