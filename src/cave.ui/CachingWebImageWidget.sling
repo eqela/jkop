@@ -1,0 +1,156 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebImageWidget imports capex.web #widget:
+
+class ImageCache
+{
+	prop blob as buffer
+	prop mimeType as string
+	prop timeStamp as long
+	prop ttl as long
+	var queue as vector<function<void, buffer, string>>
+
+	ctor
+	{
+		queue = new vector<function<void, buffer, string>>
+		timeStamp = SystemClock.asSeconds()
+	}
+
+	func isAvailable as bool:
+		return blob && String.isNotEmpty(mimeType) && ((SystemClock.asSeconds() - timeStamp) < ttl)
+
+	func push(callback as function<void, buffer, string>)
+	{
+		Vector.append(queue, callback)
+	}
+
+	func pop as function<void, buffer, string>:
+		return Vector.popFirst(queue)
+
+	func checkTTL
+	{
+		if((SystemClock.asSeconds() - timeStamp) >= ttl) {
+			timeStamp = SystemClock.asSeconds()
+			blob = null
+			mimeType = null
+		}
+	}
+}
+
+var cacheMap static private as DynamicMap
+var ttl static private as long = 60 * 5
+
+func setTTL(seconds as long) static
+{
+	assert seconds >= 60
+	ttl = seconds
+}
+
+func queryImage(context as LoggingContext, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, buffer, string>, errorCallback as function<void,Error>) static private
+{
+	if not cacheMap:
+		cacheMap = new DynamicMap()
+	var cache = cacheMap.get(url) as ImageCache
+	if not cache {
+		cache = new ImageCache()
+		cache.setTtl(ttl)
+		cacheMap.set(url, cache)
+	}
+	cache.checkTTL()
+	cache.push(callback)
+	if cache.isAvailable() {
+		loop {
+			var cb = cache.pop()
+			if not cb:
+				break
+			cb(cache.getBlob(), cache.getMimeType())
+		}
+		return
+	}
+	var client = NativeWebClient.instance()
+	if not client {
+		Log.error(context, "Failed to create web client.")
+		if errorCallback:
+			errorCallback(Error.forCode("noWebClient"))
+		return
+	}
+	Log.debug(context, VALUE "__THIS__" .. ": Start loading image: `" .. url .."'")
+	var uu final = url
+	var ecb final = errorCallback
+	var cf final = cache
+	var contextf final = context
+	client.query("GET", url, headers, body, func(rcode as string, rheaders as KeyValueList<string,string>, rbody as buffer) {
+		if(rbody == null || Buffer.getSize(rbody) < 1) {
+			Log.error(contextf, VALUE "__THIS__" .. ": FAILED loading image: `" .. uu .."'")
+			if ecb:
+				ecb(Error.forCode("failedToDownload"))
+			return
+		}
+		var mimeType as string
+		var hdrv as vector<KeyValuePair<string,string>> #force = rheaders.asVector()
+		foreach hdr in hdrv {
+			if String.equalsIgnoreCase(hdr.key, "content-type") {
+				var vv = hdr.value
+				if vv {
+					var sc = String.indexOf(vv, ';')
+					if sc < 0 {
+						mimeType = vv
+					}
+					else {
+						mimeType = String.getSubString(vv, sc)
+					}
+				}
+			}
+		}
+		cf.setBlob(rbody)
+		cf.setMimeType(mimeType)
+		loop {
+			var cb = cf.pop()
+			if not cb:
+				break
+			cb(cf.getBlob(), cf.getMimeType())
+		}
+	})
+}
+
+func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void,Error>) override
+{
+	var img final = onStartLoading()
+	var uu final = url
+	var cb final = callback
+	queryImage(context, url, headers, body, func(blob as buffer, mimeType as string) {
+		onEndLoading()
+		var imgo = context.getImageForBuffer(blob, mimeType)
+		if not imgo {
+			Log.error(context, VALUE "__THIS__" .. ": Failed to create image from the returned data")
+			if(cb != null) {
+				cb(Error.forCode("failedToCreateImage"))
+			}
+			return
+		}
+		Log.debug(context, VALUE "__THIS__" .. ": DONE loading image: `" .. uu .."'")
+		img.setWidgetImage(imgo)
+	}, cb)
+}
