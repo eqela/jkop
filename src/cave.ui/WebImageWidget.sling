@@ -61,35 +61,40 @@ func setWidgetImageUrl(url as string, callback as function<void,Error> = null)
 
 func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void,Error>) virtual
 {
-	var client = NativeWebClient.instance()
-	if(client == null) {
-		Log.error(context, "Failed to create web client.")
-		if(callback != null) {
-			callback(Error.forCode("noWebClient"))
-		}
-		return
-	}
 	Log.debug(context, VALUE "__THIS__" .. ": Start loading image: `" .. url .."'")
 	var img final = onStartLoading()
+	doQueryImage(context, url, headers, body, func(imgo as Image) {
+		onEndLoading()
+		img.setWidgetImage(imgo)
+	}, callback)
+}
+
+func doQueryImage(context as GuiApplicationContext, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, Image>, errorCallback as function<void, Error>) static
+{
+	var client = assert NativeWebClient.instance() {
+		Log.error(context, "Failed to create web client.")
+		if errorCallback:
+			errorCallback(Error.forCode("noWebClient"))
+	}
 	var uu final = url
 	var cb final = callback
+	var ecb final = errorCallback
+	var contextf final = context
 	client.query("GET", url, headers, body, func(rcode as string, rheaders as KeyValueList<string,string>, rbody as buffer) {
-		onEndLoading()
 		if(rbody == null || Buffer.getSize(rbody) < 1) {
-			Log.error(context, VALUE "__THIS__" .. ": FAILED loading image: `" .. uu .."'")
-			if(cb != null) {
-				cb(Error.forCode("failedToDownload"))
-			}
+			Log.error(contextf, VALUE "__THIS__" .. ": FAILED loading image: `" .. uu .."'")
+			if ecb:
+				ecb(Error.forCode("failedToDownload"))
 			return
 		}
 		var mimeType as string
 		var hdrv as vector<KeyValuePair<string,string>> #force = rheaders.asVector()
-		foreach(hdr in hdrv) {
-			if(String.equalsIgnoreCase(hdr.key, "content-type")) {
+		foreach hdr in hdrv {
+			if String.equalsIgnoreCase(hdr.key, "content-type") {
 				var vv = hdr.value
-				if(vv != null) {
+				if vv {
 					var sc = String.indexOf(vv, ';')
-					if(sc < 0) {
+					if sc < 0 {
 						mimeType = vv
 					}
 					else {
@@ -98,15 +103,13 @@ func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, bo
 				}
 			}
 		}
-		var imgo = context.getImageForBuffer(rbody, mimeType)
-		if(imgo == null) {
-			Log.error(context, VALUE "__THIS__" .. ": Failed to create image from the returned data")
-			if(cb != null) {
-				cb(Error.forCode("failedToCreateImage"))
-			}
+		var imgo = contextf.getImageForBuffer(rbody, mimeType)
+		if not imgo {
+			Log.error(contextf, VALUE "__THIS__" .. ": Failed to create image from the returned data")
+			if ecb:
+				ecb(Error.forCode("failedToCreateImage"))
 			return
 		}
-		Log.debug(context, VALUE "__THIS__" .. ": DONE loading image: `" .. uu .."'")
-		img.setWidgetImage(imgo)
+		cb(imgo)
 	})
 }
