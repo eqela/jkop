@@ -27,58 +27,109 @@ class imports cape:
 func asPoints(value as string, ppi as int) static as int:
 	return forString(value).toPoints(ppi)
 
-func forString(value as string) static as this
+func asPointsWithPpi(value as string, ppi as double) static as double:
+	return forString(value).getValueAsPointsWithPpi(ppi)
+
+func unitToString(unit as int) static as string
+{
+	if unit == UNIT_POINT:
+		return "pt"
+	if unit == UNIT_MILLIMETER:
+		return "mm"
+	if unit == UNIT_MICROMETER:
+		return "um"
+	if unit == UNIT_NANOMETER:
+		return "nm"
+	if unit == UNIT_INCH:
+		return "in"
+	return null
+}
+
+func asStringWithUnit(length as this, unit as int) static as string
+{
+	var v as double
+	if not length {
+		v = 0.0
+	}
+	else {
+		v = length.getValueAsUnit(unit)
+	}
+	return String.forDouble(v) .. unitToString(unit)
+}
+
+func asString(length as this) static as string
+{
+	if not length:
+		return "0px"
+	return asStringWithUnit(length, length.getUnit())
+}
+
+func forString(value as string, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.parse(value)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forPoints(value as double) static as this
+func forPoints(value as double, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(UNIT_POINT)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forMilliMeters(value as double) static as this
+func forMilliMeters(value as double, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(UNIT_MILLIMETER)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forMicroMeters(value as double) static as this
+func forMicroMeters(value as double, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(UNIT_MICROMETER)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forNanoMeters(value as double) static as this
+func forNanoMeters(value as double, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(UNIT_NANOMETER)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forInches(value as double) static as this
+func forInches(value as double, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(UNIT_INCH)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
-func forValue(value as double, unit as int) static as this
+func forValue(value as double, unit as int, ppi as double = 0.0) static as this
 {
 	var v = new this()
 	v.setValue(value)
 	v.setUnit(unit)
+	if ppi > 0.0:
+		v.setPpi(ppi)
 	return v
 }
 
@@ -88,6 +139,7 @@ func forStringAsPoints(value as string, ppi as int) static as this
 	v.parse(value)
 	v.setValue(v.toPoints(ppi))
 	v.setUnit(UNIT_POINT)
+	v.setPpi(ppi as double)
 	return v
 }
 
@@ -99,6 +151,7 @@ const UNIT_INCH = 4
 
 prop value as double
 prop unit as int
+prop ppi = 96.0
 
 func parse(value as string) private
 {
@@ -149,33 +202,88 @@ func parse(value as string) private
 	}
 }
 
-func toPoints(ppi as int) as int
+func toPoints(customPpi as int) as int:
+	return getValueAsPointsWithPpi(customPpi) as int
+
+func getValueAsPointsWithPpi(customPpi as double) as double
 {
-	if unit == UNIT_POINT:
-		return value as int
+	if unit == UNIT_POINT {
+		if ppi == customPpi:
+			return value
+		if ppi == 0.0:
+			return 0.0
+		return customPpi * value / ppi
+	}
 	if unit == UNIT_MILLIMETER {
-		var v = value * ppi / 25
+		var v = value * customPpi / 25
 		if value > 0 && v < 1:
-			v = 1
-		return v as int
+			v = 1.0
+		return v
 	}
 	if unit == UNIT_MICROMETER {
-		var v = value * ppi / 25000
+		var v = value * customPpi / 25000
 		if value > 0 && v < 1:
-			v = 1
-		return v as int
+			v = 1.0
+		return v
 	}
 	if unit == UNIT_NANOMETER {
-		var v = value * ppi / 25000000
+		var v = value * customPpi / 25000000
 		if value > 0 && v < 1:
-			v = 1
-		return v as int
+			v = 1.0
+		return v
 	}
 	if unit == UNIT_INCH {
-		var v = value * ppi
+		var v = value * customPpi
 		if value > 0 && v < 1:
-			v = 1
-		return v as int
+			v = 1.0
+		return v
 	}
-	return 0
+	return 0.0
 }
+
+func getValueAsPoints as double
+{
+	return getValueAsPointsWithPpi(ppi)
+}
+
+func getValueAsMilliMeters as double
+{
+	assert ppi != 0.0
+	return 25 * getValueAsPoints() / ppi
+}
+
+func getValueAsMicroMeters as double
+{
+	assert ppi != 0.0
+	return 25000 * getValueAsPoints() / ppi
+}
+
+func getValueAsNanoMeters as double
+{
+	assert ppi != 0.0
+	return 25000000 * getValueAsPoints() / ppi
+}
+
+func getValueAsInches as double
+{
+	assert ppi != 0.0
+	return getValueAsPoints() / ppi
+}
+
+func getValueAsUnit(unit as int) as double
+{
+	if unit == UNIT_POINT:
+		return getValueAsPoints()
+	if unit == UNIT_MILLIMETER:
+		return getValueAsMilliMeters()
+	if unit == UNIT_MICROMETER:
+		return getValueAsMicroMeters()
+	if unit == UNIT_NANOMETER:
+		return getValueAsNanoMeters()
+	if unit == UNIT_INCH:
+		return getValueAsInches()
+	return value
+}
+
+func toString as string:
+	return asString(this)
