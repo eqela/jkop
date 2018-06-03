@@ -27,9 +27,11 @@ class #widget:
 ui LayerWidget
 {
 	ImageWidget imageWidget {
-		imageScaleMethod = ImageWidget.FIT
+		imageScaleMethod = ImageWidget.FILL
 	}
 }
+
+prop widgetScaleSize as int
 
 ctor(ctx as GuiApplicationContext)
 {
@@ -46,63 +48,14 @@ func setWidgetSize(sz as int #notLiteral) as this
 
 func setWidgetImageResource(src as string) as this
 {
-	var image = context.getResourceImage(src)
-	image = createCircularImage(image)
+	var image = ImageUtil.createCircularImage(context.getResourceImage(src))
 	imageWidget.setWidgetImage(image)
 	return this
 }
 
 func setWidgetImage(image as Image) as this
 {
-	var img = createCircularImage(image)
+	var img = ImageUtil.createCircularImage(image)
 	imageWidget.setWidgetImage(img)
 	return this
-}
-
-func createCircularImage(image as Image) private as Image
-{
-	assert image
-	var minSize = Math.min(image.getPixelWidth(), image.getPixelHeight()) as int
-	image = image.crop(0, 0, minSize, minSize)
-	image = image.scaleToSize(minSize, minSize)
-	IFDEF "target_iosoc" {
-		var outputImage as !"UIImage"
-		var bytesData #used = image.toPNGData()
-		lang "objc" {{{
-			NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
-			UIImage *uiImage = [UIImage imageWithData:imageData];
-			CGRect rect = CGRectMake(0, 0, [image getPixelWidth], [image getPixelHeight]);
-			UIGraphicsBeginImageContextWithOptions(rect.size, NO, uiImage.scale); {
-				UIBezierPath *interior = [UIBezierPath bezierPathWithOvalInRect:rect];
-				[interior addClip];
-				[uiImage drawInRect:rect];
-			}
-			outputImage = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-		}}}
-		return ImageForIOS.forUIImage(outputImage)
-	}
-	IFDEF "target_android" {
-		var w = image.getPixelWidth()
-		var h = image.getPixelHeight()
-		var img = assert (image as ImageForAndroid).getAndroidBitmap()
-		var output as !"android.graphics.Bitmap"
-		lang "java" {{{
-			output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
-			android.graphics.Canvas canvas = new android.graphics.Canvas(output);
-			android.graphics.Paint paint = new android.graphics.Paint();
-			android.graphics.Rect rect = new android.graphics.Rect(0, 0, w, h);
-			android.graphics.RectF rectf = new android.graphics.RectF(rect);
-			paint.setAntiAlias(true);
-			canvas.drawARGB(0, 0, 0, 0);
-			canvas.drawOval(rectf, paint);
-			paint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
-			canvas.drawBitmap(img, rect, rect, paint);
-		}}}
-		return ImageForAndroid.forAndroidBitmap(output)
-	}
-	ELSE {
-		ERROR "Not implemented"
-		return null
-	}
 }

@@ -87,15 +87,10 @@ ui LayerWidget
 	}
 }
 
-ctor(ctx as GuiApplicationContext)
-{
-	base(ctx)
-	forceCreateWidget()
-}
-
 prop widgetMaximumValue = 100
 prop widgetLeftControlChangeListener as function<void, double>
 prop widgetRightControlChangeListener as function<void, double>
+prop widgetDisableLeftControl as bool
 var selectedControl as SelectedControl
 var refX as double
 var firstLayoutDone as bool
@@ -106,9 +101,17 @@ var rightValue = -1.0
 const LEFT_CONTROL = 0
 const RIGHT_CONTROL = 1
 
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
 func initializeWidget override
 {
 	base.initializeWidget()
+	if widgetDisableLeftControl:
+		Widget.removeFromParent(leftControl)
 	Widget.setWidgetPointerHandlers(con, func(x as double, y as double) {
 		onStartHandler(x, y)
 	}, func(x as double, y as double) {
@@ -249,11 +252,12 @@ func setWidgetRoundingRadius(radius as int #notLiteral)
 func onWidgetResized
 {
 	rangeValue = Widget.getWidth(range) - Widget.getWidth(rightControl)
-	assert firstLayoutDone:
+	if not firstLayoutDone:
 		firstLayoutDone = true
 	if leftValue < 0 || rightValue < 0:
 		return
-	moveLeftControlTo(leftValue)
+	if not widgetDisableLeftControl:
+		moveLeftControlTo(leftValue)
 	moveRightControlTo(rightValue)
 }
 
@@ -262,8 +266,15 @@ func setWidgetValue(value as object)
 	assert value
 	assert value is string
 	var v = String.split(value as! string, '-', 2)
-	moveLeftControlTo(String.toDouble(v[0]))
-	moveRightControlTo(String.toDouble(v[1]))
+	if not firstLayoutDone {
+		leftValue = String.toDouble(v[0])
+		rightValue = String.toDouble(v[1])
+	}
+	else {
+		if not widgetDisableLeftControl:
+			moveLeftControlTo(String.toDouble(v[0]))
+		moveRightControlTo(String.toDouble(v[1]))
+	}
 }
 
 func setWidgetValueForDynamicMap(value as DynamicMap)
