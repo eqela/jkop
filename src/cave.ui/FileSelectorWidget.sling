@@ -1,4 +1,3 @@
-
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
@@ -28,6 +27,46 @@ IFDEF("target_android")
 {
 	depend "androidPermission:android.permission.READ_EXTERNAL_STORAGE"
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
+}
+
+IFDEF("target_ios")
+{
+	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
+	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
+	depend "objc-header-h:<UIKit/UIKit.h>"
+
+	class MyPickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
+	{
+		prop callback as function<void, buffer, string, string, Error>
+
+		lang "objc" {{{
+			- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info
+			{
+				UIImage *image = [info objectForKey:UIImagePickerControllerOriginalImage];
+				NSURL *url = [info objectForKey:UIImagePickerControllerReferenceURL];
+				[self onImagePicked:image filepath:url.path];
+				objc_removeAssociatedObjects(picker);
+				[picker dismissViewControllerAnimated:YES completion:NULL];
+			}
+		}}}
+
+		func onImagePicked(image as !"UIImage", filepath as string)
+		{
+			if(callback != null) {
+				var file =  cape.File.forPath(filepath)
+				var img = ImageForIOS.forUIImage(image)
+				var mtype = "image/jpeg"
+				var buf as buffer
+				if file.hasExtension("jpeg"):
+					var buf = img.toJPGData()
+				if file.hasExtension("png") {
+					mtype = "image/png"
+					buf = img.toPNGData()
+				}
+				callback(buf, file.baseName(), mtype, null)
+			}
+		}
+	}
 }
 
 IFDEF("target_html") {
@@ -173,12 +212,31 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 							}
 							elm.removeEventListener("change", fileHandler);
 						}
-
 					}
 				};
 				reader.readAsArrayBuffer(file);
 			});
 			elm.click();
+		}}}
+	}
+	ELSE IFDEF("target_iosoc") {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, null, null, Error.forCode("no_screen_found"))
+			}
+			return
+		}
+		var delegate = new MyPickerDelegate()
+		delegate.setCallback(cb)
+		lang "objc" {{{
+			UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+			picker.delegate = delegate;
+			picker.allowsEditing = YES;
+			picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+			picker.modalPresentationStyle = UIModalPresentationFullScreen;
+			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[screen presentViewController:picker animated:YES completion:nil];
 		}}}
 	}
 	ELSE {
