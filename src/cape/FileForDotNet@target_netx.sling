@@ -24,6 +24,20 @@
 
 class is File private:
 
+lang "cs" {{{
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool DeleteFileW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool RemoveDirectoryW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+	static extern int GetLastError();
+}}}
+
 class MyFileReader is DotNetStreamReader
 {
 	prop file as parent
@@ -82,12 +96,6 @@ func forPath(path as string) static as File
 }
 
 var completePath as string
-var isWindows = false
-
-ctor
-{
-	isWindows = OS.isWindows()
-}
 
 func withExtension(ext as string) override as File
 {
@@ -115,7 +123,7 @@ func setCompletePath(v as string)
 			x = x.Substring(0, x.Length-1);
 		}
 	}}}
-	if isWindows {
+	if OS.isWindows() {
 		var l = String.getLength(x)
 		var c1 = String.getChar(x, 1)
 		if l == 2 && c1 == ':' {
@@ -339,31 +347,142 @@ func append override as FileWriter
 func makeExecutable override as bool
 {
 	onError(null)
-	var v = true
-	lang "cs"
-	{{{
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = ProcessLauncher.forCommand("chmod")
+		pl.addToParams("+x")
+		pl.addToParams(completePath)
+		if pl.executeSilent() == 0:
+			return true
+	}
+	lang "cs" {{{
 		if(System.Type.GetType("Mono.Runtime") != null) {
 			try {
 				System.IO.File.SetAttributes(completePath, (System.IO.FileAttributes)((int)System.IO.File.GetAttributes(completePath) | 0x80000000));
 			}
 			catch(System.Exception e) {
 				onError(e.ToString());
-				v = false;
+				return false;
 			}
 		}
 	}}}
-	return v
+	return true
+}
+
+func setMode(mode as int) override as bool
+{
+	onError(null)
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = ProcessLauncher.forCommand("chmod")
+		if pl {
+			pl.addToParams(String.forIntegerOctal(mode))
+			pl.addToParams(completePath)
+			assert pl.executeSilent() == 0:
+				onError("Failed to execute chmod")
+			return true
+		}
+	}
+	return false
+}
+
+func setOwnerUser(uid as int) override as bool
+{
+	onError(null)
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = ProcessLauncher.forCommand("chown")
+		if pl {
+			pl.addToParams(String.forInteger(uid))
+			pl.addToParams(completePath)
+			assert pl.executeSilent() == 0:
+				onError("Failed to execute chown")
+			return true
+		}
+	}
+	return false
+}
+
+func setOwnerGroup(gid as int) override as bool
+{
+	onError(null)
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = ProcessLauncher.forCommand("chgrp")
+		if pl {
+			pl.addToParams(String.forInteger(gid))
+			pl.addToParams(completePath)
+			assert pl.executeSilent() == 0:
+				onError("Failed to execute chgrp")
+			return true
+		}
+	}
+	return false
+}
+
+class MyFileInfo is FileInfo
+{
+	var statsUpdated = false
+
+	func getCompletePath as string
+	{
+		var f = assert getFile()
+		return f.getPath()
+	}
+
+	func updateStats
+	{
+		assert statsUpdated == false
+		assert OS.isLinux() || OS.isMacOS()
+		var pl = assert ProcessLauncher.forCommand("stat")
+		pl.addToParams("-c")
+		pl.addToParams("%f %u %g")
+		pl.addToParams(getCompletePath())
+		var ss = assert String.strip(pl.executeToString())
+		var comps = assert String.split(ss, ' ')
+		var mode = Vector.get(comps, 0)
+		var uid = Vector.get(comps, 1)
+		var gid = Vector.get(comps, 2)
+		if mode:
+			setMode(String.toIntegerFromHex(mode) & 0x1FF)
+		if uid:
+			setOwnerUser(String.toInteger(uid))
+		if gid:
+			setOwnerGroup(String.toInteger(gid))
+		statsUpdated = true
+	}
+
+	func getMode override as int
+	{
+		updateStats()
+		return base.getMode()
+	}
+
+	func getOwnerUser override as int
+	{
+		updateStats()
+		return base.getOwnerUser()
+	}
+
+	func getOwnerGroup override as int
+	{
+		updateStats()
+		return base.getOwnerGroup()
+	}
+
+	func getExecutable override as bool
+	{
+		if OS.isLinux() || OS.isMacOS() {
+			var mode = getMode()
+			if mode & 0x40:
+				return true
+			return false
+		}
+		return true
+	}
 }
 
 func stat override as FileInfo
 {
 	onError(null)
-	var v = new FileInfo()
+	var v = new MyFileInfo()
 	v.setFile(this)
-	v.setOwnerUser(0)
-	v.setOwnerGroup(0)
-	v.setMode(0)
-	v.setExecutable(true)
 	v.setLink(false)
 	v.setType(FileInfo.FILE_TYPE_UNKNOWN)
 	if completePath {
@@ -389,6 +508,7 @@ func stat override as FileInfo
 				try {
 					var dnfi = new System.IO.FileInfo(completePath);
 					v.setSize((int)dnfi.Length);
+					v.setCreateTime((int)dnfi.CreationTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
 					v.setAccessTime((int)dnfi.LastAccessTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
 					v.setModifyTime((int)dnfi.LastWriteTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
 				}
@@ -425,25 +545,11 @@ func createDirectoryRecursive override as bool
 	return createDirectory()
 }
 
-lang "cs" {{{
-	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-	static extern bool DeleteFileW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
-
-	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
-	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-	static extern bool RemoveDirectoryW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
-
-	[System.Runtime.InteropServices.DllImport("kernel32.dll")]
-	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
-	static extern int GetLastError();
-}}}
-
 func remove override as bool
 {
 	onError(null)
 	var v = true
-	if isWindows {
+	if OS.isWindows() {
 		var ec as int
 		var ff as string
 		lang "cs" {{{
@@ -475,7 +581,7 @@ func removeDirectory override as bool
 {
 	onError(null)
 	var v = true
-	if isWindows {
+	if OS.isWindows() {
 		var ff as string
 		var ec as int
 		lang "cs" {{{
@@ -506,7 +612,7 @@ func removeDirectory override as bool
 func getPath override as string:
 	return completePath
 
-func baseName override as string
+func getBasename override as string
 {
 	onError(null)
 	var path = assert completePath
