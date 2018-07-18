@@ -102,6 +102,36 @@ func readBlockParagraph(id as string, pr as LineReader) as RichTextBlockParagrap
 	return(new RichTextBlockParagraph().setId(id).setText(sb.toString()))
 }
 
+func readListParagraph(type as string, l as string, pr as LineReader) as RichTextListParagraph
+{
+	var line = l
+	var list = new vector<string>
+	var sb = new StringBuilder()
+	do {
+		line = String.strip(line)
+		if String.isEmpty(line):
+			break
+		var it = String.iterate(line)
+		var c as char
+		var pc = it.getNextChar()
+		while((c = it.getNextChar()) > 0) {
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+				if pc == ' ':
+					continue
+				c = ' '
+			}
+			if pc == '*' && c == ' ':
+				continue
+			sb.append(c)
+			pc = c
+		}
+		if sb.count() > 0:
+			list += sb.toString()
+	}
+	while((line = pr.readLine()) != null)
+	return new RichTextListParagraph().setList(list).setType(type)
+}
+
 func processInput(pr as LineReader, doc as RichTextDocument) as bool
 {
 	var line = skipEmptyLines(pr)
@@ -230,6 +260,14 @@ func processInput(pr as LineReader, doc as RichTextDocument) as bool
 		}
 		doc.addParagraph(readBlockParagraph(id, pr))
 		return(true)
+	}
+	if(String.startsWith(line, "* ")) {
+		doc.addParagraph(readListParagraph("unordered", line, pr))
+		return true
+	}
+	if(String.startsWith(line, "+ ")) {
+		doc.addParagraph(readListParagraph("ordered", line, pr))
+		return true
 	}
 	var sb = new StringBuilder()
 	var pc = 0 as char
