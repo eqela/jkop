@@ -76,7 +76,6 @@ class PageTrackerWidget #widget
 					}
 				}
 				HorizontalBoxWidget pages {
-					spacing = context.getHeightValue("1mm")
 				}
 				ImageButtonWidget nextButton {
 					widthRequest = context.getHeightValue("6mm")
@@ -105,6 +104,9 @@ class PageTrackerWidget #widget
 
 	func setWidgetNextImageResource(resource as string):
 		nextButton.setWidgetImageResource(resource)
+
+	func setWidgetPageSpacing(spacing as int):
+		pages.setWidgetSpacing(spacing)
 
 	func updatePages(pageCount as int, currentPage as int)
 	{
@@ -171,6 +173,8 @@ class PageTrackerWidget #widget
 		}
 		for(var i = 0; o < l; o++) {
 			var pw = Vector.get(pageCollection, o)
+			if not pw:
+				break
 			pw.setAsCurrentPage(o == p)
 			pages.addWidget(pw)
 		}
@@ -194,6 +198,7 @@ var pageTracker as PageTrackerWidget
 ctor(ctx as GuiApplicationContext)
 {
 	base(ctx)
+	forceCreateWidget()
 	pageTracker = new PageTrackerWidget(context)
 	pageTracker.setWidgetParent(this)
 }
@@ -210,8 +215,27 @@ func setWidgetNextImageResource(resource as string) as this
 	return this
 }
 
+func setWidgetPageTrackerSpacing(spacing as int) as this
+{
+	pageTracker.setWidgetPageSpacing(spacing)
+	return this
+}
+
+func setWidgetListSpacing(spacing as int) as this
+{
+	list.setWidgetSpacing(spacing)
+	return this
+}
+
+func setWidgetListBackgroundColor(color as Color) as this
+{
+	listLayer.setWidgetColor(color)
+	return this
+}
+
 func doGetData(page as int, resetTracker as bool = false)
 {
+	var rt final = resetTracker
 	startQuery(page, func(response as DynamicMap){
 		assert response {
 			;
@@ -222,7 +246,7 @@ func doGetData(page as int, resetTracker as bool = false)
 		assert records.getSize() > 0 {
 			;
 		}
-		if resetTracker:
+		if rt:
 			updatePageTracker(response.getInteger("pageCount"), response.getInteger("currentPage"))
 		populateList(records)
 	},
@@ -253,8 +277,12 @@ func onNextPage(page as int)
 	doGetData(page)
 }
 
+func clearList:
+	Widget.removeChildrenOf(list)
+
 func populateList(records as DynamicVector)
 {
+	clearList()
 	foreach item as DynamicMap in records.toVector() {
 		if not item:
 			continue
@@ -263,7 +291,11 @@ func populateList(records as DynamicVector)
 			continue
 		list.addWidget(w)
 	}
+	onDonePopulatingList()
 }
+
+func onDonePopulatingList virtual:
+	;
 
 func createPageItemWidget abstract as PageItemWidget
 func createListItemWidget(data as DynamicMap) abstract as Widget
