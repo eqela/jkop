@@ -133,39 +133,67 @@ IFNDEF "target_uwp"
 		{
 		}
 
+		func getPid private as int
+		{
+			var pp = process
+			if not pp:
+				return -1
+			var v = -1
+			try {
+				v = lang "cs" int {{{ pp.Id }}}
+			}
+			catch {
+				v = -1
+			}
+			return v
+		}
+
 		func killRequest
 		{
+			if OS.isMacOS() || OS.isLinux() {
+				var pid = getPid()
+				if pid >= 0 {
+					var killcmd = ProcessLauncher.forCommand("kill")
+					if killcmd {
+						killcmd.addToParams(String.forInteger(pid))
+						killcmd.execute()
+						return
+					}
+				}
+			}
 			killForce()
 		}
 
 		func killForce
 		{
+			var pp = assert process
 			lang "cs" {{{
-				if(process != null) {
-					try {
-						process.Kill();
-					}
-					catch {
-					}
+				try {
+					pp.Kill();
+				}
+				catch {
 				}
 			}}}
 		}
 
 		func kill(timeout as int)
 		{
-			killForce()
+			killRequest()
+			var pp = process
 			lang "cs" {{{
-				if(process != null) {
-					process.WaitForExit(timeout);
+				if(pp != null) {
+					pp.WaitForExit(timeout);
 				}
 			}}}
+			killForce()
 		}
 
 		func waitForExit as int
 		{
+			var pp = process
 			lang "cs" {{{
-				if(process != null) {
-					process.WaitForExit();
+				if(pp != null) {
+					pp.WaitForExit();
 				}
 			}}}
 			return(getExitStatus())
@@ -243,6 +271,16 @@ IFNDEF "target_uwp"
 		}}}
 		assert np
 		if wait {
+			lang "cs" {{{
+				System.Action<System.Runtime.Loader.AssemblyLoadContext> killHandler1 = ctx => {
+					np.kill(1000);
+				};
+				System.ConsoleCancelEventHandler killHandler2 = (sender, args) => {
+					np.kill(1000);
+				};
+				System.Runtime.Loader.AssemblyLoadContext.Default.Unloading += killHandler1;
+				System.Console.CancelKeyPress += killHandler2;
+			}}}
 			if pipeHandler {
 				lang "cs" {{{
 					try {
@@ -321,6 +359,10 @@ IFNDEF "target_uwp"
 				}}}
 			}
 			np.waitForExit()
+			lang "cs" {{{
+				System.Runtime.Loader.AssemblyLoadContext.Default.Unloading -= killHandler1;
+				System.Console.CancelKeyPress -= killHandler2;
+			}}}
 			np.close()
 		}
 		return np
