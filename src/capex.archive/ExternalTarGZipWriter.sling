@@ -22,44 +22,36 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class is TarGZipWriter:
 
-**
-** Generates a new Globally Unique Identifier (GUID)
-**
-
-func generate static as string
+func tarDir(ctx as LoggingContext, dir as File, output as File, truncateDir as bool) override as bool
 {
-	IFDEF "target_cs" {
-		return lang "cs" string {{{ System.Guid.NewGuid().ToString() }}}
+	assert dir:
+		Log.error(ctx, "No directory provided.")
+	assert dir.isDirectory():
+		Log.error(ctx, "Not a directory: `" .. dir.getPath() .. "'")
+	var bn = dir.baseName()
+	assert String.isEmpty(bn) == false:
+		Log.error(ctx, "Empty basename: `" .. dir.getPath() .. "'")
+	var pd = assert dir.getParent():
+		Log.error(ctx, "Directory has no parent: `" .. dir.getPath() .. "'")
+	var of = output
+	if of == null:
+		of = pd.entry(bn .. ".tar.gz")
+	var pl = assert ProcessLauncher.forCommand("tar"):
+		Log.error(ctx, "Failed to create a process launcher for command: `tar'")
+	pl.addToParams("zcf")
+	pl.addToParams(of.getPath())
+	if truncateDir {
+		pl.setCwd(dir)
+		pl.addToParams(".")
 	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
+	else {
+		pl.setCwd(pd)
+		pl.addToParams(bn)
 	}
-}
-
-**
-** Creates a deterministic GUID that is based on the value given
-** as parameter. For the same contents of the value string, the same
-** GUID will always be given.
-**
-
-func forString(value as string) static as string
-{
-	IFDEF "target_cs" {
-		var v as string
-		lang "cs" {{{
-			System.Security.Cryptography.MD5CryptoServiceProvider provider = new System.Security.Cryptography.MD5CryptoServiceProvider();
-			byte[] inputBytes = System.Text.Encoding.Default.GetBytes(value);
-			byte[] hashBytes = provider.ComputeHash(inputBytes);
-			System.Guid hashGuid = new System.Guid(hashBytes);
-			v = hashGuid.ToString();
-		}}}
-		return v
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
-	}
+	var r = pl.execute()
+	assert r == 0:
+		Log.error(ctx, "Failure in execution of the tar command")
+	return true
 }

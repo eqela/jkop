@@ -22,44 +22,32 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class:
 
-**
-** Generates a new Globally Unique Identifier (GUID)
-**
-
-func generate static as string
+func isTarFile(file as File) static as bool
 {
-	IFDEF "target_cs" {
-		return lang "cs" string {{{ System.Guid.NewGuid().ToString() }}}
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
-	}
+	assert file
+	var bn = assert String.toLowerCase(file.getBasename())
+	if String.endsWith(bn, ".tar"):
+		return true
+	if String.endsWith(bn, ".tar.gz") || String.endsWith(bn, ".tar.bz2") || String.endsWith(bn, ".tar.xz"):
+		return true
+	if String.endsWith(bn, ".tgz") || String.endsWith(bn, ".tbz") || String.endsWith(bn, ".tbz2") || String.endsWith(bn, ".txz"):
+		return true
+	return false
 }
 
-**
-** Creates a deterministic GUID that is based on the value given
-** as parameter. For the same contents of the value string, the same
-** GUID will always be given.
-**
-
-func forString(value as string) static as string
+func extractTarFileToDirectory(tarFile as File, destDir as File) static as bool
 {
-	IFDEF "target_cs" {
-		var v as string
-		lang "cs" {{{
-			System.Security.Cryptography.MD5CryptoServiceProvider provider = new System.Security.Cryptography.MD5CryptoServiceProvider();
-			byte[] inputBytes = System.Text.Encoding.Default.GetBytes(value);
-			byte[] hashBytes = provider.ComputeHash(inputBytes);
-			System.Guid hashGuid = new System.Guid(hashBytes);
-			v = hashGuid.ToString();
-		}}}
-		return v
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
-	}
+	assert tarFile
+	assert destDir
+	var pl = assert ProcessLauncher.forCommand("tar")
+	if not destDir.isDirectory():
+		destDir.createDirectoryRecursive()
+	assert destDir.isDirectory()
+	pl.setCwd(destDir)
+	pl.addToParams("xf")
+	pl.addToParams(tarFile.getPath())
+	assert pl.execute() == 0
+	return true
 }
