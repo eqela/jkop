@@ -47,6 +47,55 @@ IFDEF "target_iosoc"
 		token = newToken
 }
 
+IFDEF "target_html" {
+	var fcmPublicVapidKey private static as string
+	var screen private static as ScreenForWidget
+
+	func onNewFCMToken(newToken as string) static
+	{
+		if not String.equals(token, newToken):
+			token = newToken
+	}
+
+	func onMessage(data as string) static
+	{
+		assert screen
+		screen.onStartScreenWithData(JSONParser.parse(data) as DynamicMap)
+	}
+}
+
+func askPermission(key as string, sc as ScreenForWidget) static
+{
+	IFDEF "target_html" {
+		fcmPublicVapidKey = key
+		screen = sc
+		lang "js" {{{
+			const messaging = firebase.messaging();
+			messaging.usePublicVapidKey(CaveGoogleFcmFCMTokenManager.fcmPublicVapidKey);
+			messaging.requestPermission()
+			.then(function() {
+				return messaging.getToken();
+			})
+			.then(function(token) {
+				CaveGoogleFcmFCMTokenManager.onNewFCMToken(token);
+			})
+			.catch(function(error) {
+				console.log(error);
+			});
+			messaging.onTokenRefresh(function() {
+				messaging.getToken().then(function(refreshedToken) {
+					CaveGoogleFcmFCMTokenManager.onNewFCMToken(refreshedToken);
+				}).catch(function(err) {
+					console.log(error);
+				});
+			});
+			messaging.onMessage(function(payload) {
+				CaveGoogleFcmFCMTokenManager.onMessage(JSON.stringify(payload));
+			});
+		}}}
+	}
+}
+
 IFDEF "target_android"
 {
 	var action private static = "SLING_FCM"
@@ -70,6 +119,16 @@ func checkForToken static as string
 	}
 	ELSE IFDEF "target_iosoc" {
 		var newToken = lang "objc" string {{{ [FIRMessaging messaging].FCMToken }}}
+		if not String.equals(token, newToken):
+			token = newToken
+	}
+	ELSE IFDEF "target_html" {
+		var newToken as string
+		lang "js" {{{
+			const messaging = firebase.messaging();
+			messaging.usePublicVapidKey(fcmPublicVapidKey);
+			newToken = messaging.getToken();
+		}}}
 		if not String.equals(token, newToken):
 			token = newToken
 	}
