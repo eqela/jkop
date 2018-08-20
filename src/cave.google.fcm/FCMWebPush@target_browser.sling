@@ -47,39 +47,51 @@ IFDEF "target_iosoc"
 		token = newToken
 }
 
-IFDEF "target_android"
-{
-	var action private static = "SLING_FCM"
-
-	func setAction(v as string) static
-	{
-		assert String.isNotEmpty(v)
-		action = v
-	}
-
-	func getAction static as string:
-		return action
-}
-
 IFDEF "target_html" {
-	func onNewFCMToken(newToken as string) static:
-		token = newToken
+	var fcmPublicVapidKey private static as string
+	var screen private static as ScreenForWidget
+
+	func onMessage(data as string) static
+	{
+		assert screen
+		screen.onStartScreenWithData(JSONParser.parse(data) as DynamicMap)
+	}
+
+	func getFcmPublicVapidKey static as string:
+		return fcmPublicVapidKey
 }
 
-func checkForToken static as string
+
+func initialize(key as string, sc as ScreenForWidget) static
 {
-	IFDEF "target_android" {
-		var newToken = lang "java" string {{{ com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken() }}}
-		if not String.equals(token, newToken):
-			token = newToken
+	IFDEF "target_html" {
+		fcmPublicVapidKey = key
+		screen = sc
+		lang "js" {{{
+			const messaging = firebase.messaging();
+			messaging.usePublicVapidKey(CaveGoogleFcmFCMWebPush.getFcmPublicVapidKey());
+			messaging.requestPermission()
+			.then(function() {
+				return messaging.getToken();
+			})
+			.then(function(token) {
+				console.log("on get token: " + token);
+				CaveGoogleFcmFCMTokenManager.onNewFCMToken(token);
+			})
+			.catch(function(error) {
+				console.log(error);
+			});
+			messaging.onTokenRefresh(function() {
+				messaging.getToken().then(function(refreshedToken) {
+					console.log("on refreshed token: " + refreshedToken);
+					CaveGoogleFcmFCMTokenManager.onNewFCMToken(refreshedToken);
+				}).catch(function(err) {
+					console.log(error);
+				});
+			});
+			messaging.onMessage(function(payload) {
+				CaveGoogleFcmFCMWebPush.onMessage(JSON.stringify(payload));
+			});
+		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
-		var newToken = lang "objc" string {{{ [FIRMessaging messaging].FCMToken }}}
-		if not String.equals(token, newToken):
-			token = newToken
-	}
-	ELSE {
-		ERROR "Not yet implemented."
-	}
-	return token
 }
