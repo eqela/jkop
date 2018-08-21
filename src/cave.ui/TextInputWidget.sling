@@ -44,6 +44,7 @@ IFDEF "target_iosoc"
 	basetype !"UITextFieldDelegate" type implements
 	basetype Widget type isAlso
 	depend "objc-framework:CoreGraphics"
+	var maxLength as int
 
 	lang "objc" {{{
 		- (void)textFieldDidChange:(UITextField*)textField {
@@ -72,6 +73,14 @@ IFDEF "target_iosoc"
 
 		- (CGRect)editingRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+
+		- (BOOL)textField:(UITextField *) textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
+			BOOL rt = NO;
+			if ([[self text] length] < self->maxLength || [string length] == 0 || self->maxLength == 0)  {
+                rt = YES;
+            }
+			return rt;
 		}
 	}}}
 }
@@ -929,12 +938,21 @@ func setWidgetTextAlign(align as int) as this
 func getWidgetTextAlign as int:
 	return widgetTextAlign
 
-func setWidgetMaxLength(v as int)
+func setWidgetMaxLength(v as int) as this
 {
 	IFDEF "target_html" {
 		HTMLDOM.setAttribute(element, "maxlength", String.forInteger(v))
 	}
+	ELSE IFDEF "target_android" {
+		lang "java" {{{
+			setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(v)});
+		}}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		maxLength = v
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
+	return this
 }
