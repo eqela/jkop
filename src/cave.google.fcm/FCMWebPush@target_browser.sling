@@ -27,6 +27,7 @@ class:
 import cave.ui
 
 var fcmPublicVapidKey private static as string
+var listener private static as FCMWebPushListener
 var screen private static as ScreenForWidget
 
 func onMessage(data as string) static
@@ -35,13 +36,21 @@ func onMessage(data as string) static
 	screen.onStartScreenWithData(JSONParser.parse(data) as DynamicMap)
 }
 
+func onFCMTokenReceived(newToken as string) static
+{
+	FCMTokenManager.onNewFCMToken(newToken)
+	if listener:
+		listener.onFCMTokenReceived(newToken)
+}
+
 func getFcmPublicVapidKey static as string:
 	return fcmPublicVapidKey
 
-func initialize(key as string, sc as ScreenForWidget) static
+func initialize(key as string, sc as ScreenForWidget, l as FCMWebPushListener) static
 {
 	fcmPublicVapidKey = key
 	screen = sc
+	listener = l
 	lang "js" {{{
 		const messaging = firebase.messaging();
 		messaging.usePublicVapidKey(CaveGoogleFcmFCMWebPush.getFcmPublicVapidKey());
@@ -50,14 +59,14 @@ func initialize(key as string, sc as ScreenForWidget) static
 			return messaging.getToken();
 		})
 		.then(function(token) {
-			CaveGoogleFcmFCMTokenManager.onNewFCMToken(token);
+			CaveGoogleFcmFCMWebPush.onFCMTokenReceived(token);
 		})
 		.catch(function(error) {
 			console.log(error);
 		});
 		messaging.onTokenRefresh(function() {
 			messaging.getToken().then(function(refreshedToken) {
-				CaveGoogleFcmFCMTokenManager.onNewFCMToken(refreshedToken);
+				CaveGoogleFcmFCMWebPush.onFCMTokenReceived(refreshedToken);
 			}).catch(function(err) {
 				console.log(error);
 			});
