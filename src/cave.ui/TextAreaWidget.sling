@@ -44,6 +44,7 @@ IFDEF "target_iosoc"
 	basetype !"UITextViewDelegate" type implements
 	basetype Widget type isAlso
 	basetype WidgetWithLayout
+	var maxLength as int
 
 	lang "objc" {{{
 		- (void)textViewDidChange:(UITextView*)textView {
@@ -56,6 +57,14 @@ IFDEF "target_iosoc"
 
 		- (CGRect)editingRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+
+		- (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
+			BOOL rt = NO;
+			if ([[self text] length] < self->maxLength || [text length] == 0 || self->maxLength == 0)  {
+				rt = YES;
+			}
+			return rt;
 		}
 	}}}
 
@@ -535,4 +544,23 @@ func onLoseFocusListener private
 {
 	if widgetOnLoseFocusHandler:
 		widgetOnLoseFocusHandler()
+}
+
+func setWidgetMaxLength(v as int) as this
+{
+	IFDEF "target_html" {
+		HTMLDOM.setAttribute(element, "maxlength", String.forInteger(v))
+	}
+	ELSE IFDEF "target_android" {
+		lang "java" {{{
+			setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(v)});
+		}}}
+	}
+	ELSE IFDEF "target_iosoc" {
+		maxLength = v
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return this
 }
