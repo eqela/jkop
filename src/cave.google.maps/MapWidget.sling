@@ -90,10 +90,11 @@ IFDEF("target_android")
 			settings.setZoomGesturesEnabled(mapSettings.getCanZoom());
 			settings.setScrollGesturesEnabled(true);
 			settings.setZoomControlsEnabled(true);
-			mapSettings.setSettingObject(settings);
 			map.setBuildingsEnabled(true);
 			map.setIndoorEnabled(true);
-			map.setMyLocationEnabled(false);
+			map.setMyLocationEnabled(mapSettings.getMapHasMyLocation());
+			mapSettings.setSettingObject(settings);
+			mapSettings.setMapObject(gmap);
 			if(zoomInCenter) {
 				com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
 					.target(new com.google.android.gms.maps.model.LatLng(centerLat, centerLon))
@@ -582,7 +583,9 @@ class MyMapSettings public
 	var canZoom = true
 	var canTilt = true
 	var canRotate = true
+	var mapHasMyLocation = false
 	prop settingObject as object
+	prop mapObject as object
 
 	func setCanZoom(enable as bool)
 	{
@@ -644,6 +647,26 @@ class MyMapSettings public
 		}
 	}
 
+	func setMapHasMyLocation(enable as bool)
+	{
+		mapHasMyLocation = enable
+		if settingObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.GoogleMap)mapObject).setMyLocationEnabled(mapHasMyLocation);
+				}}}
+			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					(GMSMapView*)self->mapObject.myLocationEnabled = mapHasMyLocation;
+				}}}
+			}
+			ELSE {
+				"Not implemented"
+			}
+		}
+	}
+
 	func getCanZoom as bool:
 		return canZoom
 
@@ -652,6 +675,9 @@ class MyMapSettings public
 
 	func getCanRotate as bool:
 		return canRotate
+
+	func getMapHasMyLocation as bool:
+		return mapHasMyLocation
 }
 
 func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
@@ -715,15 +741,16 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			[settings setAllGesturesEnabled:YES];
 			[settings setCompassButton:YES];
 			[settings setIndoorPicker:YES];
-			[settings setMyLocationButton:YES];
+			[settings setMyLocationButton:NO];
 			[settings setRotateGestures:[mapSettings getCanRotate]];
 			[settings setScrollGestures:YES];
 			[settings setTiltGestures:[mapSettings getCanTilt]];
 			[settings setZoomGestures:[mapSettings getCanZoom]];
-			[mapSettings setSettingObject: settings];
 			self.buildingsEnabled = YES;
 			self.indoorEnabled = YES;
-			self.myLocationEnabled = NO;
+			self.myLocationEnabled = [mapSettings getMapHasMyLocation];
+			[mapSettings setSettingObject: settings];
+			[mapSettings setMapObject: self];
 		}}}
 		if(zoomInCenter) {
 			lang "objc" {{{
@@ -1068,3 +1095,6 @@ func setMapCanBeTilt(enable as bool):
 
 func setMapCanBeRotate(enable as bool):
 	mapSettings.setCanRotate(enable)
+
+func setMapHasMyLocation(enable as bool):
+	mapSettings.setMapHasMyLocation(enable)
