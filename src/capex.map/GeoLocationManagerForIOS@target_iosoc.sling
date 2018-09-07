@@ -30,8 +30,8 @@ depend "objc-header-m:<CoreLocation/CoreLocation.h>"
 depend "objc-header-m:<UIKit/UIKit.h>"
 
 var instance static as this
-var lastLocation as GeoLocation
 var locationDelegate as LocationDelegate
+var requestWhenInUseAuthorizationCallback as function<void, bool>
 
 func getInstance static as this
 {
@@ -69,6 +69,7 @@ func startLocationUpdates(callback as function<void,bool>) override
 		}
 		else if (authStatus == kCLAuthorizationStatusNotDetermined){
 			NSLog(@"Authorization Status NOT DETERMINED");
+			requestWhenInUseAuthorizationCallback = cb;
 			[locationManager requestWhenInUseAuthorization];
 		}
 		else if (authStatus == kCLAuthorizationStatusDenied){
@@ -89,6 +90,15 @@ func stopLocationUpdates override
 
 func getLastLocation(callback as function<void, GeoLocation, Error>) override
 {
+	var lastLocation as GeoLocation
+	lang "objc" {{{
+		CLLocation *l = [locationManager location];
+		if (l != nil) {
+			lastLocation = [[CapexMapGeoLocation alloc] init];
+			[lastLocation setLatitude:l.coordinate.latitude];
+			[lastLocation setLongitude:l.coordinate.longitude];
+		}
+	}}}
 	assert lastLocation:
 		callback(null, Error.forCode("failedToGetLastLocation"))
 	callback(lastLocation, null)
@@ -102,11 +112,25 @@ class LocationDelegate implements !"CLLocationManagerDelegate"
 		geoLocationManager = parent
 
 	lang "objc" {{{
+		- (void)locationManager:(CLLocationManager *)manager didChangeAuthorizationStatus:(CLAuthorizationStatus)status
+		{
+			if(status == kCLAuthorizationStatusAuthorizedWhenInUse) {
+				[geoLocationManager onAuthorizationStatusChanged: true];
+			}
+			else {
+				[geoLocationManager onAuthorizationStatusChanged: false];
+			}
+		}
+
 		- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations
 		{
 			CLLocation *location = [locations lastObject];
-			[geoLocationManager setLocation:location.coordinate.latitude lon:location.coordinate.longitude];
+			CapexMapGeoLocation *geolocation = [[CapexMapGeoLocation alloc]init];
+			[geolocation setLatitude: location.coordinate.latitude];
+			[geolocation setLongitude: location.coordinate.longitude];
+			[geoLocationManager notifyListeners:geolocation];
 		}
+
 		- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error
 		{
 			NSLog(@"Error %@", error);
@@ -114,11 +138,10 @@ class LocationDelegate implements !"CLLocationManagerDelegate"
 	}}}
 }
 
-func setLocation(lat as double, lon as double)
+func onAuthorizationStatusChanged(granted as bool)
 {
-	lastLocation = new GeoLocation()
-	lastLocation.setLatitude(lat)
-	lastLocation.setLongitude(lon)
+	if requestWhenInUseAuthorizationCallback:
+		requestWhenInUseAuthorizationCallback(granted)
 }
 
 func isLocationServiceEnabled override as bool:
