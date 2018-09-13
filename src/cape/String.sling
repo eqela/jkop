@@ -546,7 +546,12 @@ func forCharacter(vv as char #used) static as string
 		return(lang "cs" string {{{ new string(vv, 1) }}})
 	}
 	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [NSString stringWithFormat:@"%c", vv] }}})
+		var v as string
+		lang "objc" {{{
+			UInt32 h = (UInt32)vv;
+			v = [[NSString alloc] initWithBytes:&h length:sizeof(h) encoding:NSUTF32LittleEndianStringEncoding];
+		}}}
+		return v
 	}
 	ELSE IFDEF("target_java") {
 		return(lang "java" string {{{ java.lang.String.valueOf(vv) }}})
@@ -1751,9 +1756,27 @@ func toCharArray(str as string #used) static as char[]
 		var ca as char[]
 		lang "objc" {{{
 			ca = [[NSMutableArray alloc] init];
-			for (int i = 0; i < [str length]; i++) {
-				char cchar = [str characterAtIndex:i];
-				[ca addObject:[NSNumber numberWithChar:cchar]];
+			for(int i = 0; i < [str length]; i++) {
+				CFStringRef strcf = (__bridge CFStringRef)str;
+				CFRange r = CFStringGetRangeOfComposedCharactersAtIndex(strcf, i);
+				if(r.length > 1) {
+					UniChar v[r.length];
+					CFStringGetCharacters(strcf, r, v);
+					for(int x = 0; x < r.length; x++) {
+						if((x + 1) < r.length && CFStringIsSurrogateHighCharacter(v[x]) && CFStringIsSurrogateLowCharacter(v[x + 1])) {
+							UTF32Char c = CFStringGetLongCharacterForSurrogatePair(v[x], v[x + 1]);
+							[ca addObject:[NSNumber numberWithUnsignedInt:c]];
+							x++;
+							continue;
+						}
+						[ca addObject:[NSNumber numberWithUnsignedInt:v[x]]];
+					}
+					i += (r.length - 1);
+					continue;
+				}
+				UniChar v[1];
+				CFStringGetCharacters(strcf, r, v);
+				[ca addObject:[NSNumber numberWithUnsignedInt:v[0]]];
 			}
 		}}}
 		return ca
