@@ -92,7 +92,12 @@ IFDEF("target_android")
 			settings.setZoomControlsEnabled(true);
 			map.setBuildingsEnabled(true);
 			map.setIndoorEnabled(true);
-			map.setMyLocationEnabled(mapSettings.getMapHasMyLocation());
+			try {
+				map.setMyLocationEnabled(mapSettings.getMapHasMyLocation());
+			}
+			catch(java.lang.SecurityException e) {
+				context.logError("Location permission is not granted.");
+			}
 			mapSettings.setSettingObject(settings);
 			mapSettings.setMapObject(gmap);
 			if(zoomInCenter) {
@@ -461,6 +466,8 @@ class MyMapMarker is MapMarker
 {
 	prop lat as double
 	prop lon as double
+	prop anchorX as double
+	prop anchorY as double
 	prop label as string
 	prop title as string
 	prop icon as Image
@@ -529,15 +536,33 @@ class MyMapMarker is MapMarker
 
 	func rotate(deg as double)
 	{
-		IFDEF "target_android" {
-			lang "java" {{{
-				((com.google.android.gms.maps.model.Marker)markerObject).setRotation((float)deg);
-			}}}
+		if markerObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.model.Marker)markerObject).setRotation((float)deg);
+				}}}
+			}
+			ELSE IFDEF "target_iosoc" {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setRotation:deg];
+				}}}
+			}
 		}
-		ELSE IFDEF "target_iosoc" {
-			lang "objc" {{{
-				[(GMSMarker*)self->markerObject setRotation:deg];
-			}}}
+	}
+
+	func setAnchor(x as double, y as double)
+	{
+		anchorX = x
+		anchorY = y
+		if markerObject {
+			IFDEF "target_android" {
+				lang "java" {{{
+					((com.google.android.gms.maps.model.Marker)markerObject).setAnchor((float)x, (float)y);
+				}}}
+			}
+			ELSE {
+				ERROR "Not yet implemented"
+			}
 		}
 	}
 
@@ -658,7 +683,7 @@ class MyMapSettings public
 			}
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
-					(GMSMapView*)self->mapObject.myLocationEnabled = mapHasMyLocation;
+					((GMSMapView*)self->mapObject).myLocationEnabled = mapHasMyLocation;
 				}}}
 			}
 			ELSE {
@@ -847,6 +872,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
 			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
 				.position(pos)
+				.anchor((float)marker.getAnchorX(), (float)marker.getAnchorY())
 				.title(marker.getTitle())
 				.visible(true);
 			cave.Image ico = marker.getIcon();
