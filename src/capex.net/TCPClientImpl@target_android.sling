@@ -76,11 +76,9 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	func stopThread
 	{
 		base.quit()
-		critical socket {
-			if socket {
-				socket.close()
-				socket = null
-			}
+		if socket {
+			socket.close()
+			socket = null
 		}
 	}
 
@@ -145,19 +143,17 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		var p final = port
 		var c final = callback
 		executeInTCPThread(func {
-			critical socket {
-				var s = assert socket as TCPSocket:
+			var s = assert socket as TCPSocket:
+				executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
+			assert s.connect(a, p) {
+				if c:
 					executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
-				assert s.connect(a, p) {
-					if c:
-						executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
-				}
-				var ss = assert SSLSocket.forClient(s, a) {
-					if c:
-						executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
-				}
-				socket = ss
 			}
+			var ss = assert SSLSocket.forClient(s, a) {
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to establish a secure connection to socket"))
+			}
+			socket = ss
 			if c:
 				executeErrorCallback(c)
 		})
@@ -169,14 +165,12 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		var p final = port
 		var c final = callback
 		executeInTCPThread(func {
-			critical socket {
-				var s = assert socket as TCPSocket:
+			var s = assert socket as TCPSocket:
+				executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
+			if s.connect(a, p) == false {
+				if c:
 					executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
-				if s.connect(a, p) == false {
-					if c:
-						executeErrorCallback(c, Error.forMessage("Failed to establish a connection to socket"))
-					return
-				}
+				return
 			}
 			if c:
 				executeErrorCallback(c)
@@ -187,10 +181,8 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	{
 		var c final = callback
 		executeInTCPThread(func {
-			critical socket {
-				if socket:
-					socket.close()
-			}
+			if socket:
+				socket.close()
 			executeErrorCallback(c)
 		})
 	}
@@ -205,8 +197,7 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 				executeResponseCallback(c, null, -1)
 			var r = socket.read(b)
 			assert r > -1 {
-				critical socket:
-					socket.close()
+				socket.close()
 				executeResponseCallback(c, null, -1)
 			}
 			executeResponseCallback(c, b, r)
@@ -220,21 +211,13 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		var d final = data
 		var s final = size
 		var c final = callback
-		assert socket {
-			if c:
-				executeErrorCallback(c, Error.forMessage("Failed to send. No instance of TCPSocket"))
-		}
 		executeInTCPThread(func {
+			assert socket {
+				if c:
+					executeErrorCallback(c, Error.forMessage("Failed to send. No instance of TCPSocket"))
+			}
 			if socket.write(d, s) < 1 {
-				try {
-					critical socket:
-						socket.close()
-				}
-				catch(e as exception) {
-					lang "java" {{{
-						e.printStackTrace();
-					}}}
-				}
+				socket.close()
 				if c:
 					executeErrorCallback(c, Error.forMessage("Failed to send"))
 				return
