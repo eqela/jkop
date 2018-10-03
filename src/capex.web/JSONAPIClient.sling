@@ -30,6 +30,10 @@ prop apiUrl as string
 prop webClient as WebClient
 prop debugCallback as function<void,string>
 
+**
+** Concatenates the API URL string with the supplied API endpoint string and returns it.
+**
+
 func getFullURL(api as string) virtual as string
 {
 	var url = apiUrl
@@ -50,27 +54,57 @@ func getFullURL(api as string) virtual as string
 	return url .. "/" .. api
 }
 
+**
+** Encodes the supplied instance of DynamicMap class into a JSON formatted string
+** then converts it to a UTF8 encoded buffer and finally returns it.
+**
+
 func toUTF8Buffer(data as DynamicMap) as buffer
 {
 	assert data
 	return String.toUTF8Buffer(JSONEncoder.encode(data))
 }
 
+**
+** A virtual method that accepts an instance of KeyValueList<string, string> class
+** for request headers customization purposes.
+**
+
 func customizeRequestHeaders(headers as KeyValueList<string,string>) virtual
 {
 }
+
+**
+** A virtual method that will be called upon the start of sending the request.
+**
 
 func onStartSendRequest virtual
 {
 }
 
+**
+** A virtual method that will be called upon the end of sending the request.
+**
+
 func onEndSendRequest virtual
 {
 }
 
+**
+** A virtual method that will be called for default error handling.
+**
+
 func onDefaultErrorHandler(error as Error) virtual
 {
 }
+
+**
+** Calls the toError() method passing the supplied instance of DynamicMap class.
+** If it returns an instance of Error class, it will call the onError() method
+** passing the Error object and the supplied callback function parameter that
+** accepts an Error instance then returns a boolean value of true, otherwise,
+** it returns the boolean value of false.
+**
 
 func handleAsError(response as DynamicMap, callback as function<void,Error> = null) as bool
 {
@@ -81,6 +115,12 @@ func handleAsError(response as DynamicMap, callback as function<void,Error> = nu
 	}
 	return false
 }
+
+**
+** Converts the supplied instance of DynamicMap class 
+** into an Error object if the instance is null or if
+** the value of the key 'status' is equal to 'error'.
+**
 
 func toError(response as DynamicMap) as Error
 {
@@ -96,6 +136,13 @@ func toError(response as DynamicMap) as Error
 	return null
 }
 
+**
+** Checks if the supplied callback function parameter that accepts an Error object
+** is not null then calls it passing the supplied instance of Error class, otherwise,
+** it will call the onDefaultErrorHandler() method passing the supplied instance
+** of Error class.
+**
+
 func onError(error as Error, callback as function<void,Error>) virtual
 {
 	assert callback:
@@ -103,8 +150,21 @@ func onError(error as Error, callback as function<void,Error>) virtual
 	callback(error)
 }
 
+**
+** Calls the onError() method passing the supplied instance of Error class and above
+** null value on the callback function parameter that accepts an Error object.
+**
+
 func onError(error as Error) virtual:
 	onError(error, null)
+
+**
+** Calls the doSendRequest() method passing the supplied HTTP method, URL,
+** HTTP headers, and the data buffer. Calls the supplied callback function
+** parameter when the response is received. Calls the onError() method
+** passing the error object and the supplied error callback function
+** parameter if there is an error.
+**
 
 func sendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void,DynamicMap>, errorCallback as function<void,Error> = null)
 {
@@ -123,6 +183,14 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 			ll(jsonResponseBody)
 	}, ecb)
 }
+
+**
+** Sends an HTTP request with the supplied HTTP method, URL, HTTP headers,
+** and the data buffer. Calls the supplied callback function parameter
+** when the response is received. Calls the onError() method passing
+** the error object and the supplied error callback function
+** parameter if there is an error.
+**
 
 func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void,Error> = null, redirectCount as int = 0)
 {
@@ -182,20 +250,63 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 	})
 }
 
+**
+** Calls the doSendRequest() method passing the 'GET' HTTP method,
+** the supplied URL, callback function parameter that accepts an instance
+** of KeyValueList<string,string> class and a buffer value, and the error
+** callback function parameter that accepts an error object.
+**
+
 func doGetFile(url as string, callback as function<void, KeyValueList<string,string>, buffer>, errorCallback as function<void, Error> = null):
 	doSendRequest("GET", getFullURL(url), null, null, callback, errorCallback)
+
+**
+** Calls the doSendRequest() method passing the 'GET' HTTP method,
+** the supplied URL, callback function parameter that accepts an
+** instance of DynamicMap class, and the error callback function
+** parameter that accepts an error object.
+**
 
 func doGet(url as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("GET", getFullURL(url), null, null, callback, errorCallback)
 
+**
+** Calls the doSendRequest() method passing the 'POST' HTTP method,
+** the supplied URL, instance of DynamicMap class, callback function
+** parameter that accepts an instance of DynamicMap class, and the
+** error callback function parameter that accepts an error object.
+**
+
 func doPost(url as string, data as DynamicMap, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
+
+**
+** Calls the doSendRequest() method passing the 'PUT' HTTP method,
+** the supplied URL, instance of DynamicMap class, callback function
+** parameter that accepts an instance of DynamicMap class, and the
+** error callback function parameter that accepts an error object.
+**
 
 func doPut(url as string, data as DynamicMap, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("PUT", getFullURL(url), null, toUTF8Buffer(data), callback, errorCallback)
 
+**
+** Calls the doSendRequest() method passing the 'DELETE' HTTP method,
+** the supplied URL, callback function parameter that accepts an
+** instance of DynamicMap class, and the error callback function
+** parameter that accepts an error object.
+**
+
 func doDelete(url as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null):
 	sendRequest("DELETE", getFullURL(url), null, null, callback, errorCallback)
+
+**
+** Calls the sendRequest() method passing the 'POST' HTTP method,
+** the supplied URL, data buffer, MIME type, callback function
+** parameter that accepts an instance of DynamicMap class, and
+** the error callback function parameter that accepts an
+** error object.
+**
 
 func uploadFile(url as string, data as buffer, mimeType as string, callback as function<void, DynamicMap>, errorCallback as function<void, Error> = null)
 {
@@ -207,6 +318,12 @@ func uploadFile(url as string, data as buffer, mimeType as string, callback as f
 	hdrs.add("content-type", mt)
 	sendRequest("POST", getFullURL(url), hdrs, data, callback, errorCallback)
 }
+
+**
+** Calls the sendRequest() method passing the 'GET' HTTP method,
+** the supplied URL, a callback function, and an error callback
+** function.
+**
 
 func getWithStatus(url as string, callback as function<void, DynamicMap, Error>)
 {
@@ -222,6 +339,13 @@ func getWithStatus(url as string, callback as function<void, DynamicMap, Error>)
 	}
 	sendRequest("GET", getFullURL(url), null, null, okcb, errcb)
 }
+
+**
+** Calls the sendRequest() method passing the 'POST' HTTP method,
+** the supplied URL, an instance of DynamicMap class, an instance
+** of KeyValueList<string,string> class, a callback function,
+** and an error callback function.
+**
 
 func postWithStatus(url as string, data as DynamicMap, headers as KeyValueList<string,string>, callback as function<void, DynamicMap, Error>)
 {

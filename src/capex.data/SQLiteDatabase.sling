@@ -24,6 +24,13 @@
 
 class is SQLDatabase abstract imports cape:
 
+**
+** Creates an instance of a class that inherits
+** this class based on the target platform.
+** Returns null if there is no implementation
+** yet for the target platform.
+**
+
 func instance private static as this
 {
 	IFDEF "target_android" {
@@ -31,6 +38,9 @@ func instance private static as this
 	}
 	ELSE IFDEF "target_iosoc" {
 		return new SQLiteDatabaseIOS()
+	}
+	ELSE IFDEF "target_netcore" {
+		return new SQLiteDatabaseNetCore()
 	}
 	ELSE IFDEF "target_monocs" {
 		return new SQLiteDatabaseMono()
@@ -40,6 +50,13 @@ func instance private static as this
 		return null
 	}
 }
+
+**
+** Creates an instance of this class from the
+** specified File object. If the object is not
+** a file and the allowCreate property is set
+** to true, then it will be created.
+**
 
 func forFile(file as File, allowCreate as bool = true, logger as LoggingContext = null) static as this
 {
@@ -65,11 +82,25 @@ func forFile(file as File, allowCreate as bool = true, logger as LoggingContext 
 	return v
 }
 
+**
+** Returns a string with value 'sqlite'.
+**
+
 func getDatabaseTypeId override as string:
 	return "sqlite"
 
+**
+** A virtual method which returns an initial value of true.
+**
+
 func initialize(file as File, create as bool) virtual as bool:
 	return true
+
+**
+** Returns the first record as a DynamicMap object from the
+** query() method call passing the supplied instance of
+** SQLStatement class.
+**
 
 func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
 {
@@ -77,6 +108,11 @@ func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
 	var v as cape.DynamicMap #force = it.next()
 	return v
 }
+
+**
+** Returns a boolean value which indicates if the
+** supplied table name exists in the database.
+**
 
 func tableExists(table as string) override as bool
 {
@@ -88,12 +124,22 @@ func tableExists(table as string) override as bool
 	return true
 }
 
+**
+** Calls the callback function parameter if supplied
+** and passes the returned list of all table names
+** from the queryAllTableNames() method call.
+**
+
 func queryAllTableNames(callback as function<void, vector>) override
 {
 	var v = queryAllTableNames()
 	if callback:
 		callback(v)
 }
+
+**
+** Returns a list of all table names in the database as vector object.
+**
 
 func queryAllTableNames override as vector
 {
@@ -111,6 +157,12 @@ func queryAllTableNames override as vector
 	}
 	return v
 }
+
+**
+** Creates the column definition part of the create table
+** statement as a string with the supplied instance of
+** SQLTableColumnInfo class.
+**
 
 func columnToCreateString(cc as SQLTableColumnInfo) virtual as string
 {
@@ -152,6 +204,13 @@ func columnToCreateString(cc as SQLTableColumnInfo) virtual as string
 	return sb.toString()
 }
 
+**
+** Creates the create table statement as a string
+** with the supplied table name and the list of
+** SQLTableColumnInfo objects that defines each
+** column.
+**
+
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
 {
 	assert table
@@ -172,6 +231,11 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 	return prepare(sb.toString())
 }
 
+**
+** Creates the drop table statement as a string
+** with the supplied table name.
+**
+
 func prepareDeleteTableStatement(table as string) override as SQLStatement
 {
 	assert table
@@ -181,6 +245,13 @@ func prepareDeleteTableStatement(table as string) override as SQLStatement
 	sb.append(";")
 	return prepare(sb.toString())
 }
+
+**
+** Creates the create index statement as a
+** string with the supplied table name,
+** column name, and a boolean flag which
+** indicates if it is a unique index.
+**
 
 func prepareCreateIndexStatement(table as string, column as string, unique as bool) override as SQLStatement
 {
@@ -193,10 +264,15 @@ func prepareCreateIndexStatement(table as string, column as string, unique as bo
 	return prepare(sql)
 }
 
+**
+** Returns the last insert ID as a long
+** integer with the supplied table name.
+**
+
 func getLastInsertId(table as string) override as long
 {
 	var v = assert querySingleRow(prepare("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
-	return v.getInteger("id") as! long
+	return v.getLongInteger("id")
 }
 
 func getIdentityColumnName(table as string) stub override as string
