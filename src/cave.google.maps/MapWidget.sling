@@ -109,6 +109,12 @@ IFDEF("target_android")
 					.build();
 				map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
 			}
+			map.setOnMarkerClickListener(new com.google.android.gms.maps.GoogleMap.OnMarkerClickListener() {
+				public boolean onMarkerClick (com.google.android.gms.maps.model.Marker marker) {
+					onMarkerClicked(marker);
+					return false;
+				}
+			});
 			map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
 				public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
 					onMapClicked(loc.latitude, loc.longitude);
@@ -366,6 +372,12 @@ IFDEF("target_iosoc")
 			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
 		}
 
+		- (BOOL)mapView:(GMSMapView *)mapView didTapMarker:(GMSMarker *)marker
+		{
+			[self onMarkerClicked: marker];
+			return(NO);
+		}
+
 		- (void) mapViewSnapshotReady:(GMSMapView *)mapView
 		{
 			if(self->mapInitialized == false) {
@@ -471,8 +483,9 @@ class MyMapMarker is MapMarker
 	prop label as string
 	prop title as string
 	prop icon as Image
-	var markerObject public as object
 	prop removed = false
+	var clickHandler as function
+	var markerObject public as object
 
 	IFDEF("target_html") {
 		var mapObject as object #used
@@ -591,6 +604,15 @@ class MyMapMarker is MapMarker
 			details = dtl
 			infoWindowClickHandler = callback
 		}
+	}
+
+	func setClickHandler(handler as function):
+		clickHandler = handler
+
+	func onMapMarkerClicked
+	{
+		if clickHandler:
+			clickHandler()
 	}
 }
 
@@ -802,6 +824,23 @@ func onWidgetRemovedFromScreen(screen as ScreenForWidget)
 {
 }
 
+func onMarkerClicked(marker as object)
+{
+	assert marker
+	var myMarker as MyMapMarker
+	IFDEF "target_android" {
+		myMarker = (marker as! !"com.google.android.gms.maps.model.Marker").getTag() as! MyMapMarker
+	}
+	ELSE IFDEF "target_iosoc" {
+		myMarker = lang "objc" MyMapMarker {{{ ((GMSMarker)marker).userData }}}
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+	}
+	assert myMarker
+	myMarker.onMapMarkerClicked()
+}
+
 func onMapClicked(lat as double, lon as double) private
 {
 	if(mapClickHandler != null) {
@@ -883,7 +922,9 @@ func doAddMapMarker(marker as MyMapMarker) private
 			else {
 				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
 			}
-			marker.markerObject = gmap.addMarker(mkropt);
+			com.google.android.gms.maps.model.Marker mk = gmap.addMarker(mkropt);
+			mk.setTag(marker);
+			marker.markerObject = mk;
 			markerId = ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId();
 		}}}
 		if(markers == null) {
@@ -904,6 +945,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mm.icon = img->uiImage;
 			}
 			mm.map = self;
+			mm.userData = marker;
 			marker->markerObject = mm;
 		}}}
 	}
