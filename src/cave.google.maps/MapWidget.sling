@@ -26,6 +26,35 @@ class is ScreenAwareWidget imports capex.map #widget:
 
 IFDEF("target_android")
 {
+	class InfoWindowContainer is !"android.view.ViewGroup" isAlso Widget
+	{
+		ctor(ctx as GuiApplicationContext):
+			base((ctx as GuiApplicationContextForAndroid).getAndroidActivityContext())
+
+		func onLayout(changed as bool, left as int, top as int, right as int, bottom as int)
+		{
+			; // Laying out of children is done on onMeasure but we would still override onLayout since Android requires this.
+		}
+
+		func onMeasure(widthMeasureSpec as int, heightMeasureSpec as int)
+		{
+			var mw as int
+			var mh as int
+			foreach child in Widget.getChildren(this) {
+				Widget.layout(child, -1)
+				var cw = Widget.getWidth(child)
+				var ch = Widget.getHeight(child)
+				if mw < cw:
+					mw = cw
+				if mh < ch:
+					mh = ch
+			}
+			lang "java" {{{
+				setMeasuredDimension(mw, mh);
+			}}}
+		}
+	}
+
 	depend "gradle:com.google.android.gms:play-services-maps:11.0.0"
 	depend "gradle:com.google.android.gms:play-services-location:11.0.0"
 	depend "androidPermission:android.permission.INTERNET"
@@ -36,7 +65,6 @@ IFDEF("target_android")
 	basetype ResizeAwareWidget type implements
 	var created = false
 	var gmap as !"com.google.android.gms.maps.GoogleMap"
-	var markers as map<string, MapMarker>
 	var hasSize as bool
 	var isDone as bool
 
@@ -109,6 +137,12 @@ IFDEF("target_android")
 					.build();
 				map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
 			}
+			map.setOnMarkerClickListener(new com.google.android.gms.maps.GoogleMap.OnMarkerClickListener() {
+				public boolean onMarkerClick (com.google.android.gms.maps.model.Marker marker) {
+					onMarkerClicked(marker);
+					return false;
+				}
+			});
 			map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
 				public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
 					onMapClicked(loc.latitude, loc.longitude);
@@ -116,22 +150,25 @@ IFDEF("target_android")
 			});
 			map.setOnInfoWindowClickListener(new com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener() {
 				public void onInfoWindowClick (com.google.android.gms.maps.model.Marker marker) {
-					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
-					mkr.infoWindowClickHandler.execute();
+					MyMapMarker myMarker = (MyMapMarker)marker.getTag();
+					myMarker.onInfoWindowClicked();
 				}
 			});
 			map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
 				public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
-					MyMapMarker mkr = (MyMapMarker)cape.Map.get(markers, marker.getId());
-					if(mkr.details == null) {
-						return(null);
-					}
-					cave.ui.LabelWidget tx = cave.ui.LabelWidget.forText(context, mkr.details);
-					return(tx);
+					return(null);
 				}
 
 				public android.view.View getInfoWindow(com.google.android.gms.maps.model.Marker marker) {
-					return(null);
+					MyMapMarker myMarker = (MyMapMarker)marker.getTag();
+					android.view.View widget = myMarker.getInfoWindowWidget();
+					if(cave.ui.Widget.hasParent(widget)) {
+						cave.ui.Widget.removeFromParent(widget);
+						return(null);
+					}
+					InfoWindowContainer container = new InfoWindowContainer(context);
+					cave.ui.Widget.addChild(container, widget);
+					return(container);
 				}
 			});
 			map.setOnCameraMoveStartedListener(new com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener() {
@@ -318,7 +355,6 @@ IFDEF("target_html")
 				center: { lat: this.centerLat, lng: this.centerLon }
 			});
 			this.mapObject = map;
-			this.mapObject.infoWindow = null;
 			google.maps.event.addListener(map, 'click', function(evt) {
 				myObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng());
 			});
@@ -364,6 +400,12 @@ IFDEF("target_iosoc")
 		- (void)mapView:(GMSMapView *)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate
 		{
 			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
+		}
+
+		- (BOOL)mapView:(GMSMapView *)mapView didTapMarker:(GMSMarker *)marker
+		{
+			[self onMarkerClicked: marker];
+			return(NO);
 		}
 
 		- (void) mapViewSnapshotReady:(GMSMapView *)mapView
@@ -471,16 +513,12 @@ class MyMapMarker is MapMarker
 	prop label as string
 	prop title as string
 	prop icon as Image
-	var markerObject public as object
 	prop removed = false
+	var clickHandler as function
+	var infoWindowWidget as Widget
+	var infoWindowClickHandler as function
+	var markerObject public as object
 
-	IFDEF("target_html") {
-		var mapObject as object #used
-	}
-	ELSE IFDEF("target_android") {
-		var infoWindowClickHandler as function
-		var details as string
-	}
 
 	func move(lat as double, lon as double)
 	{
@@ -566,31 +604,29 @@ class MyMapMarker is MapMarker
 		}
 	}
 
-	func setInfoDetail(dtl as string, callback as function)
+	func setInfoWindowWidget(window as Widget):
+		infoWindowWidget = window
+
+	func getInfoWindowWidget as Widget:
+		return infoWindowWidget
+	
+	func setInfoWindowClickHandler(handler as function):
+		infoWindowClickHandler = handler
+	
+
+	func setClickHandler(handler as function):
+		clickHandler = handler
+
+	func onMapMarkerClicked
 	{
-		IFDEF("target_html") {
-			lang "js" {{{
-				this.markerObject.addListener('click', function() {
-					if(this.mapObject.infoWindow) {
-						this.mapObject.infoWindow.close();
-					}
-					this.mapObject.infoWindow = new google.maps.InfoWindow({
-						content: dtl
-					});
-					this.mapObject.infoWindow.open(this.mapObject, this.markerObject);
-					var elems = document.getElementsByClassName("gm-style-iw");
-					for(var i = 0; i < elems.length; i++) {
-						elems[i].addEventListener("click", function() {
-							callback();
-						});
-					}
-				}.bind(this));
-			}}}
-		}
-		ELSE IFDEF("target_android") {
-			details = dtl
-			infoWindowClickHandler = callback
-		}
+		if clickHandler:
+			clickHandler()
+	}
+
+	func onInfoWindowClicked
+	{
+		if infoWindowClickHandler:
+			infoWindowClickHandler()
 	}
 }
 
@@ -802,6 +838,23 @@ func onWidgetRemovedFromScreen(screen as ScreenForWidget)
 {
 }
 
+func onMarkerClicked(marker as object)
+{
+	assert marker
+	var myMarker as MyMapMarker
+	IFDEF "target_android" {
+		myMarker = (marker as! !"com.google.android.gms.maps.model.Marker").getTag() as! MyMapMarker
+	}
+	ELSE IFDEF "target_iosoc" {
+		myMarker = lang "objc" MyMapMarker {{{ ((GMSMarker *)marker).userData }}}
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+	}
+	assert myMarker
+	myMarker.onMapMarkerClicked()
+}
+
 func onMapClicked(lat as double, lon as double) private
 {
 	if(mapClickHandler != null) {
@@ -862,12 +915,33 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mkropt.icon = icon;
 			}
 			var mo = new google.maps.Marker(mkropt);
+			google.maps.event.addListener(mo, 'click', function(evt) {
+				
+				marker.onMapMarkerClicked();
+				/* Default behavior when marker is clicked */
+
+				var pos = mo.getPosition();
+				this.moveToCenter(pos.lat(), pos.lng(), true);
+				var iww = marker.getInfoWindowWidget();
+				if(iww !== null) {
+					CaveUIWidget.setWidgetClickHandler(iww, function() {
+						marker.onInfoWindowClicked();
+					});
+					var inf = new google.maps.InfoWindow({
+						content : iww.element
+					})
+					google.maps.event.addListener(inf, 'domready', function() {
+						iww.onWidgetAddingToParent();
+						iww.onWidgetAddedToParent();
+						iww.scheduleLayout();
+					});
+					inf.open(this.mapObject, mo);
+				}
+			}.bind(this));
 			marker.markerObject = mo;
-			marker.mapObject = this.mapObject;
 		}}}
 	}
 	ELSE IFDEF("target_android") {
-		var markerId as string
 		lang "java" {{{
 			com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
 			com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
@@ -883,13 +957,10 @@ func doAddMapMarker(marker as MyMapMarker) private
 			else {
 				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
 			}
-			marker.markerObject = gmap.addMarker(mkropt);
-			markerId = ((com.google.android.gms.maps.model.Marker)marker.markerObject).getId();
+			com.google.android.gms.maps.model.Marker mk = gmap.addMarker(mkropt);
+			mk.setTag(marker);
+			marker.markerObject = mk;
 		}}}
-		if(markers == null) {
-			markers = new map<string, MapMarker>
-		}
-		markers[markerId]= marker
 	}
 	ELSE IFDEF("target_iosoc") {
 		var img as ImageForIOS
@@ -904,6 +975,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 				mm.icon = img->uiImage;
 			}
 			mm.map = self;
+			mm.userData = marker;
 			marker->markerObject = mm;
 		}}}
 	}
