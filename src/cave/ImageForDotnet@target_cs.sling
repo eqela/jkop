@@ -1,0 +1,182 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Image:
+
+depend "nuget:SixLabors.ImageSharp@1.0.0-beta0005"
+
+prop compand #used = true
+prop compressQuality #used = 75 // 0 - 100 by default it is 75 for JPEG.
+prop compressionLevel #used = 6 // 1 - 9 by default 6 for PNG
+var image as !"SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>"
+
+func forFile(file as File) static as Image
+{
+	var v = new this()
+	assert v.readFromFile(file)
+	return v
+}
+
+func forBuffer(data as buffer) static as Image
+{
+	var v = new this()
+	assert v.readFromBuffer(data)
+	return v
+}
+
+func forImageSharpImage(image as !"SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>") static as this
+{
+	assert image
+	var v = new this()
+	v.image = image
+	return v
+}
+
+func readFromBuffer(data as buffer) as bool
+{
+	assert data
+	var img as !"SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>"
+	lang "cs" {{{
+		img = SixLabors.ImageSharp.Image.Load(data);
+	}}}
+	assert img
+	this.image = img
+	return true
+}
+
+func readFromFile(file as File) as bool
+{
+	assert file
+	var pp = file.getPath()
+	assert String.isNotEmpty(pp)
+	var img as !"SixLabors.ImageSharp.Image<SixLabors.ImageSharp.PixelFormats.Rgba32>"
+	lang "cs" {{{
+		img = SixLabors.ImageSharp.Image.Load(pp);
+	}}}
+	assert img
+	this.image = img
+	return true
+}
+
+func getPixelWidth override as int
+{
+	assert image
+	return lang "cs" int {{{ image.Width }}}
+}
+
+func getPixelHeight override as int
+{
+	assert image
+	return lang "cs" int {{{ image.Height }}}
+}
+
+func scaleToSize(w as int, h as int) override as Image
+{
+	assert image
+	lang "cs" {{{
+		var option = new SixLabors.ImageSharp.Processing.ResizeOptions
+		{
+			Compand = compand,
+			Mode = SixLabors.ImageSharp.Processing.ResizeMode.Min,
+			Size = new SixLabors.Primitives.Size(w, h),
+		};
+		SixLabors.ImageSharp.Processing.ProcessingExtensions.Mutate(image,
+			ctx => SixLabors.ImageSharp.Processing.ResizeExtensions.Resize(ctx, option));
+	}}}
+	return forImageSharpImage(image)
+}
+
+func scaleToWidth(w as int) override as Image
+{
+	var h = ((w as double) / (getPixelWidth() as double)) * (getPixelHeight() as double) as int
+	return(scaleToSize(w, h))
+}
+
+func scaleToHeight(h as int) override as Image
+{
+	var w = ((h as double) / (getPixelHeight() as double)) * (getPixelWidth() as double) as int
+	return(scaleToSize(w, h))
+}
+
+func crop(x as int, y as int, w as int, h as int) override as Image
+{
+	assert image
+	var imgBuffer as buffer
+	lang "cs" {{{
+		var rectangle = new SixLabors.Primitives.Rectangle(x, y, w, h);
+		SixLabors.ImageSharp.Processing.ProcessingExtensions.Mutate(image,
+			ctx => SixLabors.ImageSharp.Processing.CropExtensions.Crop(ctx, rectangle));
+	}}}
+	return forBuffer(imgBuffer)
+}
+
+func toJPGData override as buffer
+{
+	assert image
+	var imgBuffer as buffer
+	lang "cs" {{{
+		using (var newStream = new System.IO.MemoryStream())
+		{
+			var encoder = new SixLabors.ImageSharp.Formats.Jpeg.JpegEncoder
+			{
+				Quality = compressQuality,
+			};
+			image.Save(newStream, encoder);
+			imgBuffer = newStream.ToArray();
+		}
+	}}}
+	return imgBuffer
+}
+
+func toPNGData override as buffer
+{
+	assert image
+	var imgBuffer as buffer
+	lang "cs" {{{
+		using (var newStream = new System.IO.MemoryStream())
+		{
+			var encoder = new SixLabors.ImageSharp.Formats.Png.PngEncoder
+			{
+				CompressionLevel = compressionLevel,
+			};
+			image.Save(newStream, encoder);
+			imgBuffer = newStream.ToArray();
+		}
+	}}}
+	return imgBuffer
+}
+
+func toRGBAData override as buffer
+{
+	ERROR "Not implemented"
+	return null
+}
+
+func releaseImage override
+{
+	assert image
+	lang "cs" {{{
+		image.Dispose();
+	}}}
+}
