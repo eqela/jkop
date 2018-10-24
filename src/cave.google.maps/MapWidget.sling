@@ -396,12 +396,27 @@ IFDEF("target_iosoc")
 	depend "objc-framework:Security"
 	var googleMapsApiInitialized static = false
 
+	func mapView(mapview as !"GMSMapView", markerInfoWindow as !"GMSMarker") as Widget
+	{
+		var myMarker = lang "objc" MyMapMarker {{{ (CaveGoogleMapsMapWidgetMyMapMarker*)markerInfoWindow.userData }}}
+		var view = myMarker.getInfoWindowWidget()
+		if view != null:
+			Widget.layout(view, -1, false)
+		return view
+	}
+
 	lang "objc" {{{
 		- (void)mapView:(GMSMapView *)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate
 		{
 			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
 		}
 
+		- (void)mapView:(GMSMapView*)mapView didTapInfoWindowOfMarker:(GMSMarker*)marker
+		{
+			CaveGoogleMapsMapWidgetMyMapMarker* myMarker = (CaveGoogleMapsMapWidgetMyMapMarker*)marker.userData;
+			[myMarker onInfoWindowClicked];
+		}
+		
 		- (BOOL)mapView:(GMSMapView *)mapView didTapMarker:(GMSMarker *)marker
 		{
 			[self onMarkerClicked: marker];
@@ -519,7 +534,6 @@ class MyMapMarker is MapMarker
 	var infoWindowClickHandler as function
 	var markerObject public as object
 
-
 	func move(lat as double, lon as double)
 	{
 		this.lat = lat
@@ -609,10 +623,9 @@ class MyMapMarker is MapMarker
 
 	func getInfoWindowWidget as Widget:
 		return infoWindowWidget
-	
+
 	func setInfoWindowClickHandler(handler as function):
 		infoWindowClickHandler = handler
-	
 
 	func setClickHandler(handler as function):
 		clickHandler = handler
