@@ -24,9 +24,16 @@
 use eqela:jsh:r2
 set version ${date}
 
-release {
-	set pkgid eqela-jkop-${version}
+releaseAll {
 	call clean
+	call releaseSrc
+	call releaseNetcore
+	call releaseJava
+	call releaseBrowser
+}
+
+releaseSrc {
+	set pkgid eqela-jkop-${version}
 	eqela:jsh cpto build/${pkgid} LICENSE README.md build.qx src
 	eqela:jsh makepkq build/${pkgid} -vendor=eqela -name=jkop -version=${version} -platform=all
 }
@@ -37,8 +44,8 @@ buildReleaseForTarget : name target title description {
 	requireValue description
 	requireValue target
 	use eqela:slingc:r326
-	eqela:jsh delete build/${name}
-	eqela:slingc -target=${target} -output=build/${name} -OreadableCode=true \
+	eqela:jsh delete build/${name}_${version}
+	eqela:slingc -target=${target} -output=build/${name}_${version} -OreadableCode=true \
 		-Pname=${name} \
 		-Ptitle=${title} \
 		-Pdescription=${description} \
@@ -49,31 +56,36 @@ buildReleaseForTarget : name target title description {
 		src/cape src/capex.util src/capex.crypto src/capex.data src/capex.image src/capex.net \
 		src/capex.text src/capex.map src/capex.web src/capex.http src/capex.console src/sympathy \
 		src/sympathy.app src/cave $(*)
+	eqela:jsh delete build/${name}_${version}/sling.module
+	eqela:jsh delete build/${name}_${version}/${name}.sling
+	eqela:jsh cpto build/${name}_${version} LICENSE
+	eqela:jsh zipdir build/${name}_${version}
 }
 
-buildJkopForNetcore {
+releaseNetcore {
 	call buildReleaseForTarget name=jkop-netcore target=netcore title="Jkop for .NET Core" \
 		description="Implementation of the Jkop library and framework console API for .NET Core"
+	eqela:jsh delete build/jkop-netcore/src/apidoc1.json
 }
 
-buildJkopForJavaConsole {
+releaseJava {
+	use eqela:rocks:r7
 	call buildReleaseForTarget name=jkop-java-console target=java7 title="Jkop for Java Console" \
 		description="Implementation of the Jkop library and framework console API for Java console environment"
-	#use eqela:java:20180421
-	#eqela:java/pomtool build/${pkgid}/pom.xml \
-	#	-replace \
-	#	-x-setUrl=http://www.eqela.com \
-	#	-x-addToLicenses=mit \
-	#	-x-addToDevelopers='Eqela Development Team,contact@eqela.com,http://www.eqela.com' \
-	#	-x-setScmConnection=scm:git:https://github.com/eqela/jkop.git \
-	#	-x-setScmUrl=https://github.com/eqela/jkop \
-	#	-x-addMavenSourcePlugin \
-	#	-x-addMavenJavadocPlugin \
-	#	-x-addToBuildPlugins=org.apache.maven.plugins,maven-gpg-plugin,,,,,,sign-artifacts:verify:sign \
-	#	-x-addToBuildPlugins=org.sonatype.plugins,nexus-staging-maven-plugin,1.6.7,true,,\"serverId=ossrh,nexusUrl=https://oss.sonatype.org/,autoReleaseAfterClose=true\",,
+	eqela:rocks/pomtool build/jkop-java-console_${version}/pom.xml \
+		-replace \
+		-x-setUrl=http://www.eqela.com \
+		-x-addToLicenses=mit \
+		-x-addToDevelopers='Eqela Development Team,contact@eqela.com,http://www.eqela.com' \
+		-x-setScmConnection=scm:git:https://github.com/eqela/jkop.git \
+		-x-setScmUrl=https://github.com/eqela/jkop \
+		-x-addMavenSourcePlugin \
+		-x-addMavenJavadocPlugin \
+		-x-addToBuildPlugins=org.apache.maven.plugins,maven-gpg-plugin,,,,,,sign-artifacts:verify:sign \
+		-x-addToBuildPlugins=org.sonatype.plugins,nexus-staging-maven-plugin,1.6.7,true,,\"serverId=ossrh,nexusUrl=https://oss.sonatype.org/,autoReleaseAfterClose=true\",,
 }
 
-buildJkopForBrowser {
+releaseBrowser {
 	call buildReleaseForTarget name=jkop-browser target=html5 title="Jkop for Browser Applications" \
 		description="Implementation of the Jkop library and framework console API for HTML5 browsers"
 }
