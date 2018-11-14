@@ -70,3 +70,47 @@ func createCircularImage(image as Image) static as Image
 		return null
 	}
 }
+
+func createCircularImage(oimage as Image, callback as function<void, Image>) static
+{
+	assert callback
+	assert oimage:
+		callback(null)
+	IFNDEF "target_html" {
+		callback(createCircularImage(oimage))
+	}
+	ELSE {
+		var minSize = Math.min(oimage.getPixelWidth(), oimage.getPixelHeight()) as int
+		oimage.crop(0, 0, minSize, minSize, func(image as Image) {
+			assert image:
+				callback(null)
+			lang "js" {{{
+				var iiw = image.image.width;
+				var iih = image.image.height;
+				var whr = iiw/2;
+				var cnv = document.createElement("canvas");
+				cnv.width = iiw;
+				cnv.height = iih;
+				var ctx = cnv.getContext("2d");
+				ctx.save();
+				ctx.beginPath();
+				ctx.arc(whr, whr, whr, 0, 2 * Math.PI);
+				ctx.clip();
+				try {
+					ctx.drawImage(image.image, 0, 0);
+				}
+				catch(err) {
+					return(null);
+				}
+				ctx.closePath();
+				ctx.restore();
+				var src = cnv.toDataURL();
+				var imo = new Image();
+				imo.src = src;
+				var img = CaveImageForBrowser.NEW();
+				img.image = imo;
+				callback(img);
+			}}}
+		})
+	}
+}

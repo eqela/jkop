@@ -67,8 +67,57 @@ func scaleToHeight(h as int) override as Image
 
 func crop(x as int, y as int, w as int, h as int) override as Image
 {
-	ERROR "Not implemented"
-	return null
+	assert image
+	var src = assert getCropImageSrc(x, y, w, h)
+	var imo as object
+	lang "js" {{{
+		imo = new Image();
+		imo.src = src;
+	}}}
+	var img = new this()
+	img.image = imo
+	return img
+}
+
+func crop(x as int, y as int, w as int, h as int, callback as function<void, Image>) override
+{
+	assert callback
+	assert image:
+		callback(null)
+	var src = assert getCropImageSrc(x, y, w, h)
+	lang "js" {{{
+		var imo = new Image();
+		imo.onload = function() {
+			var img = CaveImageForBrowser.NEW();
+			img.image = imo;
+			callback(img);
+		};
+		imo.onerror = function() {
+			callback(null);
+		};
+		imo.src = src;
+	}}}
+}
+
+func getCropImageSrc(x as int, y as int, w as int, h as int) private as string
+{
+	var src as string
+	lang "js" {{{
+		var cnv = document.createElement("canvas");
+		cnv.width = w;
+		cnv.height = h;
+		var ctx = cnv.getContext("2d");
+		ctx.save();
+		try {
+			ctx.drawImage(this.image, x, y, w, h, 0, 0, w, h);
+		}
+		catch(err) {
+			return(null);
+		}
+		ctx.restore();
+		src = cnv.toDataURL();
+	}}}
+	return src
 }
 
 func toJPGData override as buffer
