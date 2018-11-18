@@ -101,18 +101,25 @@ func queryImage(context as GuiApplicationContext, url as string, headers as KeyV
 	Log.debug(context, VALUE "__THIS__" .. ": Start loading image: `" .. url .."'")
 	var cif final = cachedImage
 	var roundedf final = rounded
+	var invokeCallback final = func(cache as CachedImage) {
+		assert cache
+		loop {
+			var cb = cache.pop()
+			if not cb:
+				break
+			cb(cache.getImage())
+		}
+	}
 	doQueryImage(context, url, headers, body, func(image as Image) {
 		if roundedf {
-			cif.setImage(ImageUtil.createCircularImage(image))
+			ImageUtil.createCircularImage(image, func(newImage as Image) {
+				cif.setImage(newImage)
+				invokeCallback(cif)
+			})
 		}
 		else {
 			cif.setImage(image)
-		}
-		loop {
-			var cb = cif.pop()
-			if not cb:
-				break
-			cb(cif.getImage())
+			invokeCallback(cif)
 		}
 	}, errorCallback)
 }

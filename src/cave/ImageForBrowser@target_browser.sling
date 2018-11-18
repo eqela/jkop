@@ -49,47 +49,168 @@ func getPixelHeight override as int
 
 func scaleToSize(w as int, h as int) override as Image
 {
+	assert image
+	return createImage(getScaleImageSrc(w, h))
+}
+
+func scaleToSize(w as int, h as int, callback as function<void, Image>) override
+{
+	assert callback
+	assert image:
+		callback(null)
+	createImage(getScaleImageSrc(w, h), callback)
+}
+
+func getScaleImageSrc(w as int, h as int, mimetype as string = null) private as string
+{
+	var src as string
 	lang "js" {{{
-		this.image.width = w;
-		this.image.height = h;
+		var cnv = document.createElement("canvas");
+		cnv.width = w;
+		cnv.height = h;
+		var ctx = cnv.getContext("2d");
+		ctx.save();
+		try {
+			ctx.drawImage(this.image, 0, 0, w, h);
+		}
+		catch(err) {
+			return(null);
+		}
+		ctx.restore();
+		if(mimetype != null) {
+			src = cnv.toDataURL(mimetype);
+		}
+		else {
+			src = cnv.toDataURL();
+		}
 	}}}
-	return this
+	return src
 }
 
-func scaleToWidth(width as int) override as Image
+func scaleToWidth(w as int) override as Image:
+	return scaleToSize(w, getProportionalHeight(w))
+
+func scaleToWidth(w as int, callback as function<void, Image>) override
 {
-	var height = ((getPixelHeight() as double) / ((getPixelHeight() as double) / (width as double))) as int
-	return scaleToSize(width, height)
+	assert callback
+	scaleToSize(w, getProportionalHeight(w), callback)
 }
 
-func scaleToHeight(height as int) override as Image
+func scaleToHeight(h as int) override as Image:
+	return scaleToSize(getProportionalWidth(h), h)
+
+func scaleToHeight(h as int, callback as function<void, Image>) override
 {
-	var width = ((getPixelWidth() as double) / ((getPixelHeight() as double) / (height as double))) as int
-	return scaleToSize(width, height)
+	assert callback
+	scaleToSize(getProportionalWidth(h), h, callback)
 }
 
 func crop(x as int, y as int, w as int, h as int) override as Image
 {
-	ERROR "Not implemented"
-	return null
+	assert image
+	return createImage(getCropImageSrc(x, y, w, h))
+}
+
+func crop(x as int, y as int, w as int, h as int, callback as function<void, Image>) override
+{
+	assert callback
+	assert image:
+		callback(null)
+	createImage(getCropImageSrc(x, y, w, h), callback)
+}
+
+func getCropImageSrc(x as int, y as int, w as int, h as int) private as string
+{
+	var src as string
+	lang "js" {{{
+		var cnv = document.createElement("canvas");
+		cnv.width = w;
+		cnv.height = h;
+		var ctx = cnv.getContext("2d");
+		ctx.save();
+		try {
+			ctx.drawImage(this.image, x, y, w, h, 0, 0, w, h);
+		}
+		catch(err) {
+			return(null);
+		}
+		ctx.restore();
+		src = cnv.toDataURL();
+	}}}
+	return src
+}
+
+func createImage(src as string) private as this
+{
+	assert String.isNotEmpty(src)
+	var imo as object
+	lang "js" {{{
+		imo = new Image();
+		imo.src = src;
+	}}}
+	var img = new this()
+	img.image = imo
+	return img
+}
+
+func createImage(src as string, callback as function<void, Image>) private
+{
+	assert String.isNotEmpty(src):
+		callback(null)
+	lang "js" {{{
+		var imo = new Image();
+		imo.onload = function() {
+			var img = CaveImageForBrowser.NEW();
+			img.image = imo;
+			callback(img);
+		};
+		imo.onerror = function() {
+			callback(null);
+		};
+		imo.src = src;
+	}}}
 }
 
 func toJPGData override as buffer
 {
-	ERROR "Not implemented"
-	return null
+	var source = getSource()
+	var jpgData as string
+	if String.contains(source, "image/jpeg") {
+		jpgData = source
+	}
+	else {
+		jpgData = getScaleImageSrc(getPixelWidth(), getPixelHeight(), "image/jpeg")
+	}
+	return getBase64Buffer(jpgData)
 }
 
 func toPNGData override as buffer
 {
-	ERROR "Not implemented"
-	return null
+	var source = getSource()
+	var pngData as string
+	if String.contains(source, "image/png") {
+		pngData = source
+	}
+	else {
+		pngData = getScaleImageSrc(getPixelWidth(), getPixelHeight(), "image/png")
+	}
+	return getBase64Buffer(pngData)
 }
 
 func toRGBAData override as buffer
 {
 	ERROR "Not implemented"
 	return null
+}
+
+func getBase64Buffer(data as string) private as buffer
+{
+	assert String.isNotEmpty(data)
+	var simc = String.getIndexOf(data, ";base64,")
+	assert simc > -1
+	var nsrc = String.getSubString(data, simc+8)
+	assert String.isNotEmpty(nsrc)
+	return Base64Decoder.decode(nsrc)
 }
 
 func releaseImage override
