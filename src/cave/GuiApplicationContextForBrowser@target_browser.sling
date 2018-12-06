@@ -108,23 +108,29 @@ func prepareResources(resources as array<string>, callback as function)
 			imgo.image = image
 			imageCache[pp] = imgo
 		}
-		else if(String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf")) {
+		else if(String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf") || String.equalsIgnoreCase(ext, "woff")) {
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
-			if(HTMLDOM.doesBrowserSupportFontLoading()) {
-				var head = HTMLDOM.getDocumentHead()
-				if(style == null) {
-					style = HTMLDOM.createElement("style")
-					HTMLDOM.appendChild(head, style)
-				}
-				HTMLDOM.appendChild(style, HTMLDOM.createTextNode("@font-face { font-family: " .. pp .. "; src: url('" .. path .. "')}"))
-				lang "js" {{{
-					numberOfFonts++;
-					document.fonts.load("12px " + pp).then(onFontLoad, onFontError);
-				}}}
+			var head = HTMLDOM.getDocumentHead()
+			if(style == null) {
+				style = HTMLDOM.createElement("style")
+				HTMLDOM.appendChild(head, style)
+			}
+			HTMLDOM.appendChild(style, HTMLDOM.createTextNode("@font-face { font-family: " .. pp .. "; src: url('" .. path .. "')}"))
+			if HTMLDOM.isInternetExplorer() || HTMLDOM.isEdge() {
+				numberOfFonts++;
+				onResourceLoadingComplete()
 			}
 			else {
-				logWarning("Browser does not support font loading: `" .. path .. "'")
-				onResourceLoadingComplete()
+				if(HTMLDOM.doesBrowserSupportFontLoading()) {
+					lang "js" {{{
+						numberOfFonts++;
+						document.fonts.load("12px " + pp).then(onFontLoad, onFontError);
+					}}}
+				}
+				else {
+					logWarning("Browser does not support font loading: `" .. path .. "'")
+					onResourceLoadingComplete()
+				}
 			}
 		}
 		else {
