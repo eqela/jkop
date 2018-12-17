@@ -29,6 +29,9 @@ const ASCII = 1
 const UCS2 = 2
 var encoding = 0
 var current protected = 0 as char
+var surrogatePair as char[]
+var isSurrogate as bool
+var counter = 0
 var currentSize = 0
 var ended = false
 
@@ -93,7 +96,31 @@ func convertToChar(v as int) private as char
 	IFDEF "target_js" {
 		return lang "js" char {{{ String.fromCodePoint(v) }}}
 	}
+	ELSE IFDEF "target_cs" {
+		lang "cs" {{{
+			string pair = char.ConvertFromUtf32(System.Convert.ToInt32(v));
+			if(pair.Length > 1) {
+				surrogatePair = new char[] {pair[0], pair[1]};
+				isSurrogate = true;
+			}
+		}}}
+		if isSurrogate:
+			return getSurrogatePair()
+	}
 	return v as char
+}
+
+func getSurrogatePair as char
+{
+	assert isSurrogate
+	var c = surrogatePair[counter]
+	counter ++
+	if counter == 2 {
+		counter = 0
+		isSurrogate = false
+		surrogatePair = null
+	}
+	return c
 }
 
 func doMoveToPreviousChar as bool
@@ -179,6 +206,10 @@ func moveToNextChar as bool
 func doMoveToNextChar as bool
 {
 	if encoding == UTF8 {
+		if isSurrogate {
+			current = getSurrogatePair()
+			return true
+		}
 		assert moveToNextByte()
 		var b1 = getCurrentByte()
 		var v = -1
