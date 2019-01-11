@@ -93,7 +93,46 @@ func moveToPreviousChar as bool
 func convertToChar(v as int) private as char
 {
 	IFDEF "target_js" {
-		return lang "js" char {{{ String.fromCodePoint(v) }}}
+		lang "js" {{{
+			if(!String.fromCodePoint) {
+				var fromCodePoint = function(_) {
+					var codeUnits = [];
+					var index = -1;
+					var result = "";
+					var lengthOfArgs = arguments.length;
+					while(++index < lengthOfArgs) {
+						var codePoint = Number(arguments[index]);
+						if(!isFinite(codePoint) || codePoint < 0 || codePoint > 0x10FFFF || Math.floor(codePoint) != codePoint) {
+							console.log("Invalid code point");
+						}
+						if(codePoint <= 0xFFFF) {
+							codeUnits.push(codePoint);
+						}
+						else {
+							codePoint -= 0x10000;
+							codeUnits.push((codePoint >> 10) + 0xD800, (codePoint % 0x400) + 0xDC00);
+						}
+						if(index + 1 == lengthOfArgs || codeUnits.length > 0x4000) {
+							result += String.fromCharCode.apply(null, codeUnits);
+							codeUnits.length = 0;
+						}
+					}
+					return result;
+				};
+				String.fromCodePoint = fromCodePoint;
+			};
+			return String.fromCodePoint(v);
+		}}}
+	}
+	ELSE IFDEF "target_cs" {
+		lang "cs" {{{
+			string pair = char.ConvertFromUtf32(System.Convert.ToInt32(v));
+			if(pair.Length > 1) {
+				surrogatePair = new char[] {pair[0], pair[1]};
+			}
+		}}}
+		if surrogatePair:
+			return getSurrogatePair()
 	}
 	ELSE IFDEF "target_cs" {
 		lang "cs" {{{

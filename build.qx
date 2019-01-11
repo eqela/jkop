@@ -1,21 +1,98 @@
-use eqela:slingc:r313
+#
+# This file is part of Jkop
+# Copyright (c) 2016-2018 Job and Esther Technologies Oy
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+
 use eqela:jsh:r2
 set version ${date}
-set pkgid eqela-jkop-${version}
 
-release {
+releaseAll {
 	call clean
+	call releaseSrc
+	call releaseNetcore
+	call releaseJava
+	call releaseBrowser
+	call releaseAndroid
+	call releaseIos
+}
+
+releaseSrc {
+	set pkgid eqela-jkop-${version}
 	eqela:jsh cpto build/${pkgid} LICENSE README.md build.qx src
 	eqela:jsh makepkq build/${pkgid} -vendor=eqela -name=jkop -version=${version} -platform=all
 }
 
-buildJkopForJavaConsole {
-	use eqela:java:20180421
-	igelle:tools/delete build
-	eqela:sling/slingc src/jkop-java-console.pling \
-		-Dsling_project_version=${version} \
-		-output=build/${pkgid}
-	eqela:java/pomtool build/${pkgid}/pom.xml \
+buildSlingDoc {
+	use eqela:slingc:r333
+	eqela:jsh delete build/jkop_${version}_slingdoc
+	eqela:slingc -target=slingdoc -output=build/jkop_${version}_slingdoc -Pname=Jkop \
+		-Pversion=${version} \
+		-Purl=http://eqdn.tech/jkop \
+		-modules src/cape src/cave src/capex.util src/capex.net src/capex.crypto src/capex.data src/cape.unit \
+		src/capex.archive src/capex.console src/capex.console.db src/capex.http src/capex.image src/capex.map src/capex.mssql \
+		src/capex.mysql src/capex.pdf.maker src/capex.text src/capex.util src/capex.web src/cave.fb src/cave.google.account \
+		src/cave.google.fcm src/cave.google.maps src/cave.graph src/cave.notification src/cave.photo src/cave.pim \
+		src/cave.ui/ src/motion/ src/sympathy src/sympathy.app src/sympathy.db src/sympathy.dbapp
+	eqela:jsh delete build/jkop_${version}_slingdoc.zip
+	eqela:jsh zipdir build/jkop_${version}_slingdoc
+}
+
+buildReleaseForTarget : name target title description {
+	requireValue name
+	requireValue title
+	requireValue description
+	requireValue target
+	use eqela:slingc:r332
+	eqela:jsh delete build/${name}_${version}
+	eqela:slingc -target=${target} -output=build/${name}_${version} -OreadableCode=true \
+		-Pname=${name} \
+		-Ptitle=${title} \
+		-Pdescription=${description} \
+		-Pversion=${version} \
+		-Purl=http://eqdn.tech/jkop \
+		-Pcopyright=MIT -PcopyrightDeclaration=">LICENSE" \
+		$(*)
+	eqela:jsh delete build/${name}_${version}/sling.module
+	eqela:jsh delete build/${name}_${version}/${name}.sling
+	eqela:jsh cpto build/${name}_${version} LICENSE
+	eqela:jsh delete build/${name}_${version}.zip
+	eqela:jsh zipdir build/${name}_${version}
+}
+
+releaseNetcore {
+	call buildReleaseForTarget name=jkop-netcore target=netcore title="Jkop for .NET Core" \
+		description="Implementation of the Jkop library and framework API for .NET Core" \
+		-modules src/cape src/capex.archive src/capex.console src/capex.crypto src/capex.data \
+		src/capex.http src/capex.image src/capex.map src/capex.net src/capex.text src/capex.util \
+		src/capex.web src/cave src/sympathy src/sympathy.app $(*)
+}
+
+releaseJava {
+	use eqela:rocks:r7
+	call buildReleaseForTarget name=jkop-java target=java7 title="Jkop for Java" \
+		description="Implementation of the Jkop library and framework API for Java" \
+		-modules src/cape src/capex.archive src/capex.console src/capex.crypto src/capex.data \
+		src/capex.http src/capex.image src/capex.map src/capex.net src/capex.text src/capex.util \
+		src/capex.web src/cave src/sympathy src/sympathy.app $(*)
+	eqela:rocks/pomtool build/jkop-java_${version}/pom.xml \
 		-replace \
 		-x-setUrl=http://www.eqela.com \
 		-x-addToLicenses=mit \
@@ -26,6 +103,31 @@ buildJkopForJavaConsole {
 		-x-addMavenJavadocPlugin \
 		-x-addToBuildPlugins=org.apache.maven.plugins,maven-gpg-plugin,,,,,,sign-artifacts:verify:sign \
 		-x-addToBuildPlugins=org.sonatype.plugins,nexus-staging-maven-plugin,1.6.7,true,,\"serverId=ossrh,nexusUrl=https://oss.sonatype.org/,autoReleaseAfterClose=true\",,
+}
+
+releaseAndroid {
+	call buildReleaseForTarget name=jkop-android target=android title="Jkop for Android" \
+		description="Implementation of the Jkop library and framework API for Android" \
+		-PvendorId=com.eqela -OandroidPackage=com.eqela.jkop.android \
+		-modules src/cape src/capex.archive src/capex.crypto src/capex.data src/capex.http \
+		src/capex.image src/capex.map src/capex.net src/capex.text src/capex.util src/capex.web \
+		src/cave src/cave.graph src/cave.photo src/cave.pim src/cave.ui src/motion src/sympathy $(*)
+}
+
+releaseIos {
+	call buildReleaseForTarget name=jkop-iosoc target=iosoc title="Jkop for iOS / Objective-C" \
+		description="Implementation of the Jkop library and framework API for iOS / Objective-C" \
+		-modules src/cape src/capex.archive src/capex.crypto src/capex.data src/capex.http \
+		src/capex.image src/capex.map src/capex.net src/capex.text src/capex.util src/capex.web \
+		src/cave src/cave.graph src/cave.photo src/cave.pim src/cave.ui src/motion src/sympathy $(*)
+}
+
+releaseBrowser {
+	call buildReleaseForTarget name=jkop-browser target=html5 title="Jkop for Browser Applications" \
+		description="Implementation of the Jkop library and framework API for HTML5 browsers" \
+		-modules src/cape src/capex.archive src/capex.console src/capex.crypto src/capex.data \
+		src/capex.http src/capex.image src/capex.map src/capex.net src/capex.text src/capex.util \
+		src/capex.web src/cave src/sympathy src/sympathy.app $(*)
 }
 
 clean {
