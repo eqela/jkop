@@ -68,6 +68,18 @@ func asString(obj as object) static as string
 }
 
 **
+** Returns a safe string (= make sure it is not null). Essentially returns a valid
+** non-null empty string if the value is null. Otherwise returns the string itself.
+**
+
+func safeString(str as string) static as string
+{
+	if not str:
+		return ""
+	return str
+}
+
+**
 ** Converts an integer to a string
 **
 
@@ -370,6 +382,9 @@ func forInteger(vv as int #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ tostring(vv) }}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 		return(null)
@@ -398,6 +413,9 @@ func forLongInteger(vv as long #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -563,10 +581,10 @@ func forBufferHex(buffer as buffer) static as string
 
 func forCharacter(vv as char #used) static as string
 {
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ new string(vv, 1) }}})
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ new string(vv, 1) }}}
 	}
-	ELSE IFDEF("target_objc") {
+	ELSE IFDEF "target_objc" {
 		var v as string
 		lang "objc" {{{
 			UInt32 h = (UInt32)vv;
@@ -574,18 +592,36 @@ func forCharacter(vv as char #used) static as string
 		}}}
 		return v
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" string {{{ java.lang.String.valueOf(vv) }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" string {{{ java.lang.String.valueOf(vv) }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" string {{{ vv.toString() }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" string {{{ vv.toString() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		if vv < 0x80 {
+			return lang "lua" string {{{ string.char(vv) }}}
+		}
+		if vv < 0x800 {
+			var v1 = 0xc0 | (vv >> 6)
+			var v2 = 0x80 | (vv & 0x3f)
+			return lang "lua" string {{{ string.char(v1) .. string.char(v2) }}}
+		}
+		if vv < 0xd800 || vv >= 0xe000 {
+			var v1 = 0xe0 | (vv >> 12)
+			var v2 = 0x80 | ((vv >> 6) & 0x3f)
+			var v3 = 0x80 | (vv & 0x3f)
+			return lang "lua" string {{{ string.char(v1) .. string.char(v2) .. string.char(v3) }}}
+		}
+		// FIXME: four byte UTF characters lack an implementation
+		return lang "lua" string {{{ string.char(vv) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(null)
+		ERROR "Not implemented"
+		return null
 	}
 }
 
@@ -609,6 +645,9 @@ func forFloat(vv as float #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -644,6 +683,9 @@ func forDouble(vv as double #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ tostring(vv) }}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 		return(null)
@@ -654,10 +696,8 @@ func forDouble(vv as double #used) static as string
 ** Converts a string to a buffer of bytes, encoded using the UTF8 encoding.
 **
 
-func toUTF8Buffer(str as string) static as buffer
-{
-	return(toBuffer(str, "UTF8"))
-}
+func toUTF8Buffer(str as string) static as buffer:
+	return toBuffer(str, "UTF8")
 
 **
 ** Converts a string to a buffer of bytes, encoded using the specified "charset"
@@ -682,6 +722,18 @@ func toBuffer(str as string, charset as string) static as buffer
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" buffer {{{ str.toByteArray(kotlin.text.charset(charset)) }}}
+	}
+	ELSE IFDEF "target_lua" {
+		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
+			var v as buffer
+			lang "lua" {{{
+				v = {}
+				for i=1, #str do
+					table.insert(v, string.byte(str, i))
+				end
+			}}}
+			return v
+		}
 	}
 	var bytes = assert getBytesUnsigned(str, charset)
 	var c = SIZE bytes
@@ -838,27 +890,29 @@ func getBytesSigned(str as string #used, charset as string) private static as in
 
 func getLength(str as string #used) static as int
 {
-	if(str == null) {
-		return(0)
+	if str == null:
+		return 0
+	IFDEF "target_cs" {
+		return lang "cs" int {{{ str.Length }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" int {{{ str.Length }}})
+	ELSE IFDEF "target_objc" {
+		return lang "objc" int {{{ [str length] }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" int {{{ [str length] }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" int {{{ str.length() }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" int {{{ str.length() }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" int {{{ str.length }}}
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" int {{{ str.length }}})
+	ELSE IFDEF "target_lua" {
+		return lang "lua" int {{{ #str }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.length }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(-1)
+		ERROR "Not implemented"
+		return -1
 	}
 }
 
@@ -870,30 +924,28 @@ func getLength(str as string #used) static as int
 
 func append(str1 as string #used, str2 as string #used) static as string
 {
-	if(str1 == null) {
-		return(str2)
+	if str1 == null:
+		return str2
+	if str2 == null:
+		return str1
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ System.String.Concat(str1, str2) }}}
 	}
-	if(str2 == null) {
-		return(str1)
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [str1 stringByAppendingString:str2] }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ System.String.Concat(str1, str2) }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" string {{{ str1.concat(str2 != null ? str2 : "") }}}
 	}
-	ELSE IFDEF("target_objc") {
-		return(lang "objc" string {{{ [str1 stringByAppendingString:str2] }}})
-	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" string {{{ str1.concat(str2 != null ? str2 : "") }}})
-	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" string {{{ str1.concat(str2) }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" string {{{ str1.concat(str2) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str1.plus(str2) }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(str1)
+		ERROR "Not implemented"
+		return str1
 	}
 }
 
@@ -903,10 +955,8 @@ func append(str1 as string #used, str2 as string #used) static as string
 ** the integer value.
 **
 
-func append(str as string, intvalue as int) static as string
-{
-	return(append(str, forInteger(intvalue)))
-}
+func append(str as string, intvalue as int) static as string:
+	return append(str, forInteger(intvalue))
 
 **
 ** Appends a character value "charvalue" to the end of string "str". If the
@@ -914,10 +964,8 @@ func append(str as string, intvalue as int) static as string
 ** the character value.
 **
 
-func append(str as string, charvalue as char) static as string
-{
-	return(append(str, forCharacter(charvalue)))
-}
+func append(str as string, charvalue as char) static as string:
+	return append(str, forCharacter(charvalue))
 
 **
 ** Appends a floating point value "floatvalue" to the end of string "str". If the
@@ -925,10 +973,8 @@ func append(str as string, charvalue as char) static as string
 ** the floating point value.
 **
 
-func append(str as string, floatvalue as float) static as string
-{
-	return(append(str, forFloat(floatvalue)))
-}
+func append(str as string, floatvalue as float) static as string:
+	return append(str, forFloat(floatvalue))
 
 **
 ** Appends a double-precision floating point value "doublevalue" to the end of
@@ -936,10 +982,8 @@ func append(str as string, floatvalue as float) static as string
 ** representing only the floating point value.
 **
 
-func append(str as string, doublevalue as double) static as string
-{
-	return(append(str, forDouble(doublevalue)))
-}
+func append(str as string, doublevalue as double) static as string:
+	return append(str, forDouble(doublevalue))
 
 **
 ** Appends a boolean value "boolvalue" to the end of string "str". If the
@@ -947,10 +991,8 @@ func append(str as string, doublevalue as double) static as string
 ** the boolean value.
 **
 
-func append(str as string, boolvalue as bool) static as string
-{
-	return(append(str, forBoolean(boolvalue)))
-}
+func append(str as string, boolvalue as bool) static as string:
+	return append(str, forBoolean(boolvalue))
 
 **
 ** Converts all characters of a string to lowercase.
@@ -973,6 +1015,9 @@ func toLowerCase(str as string #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str.toLowerCase() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ string.lower(str) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1001,6 +1046,9 @@ func toUpperCase(str as string #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str.toUpperCase() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ string.upper(str) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1085,6 +1133,9 @@ func equals(str1 as string #used, str2 as string #used) static as bool
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" bool {{{ str1.equals(str2) }}}
 	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" bool {{{ str1 == str2 }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return false
@@ -1126,8 +1177,7 @@ func equalsIgnoreCase(str1 as string #used, str2 as string #used) static as bool
 		return lang "kotlin" bool {{{ str1.equals(str2, true) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return false
+		return equals(toLowerCase(str1), toLowerCase(str2))
 	}
 }
 
@@ -1582,6 +1632,9 @@ func startsWith(str1 as string, str2 as string #used, offset as int = 0) static 
 		assert nstr
 		return lang "kotlin" bool {{{ nstr.startsWith(str2) }}}
 	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" bool {{{ string.sub(str1, 1, string.len(str2)) == str2 }}}
+	}
 	ELSE {
 		ERROR "Not Implemented"
 		return false
@@ -1897,6 +1950,22 @@ func toCharArray(str as string #used) static as char[]
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" char[] {{{ str.toCharArray().toTypedArray() }}}
+	}
+	ELSE IFDEF "target_lua" {
+		var it = CharacterIteratorForString.forString(str)
+		var v as array<char>
+		lang "lua" {{{
+			v = {}
+		}}}
+		while it {
+			var c = it.getNextChar()
+			if c < 1:
+				break
+			lang "lua" {{{
+				table.insert(v, c)
+			}}}
+		}
+		return v
 	}
 	ELSE {
 		ERROR "Not Implemented"
