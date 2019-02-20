@@ -22,51 +22,38 @@
  * SOFTWARE.
  */
 
-class <T>:
+class is SHAEncoder imports cape:
 
-prop data as vector<T>
-
-ctor:
-	data = new vector<T>
-
-func push(o as T):
-	Vector.append(data, o)
-
-func pop as T
+func encodeAsBuffer(data as buffer, version as int) override as buffer
 {
-	var sz =Vector.getSize(data)
-	if sz < 1:
-		return DEFAULT T
-	var v = Vector.getAt(data, sz-1)
-	Vector.remove(data, sz-1)
-	return v
+	assert data
+	var algorithm as string
+	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
+		algorithm = "SHA-1"
+	}
+	else if SHAEncoder.SHA256 == version {
+		algorithm = "SHA-256"
+	}
+	else if SHAEncoder.SHA384 == version {
+		algorithm = "SHA-384"
+	}
+	else if SHAEncoder.SHA512 == version {
+		algorithm = "SHA-512"
+	}
+	assert algorithm
+	lang "kotlin" {{{
+		val md = java.security.MessageDigest.getInstance(algorithm);
+		return md.digest(data)
+	}}}
+	return null
 }
 
-func peek as T
+func encodeAsString(data as buffer, version as int) override as string
 {
-	var sz = Vector.getSize(data)
-	if sz < 1:
-		return DEFAULT T
-	return Vector.getAt(data, sz-1)
-}
-
-func isEmpty as bool:
-	return getSize() < 1
-
-func getSize as int:
-	return Vector.getSize(data)
-
-func dupData as vector<T>
-{
-	var v = new vector<T>
-	foreach o in data:
-		v += o
-	return v
-}
-
-func dup as this
-{
-	var v = new this()
-	v.setData(dupData())
+	var bytes #used = assert encodeAsBuffer(data, version)
+	var v as string #used
+	lang "kotlin" {{{
+		v = bytes.fold("", { str, it -> str + "%02x".format(it) })
+	}}}
 	return v
 }
