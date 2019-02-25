@@ -22,23 +22,38 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class is SHAEncoder imports cape:
 
-func instance static as PrintReader
+func encodeAsBuffer(data as buffer, version as int) override as buffer
 {
-	var reader as Reader
-	IFDEF "target_dotnet" {
-		reader = new StdinForDotNet()
+	assert data
+	var algorithm as string
+	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
+		algorithm = "SHA-1"
 	}
-	ELSE IFDEF "target_netcore" {
-		reader = new StdinForNetCore()
+	else if SHAEncoder.SHA256 == version {
+		algorithm = "SHA-256"
 	}
-	ELSE IFDEF "target_java" {
-		reader = new StdinForJava()
+	else if SHAEncoder.SHA384 == version {
+		algorithm = "SHA-384"
 	}
-	ELSE IFDEF "target_kotlin" {
-		reader = new StdinFoKotlin()
+	else if SHAEncoder.SHA512 == version {
+		algorithm = "SHA-512"
 	}
-	assert reader
-	return PrintReader.forReader(reader)
+	assert algorithm
+	lang "kotlin" {{{
+		val md = java.security.MessageDigest.getInstance(algorithm);
+		return md.digest(data)
+	}}}
+	return null
+}
+
+func encodeAsString(data as buffer, version as int) override as string
+{
+	var bytes #used = assert encodeAsBuffer(data, version)
+	var v as string #used
+	lang "kotlin" {{{
+		v = bytes.fold("", { str, it -> str + "%02x".format(it) })
+	}}}
+	return v
 }
