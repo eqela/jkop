@@ -1,0 +1,215 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is IOManager:
+
+import cape
+
+class MyEntry is IOManagerEntry
+{
+	prop master as IOManager
+	prop source as object
+	var key as !"java.nio.channels.SelectionKey"
+	var rrl as function
+	var wrl as function
+	var added = false
+
+	func onReadReady
+	{
+		var rrl = this.rrl
+		if rrl:
+			rrl()
+	}
+
+	func onWriteReady
+	{
+		var wrl = this.wrl
+		if wrl:
+			wrl()
+	}
+
+	func setListeners(rrl as function, wrl as function)
+	{
+		this.rrl = rrl
+		this.wrl = wrl
+		update()
+	}
+
+	func setReadListener(rrl as function)
+	{
+		this.rrl = rrl
+		update()
+	}
+
+	func setWriteListener(wrl as function)
+	{
+		this.wrl = wrl
+		update()
+	}
+
+	func update
+	{
+		if source == null || master == null:
+			return
+		if rrl == null && wrl == null:
+			return
+		var selector = assert (master as! IOManagerForKotlin).getSelector()
+		var ss = (source as! TCPSocketForKotlin).getJavaServerSocket()
+		if ss {
+			lang "kotlin" {{{
+				var channel : java.nio.channels.ServerSocketChannel? = ss.getChannel()
+				if(channel != null) {
+					try {
+						channel.configureBlocking(false)
+						key = channel.register(selector, java.nio.channels.SelectionKey.OP_ACCEPT)
+						if(key != null) {
+							key!!.attach(this)
+						}
+					}
+					catch(e: kotlin.Exception) {
+						e.printStackTrace()
+					}
+					return
+				}
+			}}}
+		}
+		var cs = (source as! TCPSocketForKotlin).getJavaClientSocket()
+		if cs {
+			lang "kotlin" {{{
+				var channel : java.nio.channels.SocketChannel? = cs.getChannel()
+				if(channel != null) {
+					var r : kotlin.Int = 0;
+					if(rrl != null) {
+						r = r or java.nio.channels.SelectionKey.OP_READ
+					}
+					if(wrl != null) {
+						r = r or java.nio.channels.SelectionKey.OP_WRITE
+					}
+					try {
+						channel.configureBlocking(false)
+						key = channel.register(selector, r)
+						if(key != null) {
+							key!!.attach(this)
+						}
+					}
+					catch(e: kotlin.Exception) {
+						e.printStackTrace()
+					}
+					return
+				}
+			}}}
+		}
+		added = true
+	}
+
+	func remove
+	{
+		if added == false || master == null:
+			return
+		var key = assert this.key
+		this.key = null
+		lang "kotlin" {{{
+			key.cancel()
+		}}}
+		added = false
+	}
+}
+
+var selector as !"java.nio.channels.Selector"
+var exitFlag = false
+
+ctor
+{
+	lang "kotlin" {{{
+		try {
+			selector = java.nio.channels.Selector.open()
+		}
+		catch(e: kotlin.Exception) {
+			e.printStackTrace()
+		}
+	}}}
+}
+
+func getSelector as !"java.nio.channels.Selector":
+	return selector
+
+func execute(ctx as LoggingContext) override as bool
+{
+	Log.debug(ctx, "IOManagerForKotlin started")
+	loop {
+		if exitFlag:
+			break
+		var num = 0
+		lang "kotlin" {{{
+			try {
+				num = selector!!.select()
+			}
+			catch(e: kotlin.Exception) {
+				e.printStackTrace()
+			}
+			if(num < 1) {
+				continue
+			}
+			var keys = selector!!.selectedKeys() as java.util.Set<kotlin.Any>
+			var it = keys.iterator() as java.util.Iterator<kotlin.Any>
+			while(it.hasNext()) {
+				var key = it.next() as java.nio.channels.SelectionKey
+				if(key == null) {
+					continue
+				}
+				var me : MyEntry = key.attachment() as MyEntry
+				if(me == null) {
+					continue
+				}
+				if(key.isReadable()) {
+					me.onReadReady()
+				}
+				else if(key.isAcceptable()) {
+					me.onReadReady()
+				}
+				else if(key.isWritable()) {
+					me.onWriteReady()
+				}
+			}
+			keys.clear()
+		}}}
+	}
+	Log.debug(ctx, "IOManagerForKotlin ended")
+	return true
+}
+
+func add(o as object) override as IOManagerEntry
+{
+	assert o
+	var entry = new MyEntry()
+	entry.setMaster(this)
+	entry.setSource(o)
+	return entry
+}
+
+func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer:
+	return null
+
+func stop override:
+	exitFlag = true

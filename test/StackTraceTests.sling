@@ -22,23 +22,52 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class is UnitTest:
 
-func instance static as PrintReader
+import cape.unit
+
+func testStackTrace
 {
-	var reader as Reader
-	IFDEF "target_dotnet" {
-		reader = new StdinForDotNet()
+	try {
+		process("bb")
 	}
-	ELSE IFDEF "target_netcore" {
-		reader = new StdinForNetCore()
+	catch(e as MyException) {
+		var str = (e as! MyException).toString()
+		ASSERT(str != null)
 	}
-	ELSE IFDEF "target_java" {
-		reader = new StdinForJava()
+}
+
+func execute override:
+	TEST("StackTrace Tests", testStackTrace())
+
+func process(str as string) static
+{
+	if not (str == "AA") {
+		var excp = MyException.instance(VALUE "__FILE__", VALUE "__LINE__", VALUE "__COLUMN__")
+		if (excp != null) {
+			throw excp
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		reader = new StdinForKotlin()
+}
+
+class name MyException is Exception is StringObject
+{
+	func instance(file as string, line as string, column as string) static as this
+	{
+		var v = new this()
+		v.setFile(file)
+		v.setLine(line)
+		v.setColumn(column)
+		return v
 	}
-	assert reader
-	return PrintReader.forReader(reader)
+
+	prop file as string
+	prop line as string
+	prop column as string
+
+	func toString as string
+	{
+		var sb = file .. ":" .. line .. ":" .. column .. ": " .. VALUE "__THIS__"
+		return sb
+	}
 }
