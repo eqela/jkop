@@ -22,51 +22,38 @@
  * SOFTWARE.
  */
 
-class:
+class is SHAEncoder imports cape:
 
-IFDEF "target_netcore"
+func encodeAsBuffer(data as buffer, version as int) override as buffer
 {
-	depend "nuget:System.Threading.Thread@4.3.*"
+	assert data
+	var algorithm as string
+	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
+		algorithm = "SHA-1"
+	}
+	else if SHAEncoder.SHA256 == version {
+		algorithm = "SHA-256"
+	}
+	else if SHAEncoder.SHA384 == version {
+		algorithm = "SHA-384"
+	}
+	else if SHAEncoder.SHA512 == version {
+		algorithm = "SHA-512"
+	}
+	assert algorithm
+	lang "kotlin" {{{
+		val md = java.security.MessageDigest.getInstance(algorithm);
+		return md.digest(data)
+	}}}
+	return null
 }
 
-func sleepSeconds(seconds as int) static
+func encodeAsString(data as buffer, version as int) override as string
 {
-	sleepMilliSeconds(seconds * 1000)
-}
-
-func sleepMicroSeconds(uSeconds as int) static
-{
-	sleepMilliSeconds(uSeconds / 1000)
-}
-
-func sleepMilliSeconds(mSeconds as int) static
-{
-	IFDEF "target_uwp" {
-		lang "cs" {{{
-			var v = System.Threading.Tasks.Task.Delay(mSeconds * 1000);
-			v.RunSynchronously();
-		}}}
-	}
-	ELSE IFDEF "target_cs" {
-		lang "cs" {{{
-			System.Threading.Thread.Sleep(mSeconds);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				java.lang.Thread.sleep(mSeconds);
-			}
-			catch(java.lang.InterruptedException e) {
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			java.lang.Thread.sleep(mSeconds.toLong())
-		}}}
-	}
-	ELSE {
-		ERROR("Not implemented")
-	}
+	var bytes #used = assert encodeAsBuffer(data, version)
+	var v as string #used
+	lang "kotlin" {{{
+		v = bytes.fold("", { str, it -> str + "%02x".format(it) })
+	}}}
+	return v
 }

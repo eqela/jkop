@@ -24,49 +24,75 @@
 
 class:
 
-IFDEF "target_netcore"
+class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
 {
-	depend "nuget:System.Threading.Thread@4.3.*"
-}
+	var file as !"java.io.File"
+	var stream as !"java.io.FileInputStream"
 
-func sleepSeconds(seconds as int) static
-{
-	sleepMilliSeconds(seconds * 1000)
-}
+	func initialize as this
+	{
+		if file {
+			lang "kotlin" {{{
+				try {
+					stream = java.io.FileInputStream(file)
+				}
+				catch(e: Exception) {
+					e.printStackTrace()
+					return(null)
+				}
+				return(this)
+			}}}
+		}
+		return null
+	}
 
-func sleepMicroSeconds(uSeconds as int) static
-{
-	sleepMilliSeconds(uSeconds / 1000)
-}
-
-func sleepMilliSeconds(mSeconds as int) static
-{
-	IFDEF "target_uwp" {
-		lang "cs" {{{
-			var v = System.Threading.Tasks.Task.Delay(mSeconds * 1000);
-			v.RunSynchronously();
-		}}}
-	}
-	ELSE IFDEF "target_cs" {
-		lang "cs" {{{
-			System.Threading.Thread.Sleep(mSeconds);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				java.lang.Thread.sleep(mSeconds);
-			}
-			catch(java.lang.InterruptedException e) {
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
+	func read(buffer as buffer) as int
+	{
+		if !buffer:
+			return 0
+		var ptr #used = buffer
+		var sz #used = cape.Buffer.getSize(buffer) as int
+		var v as int #used
 		lang "kotlin" {{{
-			java.lang.Thread.sleep(mSeconds.toLong())
+			try {
+				v = stream!!.read(ptr, 0, sz)
+			}
+			catch(e: Exception) {
+				e.printStackTrace()
+			}
+		}}}
+		return v
+	}
+
+	func getSize as int
+	{
+		var v as int
+		lang "kotlin" {{{
+			try {
+				v = stream!!.available()
+			}
+			catch(e: Exception) {
+				e.printStackTrace()
+			}
+		}}}
+		return v
+	}
+
+	func close
+	{
+		lang "kotlin" {{{
+			try {
+				stream!!.close()
+			}
+			catch(e :Exception) {
+				e.printStackTrace()
+			}
 		}}}
 	}
-	ELSE {
-		ERROR("Not implemented")
-	}
+
+	func setCurrentPosition(n as int64) as bool:
+		return false
+
+	func getCurrentPosition as int64:
+		return 0
 }
