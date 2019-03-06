@@ -24,66 +24,75 @@
 
 class is TCPSocket:
 
-var socket as !"java.net.Socket"
-var serverSocket as !"java.net.ServerSocket"
+var socket as !"java.nio.channels.SocketChannel"
+var serverSocket as !"java.nio.channels.ServerSocketChannel"
 var blocking private = true
 
-func getJavaClientSocket as !"java.net.Socket":
-	return socket
+func getJavaClientSocket as !"java.net.Socket"
+{
+	assert socket
+	var s as !"java.net.Socket"
+	lang "kotlin" {{{
+		s = socket!!.socket()
+	}}}
+	return s
+}
 
-func getJavaServerSocket as !"java.net.ServerSocket":
-	return serverSocket
+func getJavaServerSocket as !"java.net.ServerSocket"
+{
+	assert serverSocket
+	var ss as !"java.net.ServerSocket"
+	lang "kotlin" {{{
+		ss = serverSocket!!.socket()
+	}}}
+	return ss
+}
 
 func getRemoteAddress override as string
 {
-	var a as !"java.net.InetAddress"
-	assert socket
+	var socket = assert getJavaClientSocket()
+	var address as string
 	lang "kotlin" {{{
-		a = socket?.getInetAddress()
+		var a = socket!!.getInetAddress() as java.net.InetAddress
 		if(a != null) {
-			return (a.getHostAddress()).toString()
+			address = a.getHostAddress()
 		}
 	}}}
-	return null
+	return address
 }
 
 func getRemotePort override as int
 {
-	if socket == null:
-		return(0)
-	lang "kotlin" {{{
-		return (socket!!.getPort()).toInt()
-	}}}
-	return 0
+	var socket = assert getJavaClientSocket()
+	return lang "kotlin" int {{{ socket!!.getPort() }}}
 }
 
 func getLocalAddress override as string
 {
 	var a as !"java.net.InetAddress"
+	var socket = assert getJavaClientSocket()
+	var serverSocket = assert getJavaServerSocket()
+	var address as string
 	lang "kotlin" {{{
 		if(socket != null) {
-			a = socket?.getLocalAddress()
+			a = socket!!.getLocalAddress()
 		}
 		if(serverSocket != null) {
-			a = serverSocket?.getInetAddress()
+			a = serverSocket!!.getInetAddress()
 		}
 		if(a != null) {
-			return (a.getHostAddress()).toString()
+			address = a.getHostAddress()
 		}
 	}}}
-	return null
+	return address
 }
 
 func getLocalPort override as int
 {
-	lang "kotlin" {{{
-		if(socket != null) {
-			return (socket!!.getLocalPort()).toInt()
-		}
-		if(serverSocket != null) {
-			return (serverSocket!!.getLocalPort()).toInt()
-		}
-	}}}
+	var socket = assert getJavaClientSocket():
+		return lang "kotlin" int {{{ socket!!.getLocalPort() }}}
+	var serverSocket = assert getJavaServerSocket():
+		return lang "kotlin" int {{{ serverSocket!!.getLocalPort() }}}
 	return -1
 }
 
@@ -93,10 +102,10 @@ func connect(address as string, port as int) override as bool
 	lang "kotlin" {{{
 		try {
 			var serverAddress = java.net.InetAddress.getByName(address)
-			socket = java.net.Socket(serverAddress, port)
-			socket?.setKeepAlive(true)
+			socket = java.nio.channels.SocketChannel.open(java.net.InetSocketAddress(serverAddress, port))
+			socket!!.socket().setKeepAlive(true)
 		}
-		catch (e : kotlin.Exception){
+		catch(e: kotlin.Exception) {
 			e.printStackTrace()
 			v = false
 		}
@@ -109,9 +118,10 @@ func listen(port as int) override as bool
 	var v = true
 	lang "kotlin" {{{
 		try {
-			serverSocket = java.net.ServerSocket(port)
+			serverSocket = java.nio.channels.ServerSocketChannel.open()
+			serverSocket!!.bind(java.net.InetSocketAddress(port))
 		}
-		catch(e : kotlin.Exception) {
+		catch(e: kotlin.Exception) {
 			e.printStackTrace()
 			v = false
 		}
@@ -122,12 +132,12 @@ func listen(port as int) override as bool
 func accept override as TCPSocket
 {
 	assert serverSocket
-	var nsocket as !"java.net.Socket"
+	var nsocket as !"java.nio.channels.SocketChannel"
 	lang "kotlin" {{{
 		try {
-			nsocket = serverSocket?.accept()
+			nsocket = serverSocket!!.accept()
 		}
-		catch(e : kotlin.Exception) {
+		catch(e: kotlin.Exception) {
 			e.printStackTrace()
 			nsocket = null
 		}
@@ -143,6 +153,19 @@ func accept override as TCPSocket
 func setBlocking(blocking as bool) override as bool
 {
 	this.blocking = blocking
+	lang "kotlin" {{{
+		try {
+			if(socket != null) {
+				socket!!.configureBlocking(blocking)
+			}
+			if(serverSocket != null) {
+				serverSocket!!.configureBlocking(blocking)
+			}
+		}
+		catch(e: kotlin.Exception) {
+			e.printStackTrace()
+		}
+	}}}
 	return true
 }
 
@@ -154,15 +177,15 @@ func close override
 	lang "kotlin" {{{
 		try {
 			if(socket != null) {
-				socket?.close()
+				socket!!.close()
 				socket = null
 			}
 			if(serverSocket != null) {
-				serverSocket?.close()
+				serverSocket!!.close()
 				serverSocket = null
 			}
 		}
-		catch(e : kotlin.Exception) {
+		catch(e: java.io.IOException) {
 			e.printStackTrace()
 		}
 	}}}
@@ -175,15 +198,9 @@ func read(buffer as buffer) override as int
 	var v = 0
 	lang "kotlin" {{{
 		try {
-			var ins = socket!!.getInputStream()
-			if(blocking == false && ins.available() < 1) {
-				return(0)
-			}
-			else {
-				v = ins.read(buffer)
-			}
+			v = socket!!.read(java.nio.ByteBuffer.wrap(buffer))
 		}
-		catch(e : kotlin.Exception) {
+		catch(e: kotlin.Exception) {
 			e.printStackTrace()
 			v = -1
 		}
@@ -202,12 +219,10 @@ func write(buffer as buffer, size as int) override as int
 	var v = 0
 	lang "kotlin" {{{
 		try {
-			var os = socket?.getOutputStream()
-			os!!.write(buffer)
-			os!!.flush()
+			socket!!.write(java.nio.ByteBuffer.wrap(buffer, 0, size))
 			v = size
 		}
-		catch(e : kotlin.Exception)
+		catch(e: kotlin.Exception)
 		{
 			e.printStackTrace()
 			v = -1
