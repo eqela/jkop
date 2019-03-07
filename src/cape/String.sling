@@ -252,7 +252,10 @@ func forUTF8Buffer(data as buffer #used) static as string
 		}}}
 		return v
 	}
-	ELSE IFDEF "target_js" {
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" string {{{ kotlin.text.String(data, kotlin.text.Charsets.UTF_8) }}}
+	}
+	ELSE {
 		var sb = new StringBuilder()
 		var ci = CharacterIteratorForBuffer.forBuffer(data)
 		ci.moveToNextChar()
@@ -264,13 +267,6 @@ func forUTF8Buffer(data as buffer #used) static as string
 			ci.moveToNextChar()
 		}
 		return sb.toString()
-	}
-	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" string {{{ kotlin.text.String(data, kotlin.text.Charsets.UTF_8) }}}
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
 	}
 }
 
@@ -382,7 +378,10 @@ func forInteger(vv as int #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.createStringForInteger(vv) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
@@ -414,7 +413,10 @@ func forLongInteger(vv as long #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.createStringForInteger(vv) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
@@ -598,7 +600,25 @@ func forCharacter(vv as char #used) static as string
 	ELSE IFDEF "target_js" {
 		return lang "js" string {{{ vv.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		if vv < 0x80 {
+			return lang "lua" string {{{ _sushi.createStringForByte(vv) }}}
+		}
+		if vv < 0x800 {
+			var v1 = 0xc0 | (vv >> 6)
+			var v2 = 0x80 | (vv & 0x3f)
+			return lang "lua" string {{{ _sushi.createStringForByte(v1) .. _sushi.createStringForByte(v2) }}}
+		}
+		if vv < 0xd800 || vv >= 0xe000 {
+			var v1 = 0xe0 | (vv >> 12)
+			var v2 = 0x80 | ((vv >> 6) & 0x3f)
+			var v3 = 0x80 | (vv & 0x3f)
+			return lang "lua" string {{{ _sushi.createStringForByte(v1) .. _sushi.createStringForByte(v2) .. _sushi.createStringForByte(v3) }}}
+		}
+		// FIXME: four byte UTF characters lack an implementation
+		return lang "lua" string {{{ _sushi.createStringForByte(vv) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		if vv < 0x80 {
 			return lang "lua" string {{{ string.char(vv) }}}
 		}
@@ -646,7 +666,10 @@ func forFloat(vv as float #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.createStringForFloat(vv) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
@@ -683,7 +706,10 @@ func forDouble(vv as double #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.createStringForFloat(vv) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ tostring(vv) }}}
 	}
 	ELSE {
@@ -723,13 +749,25 @@ func toBuffer(str as string, charset as string) static as buffer
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" buffer {{{ str.toByteArray(kotlin.text.charset(charset)) }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_stdlua" {
 		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
 			var v as buffer
 			lang "lua" {{{
 				v = {}
 				for i=1, #str do
-					table.insert(v, string.byte(str, i))
+					v[#v + 1] = string.byte(str, i)
+				end
+			}}}
+			return v
+		}
+	}
+	ELSE IFDEF "target_sushi" {
+		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
+			var v as buffer
+			lang "lua" {{{
+				v = {}
+				for i=1, #str do
+					v[#v + 1] = _sushi.getByteFromString(str, i-1)
 				end
 			}}}
 			return v
@@ -1016,7 +1054,10 @@ func toLowerCase(str as string #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str.toLowerCase() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.changeStringToLowercase(str) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ string.lower(str) }}}
 	}
 	ELSE {
@@ -1047,7 +1088,10 @@ func toUpperCase(str as string #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str.toUpperCase() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.changeStringToUppercase(str) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" string {{{ string.upper(str) }}}
 	}
 	ELSE {
@@ -1099,6 +1143,9 @@ func getChar(str as string #used, index as int #used) static as char
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" char {{{ str.get(index) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" char {{{ _sushi.getByteFromString(str, index) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1326,6 +1373,9 @@ func getIndexOf(str as string #used, c as char #used, start as int #used = 0) st
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.indexOf(c, start) }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" int {{{ _sushi.getIndexOfCharacter(str, c, start) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return -1
@@ -1364,6 +1414,10 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 	ELSE IFDEF "target_kotlin" {
 		assert s
 		return lang "kotlin" int {{{ str.indexOf(s, start) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		assert s
+		return lang "lua" int {{{ _sushi.getIndexOfSubstring(str, s, start) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1497,7 +1551,10 @@ func getSubString(str as string #used, start as int #used) static as string
 		return lang "js" string {{{ str.substring(ss) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" int {{{ str.substring(ss) }}}
+		return lang "kotlin" string {{{ str.substring(ss) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" int {{{ _sushi.getSubstring(str, ss, #str) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1544,6 +1601,9 @@ func getSubString(str as string #used, start as int #used, length as int #used) 
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.substring(ss, ss+ll) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" int {{{ _sushi.getSubstring(str, ss, ss+ll) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1632,7 +1692,10 @@ func startsWith(str1 as string, str2 as string #used, offset as int = 0) static 
 		assert nstr
 		return lang "kotlin" bool {{{ nstr.startsWith(str2) }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" bool {{{ _sushi.getSubstring(str1, 0, _sushi.getStringLength(str2)) == str2 }}}
+	}
+	ELSE IFDEF "target_stdlua" {
 		return lang "lua" bool {{{ string.sub(str1, 1, string.len(str2)) == str2 }}}
 	}
 	ELSE {
@@ -1713,6 +1776,12 @@ func endsWith(str1 as string #used, str2 as string #used) static as bool
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" bool {{{ str1.endsWith(str2) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" bool {{{ _sushi.getSubstring(str1, _sushi.getStringLength(str1)-_sushi.getStringLength(str2), _sushi.getStringLength(str1)) == str2 }}}
+	}
+	ELSE IFDEF "target_stdlua" {
+		return lang "lua" bool {{{ string.sub(str1, string.len(str1)-string.len(str2), string.len(str1)) == str2 }}}
 	}
 	ELSE {
 		ERROR "Not Implemented"
@@ -1969,7 +2038,7 @@ func toCharArray(str as string #used) static as char[]
 			if c < 1:
 				break
 			lang "lua" {{{
-				table.insert(v, c)
+				v[#v + 1] = c
 			}}}
 		}
 		return v
