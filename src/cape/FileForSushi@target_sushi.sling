@@ -32,14 +32,23 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	func read(buffer as buffer) as int
 	{
 		var v = -1
-		ERROR "Not implemented"
+		var handle = this.handle
+		lang "lua" {{{
+			v = _sushi.readFromHandle(handle, buffer)
+		}}}
 		return v
 	}
 
 	func getSize as int
 	{
-		ERROR "Not implemented"
-		return 0
+		var v = -1
+		var handle = this.handle
+		if handle {
+			lang "lua" {{{
+				v = _sushi.getSizeForHandle(handle)
+			}}}
+		}
+		return v
 	}
 
 	func close
@@ -47,7 +56,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle {
 			lang "lua" {{{
-				io.close(handle)
+				_sushi.closeHandle(handle)
 			}}}
 			this.handle = null
 		}
@@ -77,8 +86,16 @@ func forPath(path as string) static as File
 
 func entry(name as string) override as File
 {
-	ERROR "Not implemented"
-	return null
+	var pp = path
+	if String.isNotEmpty(name) {
+		if pp {
+			pp = pp .. "/" .. name
+		}
+		else {
+			pp = name
+		}
+	}
+	return forPath(pp)
 }
 
 func move(dest as File, replace as bool) override stub as bool
@@ -88,8 +105,8 @@ func read override as FileReader
 {
 	var handle as object
 	var path = this.path
-	lang "js" {{{
-		handle = io.open(path, "r")
+	lang "lua" {{{
+		handle = _sushi.openFileForReading(path)
 	}}}
 	assert handle
 	var v = new MyFileReader()
@@ -114,17 +131,89 @@ func createDirectory override stub as bool
 func createDirectoryRecursive override stub as bool
 func removeDirectory override stub as bool
 
-func setPath(newPath as string)
+func normalizePath(apath as string) private as string
 {
-	this.path = newPath
-	ERROR "Not implemented properly"
+	var path = assert apath
+	if OS.isWindows():
+		path = String.replace(path, '\\', '/')
+	var v = new StringBuilder()
+	var comps = String.split(path, '/')
+	foreach comp in comps {
+		if String.isEmpty(comp) {
+			;
+		}
+		else if comp == "." {
+			;
+		}
+		else if comp == ".." {
+			var str = v.toString()
+			v.clear()
+			if str {
+				var slash = String.lastIndexOf(str, '/')
+				if slash > 0:
+					v.append(String.getSubString(str, 0, slash))
+			}
+		}
+		else {
+			if v.count() > 0:
+				v.append('/')
+			v.append(comp)
+		}
+	}
+	if String.startsWith(path, "/"):
+		return "/" .. v.toString()
+	return v.toString()
+}
+
+func setPath(v as string)
+{
+	if String.isEmpty(v) {
+		path = null
+		return
+	}
+	if OS.isWindows() {
+		var l = String.getLength(v)
+		var c1 = String.getChar(v, 1)
+		if l == 2 && c1 == ':' {
+			path = v .. "/"
+			return
+		}
+		var c2 = String.getChar(v, 2)
+		if l == 3 && c1 == ':' && (c2 == '\\' || c2 == '/') {
+			var sb = new StringBuilder()
+			sb.append(String.getChar(v, 0))
+			sb.append(':')
+			sb.append('/')
+			path = sb.toString()
+			return
+		}
+	}
+	var realpath as string
+	lang "lua" {{{
+		realpath = _sushi.getRealPath(v)
+	}}}
+	if String.isNotEmpty(realpath) {
+		path = realpath
+		if OS.isWindows():
+			path = String.replace(path, '\\', '/')
+		return
+	}
+	path = normalizePath(v)
 }
 
 func getPath override as string:
 	return path
 
 func isSame(file as File) override stub as bool
-func remove override stub as bool
+
+func remove override as bool
+{
+	var path = this.path
+	if lang "lua" bool {{{ os.remove(path) == nil }}}:
+		return false
+	return true
+}
+
 func removeRecursive override stub as bool
 func makeExecutable override stub as bool
 func entries override stub as Iterator<File>
