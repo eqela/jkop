@@ -22,51 +22,52 @@
  * SOFTWARE.
  */
 
-class:
+class is UnitTest:
 
-IFDEF "target_netcore"
+import cape.unit
+
+func testStackTrace
 {
-	depend "nuget:System.Threading.Thread@4.3.*"
+	try {
+		process("bb")
+	}
+	catch(e as MyException) {
+		var str = (e as! MyException).toString()
+		ASSERT(str != null)
+	}
 }
 
-func sleepSeconds(seconds as int) static
+func execute override:
+	TEST("StackTrace Tests", testStackTrace())
+
+func process(str as string) static
 {
-	sleepMilliSeconds(seconds * 1000)
+	if not (str == "AA") {
+		var excp = MyException.instance(VALUE "__FILE__", VALUE "__LINE__", VALUE "__COLUMN__")
+		if (excp != null) {
+			throw excp
+		}
+	}
 }
 
-func sleepMicroSeconds(uSeconds as int) static
+class name MyException is Exception is StringObject
 {
-	sleepMilliSeconds(uSeconds / 1000)
-}
+	func instance(file as string, line as string, column as string) static as this
+	{
+		var v = new this()
+		v.setFile(file)
+		v.setLine(line)
+		v.setColumn(column)
+		return v
+	}
 
-func sleepMilliSeconds(mSeconds as int) static
-{
-	IFDEF "target_uwp" {
-		lang "cs" {{{
-			var v = System.Threading.Tasks.Task.Delay(mSeconds * 1000);
-			v.RunSynchronously();
-		}}}
-	}
-	ELSE IFDEF "target_cs" {
-		lang "cs" {{{
-			System.Threading.Thread.Sleep(mSeconds);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				java.lang.Thread.sleep(mSeconds);
-			}
-			catch(java.lang.InterruptedException e) {
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			java.lang.Thread.sleep(mSeconds.toLong())
-		}}}
-	}
-	ELSE {
-		ERROR("Not implemented")
+	prop file as string
+	prop line as string
+	prop column as string
+
+	func toString as string
+	{
+		var sb = file .. ":" .. line .. ":" .. column .. ": " .. VALUE "__THIS__"
+		return sb
 	}
 }
