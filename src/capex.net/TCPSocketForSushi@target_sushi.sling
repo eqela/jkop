@@ -1,0 +1,148 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPSocket is FileDescriptor:
+
+prop fd as int
+
+func getFileDescriptor as int:
+	return fd
+
+func createSocket private as bool
+{
+	fd = lang "lua" int {{{ _sushi.createTCPSocket() }}}
+	if fd < 0:
+		return false
+	return true
+}
+
+func close override
+{
+	var fd = this.fd
+	assert fd >= 0
+	lang "lua" {{{
+		_sushi.closeTCPSocket(fd)
+	}}}
+	fd = -1
+}
+
+func getRemoteAddress override as string
+{
+	assert fd >= 0
+	var fd = this.fd
+	return lang "lua" string {{{ _sushi.getTCPSocketPeerAddress(fd) }}}
+}
+
+func getRemotePort override as int
+{
+	assert fd >= 0
+	var fd = this.fd
+	return lang "lua" int {{{ _sushi.getTCPSocketPeerPort(fd) }}}
+}
+
+func getLocalAddress override as string
+{
+	ERROR "Not implemented"
+	return fail
+}
+
+func getLocalPort override as int
+{
+	ERROR "Not implemented"
+	return fail
+}
+
+func connect(address as string, port as int) override as bool
+{
+	ERROR "Not implemented"
+	return fail
+}
+
+func listen(port as int) override as bool
+{
+	assert createSocket()
+	var fd = this.fd
+	if lang "lua" int {{{ _sushi.listenTCPSocket(fd, port) }}} != 0 {
+		close()
+		return false
+	}
+	return true
+}
+
+func accept override as TCPSocket
+{
+	assert fd >= 0
+	var r = 0
+	var fd = this.fd
+	lang "lua" {{{
+		r = _sushi.acceptTCPSocket(fd)
+	}}}
+	assert r >= 0
+	var v = new this()
+	v.setFd(r)
+	return v
+}
+
+func setBlocking(blocking as bool) override as bool
+{
+	ERROR "Not implemented"
+	return fail
+}
+
+func getBlocking override as bool
+{
+	ERROR "Not implemented"
+	return fail
+}
+
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
+
+func readWithTimeout(buffer as buffer, timeout as int) override as int
+{
+	if fd < 0:
+		return -1
+	if buffer == null:
+		return -1
+	var v = 0
+	var fd = this.fd
+	lang "lua" {{{
+		v = _sushi.readFromTCPSocket(fd, buffer, #buffer, timeout)
+	}}}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	if fd < 0:
+		return -1
+	if buffer == null || size < 1:
+		return -1
+	var v = 0
+	var fd = this.fd
+	lang "lua" {{{
+		v = _sushi.writeToTCPSocket(fd, buffer, size)
+	}}}
+	return v
+}
