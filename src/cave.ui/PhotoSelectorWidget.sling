@@ -24,6 +24,38 @@
 
 class #widget:
 
+IFDEF "target_ios"
+{
+	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
+	depend "objc-header-h:<UIKit/UIKit.h>"
+
+	class MyImagePickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
+	{
+		prop callback as function<void, Image, string, Error>
+
+		lang "objc" {{{
+			- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info
+			{
+				UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
+				NSURL *url = [info objectForKey:UIImagePickerControllerReferenceURL];
+				[self onImagePicked:image filepath:url.path];
+				objc_removeAssociatedObjects(picker);
+				[picker dismissViewControllerAnimated:YES completion:NULL];
+			}
+		}}}
+
+		func onImagePicked(image as !"UIImage", filepath as string)
+		{
+			if callback {
+				var file = File.forPath(filepath)
+				var error as Error
+				if image:
+					callback(ImageForIOS.forUIImage(image), file.getBasename(), null)
+			}
+		}
+	}
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
@@ -67,14 +99,14 @@ func openPhotoDialog(widget as Widget, callback as function<void, Image, string,
 				imgName = returnCursor.getString(nameIndex);
 				try {
 					java.io.InputStream stream = ctx.getContentResolver().openInputStream(data.getData());
-	                android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(stream);
-	                stream.close();
+					android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeStream(stream);
+					stream.close();
 					img = cave.ImageForAndroid.forAndroidBitmap(bitmap);
-	            } catch (java.io.FileNotFoundException e) {
-	                e.printStackTrace();
-	            } catch (java.io.IOException e) {
-	                e.printStackTrace();
-	            }
+				} catch (java.io.FileNotFoundException e) {
+					e.printStackTrace();
+				} catch (java.io.IOException e) {
+					e.printStackTrace();
+				}
 			}}}
 			if(cb != null) {
 				if(img == null) {
@@ -99,13 +131,13 @@ func openPhotoDialog(widget as Widget, callback as function<void, Image, string,
 	}
 	ELSE IFDEF("target_html") {
 		var img as Image #used
+		var m as object
 		lang "js" {{{
 			var fileSelector = document.createElement('input');
 			fileSelector.setAttribute('type', "file");
 			fileSelector.setAttribute('accept', "image/*");
 			fileSelector.click();
-			fileSelector.addEventListener("change", handleFiles, false);
-			function handleFiles() {
+			fileSelector.addEventListener("change", function handleFiles() {
 				var files = fileSelector.files;
 				if(typeof files === "undefined" || files === null) {
 					console.log("undefined files");
@@ -117,26 +149,49 @@ func openPhotoDialog(widget as Widget, callback as function<void, Image, string,
 					return;
 				}
 				var reader = new FileReader();
-				var image = new Image();
+				m = new Image();
 				reader.onload = function(event) {
-					image.src = "" + event.target.result;
-					console.log(" IMAGE SOURCE >>>>>>> 1 : " + "`" + event.target.result + "'");
+					if(reader.readyState === 2) {
+						m.src = event.target.result;
+						console.log(" IMAGE SOURCE >>>>>>> 1 : " + "`" + event.target.result + "'");
+						m.onload = function() {
+							img = CaveImageForBrowser.NEW();
+							img.image = m;
+							var path = fileSelector.value;
+							var filename = path.substring(path.lastIndexOf("\\")+1);
+							console.log("Filename: " + filename);
+							if(cb != null) {
+								if(filename == null) {
+									cb(null, null, Error.forCode("no_file_data"))
+								}
+								else {
+									cb(img, filename, null)
+								}
+							}
+						}
+					}
 				};
 				reader.readAsDataURL(file);
-				img = CaveImageForBrowser.forJavaScriptImage(image);
-				var path = fileSelector.value;
-				var filename = path.substring(path.lastIndexOf("\\")+1);
-			    console.log("Filename: " + filename);
-			    if(cb != null) {
-					if(filename == null) {
-						cb(null, null, Error.forCode("no_file_data"))
-					}
-					else {
-						cb(img, filename, null)
-					}
-				}
-			}
+			});
 		}}}
+	}
+	ELSE IFDEF "target_iosoc" {
+			var screen = ScreenForWidget.findScreenForWidget(widget)
+			if !screen {
+				if cb:
+					cb(null, null, Error.forCode("no_screen_found"))
+				return
+			}
+			var delegate = new MyImagePickerDelegate()
+			delegate.setCallback(cb)
+			lang "objc" {{{
+				UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+				picker.delegate = delegate;
+				picker.allowsEditing = YES;
+				picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+				objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[screen presentViewController:picker animated:YES completion:nil];
+			}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
