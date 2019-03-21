@@ -50,10 +50,22 @@ prop alsoPrintOnConsole = false
 prop maintenanceTimerDelay = 60
 prop timeoutDelay = 30
 prop enableRateLimit as string
+prop enableHttpsForwarder = false
 var ctx protected as LoggingContext
 
-ctor:
+ctor
+{
 	ctx = new ConsoleApplicationContext()
+	envConfigure("enableRateLimit", Environment.getVariable("SYMPATHY_ENABLE_RATE_LIMIT"))
+	envConfigure("timeoutDelay", Environment.getVariable("SYMPATHY_TIMEOUT_DELAY"))
+	envConfigure("maintenanceTimerDelay", Environment.getVariable("SYMPATHY_MAINTENANCE_TIMER_DELAY"))
+	envConfigure("listenPort", Environment.getVariable("SYMPATHY_LISTEN_PORT"))
+	envConfigure("enableRequestLogging", Environment.getVariable("SYMPATHY_ENABLE_REQUEST_LOGGING"))
+	envConfigure("enableHttpsForwarder", Environment.getVariable("SYMPATHY_ENABLE_HTTPS_FORWARDER"))
+	envConfigure("loggingDirectory", Environment.getVariable("SYMPATHY_LOGGING_DIRECTORY"))
+	envConfigure("enableDebugMessages", Environment.getVariable("SYMPATHY_ENABLE_DEBUG_MESSAGES"))
+	envConfigure("alsoPrintOnConsole", Environment.getVariable("SYMPATHY_ALSO_PRINT_ON_CONSOLE"))
+}
 
 func getConfigFileDirectory as File
 {
@@ -64,6 +76,13 @@ func getConfigFileDirectory as File
 
 func onMaintenance virtual
 {
+}
+
+func envConfigure(key as string, value as string)
+{
+	assert key
+	assert value
+	configure(key, value, null, null)
 }
 
 func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
@@ -92,8 +111,17 @@ func configure(key as string, value as string, relativeTo as File, error as Erro
 		enableRequestLogging = Boolean.asBoolean(value)
 		return true
 	}
+	if key == "enableHttpsForwarder" {
+		enableHttpsForwarder = Boolean.asBoolean(value)
+		return true
+	}
 	if key == "loggingDirectory" {
-		loggingDirectory = File.forRelativePath(value, relativeTo)
+		if value {
+			loggingDirectory = File.forRelativePath(value, relativeTo)
+		}
+		else {
+			loggingDirectory = null
+		}
 		return true
 	}
 	if key == "enableDebugMessages" {
@@ -117,6 +145,24 @@ func doConfigure(key as string, value as string, relativeTo as File) private as 
 	return true
 }
 
+func addHttpsForwarderHandler(server as HTTPServer)
+{
+	server.pushRequestHandler(func(req as HTTPServerRequest, next as function) {
+		var hdr = req.getHeader("x-forwarded-proto")
+		if not String.equals(hdr, "http") {
+			next()
+			return
+		}
+		var host = req.getHeader("host")
+		var path = req.getUrlString()
+		if String.isEmpty(host) || String.isEmpty(path) {
+			next()
+			return
+		}
+		req.sendResponse(HTTPServerResponse.forHTTPTemporaryRedirect("https://" .. host .. path))
+	})
+}
+
 func initialize virtual as bool:
 	return true
 
@@ -135,6 +181,8 @@ func initializeServer(server as HTTPServer) virtual as bool
 		}
 		server.pushRequestHandler(limit)
 	}
+	if enableHttpsForwarder:
+		addHttpsForwarderHandler(server)
 	return true
 }
 
@@ -265,8 +313,9 @@ func execute(args as array<string>) as bool
 	server.setPort(listenPort)
 	assert initialize():
 		Log.error(ctx, "Failed to initialize application")
-	assert initializeServer(server):
+	assert initializeServer(server) {
 		Log.error(ctx, "Failed to configure HTTP server")
+	}
 	if enableRequestLogging:
 		server.addRequestHandlerListener(new HTTPServerRequestLogger().setLogContext(ctx).setLogdir(loggingDirectory))
 	var ioManager = assert IOManager.createDefault():
