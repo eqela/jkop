@@ -338,6 +338,175 @@ IFDEF "target_android"
 	}
 }
 
+IFDEF "target_kotlin"
+{
+	class KotlinBroadcastReceiver extends !"android.content.BroadcastReceiver"
+	{
+		prop callback as function<void, DynamicMap>
+		prop action as string
+
+		func onReceive(context as !"android.content.Context", intent as !"android.content.Intent") override
+		{
+			assert callback
+			var str = lang "kotlin" string {{{ intent!!.getStringExtra("data") }}}
+			var data = assert JSONParser.parse(str) as DynamicMap
+			callback(data)
+		}
+	}
+
+	basetype !"android.app.Activity" type extends
+	basetype cave.Screen type isAlso
+	basetype CompatibleAndroidActivity
+
+	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
+	var permissionRequestListener as function<void,bool>
+	var callbackMap private as DynamicMap
+
+	func registerBroadcastReceiver(action as string, callback as function<void, DynamicMap>) as object
+	{
+		assert String.isNotEmpty(action) && callback
+		if not callbackMap:
+			callbackMap = new DynamicMap()
+		callbackMap.set(action, callback)
+		var broadcastReceiver = new KotlinBroadcastReceiver()
+		broadcastReceiver.setCallback(callback)
+		broadcastReceiver.setAction(action)
+		lang "kotlin" {{{
+			var intentFilter = android.content.IntentFilter()
+			intentFilter.addAction(action)
+			registerReceiver(broadcastReceiver, intentFilter)
+		}}}
+		return broadcastReceiver
+	}
+
+	func onResume override
+	{
+		base.onResume()
+		onStartScreen()
+	}
+
+	func onStop override
+	{
+		base.onStop()
+		onStopScreen()
+	}
+
+	func onDestroy override
+	{
+		base.onDestroy()
+		onDestroyScreen()
+	}
+
+	func unregisterBroadcastReceiver(o as object) as bool
+	{
+		var broadcastReceiver = assert o as KotlinBroadcastReceiver
+		var action = broadcastReceiver.getAction()
+		assert String.isNotEmpty(action)
+		callbackMap.remove(action)
+		lang "kotlin" {{{
+			unregisterReceiver(broadcastReceiver)
+		}}}
+		return true
+	}
+
+	func onCreate(savedInstance as !"android.os.Bundle") override
+	{
+		base.onCreate(savedInstance)
+		lang "kotlin" {{{
+			var ab : android.app.ActionBar = getActionBar()
+			if(ab != null) {
+				ab.hide()
+			}
+		}}}
+		onPrepareScreen()
+		initialize()
+		var intent as !"android.content.Intent"
+		lang "kotlin" {{{
+			intent = getIntent()
+		}}}
+		if intent {
+			var extras as !"android.os.Bundle"
+			lang "kotlin" {{{
+				extras = intent.getExtras()
+			}}}
+			if extras {
+				var data = new DynamicMap()
+				lang "kotlin" {{{
+					var keys : java.util.Set<java.lang.String> = extras.keySet() as java.util.Set<java.lang.String>
+					var it : java.util.Iterator<java.lang.String> = keys.iterator() as java.util.Iterator<java.lang.String>
+					while(it.hasNext()) {
+						var key : kotlin.String = it.next() as kotlin.String
+						var value : java.lang.Object = extras.get(key) as java.lang.Object
+						data!!.set(key, value)
+					}
+				}}}
+				onStartScreenWithData(data)
+			}
+		}
+	}
+
+	func setPermissionRequestListener(listener as function<void,bool>):
+		permissionRequestListener = listener
+
+	func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>)
+	{
+		var listener = permissionRequestListener
+		if(listener == null) {
+			return
+		}
+		permissionRequestListener = null
+		if SIZE(grantResults) < 1 {
+			listener(false)
+			return
+		}
+		var status = true
+		var granted as int
+		lang "kotlin" {{{
+			granted = android.content.pm.PackageManager.PERMISSION_GRANTED
+		}}}
+		foreach(result in grantResults) {
+			if(result != granted) {
+				status = false
+				break
+			}
+		}
+		listener(status)
+	}
+
+	func onBackPressed override
+	{
+		onBackKeyPressEvent()
+	}
+
+	func onActivityResult(requestCode as int, resultCode as int, data as !"android.content.Intent") override
+	{
+		if(androidActivityResultHandler == null) {
+			return
+		}
+		androidActivityResultHandler(requestCode, resultCode, data)
+		androidActivityResultHandler = null
+	}
+
+	func dispatchTouchEvent(event as !"android.view.MotionEvent") override as bool
+	{
+		if(event.getAction() == lang "kotlin" int {{{ android.view.MotionEvent.ACTION_DOWN }}}) {
+			var w = lang "kotlin" !"android.view.View" {{{ getCurrentFocus() }}}
+			if(w is TextInputWidget || w is TextAreaWidget) {
+				lang "kotlin" {{{
+					var rect : android.graphics.Rect = android.graphics.Rect()
+					w.getGlobalVisibleRect(rect)
+					if (!rect.contains(event!!.getRawX() as kotlin.Int, event!!.getRawY() as kotlin.Int)) {
+						if(w is TextInputWidget) {
+							(w as TextInputWidget).dismissKeyboard()
+						}
+					}
+				}}}
+			}
+		}
+		return(lang "kotlin" bool {{{ super.dispatchTouchEvent(event) }}})
+	}
+}
+
 IFDEF "target_html"
 {
 	basetype cave.Screen
@@ -412,6 +581,13 @@ func onBackKeyPressEvent
 			}}}
 		}
 	}
+	ELSE IFDEF "target_kotlin" {
+		if keyEvent.isConsumed == false {
+			lang "kotlin" {{{
+				super.onBackPressed()
+			}}}
+		}
+	}
 }
 
 func deliverKeyEventToWidget(event as KeyEvent, widget as Widget)
@@ -440,6 +616,11 @@ func unlockOrientation
 	ELSE IFDEF("target_iosoc") {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
 	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -455,6 +636,11 @@ func lockToLandscapeOrientation
 	ELSE IFDEF("target_iosoc") {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskLandscapeLeft }}}
 	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -469,6 +655,11 @@ func lockToPortraitOrientation
 	}
 	ELSE IFDEF("target_iosoc") {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskPortrait }}}
+	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -499,6 +690,9 @@ func createContext private as GuiApplicationContext
 	}
 	ELSE IFDEF "target_uwp" {
 		v = GuiApplicationContextForUWP.getInstance()
+	}
+	ELSE IFDEF "target_kotlin" {
+		v = GuiApplicationContextForKotlin.forActivityContext(this)
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -592,6 +786,13 @@ func setWidget(widget as ContainerWidget)
 	ELSE IFDEF "target_uwp" {
 		lang "cs" {{{
 			this.Content = widget;
+		}}}
+		widget.onWidgetAddingToParent()
+		Widget.onWidgetAddedToParent(widget)
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			setContentView(widget)
 		}}}
 		widget.onWidgetAddingToParent()
 		Widget.onWidgetAddedToParent(widget)
