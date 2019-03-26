@@ -22,74 +22,44 @@
  * SOFTWARE.
  */
 
-class is Writer is PrintWriter is Closable is FlushableWriter:
+class is !"android.app.Activity" is CompatibleAndroidActivity:
 
-func forWriter(writer as Writer) static as PrintWriter
+var permissionRequestListener as function<void,bool>
+var context protected as GuiApplicationContextForKotlin
+
+func initializeAndroidActivity virtual
 {
-	if(writer == null) {
-		return(null)
-	}
-	if(writer is PrintWriter) {
-		return(writer as! PrintWriter)
-	}
-	var v = new this()
-	v.setWriter(writer)
-	return(v)
 }
 
-func closeWriter(writer as PrintWriter) static as PrintWriter
+func onCreate(savedInstance as !"android.os.Bundle") override
 {
-	var wc = assert writer as Closable
-	wc.close()
-	return null
+	base.onCreate(savedInstance)
+	context = GuiApplicationContextForKotlin.forActivityContext(this)
+	initializeAndroidActivity()
 }
 
-prop writer as Writer
-
-func print(str as string) as bool
+func setPermissionRequestListener(listener as function<void,bool>)
 {
-	if(str == null) {
-		return(false)
-	}
-	var buffer = String.toUTF8Buffer(str)
-	if(buffer == null) {
-		return(false)
-	}
-	var sz = Buffer.getSize(buffer) as int
-	if(writer.write(buffer, -1) != sz) {
-		return(false)
-	}
-	return(true)
+	permissionRequestListener = listener
 }
 
-func println(str as string) as bool
+func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>)
 {
-	return(print(str .. "\n"))
-}
-
-func write(buf as buffer) as int:
-	return write(buf, -1)
-
-func write(buf as buffer, size as int) as int
-{
-	if(writer == null) {
-		return(-1)
+	var listener = permissionRequestListener
+	if(listener == null) {
+		return
 	}
-	return(writer.write(buf, size))
-}
-
-func close
-{
-	var cw = writer as Closable
-	if(cw != null) {
-		cw.close()
+	permissionRequestListener = null
+	var status = true
+	var granted as int
+	lang "kotlin" {{{
+		granted = android.content.pm.PackageManager.PERMISSION_GRANTED;
+	}}}
+	foreach(result in grantResults) {
+		if(result != granted) {
+			status = false
+			break
+		}
 	}
-}
-
-func flush
-{
-	var cw = writer as FlushableWriter
-	if(cw != null) {
-		cw.flush()
-	}
+	listener(status)
 }
