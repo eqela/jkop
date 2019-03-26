@@ -59,6 +59,9 @@ IFDEF("target_ios")
 ELSE IFDEF "target_android" {
 	depend "androidPermission:android.permission.CAMERA"
 }
+ELSE IFDEF "target_kotlin" {
+	depend "androidPermission:android.permission.CAMERA"
+}
 
 func isSupported static as bool
 {
@@ -66,6 +69,9 @@ func isSupported static as bool
 		return(true)
 	}
 	ELSE IFDEF("target_iosoc") {
+		return(true)
+	}
+	IFDEF("target_kotlin") {
 		return(true)
 	}
 	ELSE {
@@ -164,6 +170,60 @@ func takePicture(widget as Widget, callback as function<void,Image,Error>)
 			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[screen presentViewController:picker animated:YES completion:nil];
 		}}}
+	}
+	ELSE IFDEF("target_kotlin") {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, Error.forCode("no_screen_found"))
+			return
+		}
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			if requestCode != 0 {
+				if cb:
+					cb(null, Error.forCode("invalid_request_code"))
+				return
+			}
+			if resultCode != lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}} {
+				if cb:
+					cb(null, null)
+				return
+			}
+			var img as Image
+			lang "kotlin" {{{
+				val extras = android.os.Bundle(data!!.getExtras())
+				val ib: android.graphics.Bitmap = extras!!.get("data") as android.graphics.Bitmap
+				img = cave.ImageForKotlin.forKotlinBitmap(ib)
+			}}}
+			if cb {
+				if !img {
+					cb(null, Error.forCode("no_image_data"))
+				}
+				else {
+					cb(img, null)
+				}
+			}
+		})
+		var act = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
+		var aac = context as! KotlinApplicationContext
+		var perms = new string[] { "android.permission.CAMERA" }
+		var activity final = act
+		aac.requestPermissions(perms, func(granted as bool) {
+			if not granted {
+				cb(null, Error.forCode("permission_not_granted"))
+				return
+			}
+			else {
+				lang "kotlin" {{{
+					val takePictureIntent = android.content.Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE)
+					if(takePictureIntent.resolveActivity(activity!!.getPackageManager()) == null) {
+					}
+					else {
+						activity.startActivityForResult(takePictureIntent, 0)
+					}
+				}}}
+			}
+		})
 	}
 	ELSE {
 		ERROR("Not implemented")
