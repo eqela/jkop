@@ -24,11 +24,13 @@
 
 class imports cape imports cave imports cave.ui:
 
-IFDEF("target_android") {
+IFDEF "target_android" {
 	depend "androidPermission:android.permission.READ_CONTACTS"
 }
-
-IFDEF("target_iosoc") {
+ELSE IFDEF "target_kotlin" {
+	depend "androidPermission:android.permission.READ_CONTACTS"
+}
+ELSE IFDEF "target_iosoc" {
 	depend "objc-framework:ContactsUI"
 	depend "objc-header-m:<ContactsUI/ContactsUI.h>"
 
@@ -82,14 +84,17 @@ IFDEF("target_iosoc") {
 
 func isSupported static as bool
 {
-	IFDEF("target_android") {
-		return(true)
+	IFDEF "target_android" {
+		return true
 	}
-	ELSE IFDEF("target_iosoc") {
-		return(true)
+	IFDEF "target_kotlin" {
+		return true
+	}
+	ELSE IFDEF "target_iosoc" {
+		return true
 	}
 	ELSE {
-		return(false)
+		return false
 	}
 }
 
@@ -181,6 +186,81 @@ func pickOneContact(widget as Widget, callback as function<void,Contact,Error>)
 			lang "java" {{{
 				android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI);
 				activity.startActivityForResult(intent, 0);
+			}}}
+		})
+	}
+	ELSE IFDEF "target_kotlin" {
+		var fwidget final = widget
+		var screen final = ScreenForWidget.findScreenForWidget(fwidget)
+		PRINT "TARGET KOTLIN"
+		if !screen {
+			if cb:
+				cb(null, Error.forCode("noScreenFound"))
+			return
+		}
+		var perms = new string[] { "android.permission.READ_CONTACTS" }
+		(context as GuiApplicationContextForKotlin).requestPermissions(perms, func(permissionStatus as bool) {
+			if not permissionStatus {
+				if cb:
+					cb(null, Error.forCode("noPermission"))
+				return
+			}
+			var act = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
+			var activity final = act
+			screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+				if(requestCode != 0) {
+					if cb:
+						cb(null, Error.forCode("invalidRequestCode"))
+					return
+				}
+				if(resultCode != lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}}) {
+					if cb:
+						cb(null, null)
+					return
+				}
+				var contactData = lang "kotlin" !"android.net.Uri" {{{ data?.getData() }}}
+				if !contactData {
+					if cb:
+						cb(null, Error.forCode("noContactData"))
+					return
+				}
+				var cursor = lang "kotlin" !"android.database.Cursor" {{{ activity?.getContentResolver()?.query(contactData, null, null, null, null) }}}
+				if !cursor {
+					if cb:
+						cb(null, Error.forCode("failedToReadContact"))
+					return
+				}
+				if(lang "kotlin" bool {{{ cursor.moveToFirst() }}} == false) {
+					if cb:
+						cb(null, Error.forCode("failedToReadContactRecord"))
+					return
+				}
+				var v = new Contact()
+				lang "kotlin" {{{
+					v?.setName(cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME)))
+					var id = cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts._ID))
+					var phones = activity?.getContentResolver()?.query(
+					android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+					android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = " + id, null, null)
+					if (phones != null && phones.moveToFirst()) {
+						while (true) {
+							val number = phones.getString(phones.getColumnIndex("data1"))
+							if (number != null) {
+								v?.addToPhoneNumbers(number)
+							}
+							if (phones.moveToNext() == false) {
+								break
+							}
+						}
+					}
+				}}}
+				if cb {
+					cb(v, null)
+				}
+			})
+			lang "kotlin" {{{
+				var intent = android.content.Intent(android.content.Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI)
+				activity?.startActivityForResult(intent, 0)
 			}}}
 		})
 	}
