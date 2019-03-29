@@ -1,0 +1,211 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is SSLSocket:
+
+prop ctx as LoggingContext
+prop socket as TCPSocket
+prop serverAddress as string
+var acceptInvalidCertificate as bool
+var requireClientCertificate = false
+var clientSocket private as !"javax.net.ssl.SSLSocket"
+var serverSocket private as !"javax.net.ssl.SSLSocket"
+
+func setAcceptInvalidCertificate(v as bool) override:
+	acceptInvalidCertificate = v
+
+func setRequireClientCertificate(v as bool) override:
+	requireClientCertificate = v
+
+func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File = null, isServer as bool = false, passphrase as string = null) as bool
+{
+	var v = true
+	socket = cSocket as TCPSocket
+	var address = serverAddress
+	if String.isEmpty(address):
+		address = socket.getRemoteAddress()
+	assert String.isNotEmpty(address)
+	var port = socket.getRemotePort()
+	var scSocket = (cSocket as! TCPSocketForKotlin).getJavaClientSocket()
+	if isServer {
+		lang "kotlin" {{{
+			try {
+				var sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+				sslContext.init(null, null, java.security.SecureRandom())
+
+				var factory = sslContext.getSocketFactory() as javax.net.ssl.SSLSocketFactory
+				clientSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
+				println("adress")
+				println(address)
+				println("port")
+				println(port)
+				clientSocket?.setUseClientMode(false)
+				clientSocket?.setNeedClientAuth(false)
+				// clientSocket?.startHandshake()
+			}
+			catch(e : kotlin.Exception) {
+				println("OPEN 4")
+				e.printStackTrace()
+				v = false
+			}
+			catch(e : kotlin.Exception) {
+				println("OPEN 4")
+				e.printStackTrace()
+				v = false
+			}
+		}}}
+	}
+	else {
+		lang "kotlin" {{{
+			try {
+				println("adress")
+				println(address)
+				println("port")
+				println(port)
+				var factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
+				clientSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
+				clientSocket?.setUseClientMode(true)
+			}
+			catch(e : kotlin.Exception) {
+				e.printStackTrace()
+				v = false
+			}
+		}}}
+	}	
+	return v
+}
+
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
+
+func close override
+{
+	lang "kotlin" {{{
+		try {
+			if(clientSocket != null) {
+				clientSocket?.close()
+				clientSocket = null
+			}
+			if(serverSocket != null) {
+				serverSocket?.close()
+				serverSocket = null
+			}
+		}
+		catch(e : kotlin.Exception) {
+			e.printStackTrace()
+		}
+	}}}
+	if socket != null {
+		socket.close()
+		socket = null
+	}
+}
+
+func readWithTimeout(buffer as buffer, timeout as int) override as int
+{
+	PRINT "readWithTimeout 1"
+	assert socket && (clientSocket || serverSocket)
+	PRINT "readWithTimeout 2"
+	if not buffer:
+		return -1
+	PRINT "readWithTimeout 3"
+	var v = 0
+	lang "kotlin" {{{
+		try {
+			println("readWithTimeout 4")
+			var ins = clientSocket?.getInputStream()
+			if(ins ==null) {
+				ins = serverSocket?.getInputStream()
+			}
+			println("readWithTimeout 5")
+			if(socket!!.getBlocking() == false && ins!!.available() < 1) {
+				println("readWithTimeout 6")
+				return(0)
+			}
+			else {
+				println("readWithTimeout 7")
+				println(ins)
+				println(buffer)
+				println("readWithTimeout 7.1")
+				v = ins!!.read(buffer.toByteArray())
+				println("readWithTimeout 8")
+			}
+		}
+		catch(e : kotlin.Exception) {
+			println("readWithTimeout 9")
+			e.printStackTrace()
+			v = -1
+		}
+	}}}
+	if v < 1 {
+		PRINT "readWithTimeout 10"
+		close()
+		v = -1
+	}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	PRINT "WRITE 1"
+	assert socket && (clientSocket || serverSocket)
+	PRINT "WRITE 2"
+	if not buffer:
+		return -1
+	PRINT "WRITE 3"
+	var v = 0
+	lang "kotlin" {{{
+		try {
+			println("WRITE 4")
+			var os = clientSocket?.getOutputStream()
+			if(os ==null) {
+				os = serverSocket?.getOutputStream()
+			}
+			println("WRITE 5")
+			println(os)
+			println(buffer)
+			println("WRITE 5.1")
+			os!!.write(buffer.toByteArray())
+			println("WRITE 6")
+			os!!.flush()
+			println("WRITE 7")
+			v = size
+		}
+		catch(e : kotlin.Exception)
+		{
+			println("WRITE 8")
+			e.printStackTrace()
+			v = -1
+		}
+	}}}
+	if v < 1 {
+		PRINT "WRITE 9"
+		close()
+		v = -1
+	}
+	return v
+}
+
+func getSocket override as ConnectedSocket:
+	return socket
