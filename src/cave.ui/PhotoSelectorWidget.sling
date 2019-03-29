@@ -193,6 +193,69 @@ func openPhotoDialog(widget as Widget, callback as function<void, Image, string,
 			[screen presentViewController:picker animated:YES completion:nil];
 		}}}
 	}
+	ELSE IFDEF "target_kotlin" {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, null, Error.forCode("no_screen_found"))
+			return
+		}
+		var actx = (context as GuiApplicationContextForKotlin).getAndroidActivityContext()
+		var ctx = actx
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			if requestCode != 0 {
+				if cb:
+					cb(null, null, Error.forCode("invalid_request_code"))
+				return
+			}
+			if resultCode != lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}} {
+				if cb:
+					cb(null, null, null)
+				return
+			}
+			var img as Image
+			var imgName as string
+			lang "kotlin" {{{
+				val uri: android.net.Uri = data!!.getData()
+				val returnCursor: android.database.Cursor = ctx!!.getContentResolver()!!.query(uri, null, null, null, null)
+				val nameIndex = returnCursor!!.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+				returnCursor!!.moveToFirst()
+				imgName = returnCursor!!.getString(nameIndex)
+				try {
+					val stream: java.io.InputStream = ctx!!.getContentResolver()!!.openInputStream(data.getData())
+					val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
+					stream!!.close()
+					img = cave.ImageForKotlin.forKotlinBitmap(bitmap)
+				}
+				catch (e: java.io.FileNotFoundException) {
+					e.printStackTrace()
+				}
+				catch (e: java.io.IOException) {
+					e.printStackTrace()
+				}
+			}}}
+			if cb {
+				if !img {
+					cb(null, null, Error.forCode("no_photo_data"))
+				}
+				else {
+					cb(img, imgName, null)
+				}
+			}
+		})
+		var act = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
+		var activity final = act
+		lang "kotlin" {{{
+			val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT)
+			intent!!.setType("image/*")
+			try {
+				activity!!.startActivityForResult(android.content.Intent.createChooser(intent, "Select a photo"), 0)
+			}
+			catch (ex: android.content.ActivityNotFoundException) {
+				ex.printStackTrace()
+			}
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 		if(cb != null) {
