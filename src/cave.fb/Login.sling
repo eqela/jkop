@@ -29,6 +29,11 @@ IFDEF "target_android"
 	depend "gradle:com.facebook.android:facebook-android-sdk:4.14.0"
 }
 
+ELSE IFDEF "target_android"
+{
+	depend "gradle:com.facebook.android:facebook-android-sdk:4.14.0"
+}
+
 IFDEF "target_browser"
 {
 	var sdkIncluded static = false
@@ -106,6 +111,10 @@ func initialize as bool
 		lang "java" {{{
 			com.facebook.FacebookSdk.sdkInitialize(activity);
 		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext()
+		lang "kotlin" {{{ com.facebook.FacebookSdk.sdkInitialize(activity) }}}
 	}
 	return true
 }
@@ -186,6 +195,47 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 			lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"));
 		}}}
 		return
+	}
+	ELSE IFDEF "target_kotlin" {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null):
+				cb(null, null, Error.forCode("no_screen_found"))
+			return
+		}
+		var callbackManager = lang "kotlin" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
+		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			callbackManager.onActivityResult(requestCode, resultCode, data)
+		})
+		lang "kotlin" {{{
+			var lm : com.facebook.login.LoginManager = com.facebook.login.LoginManager.getInstance()
+			if(com.facebook.AccessToken.getCurrentAccessToken() != null) {
+				lm.logOut()
+			}
+			lm.registerCallback(callbackManager, object : com.facebook.FacebookCallback<com.facebook.login.LoginResult> {
+				override fun onSuccess(loginResult: com.facebook.login.LoginResult) {
+					if(cb == null) {
+						return
+					}
+					var ac: com.facebook.AccessToken = loginResult.getAccessToken()
+					if(ac == null) {
+						cb.invoke(null, null, cape.Error.forCode("login_failed"))
+					}
+					else {
+						cb.invoke(ac.getUserId(), ac.getToken(), null)
+					}
+				}
+				override fun onCancel() {
+				}
+				override fun onError(exception: com.facebook.FacebookException) {
+					if(cb != null) {
+						cb.invoke(null, null, cape.Error.forMessage(exception.toString()))
+					}
+				}
+			})
+			lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"))
+		}}}
 	}
 	ELSE IFDEF "target_iosoc" {
 		var screen = cave.ui.ScreenForWidget.findScreenForWidget(widget)
