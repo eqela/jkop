@@ -130,6 +130,53 @@ ELSE IFDEF "target_iosoc" {
 		}
 	}}}
 }
+ELSE IFDEF "target_kotlin" {
+	depend "androidPermission:android.permission.CAMERA"
+	depend "gradle:com.google.android.gms:play-services-vision:11.0.0"
+	basetype !"android.view.SurfaceView" type extends
+	basetype !"android.view.SurfaceHolder.Callback" type implements
+	basetype Widget type isAlso
+
+	var barcodeDetector as !"com.google.android.gms.vision.barcode.BarcodeDetector"
+	var cameraSource as !"com.google.android.gms.vision.CameraSource"
+	var surfaceHolder as !"android.view.SurfaceHolder"
+	var cameraPermissionGranted as bool
+	var cameraShown as bool
+
+	func surfaceChanged(holder as !"android.view.SurfaceHolder", format as int, width as int, height as int) override:
+		;
+
+	func surfaceCreated(holder as !"android.view.SurfaceHolder") override:
+		tryCameraPreview()
+
+	func surfaceDestroyed(holder as !"android.view.SurfaceHolder") override
+	{
+		lang "kotlin" {{{
+			cameraSource!!.stop()
+		}}}
+	}
+
+	func onRequestPermission(granted as bool)
+	{
+		if not granted {
+			if widgetContext:
+				requestPermission(widgetContext as! KotlinApplicationContext)
+		}
+		else {
+			cameraPermissionGranted = true
+			tryCameraPreview()
+		}
+	}
+
+	func requestPermission(kap as KotlinApplicationContext)
+	{
+		assert kap
+		var perms = new string[] { "android.permission.CAMERA" }
+		lang "kotlin" {{{
+			kap.requestPermissions(perms, this::onRequestPermission)
+		}}}
+	}
+}
 ELSE {
 	basetype Widget type extends
 }
@@ -162,6 +209,14 @@ ctor(ctx as GuiApplicationContext)
 			self->session.sessionPreset = AVCaptureSessionPresetMedium;
 		}}}
 	}
+	IFDEF "target_kotlin" {
+		base((ctx as! cave.GuiApplicationContextForKotlin).getActivityContext())
+		requestPermission(ctx as! KotlinApplicationContext)
+		lang "kotlin" {{{
+			surfaceHolder = getHolder()
+			surfaceHolder!!.addCallback(this)
+		}}}
+	}
 	widgetContext = ctx
 }
 
@@ -183,6 +238,18 @@ func cleanUp
 			}
 			cameraSource = null;
 			barcodeDetector = null;
+		}}}
+	}
+	IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			if(cameraSource != null) {
+				cameraSource!!.release()
+			}
+			if(barcodeDetector != null) {
+				barcodeDetector!!.release()
+			}
+			cameraSource = null
+			barcodeDetector = null
 		}}}
 	}
 }
@@ -295,6 +362,59 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			[captureMetadataOutput setMetadataObjectTypes:[captureMetadataOutput availableMetadataObjectTypes]];
 		}}}
 	}
+	ELSE IFDEF "target_kotlin" {
+		var context = (widgetContext as! cave.GuiApplicationContextForKotlin).getActivityContext()
+		var thisWidget final #used = this
+		lang "kotlin" {{{
+			val bdb = com.google.android.gms.vision.barcode.BarcodeDetector.Builder(context)
+			if(widgetFormat == FORMAT_ALL) {
+				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.ALL_FORMATS)
+			}
+			else if(widgetFormat == FORMAT_QRCODE) {
+				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE)
+			}
+			else if(widgetFormat == FORMAT_EAN13) {
+				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13)
+			}
+			else if(widgetFormat == FORMAT_UPCA) {
+				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A)
+			}
+			barcodeDetector = bdb!!.build()
+			var cameraFacing: Int = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK
+			if(widgetPrimaryCamera == CAMERA_FRONT) {
+				cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT
+			}
+			cameraSource = com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
+				.setFacing(cameraFacing)
+				.setAutoFocusEnabled(true)
+				.build()
+			val bcd = barcodeDetector
+			bcd!!.setProcessor(object : com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode> {
+
+				public override fun release() {
+				}
+
+				public override fun receiveDetections(detections: com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode>) {
+					val barcodes: android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> = detections.getDetectedItems()
+					if(barcodes.size() > 0) {
+						for (i in 0..barcodes.size() - 1) {
+							val bc: com.google.android.gms.vision.barcode.Barcode = barcodes!!.valueAt(i)
+							val obj: BarcodeObject = BarcodeObject()
+							obj.setRawValue(bc.rawValue)
+							obj.setDisplayValue(bc.displayValue)
+							obj.setFormat(bc.format)
+							obj.setValueFormat(bc.valueFormat)
+							thisWidget!!.post(object : java.lang.Runnable {
+								override fun run() {
+									thisWidget!!.onReceiveDetection(obj)
+								}
+							})
+						}
+					}
+				}
+			})
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -328,6 +448,18 @@ func tryCameraPreview private
 			[self->session startRunning];
 			self->sessionRunning = YES;
 		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		if cameraPermissionGranted && not cameraShown {
+			lang "kotlin" {{{
+				try {
+					cameraShown = cameraSource?.start(surfaceHolder) != null
+				}
+				catch (e: Exception) {
+					e.printStackTrace()
+				}
+			}}}
+		}
 	}
 }
 
