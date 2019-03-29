@@ -22,24 +22,44 @@
  * SOFTWARE.
  */
 
-class abstract:
+class is !"android.app.Activity" is CompatibleAndroidActivity:
 
-func create static as this
+var permissionRequestListener as function<void,bool>
+var context protected as GuiApplicationContextForKotlin
+
+func initializeAndroidActivity virtual
 {
-	IFDEF "target_cs" {
-		return new BCryptEncoderCS()
-	}
-	ELSE {
-		return new BCryptEncoderGeneric()
-	}
 }
 
-func generateSalt as string:
-	return generateSalt(10)
+func onCreate(savedInstance as !"android.os.Bundle") override
+{
+	base.onCreate(savedInstance)
+	context = GuiApplicationContextForKotlin.forActivityContext(this)
+	initializeAndroidActivity()
+}
 
-func generateSalt(logRounds as int) as string:
-	return generateSalt(logRounds, "2a")
+func setPermissionRequestListener(listener as function<void,bool>)
+{
+	permissionRequestListener = listener
+}
 
-func generateSalt(logRounds as int, bCryptVersion as string) abstract as string
-func hashPassword(password as string, salt as string) abstract as string
-func checkPassword(password as string, hash as string) abstract as bool
+func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>)
+{
+	var listener = permissionRequestListener
+	if(listener == null) {
+		return
+	}
+	permissionRequestListener = null
+	var status = true
+	var granted as int
+	lang "kotlin" {{{
+		granted = android.content.pm.PackageManager.PERMISSION_GRANTED;
+	}}}
+	foreach(result in grantResults) {
+		if(result != granted) {
+			status = false
+			break
+		}
+	}
+	listener(status)
+}

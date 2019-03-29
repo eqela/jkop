@@ -108,6 +108,89 @@ IFDEF("target_android")
 	}}}
 }
 
+IFDEF("target_kotlin") {
+	lang "kotlin" {{{
+		private var path : android.graphics.Path = android.graphics.Path()
+		private var paint : android.graphics.Paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+		private var lastTouchX : kotlin.Float = 0f
+		private var lastTouchY : kotlin.Float = 0f
+		private final var dirtyRect : android.graphics.RectF = android.graphics.RectF()
+	}}}
+
+	func onTouchEvent(mevt as !"android.view.MotionEvent") override as bool
+	{
+		lang "kotlin" {{{
+			var eventX : kotlin.Float = mevt!!.getX()
+			var eventY : kotlin.Float = mevt!!.getY()
+			if(mevt!!.getAction() == android.view.MotionEvent.ACTION_DOWN) {
+				path.moveTo(eventX, eventY)
+				lastTouchX = eventX
+				lastTouchY = eventY
+				return true;
+			}
+			else if(mevt!!.getAction() == android.view.MotionEvent.ACTION_MOVE) {
+				var dx : kotlin.Float = Math.abs(lastTouchX - mevt.getX())
+				var dy : kotlin.Float = Math.abs(lastTouchY - mevt.getY())
+				if (dx >= 1 || dy >= 1) {
+					path.quadTo(lastTouchX, lastTouchY, (mevt.getX() + lastTouchX)/2, (mevt.getY() + lastTouchY)/2)
+				}
+			}
+			else if(mevt!!.getAction() == android.view.MotionEvent.ACTION_UP) {
+				resetDirtyRect(eventX, eventY)
+				var historySize : Int = mevt.getHistorySize()
+				for(i in 0 until historySize) {
+					var historicalX : kotlin.Float = mevt.getHistoricalX(i)
+					var historicalY : kotlin.Float = mevt.getHistoricalY(i)
+					expandDirtyRect(historicalX, historicalY)
+					path.lineTo(historicalX, historicalY)
+				}
+				path.lineTo(eventX, eventY)
+			}
+			invalidate(
+				(dirtyRect.left - strokeWidth / 2).toInt(),
+				(dirtyRect.top - strokeWidth / 2).toInt(),
+				(dirtyRect.right + strokeWidth / 2).toInt(),
+				(dirtyRect.bottom + strokeWidth / 2).toInt()
+			)
+			lastTouchX = eventX
+			lastTouchY = eventY
+		}}}
+		return true
+	}
+
+	func onDraw(canvas as !"android.graphics.Canvas") override
+	{
+		lang "kotlin" {{{
+			super.onDraw(canvas)
+			canvas!!.drawPath(path, paint)
+		}}}
+	}
+
+	lang "kotlin" {{{
+		fun expandDirtyRect(historicalX : kotlin.Float, historicalY : kotlin.Float) {
+			if(historicalX < dirtyRect.left) {
+				dirtyRect.left = historicalX
+			}
+			else if(historicalX > dirtyRect.right) {
+				dirtyRect.right = historicalX
+			}
+			if(historicalY < dirtyRect.top) {
+				dirtyRect.top = historicalY
+			}
+			else if(historicalY > dirtyRect.bottom) {
+				dirtyRect.bottom = historicalY
+			}
+		}
+
+		fun resetDirtyRect(eventX : kotlin.Float, eventY : kotlin.Float) {
+			dirtyRect.left = Math.min(lastTouchX, eventX);
+			dirtyRect.right = Math.max(lastTouchX, eventX);
+			dirtyRect.top = Math.min(lastTouchY, eventY);
+			dirtyRect.bottom = Math.max(lastTouchY, eventY);
+		}
+	}}}
+}
+
 IFDEF("target_iosoc")
 {
 	var incrementalImage as !"UIImage"
@@ -202,6 +285,15 @@ ctor(ctx as GuiApplicationContext)
 			paint.setStrokeWidth(strokeWidth);
 		}}}
 	}
+	IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			paint.setAntiAlias(true);
+			paint.setColor(android.graphics.Color.BLACK);
+			paint.setStyle(android.graphics.Paint.Style.STROKE);
+			paint.setStrokeJoin(android.graphics.Paint.Join.ROUND);
+			paint.setStrokeWidth(strokeWidth);
+		}}}
+	}
 	IFDEF("target_iosoc") {
 		lang "objc" {{{
 			path = [UIBezierPath bezierPath];
@@ -228,6 +320,18 @@ func setStrokeColor(color as Color)
 			}}}
 		}
 	}
+	ELSE IFDEF "target_kotlin" {
+		if(!color) {
+			lang "kotlin" {{{
+				paint.setColor(0);
+			}}}
+		}
+		else {
+			lang "kotlin" {{{
+				paint.setColor(color.toARGBInt32());
+			}}}
+		}
+	}
 	ELSE {
 		ERROR("Not implemented.")
 	}
@@ -238,6 +342,11 @@ func setStrokeWidth(width as float)
 	strokeWidth = width
 	IFDEF("target_android") {
 		lang "java" {{{
+			paint.setStrokeWidth(strokeWidth);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
 			paint.setStrokeWidth(strokeWidth);
 		}}}
 	}
@@ -261,6 +370,12 @@ func clear
 			[self setNeedsDisplay];
 		}}}
 	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			path.reset();
+			invalidate();
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented.")
 	}
@@ -268,8 +383,8 @@ func clear
 
 func getSignatureAsImage as Image
 {
+	var byteArray as buffer
 	IFDEF("target_android") {
-		var byteArray as buffer
 		lang "java" {{{
 			android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(this.getWidth(), this.getHeight(), android.graphics.Bitmap.Config.ARGB_8888);
 			android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap);
@@ -282,6 +397,18 @@ func getSignatureAsImage as Image
 	}
 	ELSE IFDEF("target_iosoc") {
 		return ImageForIOS.forUIImage(incrementalImage)
+	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			var bitmap : android.graphics.Bitmap = android.graphics.Bitmap.createBitmap(this.getWidth(), this.getHeight(), android.graphics.Bitmap.Config.ARGB_8888)
+			var canvas : android.graphics.Canvas = android.graphics.Canvas(bitmap)
+			this.draw(canvas)
+			var bufferStream : java.io.ByteArrayOutputStream = java.io.ByteArrayOutputStream()
+			bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bufferStream)
+			var bs = bufferStream.toByteArray()
+			byteArray = bs.toUByteArray()
+		}}}
+		return ImageForKotlin.forBuffer(byteArray)
 	}
 	ELSE {
 		ERROR("Not implemented.")
