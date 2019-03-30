@@ -29,8 +29,7 @@ prop socket as TCPSocket
 prop serverAddress as string
 var acceptInvalidCertificate as bool
 var requireClientCertificate = false
-var clientSocket private as !"javax.net.ssl.SSLSocket"
-var serverSocket private as !"javax.net.ssl.SSLSocket"
+var sslSocket private as !"javax.net.ssl.SSLSocket"
 
 func setAcceptInvalidCertificate(v as bool) override:
 	acceptInvalidCertificate = v
@@ -47,30 +46,37 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 		address = socket.getRemoteAddress()
 	assert String.isNotEmpty(address)
 	var port = socket.getRemotePort()
-	var scSocket = (cSocket as! TCPSocketForKotlin).getJavaClientSocket()
+	var scSocket = (socket as! TCPSocketForKotlin).getJavaClientSocket()
 	if isServer {
 		lang "kotlin" {{{
 			try {
-				var sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
-				sslContext.init(null, null, java.security.SecureRandom())
+				var file = java.io.FileInputStream(certFile!!.getPath())
+				var keyStore = java.security.KeyStore.getInstance("JKS")
+				keyStore.load(file, passphrase!!.toCharArray())
 
+				var keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance("SunX509")
+				keyManagerFactory.init(keyStore, passphrase!!.toCharArray())
+				
+				var trustManagerFactory = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+				trustManagerFactory.init(keyStore)
+
+				var sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
+				if(acceptInvalidCertificate) {
+					sslContext.init(keyManagerFactory.getKeyManagers(), null, java.security.SecureRandom())
+				}
+				else{
+					sslContext.init(keyManagerFactory.getKeyManagers(), trustManagerFactory.getTrustManagers(), java.security.SecureRandom())
+				}
 				var factory = sslContext.getSocketFactory() as javax.net.ssl.SSLSocketFactory
-				clientSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
-				println("adress")
-				println(address)
-				println("port")
-				println(port)
-				clientSocket?.setUseClientMode(false)
-				clientSocket?.setNeedClientAuth(false)
-				// clientSocket?.startHandshake()
+				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
+				sslSocket?.setUseClientMode(false)
+				sslSocket?.setWantClientAuth(requireClientCertificate)
 			}
 			catch(e : kotlin.Exception) {
-				println("OPEN 4")
 				e.printStackTrace()
 				v = false
 			}
 			catch(e : kotlin.Exception) {
-				println("OPEN 4")
 				e.printStackTrace()
 				v = false
 			}
@@ -79,13 +85,9 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 	else {
 		lang "kotlin" {{{
 			try {
-				println("adress")
-				println(address)
-				println("port")
-				println(port)
 				var factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
-				clientSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
-				clientSocket?.setUseClientMode(true)
+				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
+				sslSocket?.setUseClientMode(true)
 			}
 			catch(e : kotlin.Exception) {
 				e.printStackTrace()
@@ -103,13 +105,9 @@ func close override
 {
 	lang "kotlin" {{{
 		try {
-			if(clientSocket != null) {
-				clientSocket?.close()
-				clientSocket = null
-			}
-			if(serverSocket != null) {
-				serverSocket?.close()
-				serverSocket = null
+			if(sslSocket != null) {
+				sslSocket?.close()
+				sslSocket = null
 			}
 		}
 		catch(e : kotlin.Exception) {
@@ -124,42 +122,27 @@ func close override
 
 func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
-	PRINT "readWithTimeout 1"
-	assert socket && (clientSocket || serverSocket)
-	PRINT "readWithTimeout 2"
+	assert sslSocket
 	if not buffer:
 		return -1
-	PRINT "readWithTimeout 3"
 	var v = 0
 	lang "kotlin" {{{
 		try {
-			println("readWithTimeout 4")
-			var ins = clientSocket?.getInputStream()
-			if(ins ==null) {
-				ins = serverSocket?.getInputStream()
-			}
-			println("readWithTimeout 5")
-			if(socket!!.getBlocking() == false && ins!!.available() < 1) {
-				println("readWithTimeout 6")
-				return(0)
-			}
-			else {
-				println("readWithTimeout 7")
-				println(ins)
-				println(buffer)
-				println("readWithTimeout 7.1")
-				v = ins!!.read(buffer.toByteArray())
-				println("readWithTimeout 8")
+			var channel = sslSocket?.getChannel()
+			var ba = buffer!!.toByteArray()
+			v = channel!!.read(java.nio.ByteBuffer.wrap(ba))
+			var index = 0
+			for(byte in ba) {
+				buffer!!.set(index, byte.toUByte())
+				index++
 			}
 		}
 		catch(e : kotlin.Exception) {
-			println("readWithTimeout 9")
 			e.printStackTrace()
 			v = -1
 		}
 	}}}
 	if v < 1 {
-		PRINT "readWithTimeout 10"
 		close()
 		v = -1
 	}
@@ -168,39 +151,23 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 
 func write(buffer as buffer, size as int) override as int
 {
-	PRINT "WRITE 1"
-	assert socket && (clientSocket || serverSocket)
-	PRINT "WRITE 2"
+	assert sslSocket
 	if not buffer:
 		return -1
-	PRINT "WRITE 3"
 	var v = 0
 	lang "kotlin" {{{
 		try {
-			println("WRITE 4")
-			var os = clientSocket?.getOutputStream()
-			if(os ==null) {
-				os = serverSocket?.getOutputStream()
-			}
-			println("WRITE 5")
-			println(os)
-			println(buffer)
-			println("WRITE 5.1")
-			os!!.write(buffer.toByteArray())
-			println("WRITE 6")
-			os!!.flush()
-			println("WRITE 7")
+			var channel = sslSocket?.getChannel()
+			channel!!.write(java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size))
 			v = size
 		}
 		catch(e : kotlin.Exception)
 		{
-			println("WRITE 8")
 			e.printStackTrace()
 			v = -1
 		}
 	}}}
 	if v < 1 {
-		PRINT "WRITE 9"
 		close()
 		v = -1
 	}
