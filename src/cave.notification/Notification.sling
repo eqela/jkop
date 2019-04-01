@@ -29,6 +29,11 @@ IFDEF("target_android")
 	depend "androidPermission:android.permission.VIBRATE"
 }
 
+ELSE IFDEF("target_kotlin")
+{
+	depend "androidPermission:android.permission.VIBRATE"
+}
+
 ELSE IFDEF("target_iosoc")
 {
 	depend "objc-header-h:<UserNotifications/UserNotifications.h>"
@@ -101,6 +106,55 @@ func show(title as string, message as string) as bool
 				return(false);
 			}
 			mNotificationManager.notify(id, mbuilt);
+		}}}
+		return(true)
+	}
+	ELSE IFDEF("target_kotlin") {
+		var cc = context as GuiApplicationContextForKotlin
+		if(cc == null):
+			return(false)
+		var ctx = cc.getAndroidActivityContext()
+		if(ctx == null):
+			return(false)
+		var packageName = ctx.getPackageName() as! string
+		var rid = packageName .. ":drawable/appicon"
+		var id = Integer.asInteger(String.forInteger(SystemClock.asSeconds()))
+		lang "kotlin" {{{
+			var res = ctx!!.getResources()
+			var aid = res!!.getIdentifier(rid, null, null)
+			if (aid < 0) {
+				aid = android.R.drawable.sym_def_app_icon
+			}
+			var mBuilder : android.app.Notification.Builder = android.app.Notification.Builder(ctx)
+			mBuilder.setSmallIcon(aid)
+			mBuilder.setContentTitle(t)
+			mBuilder.setContentText(message)
+			mBuilder.setTicker(message)
+			mBuilder.setDefaults(android.app.Notification.DEFAULT_ALL)
+			mBuilder.setAutoCancel(true)
+			var pm : android.content.pm.PackageManager? = null
+			try {
+				pm = ctx.getPackageManager()
+			}
+			catch(e: java.lang.Exception) {
+				pm = null
+				return(false)
+			}
+			var resultIntent : android.content.Intent = pm.getLaunchIntentForPackage(packageName)
+			var resultPendingIntent : android.app.PendingIntent = android.app.PendingIntent.getActivity(ctx, 0, resultIntent, android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+			mBuilder.setContentIntent(resultPendingIntent);
+			var mNotificationManager : android.app.NotificationManager = ctx!!.getSystemService(android.content.Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+			var mbuilt : android.app.Notification? = null
+			try {
+				mbuilt = mBuilder.build()
+			}
+			catch(e: java.lang.Exception) {
+				return(false)
+			}
+			if(mbuilt == null) {
+				return(false)
+			}
+			mNotificationManager.notify(id, mbuilt)
 		}}}
 		return(true)
 	}
