@@ -29,13 +29,13 @@ IFDEF "target_android"
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
 }
 
-IFDEF "target_kotlin"
+ELSE IFDEF "target_kotlin"
 {
 	depend "androidPermission:android.permission.READ_EXTERNAL_STORAGE"
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
 }
 
-IFDEF "target_ios"
+ELSE IFDEF "target_ios"
 {
 	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
 	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
@@ -91,7 +91,7 @@ IFDEF "target_ios"
 	}
 }
 
-IFDEF "target_html" {
+ELSE IFDEF "target_html" {
 	var inputElement as object
 }
 
@@ -200,6 +200,95 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 					activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
 				}
 				catch(android.content.ActivityNotFoundException ex) {
+				}
+			}}}
+		})
+	}
+	ELSE IFDEF("target_kotlin") {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null):
+				cb(null, null, null, Error.forCode("noScreenFound"))
+			return
+		}
+		var ctx = (context as GuiApplicationContextForKotlin).getAndroidActivityContext()
+		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+			PRINT resultCode
+			if(requestCode != 0) {
+				if(cb != null):
+					cb(null, null, null, Error.forCode("invalidRequestCode"))
+				return
+			}
+			if(resultCode != lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}}) {
+				assert cb
+				if resultCode == lang "kotlin" int {{{ android.app.Activity.RESULT_CANCELED }}} {
+					cb(null, null, null, Error.forCode("canceled"))
+				}
+				else {
+					cb(null, null, null, Error.forCode("unknownResult"))
+				}
+				return
+			}
+			lang "kotlin" {{{
+				val uri: android.net.Uri = data!!.getData()
+				if ("content".equals(uri!!.getScheme(), ignoreCase = true)) {
+					var cursor: android.database.Cursor? = null
+					var fileSize: Long = 0
+					var fileName: String? = null
+					var fileType: String? = null
+					var fileBuffer: UByteArray? = null
+					try {
+						cursor = ctx!!.getContentResolver().query(uri, null, null, null, null)
+						if (cursor!!.moveToFirst()) {
+							fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME))
+							fileType = ctx.getContentResolver().getType(uri)
+							fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE))
+							fileBuffer = cape.Buffer.allocate(fileSize)
+							cursor.close()
+						}
+						val inputStream: java.io.InputStream = ctx.getContentResolver().openInputStream(uri)
+						val buff = fileBuffer!!.toByteArray()
+						val v : kotlin.Int = inputStream.read(buff)
+						if (cb != null) {
+							if (v.toLong() == fileSize) {
+								cb.invoke(buff.toUByteArray(), fileName, fileType, null)
+							} else {
+								cb.invoke(null, null, null, cape.Error.forCode("invalidFileData"))
+							}
+						}
+					}
+					catch (e: java.lang.Exception) {
+						e.printStackTrace()
+						if (cb != null) {
+							cb.invoke(null, null, null, cape.Error.forCode("noFileData"))
+						}
+					}
+				}
+				else if ("file".equals(uri.getScheme(), ignoreCase = true)) {
+					var fl = cape.File.forPath(uri.getPath())
+					if(fl == null) {
+						cb!!.invoke(null, null, null, cape.Error.forCode("noFileData"))
+					}
+					else {
+						cb!!.invoke(fl.getContentsBuffer(), fl.getBasename(), capex.util.MimeTypeRegistry.typeForFile(fl), null)
+					}
+				}
+			}}}
+		})
+		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
+		var perms = new string[] { "android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE" }
+		var ctxAac = context as KotlinApplicationContext
+		ctxAac.requestPermissions(perms, func(status as bool) {
+			if(status == false):
+				return
+			lang "kotlin" {{{
+				val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT)
+				intent.setType(type)
+				intent.addCategory(android.content.Intent.CATEGORY_OPENABLE)
+				try	{
+					activity!!.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0)
+				}
+				catch (ex: android.content.ActivityNotFoundException) {
 				}
 			}}}
 		})
