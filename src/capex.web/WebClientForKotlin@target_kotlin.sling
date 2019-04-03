@@ -82,13 +82,12 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 
 	func setRequestHeaders(conn as !"java.net.HttpURLConnection", requestHeaders as KeyValueList<string,string>) private
 	{
-		if(requestHeaders != null) {
+		if requestHeaders {
 			var iter = requestHeaders.iterate()
 			loop {
-				var nh as KeyValuePair<string,string> #force = iter.next()
-				if(nh == null) {
+				var nh as KeyValuePair<string,string> = iter.next()
+				if !nh:
 					break
-				}
 				var key = nh.key
 				var value = nh.value
 				lang "kotlin" {{{
@@ -154,7 +153,7 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 		}}}
 		var length = 0
 		lang "kotlin" {{{
-			var responseBuffer : kotlin.UByteArray = kotlin.UByteArray(1024 * 1024 * 2)
+			var responseBuffer = kotlin.ByteArray(1024 * 1024 * 2)
 			while(true) {
 				try {
 					val rdr = reader
@@ -162,7 +161,7 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 					if(r < 1) {
 						break
 					}
-					System.arraycopy(buf, 0, responseBuffer.toByteArray(), length, r)
+					System.arraycopy(buf, 0, responseBuffer, length, r)
 					length += r
 				}
 				catch(e: Exception) {
@@ -178,7 +177,7 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 				break
 			}
 			lang "kotlin" {{{
-				var c : kotlin.Int = responseBuffer[i].toInt() and 0xff as kotlin.Int
+				var c : kotlin.Int = responseBuffer[i].toInt() and 0xFF as kotlin.Int
 				cape.Buffer.setByte(bb, i.toLong(), c!!.toUByte())
 				i++
 			}}}
@@ -208,18 +207,16 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 				return (null)
 			}
 			setRequestHeaders(conn, requestHeaders)
-			try{
+			try {
 				conn.setRequestMethod(method)
 			}
 			catch (e:Exception) {
 				e.printStackTrace()
 			}
-			if (method.equals("POST", ignoreCase = true) || method.equals("PUT", ignoreCase = true))
-			{
+			if (method.equals("POST", ignoreCase = true) || method.equals("PUT", ignoreCase = true)) {
 				val w: java.io.OutputStream? = null
 				var writer = w
-				try
-				{
+				try {
 					writer = conn.getOutputStream()
 					writer.write(body?.toByteArray())
 					writer.flush()
@@ -227,8 +224,7 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 				catch (e:Exception) {
 					e.printStackTrace()
 				}
-				finally
-				{
+				finally {
 					try {
 						writer?.close()
 					}
@@ -238,23 +234,23 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 				}
 			}
 			return (processResponse(conn))
+		}
+		protected override fun onProgressUpdate(vararg progress: Void) {
+		}
+		protected override fun onPostExecute(res: WebClientResponse) {
+			var responseCode: kotlin.String? = null
+			responseCode = "404"
+			var responseHeaders: cape.KeyValueList<kotlin.String?, kotlin.String?>? = null
+			var body: UByteArray? = null
+			if (res != null) {
+				responseCode = res.getResponseCode()
+				responseHeaders = res.getResponseHeaders()
+				body = res?.getResponseBody()
 			}
-			protected override fun onProgressUpdate(vararg progress: Void) {
+			if (callback != null) {
+				callback!!.invoke(responseCode, responseHeaders, body)
 			}
-			protected override fun onPostExecute(res: WebClientResponse) {
-				var responseCode: kotlin.String? = null
-				responseCode = "404"
-				var responseHeaders:cape.KeyValueList<kotlin.String?, kotlin.String?>? = null
-				var body: UByteArray? = null
-				if (res != null) {
-					responseCode = res.getResponseCode()
-					responseHeaders = res.getResponseHeaders()
-					body = res?.getResponseBody()
-				}
-				if (callback != null) {
-					callback!!.invoke(responseCode, responseHeaders, body)
-				}
-				close()
-			}
+			close()
+		}
 	}}}
 }
