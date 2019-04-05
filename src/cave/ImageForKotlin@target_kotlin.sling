@@ -24,6 +24,8 @@
 
 class is Image:
 
+var resourceCache static as map<string,this>
+
 func forKotlinBitmap(bitmap as !"android.graphics.Bitmap") static as this
 {
 	if !bitmap:
@@ -54,6 +56,63 @@ func forFile(file as File) static as this
 {
 	ERROR("Not implemented")
 	return null
+}
+
+func sanitizeResourceName(n as string) static private as string
+{
+	if !n:
+		return null
+	var sb = new StringBuilder()
+	var it = String.iterate(n)
+	var c as char
+	while((c = it.getNextChar()) > 0) {
+		if(c >= 'A' && c <= 'Z') {
+			sb.append(('a' + c - 'A') as char)
+		}
+		else if(c >= 'a' && c <= 'z') {
+			sb.append(c)
+		}
+		else if(c >= '0' && c <= '9') {
+			sb.append(c)
+		}
+		else {
+			sb.append('_')
+		}
+	}
+	return sb.toString()
+}
+
+func forResource(name as string, context as !"android.content.Context") static as this
+{
+	if !name || !context:
+		return null
+	if resourceCache {
+		var v = Map.getValue(resourceCache, name)
+		if v:
+			return v
+	}
+	var bm as !"android.graphics.Bitmap"
+	var rid = (context.getPackageName() as! string) .. ":drawable/" .. sanitizeResourceName(name)
+	lang "kotlin" {{{
+		var res = context.getResources()
+		if(res != null) {
+			var aid = res.getIdentifier(rid, null, null)
+			if(aid > 0) {
+				var d = res.getDrawable(aid)
+				if (d != null && d is android.graphics.drawable.BitmapDrawable) {
+					bm = (d as android.graphics.drawable.BitmapDrawable).bitmap
+				}
+			}
+		}
+	}}}
+	if !bm:
+		return null
+	var v = new this()
+	v.bitmap = bm
+	if !resourceCache:
+		resourceCache = new map<string,this>
+	resourceCache[name] = v
+	return v
 }
 
 func forBuffer(buffer as buffer) static as this

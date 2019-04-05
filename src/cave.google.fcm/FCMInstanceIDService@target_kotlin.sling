@@ -22,32 +22,29 @@
  * SOFTWARE.
  */
 
-class:
+class extends !"com.google.firebase.iid.FirebaseInstanceIdService":
 
-func instance static as WebClient
+import cave.ui
+
+var token private as string
+
+**
+** Handles FCM token refresh events.
+**
+
+func onTokenRefresh override
 {
-	IFDEF "target_android" {
-		return new WebClientForAndroid()
-	}
-	ELSE IFDEF "target_kotlin" {
-		return new WebClientForKotlin()
-	}
-	ELSE IFDEF "target_j2se" {
-		return new WebClientForJava()
-	}
-	ELSE IFDEF "target_js" {
-		return new WebClientForJavaScript()
-	}
-	ELSE IFDEF "target_iosoc" {
-		return new WebClientForIOS()
-	}
-	ELSE IFDEF "target_cs" {
-		// FIXME: Should also provide the asynchronous version that can be
-		// used in GUI (?) environments.
-		return new WebClientForDotnetSync()
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
+	var newToken = FCMTokenManager.checkForToken()
+	if not String.equals(token, newToken) {
+		token = newToken
+		var data = new DynamicMap()
+		data.set("fcmToken", token)
+		var v = JSONEncoder.encode(data)
+		var intent = new !"android.content.Intent"()
+		intent.setAction(FCMTokenManager.getAction())
+		intent.putExtra("data", v)
+		lang "kotlin" {{{
+			sendBroadcast(intent)
+		}}}
 	}
 }
