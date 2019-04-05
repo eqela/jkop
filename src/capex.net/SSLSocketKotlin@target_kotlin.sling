@@ -30,7 +30,6 @@ prop serverAddress as string
 var acceptInvalidCertificate as bool
 var requireClientCertificate = false
 var sslSocket private as !"javax.net.ssl.SSLSocket"
-var isSocketForServer = false
 
 func setAcceptInvalidCertificate(v as bool) override:
 	acceptInvalidCertificate = v
@@ -42,7 +41,6 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 {
 	var v = true
 	socket = cSocket as TCPSocket
-	isSocketForServer = isServer
 	var address = serverAddress
 	if String.isEmpty(address):
 		address = socket.getRemoteAddress()
@@ -73,8 +71,6 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
 				sslSocket?.setUseClientMode(false)
 				sslSocket?.setWantClientAuth(requireClientCertificate)
-				println("OPEN: THIS IS SSLSOCKET ON SERVER CONNECT")
-				println(sslSocket)
 			}
 			catch(e : kotlin.Exception) {
 				e.printStackTrace()
@@ -92,11 +88,6 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 				var factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
 				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
 				sslSocket?.setUseClientMode(true)
-				println("OPEN: THIS IS SSLSOCKET ON CLIENT CONNECT")
-				println(sslSocket)
-				java.nio.channels.SocketChannel.open()
-				println("OPEN: THIS IS SSLSOCKET.getChannel")
-				println(scSocket?.getChannel())
 			}
 			catch(e : kotlin.Exception) {
 				e.printStackTrace()
@@ -112,7 +103,6 @@ func read(buffer as buffer) override as int:
 
 func close override
 {
-	PRINT "+++++++++++++CLOSE IS CALLED++++++++++++"
 	lang "kotlin" {{{
 		try {
 			if(sslSocket != null) {
@@ -137,56 +127,16 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 		return -1
 	var v = 0
 	lang "kotlin" {{{
-		if(isSocketForServer == true) {
-			println("readWithTimeout : Socket is for Server")
-			try {
-				println("readWithTimeout : ++++++THIS IS THE SSLSOCKET FOR SERVER+++++")
-				println(sslSocket)
-				var channel = sslSocket?.getChannel()
-				println("readWithTimeout : ++++++ AFTER GETTING CHANNEL ++++++++")
-				if(channel == null) {
-					println("readWithTimeout : ++++++CHANNEL IS NULL+++++")
-				}
-				var ba = buffer!!.toByteArray()
-				println("readWithTimeout : ++++++ BEFORE READING -SERVER ++++++++")
-				v = channel!!.read(java.nio.ByteBuffer.wrap(ba))
-				println("readWithTimeout : ++++++ AFTER READING - SERVER++++++++")
-				var uba = ba.toUByteArray()
-				uba.copyInto(buffer)
-			}
-			catch(e : kotlin.Exception) {
-				println("readWithTimeout : ++++++ CATCH FOR SERVER ++++++++")
-				e.printStackTrace()
-				v = -1
-			}
+		try {
+			var channel = sslSocket?.getChannel()
+			var ba = buffer!!.toByteArray()
+			v = channel!!.read(java.nio.ByteBuffer.wrap(ba))
+			var uba = ba.toUByteArray()
+			uba.copyInto(buffer)
 		}
-		else {
-			println("readWithTimeout : Socket is for Client")
-			try {
-				println("readWithTimeout : ++++++THIS IS THE SSLSOCKET FOR CLIENT+++++")
-				println(sslSocket)
-				var ins = sslSocket!!.getInputStream()
-				if(ins == null) {
-					println("readWithTimeout : ++++++INPUT STREAM IS NULL+++++")
-				}
-				if(socket!!.getBlocking() == false && ins!!.available() < 1) {
-					println("readWithTimeout : ++++++ NO DATA AVAILABLE AND SOCKET IS NULL +++++")
-					return(0)
-				}
-				else {
-					var ba = buffer!!.toByteArray()
-					println("readWithTimeout : ++++++ BEFORE READING - CLIENT ++++++++")
-					v = ins!!.read(ba)
-					println("readWithTimeout : ++++++ AFTER READING - CLIENT ++++++++")
-					var uba = ba.toUByteArray()
-					uba.copyInto(buffer)
-				}
-			}
-			catch(e : kotlin.Exception) {
-				println("readWithTimeout : ++++++ CATCH FOR CLIENT ++++++++")
-				e.printStackTrace()
-				v = -1
-			}
+		catch(e : kotlin.Exception) {
+			e.printStackTrace()
+			v = -1
 		}
 	}}}
 	if v < 1 {
@@ -203,49 +153,16 @@ func write(buffer as buffer, size as int) override as int
 		return -1
 	var v = 0
 	lang "kotlin" {{{
-		if(isSocketForServer == true) {
-			println("write : ++++++SOCKET IS FOR SERVER+++++")
-			try {
-				println("write : ++++++BEFORE GETTING CHANNEL+++++")
-				var channel = sslSocket!!.getChannel()
-				if(sslSocket == null) {
-					println("write : ++++++SSLSOCKET IS NULL - SERVER++++")
-				}
-				if(channel == null) {
-					println("write : ++++++CHANNEL IS NULL++++")
-				}
-				println("write : ++++++BEFORE WRITING - SERVER+++++")
-				channel!!.write(java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size))
-				println("write : ++++++AFTER WRITING - SERVER+++++")
-				v = size
-			}
-			catch(e : kotlin.Exception)
-			{
-				println("write : ++++++CATCH ON SOCKET FOR SERVER+++++")
-				e.printStackTrace()
-				v = -1
-			}
+		try {
+			var channel = sslSocket?.getChannel()
+			channel!!.write(java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size))
+			v = size
 		}
-		else {
-			try {
-				if(sslSocket == null) {
-					println("write : ++++++SSLSOCKET IS NULL - CLIENT++++")
-				}
-				var os = sslSocket!!.getOutputStream()
-				println("write : ++++++BEFORE WRITING - CLIENT+++++")
-				os!!.write(buffer!!.toByteArray())
-				println("write : ++++++AFTER WRITING - CLIENT+++++")
-				os!!.flush()
-				v = size
-			}
-			catch(e : kotlin.Exception)
-			{
-				println("write : ++++++CATCH ON SOCKET FOR CLIENT+++++")
-				e.printStackTrace()
-				v = -1
-			}
+		catch(e : kotlin.Exception)
+		{
+			e.printStackTrace()
+			v = -1
 		}
-		
 	}}}
 	if v < 1 {
 		close()
