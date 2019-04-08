@@ -26,8 +26,13 @@ class is File private:
 
 class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
 {
-	var handle as object
+	var handle = -1
 	prop file as File
+
+	dtor
+	{
+		close()
+	}
 
 	func read(buffer as buffer) as int
 	{
@@ -54,11 +59,11 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	func close
 	{
 		var handle = this.handle
-		if handle {
+		if handle >= 0 {
 			lang "lua" {{{
 				_sushi.closeHandle(handle)
 			}}}
-			this.handle = null
+			this.handle = -1
 		}
 	}
 
@@ -120,13 +125,47 @@ func append override stub as FileWriter
 
 func stat override as FileInfo
 {
+	var path = getPath()
+	var mode = 0
+	var valid = true
+	lang "lua" {{{
+		local size, ctim, atim, mtim, uid, gid, mm = _sushi.getFileInfo(path)
+		mode = mm
+		if size == nil then
+			valid = false
+		end
+	}}}
 	var v = new FileInfo()
 	v.setFile(this)
-	ERROR "Not implemented"
+	if not valid {
+		v.setType(FileInfo.FILE_TYPE_UNKNOWN)
+		return v
+	}
+	lang "lua" {{{
+		v:setSize(size)
+		v:setCreateTime(ctim)
+		v:setAccessTime(atim)
+		v:setModifyTime(mtim)
+		v:setOwnerUser(uid)
+		v:setOwnerGroup(gid)
+	}}}
+	v.setMode(mode & 0x1FF)
+	if mode & 0x8000 {
+		v.setType(FileInfo.FILE_TYPE_FILE)
+	}
+	else if mode & 0x4000 {
+		v.setType(FileInfo.FILE_TYPE_DIR)
+	}
+	else {
+		v.setType(FileInfo.FILE_TYPE_UNKNOWN)
+	}
+	if mode & 0xA000:
+		v.setLink(true)
+	if mode & 0x40 || mode & 0x8 || mode & 0x1:
+		v.setExecutable(true)
 	return v
 }
 
-func isExecutable override stub as bool
 func createDirectory override stub as bool
 func createDirectoryRecursive override stub as bool
 func removeDirectory override stub as bool
@@ -216,4 +255,46 @@ func remove override as bool
 
 func removeRecursive override stub as bool
 func makeExecutable override stub as bool
-func entries override stub as Iterator<File>
+
+class MyDirectoryIterator is Iterator<File> is Closable
+{
+	prop parent as File
+	prop handle as object
+
+	dtor
+	{
+		close()
+	}
+
+	func close
+	{
+		var handle = this.handle
+		if handle {
+			lang "lua" {{{
+				_sushi.closeDirectory(handle)
+			}}}
+		}
+	}
+
+	func next as File
+	{
+		var handle = assert this.handle
+		var name = lang "lua" string {{{ _sushi.readDirectory(handle) }}}
+		if not name {
+			close()
+			return null
+		}
+		return File.forRelativePath(name, parent)
+	}
+}
+
+func entries override as Iterator<File>
+{
+	var pp = getPath()
+	assert String.isNotEmpty(pp)
+	var handle = assert lang "lua" object {{{ _sushi.openDirectory(pp) }}}
+	var v = new MyDirectoryIterator()
+	v.setParent(this)
+	v.setHandle(handle)
+	return v
+}
