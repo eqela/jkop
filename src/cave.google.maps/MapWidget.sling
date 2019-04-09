@@ -193,7 +193,176 @@ IFDEF("target_android")
 	}
 }
 
-IFDEF("target_html")
+ELSE IFDEF("target_kotlin") {
+	class InfoWindowContainer is !"android.view.ViewGroup" isAlso Widget
+	{
+		ctor(ctx as GuiApplicationContext):
+			base((ctx as GuiApplicationContextForKotlin).getAndroidActivityContext())
+
+		func onLayout(changed as bool, left as int, top as int, right as int, bottom as int) override
+		{
+			; // Laying out of children is done on onMeasure but we would still override onLayout since Android requires this.
+		}
+
+		func onMeasure(widthMeasureSpec as int, heightMeasureSpec as int) override
+		{
+			var mw as int
+			var mh as int
+			foreach child in Widget.getChildren(this) {
+				Widget.layout(child, -1)
+				var cw = Widget.getWidth(child)
+				var ch = Widget.getHeight(child)
+				if mw < cw:
+					mw = cw
+				if mh < ch:
+					mh = ch
+			}
+			lang "kotlin" {{{
+				setMeasuredDimension(mw, mh)
+			}}}
+		}
+	}
+
+	depend "gradle:com.google.android.gms:play-services-maps:11.0.0"
+	depend "gradle:com.google.android.gms:play-services-location:11.0.0"
+	depend "androidPermission:android.permission.INTERNET"
+	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
+	basetype !"com.google.android.gms.maps.MapView" type extends
+	basetype !"com.google.android.gms.maps.OnMapReadyCallback" type implements
+	basetype Widget type isAlso
+	basetype ResizeAwareWidget type implements
+	var created = false
+	var gmap as !"com.google.android.gms.maps.GoogleMap"
+	var hasSize as bool
+	var isDone as bool
+
+	func onWidgetResized
+	{
+		var thisWidth #used = Widget.getWidth(this)
+		var thisHeight #used = Widget.getHeight(this)
+		var thisX #used = Widget.getX(this)
+		var thisY #used = Widget.getY(this)
+		lang "kotlin" {{{
+			if(thisWidth > 0 && thisHeight > 0) {
+				var msw : kotlin.Int = android.view.View.MeasureSpec.UNSPECIFIED;
+				var msh : kotlin.Int = android.view.View.MeasureSpec.UNSPECIFIED;
+				msw = android.view.View.MeasureSpec.makeMeasureSpec(thisWidth, android.view.View.MeasureSpec.EXACTLY);
+				msh = android.view.View.MeasureSpec.makeMeasureSpec(thisHeight, android.view.View.MeasureSpec.EXACTLY);
+				measure(msw, msh);
+				layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
+			}
+		}}}
+		if not hasSize:
+			hasSize = true
+		hasSizeAndMapInitialize()
+	}
+
+	func hasSizeAndMapInitialize
+	{
+		if isDone:
+			return
+		if hasSize && mapInitialized {
+			placeQueuedMarkers()
+			if coordinateQueue:
+				doZoomToCoordinates()
+			if centerQueue:
+				doMoveToCenter()
+			isDone = true
+		}
+	}
+
+	func onMapReady(map as !"com.google.android.gms.maps.GoogleMap") override
+	{
+		gmap = map
+		lang "kotlin" {{{
+			var settings : com.google.android.gms.maps.UiSettings = map!!.getUiSettings()
+			settings.setAllGesturesEnabled(true)
+			settings.setCompassEnabled(true)
+			settings.setIndoorLevelPickerEnabled(true)
+			settings.setMapToolbarEnabled(true)
+			settings.setMyLocationButtonEnabled(false)
+			settings.setRotateGesturesEnabled(mapSettings!!.getCanRotate())
+			settings.setTiltGesturesEnabled(mapSettings!!.getCanTilt())
+			settings.setZoomGesturesEnabled(mapSettings!!.getCanZoom())
+			settings.setScrollGesturesEnabled(true)
+			settings.setZoomControlsEnabled(true)
+			map.setBuildingsEnabled(true)
+			map.setIndoorEnabled(true)
+			try {
+				var ms = mapSettings
+				map.setMyLocationEnabled(ms!!.getMapHasMyLocation());
+			}
+			catch(e:java.lang.SecurityException) {
+				context!!.logError("Location permission is not granted.");
+			}
+			mapSettings!!.setSettingObject(settings)
+			mapSettings!!.setMapObject(gmap)
+			if(zoomInCenter) {
+				var cameraPosition : com.google.android.gms.maps.model.CameraPosition = com.google.android.gms.maps.model.CameraPosition.Builder()
+					.target(com.google.android.gms.maps.model.LatLng(centerLat, centerLon))
+					.zoom(defaultZoomLevel.toFloat())
+					.bearing(0.toFloat())
+					.tilt(45.toFloat())
+					.build()
+				map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition))
+			}
+			map.setOnMarkerClickListener(object : com.google.android.gms.maps.GoogleMap.OnMarkerClickListener {
+				override fun onMarkerClick(marker : com.google.android.gms.maps.model.Marker): kotlin.Boolean {
+					onMarkerClicked(marker)
+					return false
+				}
+			})
+			map.setOnMapClickListener(object : com.google.android.gms.maps.GoogleMap.OnMapClickListener {
+				override fun onMapClick(loc : com.google.android.gms.maps.model.LatLng) {
+					onMapClicked(loc.latitude, loc.longitude)
+				}
+			})
+			map.setOnInfoWindowClickListener(object : com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener {
+				override fun onInfoWindowClick (marker : com.google.android.gms.maps.model.Marker) {
+					var myMarker : MyMapMarker = marker.getTag() as MyMapMarker
+					myMarker.onInfoWindowClicked()
+				}
+			})
+			map.setInfoWindowAdapter(object : com.google.android.gms.maps.GoogleMap.InfoWindowAdapter {
+				override fun getInfoContents(marker : com.google.android.gms.maps.model.Marker) : android.view.View? {
+					return(null)
+				}
+
+				override fun getInfoWindow(marker : com.google.android.gms.maps.model.Marker) : android.view.View? {
+					var myMarker : MyMapMarker = marker.getTag() as MyMapMarker
+					var widget : android.view.View? = myMarker.getInfoWindowWidget()
+					if(cave.ui.Widget.hasParent(widget)) {
+						cave.ui.Widget.removeFromParent(widget);
+						return(null)
+					}
+					var container : InfoWindowContainer = InfoWindowContainer(context)
+					cave.ui.Widget.addChild(container, widget)
+					return(container)
+				}
+			});
+			map.setOnCameraMoveStartedListener(object : com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener {
+				override fun onCameraMoveStarted(reason: kotlin.Int) {
+					onCameraStartMoving()
+				}
+			})
+			map.setOnCameraMoveListener(object : com.google.android.gms.maps.GoogleMap.OnCameraMoveListener {
+				override fun onCameraMove() {
+					onCameraMoving()
+				}
+			})
+			map.setOnCameraIdleListener(object : com.google.android.gms.maps.GoogleMap.OnCameraIdleListener {
+				override fun onCameraIdle() {
+					onCameraStopMoving()
+				}
+			})
+		}}}
+		if mapInitialized == false:
+			mapInitialized = true
+		hasSizeAndMapInitialize()
+	}
+}
+
+ELSE IFDEF("target_html")
 {
 	basetype Widget type extends
 	basetype GeoCoder type implements
@@ -568,6 +737,12 @@ class MyMapMarker is MapMarker
 					((com.google.android.gms.maps.model.Marker)markerObject).setPosition(pos);
 				}}}
 			}
+			ELSE IFDEF("target_kotlin") {
+				lang "kotlin" {{{
+					var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(this.lat, this.lon)
+					(markerObject as com.google.android.gms.maps.model.Marker).setPosition(pos);
+				}}}
+			}
 			ELSE IFDEF("target_iosoc") {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setPosition:CLLocationCoordinate2DMake(lat, lon)];
@@ -592,6 +767,11 @@ class MyMapMarker is MapMarker
 					((com.google.android.gms.maps.model.Marker)markerObject).remove();
 				}}}
 			}
+			ELSE IFDEF("target_kotlin") {
+				lang "kotlin" {{{
+					(markerObject as com.google.android.gms.maps.model.Marker).remove();
+				}}}
+			}
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setMap:nil];
@@ -612,6 +792,11 @@ class MyMapMarker is MapMarker
 					((com.google.android.gms.maps.model.Marker)markerObject).setRotation((float)deg);
 				}}}
 			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					(markerObject as com.google.android.gms.maps.model.Marker).setRotation(deg.toFloat())
+				}}}
+			}
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setRotation:deg];
@@ -628,6 +813,11 @@ class MyMapMarker is MapMarker
 			IFDEF "target_android" {
 				lang "java" {{{
 					((com.google.android.gms.maps.model.Marker)markerObject).setAnchor((float)x, (float)y);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					(markerObject as com.google.android.gms.maps.model.Marker).setAnchor(x.toFloat(), (y.toFloat()))
 				}}}
 			}
 			ELSE {
@@ -688,6 +878,11 @@ class MyMapSettings public
 					((com.google.android.gms.maps.UiSettings)settingObject).setZoomGesturesEnabled(canZoom);
 				}}}
 			}
+			IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					(settingObject as com.google.android.gms.maps.UiSettings).setZoomGesturesEnabled(canZoom)
+				}}}
+			}
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSUISettings*)self->settingObject setZoomGestures:canZoom];
@@ -706,6 +901,11 @@ class MyMapSettings public
 			IFDEF "target_android" {
 				lang "java" {{{
 					((com.google.android.gms.maps.UiSettings)settingObject).setTiltGesturesEnabled(canTilt);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					(settingObject as com.google.android.gms.maps.UiSettings).setTiltGesturesEnabled(canTilt);
 				}}}
 			}
 			ELSE IFDEF "target_iosoc" {
@@ -728,6 +928,11 @@ class MyMapSettings public
 					((com.google.android.gms.maps.UiSettings)settingObject).setRotateGesturesEnabled(canRotate);
 				}}}
 			}
+			ELSE IFDEF "target_kotlin"{
+				lang "kotlin" {{{
+					(settingObject as com.google.android.gms.maps.UiSettings).setRotateGesturesEnabled(canRotate);
+				}}}
+			}
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSUISettings*)self->settingObject setRotateGestures:canRotate];
@@ -746,6 +951,11 @@ class MyMapSettings public
 			IFDEF "target_android" {
 				lang "java" {{{
 					((com.google.android.gms.maps.GoogleMap)mapObject).setMyLocationEnabled(mapHasMyLocation);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					(mapObject as com.google.android.gms.maps.GoogleMap).setMyLocationEnabled(mapHasMyLocation)
 				}}}
 			}
 			ELSE IFDEF "target_iosoc" {
@@ -816,6 +1026,12 @@ ctor(context as GuiApplicationContext) private
 			setBackgroundColor(0xff000000);
 		}}}
 	}
+	IFDEF("target_kotlin") {
+		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
+		lang "kotlin" {{{
+			setBackgroundColor(0xff000000.toInt())
+		}}}
+	}
 	this.context = context
 	markerSize = context.getHeightValue("6mm")
 	mapSettings = new MyMapSettings()
@@ -866,6 +1082,17 @@ func onWidgetAddedToParent
 			}}}
 		}
 	}
+	ELSE IFDEF("target_kotlin") {
+		var myObject #used = this
+		if(created == false) {
+			created = true
+			lang "kotlin" {{{
+				onCreate(android.os.Bundle())
+				onResume()
+				getMapAsync(myObject)
+			}}}
+		}
+	}
 }
 func onWidgetRemovedFromParent:
 	;
@@ -875,6 +1102,9 @@ func onMarkerClicked(marker as object)
 	assert marker
 	var myMarker as MyMapMarker
 	IFDEF "target_android" {
+		myMarker = (marker as! !"com.google.android.gms.maps.model.Marker").getTag() as! MyMapMarker
+	}
+	IFDEF "target_kotlin" {
 		myMarker = (marker as! !"com.google.android.gms.maps.model.Marker").getTag() as! MyMapMarker
 	}
 	ELSE IFDEF "target_iosoc" {
@@ -994,6 +1224,27 @@ func doAddMapMarker(marker as MyMapMarker) private
 			marker.markerObject = mk;
 		}}}
 	}
+	ELSE IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(marker!!.getLat(), marker!!.getLon())
+			var mkropt : com.google.android.gms.maps.model.MarkerOptions = com.google.android.gms.maps.model.MarkerOptions()
+				.position(pos)
+				.anchor((marker!!.getAnchorX()).toFloat(), (marker!!.getAnchorY()).toFloat())
+				.title(marker.getTitle())
+				.visible(true)
+			var ico : cave.Image? = marker.getIcon()
+			if(ico != null) {
+				var ic : cave.ImageForKotlin = ico.scaleToSize(markerSize, markerSize) as cave.ImageForKotlin
+				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getKotlinBitmap()))
+			}
+			else {
+				mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE))
+			}
+			var mk : com.google.android.gms.maps.model.Marker = gmap!!.addMarker(mkropt)
+			mk.setTag(marker)
+			marker.markerObject = mk
+		}}}
+	}
 	ELSE IFDEF("target_iosoc") {
 		var img as ImageForIOS
 		if marker.getIcon() {
@@ -1058,6 +1309,23 @@ func moveCamera(camera as MapCamera, animated as bool)
 			}
 		}}}
 	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var cameraPosition : com.google.android.gms.maps.model.CameraPosition = com.google.android.gms.maps.model.CameraPosition.Builder()
+				.target(com.google.android.gms.maps.model.LatLng(camera.getLatitude(), camera.getLongitude()))
+				.zoom((camera.getZoom()).toFloat())
+				.bearing((camera.getBearing()).toFloat())
+				.tilt((camera.getAngle()).toFloat())
+				.build();
+			var update : com.google.android.gms.maps.CameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition)
+			if(animated) {
+				gmap!!.animateCamera(update)
+			}
+			else {
+				gmap!!.moveCamera(update)
+			}
+		}}}
+	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
 			var latlon = { "lat" : camera.getLatitude(), "lng" : camera.getLongitude() };
@@ -1118,6 +1386,27 @@ func doZoomToCoordinates
 			}
 		}}}
 	}
+	IFDEF("target_kotlin") {
+		lang "kotlin" {{{
+			var llbounds : com.google.android.gms.maps.model.LatLngBounds.Builder = com.google.android.gms.maps.model.LatLngBounds.Builder()
+			var cQueue = coordinateQueue
+			if(cQueue != null) {
+				for(coor in cQueue) {
+					var lat : kotlin.Double = coor!!.getDouble("latitude")
+					var lon : kotlin.Double  = coor!!.getDouble("longitude")
+					var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(lat, lon)
+					llbounds.include(pos)
+				}
+			}
+			var update : com.google.android.gms.maps.CameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70)
+			if(coordinateQueueMoveWithAnimation) {
+				gmap!!.animateCamera(update)
+			}
+			else {
+				gmap!!.moveCamera(update)
+			}
+		}}}
+	}
 	ELSE IFDEF("target_html") {
 		lang "js" {{{
 			var bounds = new google.maps.LatLngBounds();
@@ -1159,6 +1448,10 @@ func getMapCenterLatitude as double
 		assert isDone
 		return lang "java" double {{{ gmap.getCameraPosition().target.latitude }}}
 	}
+	IFDEF "target_kotlin" {
+		assert isDone
+		return lang "kotlin" double {{{ gmap!!.getCameraPosition().target.latitude }}}
+	}
 	ELSE IFDEF "target_iosoc" {
 		assert mapInitialized
 		return lang "objc" double {{{ [self camera].target.latitude }}}
@@ -1183,6 +1476,10 @@ func getMapCenterLongitude as double
 	IFDEF "target_android" {
 		assert isDone
 		return lang "java" double {{{ gmap.getCameraPosition().target.longitude }}}
+	}
+	IFDEF "target_kotlin" {
+		assert isDone
+		return lang "kotlin" double {{{ gmap!!.getCameraPosition().target.longitude }}}
 	}
 	ELSE IFDEF "target_iosoc" {
 		assert mapInitialized

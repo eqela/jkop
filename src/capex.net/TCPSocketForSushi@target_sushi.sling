@@ -24,13 +24,20 @@
 
 class is TCPSocket is FileDescriptor:
 
-prop fd as int
+prop fd as int = -1
+
+dtor
+{
+	close()
+}
 
 func getFileDescriptor as int:
 	return fd
 
 func createSocket private as bool
 {
+	if fd >= 0:
+		close()
 	fd = lang "lua" int {{{ _sushi.createTCPSocket() }}}
 	if fd < 0:
 		return false
@@ -75,8 +82,13 @@ func getLocalPort override as int
 
 func connect(address as string, port as int) override as bool
 {
-	ERROR "Not implemented"
-	return fail
+	assert createSocket()
+	var fd = this.fd
+	if lang "lua" int {{{ _sushi.connectTCPSocket(fd, address, port) }}} != 0 {
+		close()
+		return false
+	}
+	return true
 }
 
 func listen(port as int) override as bool

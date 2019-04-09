@@ -24,68 +24,49 @@
 
 class:
 
-IFDEF "target_netcore"
+var buffer as buffer
+var pointer = 0
+
+func allocate(sz as int)
 {
-	depend "nuget:System.Threading.Thread@4.3.*"
+	if buffer == null {
+		buffer = MALLOC 8192
+		return
+	}
+	var needed = pointer + sz
+	var csz = Buffer.getSize(buffer)
+	if csz >= needed:
+		return
+	var nsz = csz
+	while nsz < needed:
+		nsz += 1024
+	buffer = Buffer.resize(buffer, nsz)
 }
 
-func sleepSeconds(seconds as int) static
+func getSize as int:
+	return pointer
+
+func append(value as int)
 {
-	IFDEF "target_sushi" {
-		lang "lua" {{{
-			_sushi.sleepSeconds(seconds)
-		}}}
-	}
-	ELSE {
-		sleepMilliSeconds(seconds * 1000)
-	}
+	allocate(pointer + 1)
+	Buffer.setByte(buffer, pointer, value)
+	pointer ++
 }
 
-func sleepMicroSeconds(uSeconds as int) static
+func append(sbuffer as buffer):
+	append(sbuffer, 0, Buffer.getSize(sbuffer))
+
+func append(sbuffer as buffer, offset as int, size as int)
 {
-	IFDEF "target_sushi" {
-		lang "lua" {{{
-			_sushi.sleepMicroSeconds(uSeconds)
-		}}}
-	}
-	ELSE {
-		sleepMilliSeconds(uSeconds / 1000)
-	}
+	assert sbuffer
+	assert offset >= 0
+	assert size >= 0
+	allocate(pointer + size)
+	Buffer.copyFrom(buffer, sbuffer, offset, pointer, size)
+	pointer += size
 }
 
-func sleepMilliSeconds(mSeconds as int) static
+func toBuffer as buffer
 {
-	IFDEF "target_sushi" {
-		lang "lua" {{{
-			_sushi.sleepMilliSeconds(mSeconds)
-		}}}
-	}
-	ELSE IFDEF "target_uwp" {
-		lang "cs" {{{
-			var v = System.Threading.Tasks.Task.Delay(mSeconds * 1000);
-			v.RunSynchronously();
-		}}}
-	}
-	ELSE IFDEF "target_cs" {
-		lang "cs" {{{
-			System.Threading.Thread.Sleep(mSeconds);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				java.lang.Thread.sleep(mSeconds);
-			}
-			catch(java.lang.InterruptedException e) {
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			java.lang.Thread.sleep(mSeconds.toLong())
-		}}}
-	}
-	ELSE {
-		ERROR "Not implemented"
-	}
+	return Buffer.getSubBuffer(buffer, 0, pointer)
 }

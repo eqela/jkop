@@ -51,6 +51,8 @@ prop maintenanceTimerDelay = 60
 prop timeoutDelay = 30
 prop enableRateLimit as string
 prop enableHttpsForwarder = false
+prop debugErrors = false
+prop handler as HTTPServerRequestHandler
 var ctx protected as LoggingContext
 
 ctor
@@ -65,6 +67,7 @@ ctor
 	envConfigure("loggingDirectory", Environment.getVariable("SYMPATHY_LOGGING_DIRECTORY"))
 	envConfigure("enableDebugMessages", Environment.getVariable("SYMPATHY_ENABLE_DEBUG_MESSAGES"))
 	envConfigure("alsoPrintOnConsole", Environment.getVariable("SYMPATHY_ALSO_PRINT_ON_CONSOLE"))
+	envConfigure("debugErrors", Environment.getVariable("SYMPATHY_DEBUG_ERRORS"))
 }
 
 func getConfigFileDirectory as File
@@ -87,6 +90,10 @@ func envConfigure(key as string, value as string)
 
 func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
 {
+	if key == "debugErrors" {
+		debugErrors = Boolean.asBoolean(value)
+		return true
+	}
 	if key == "enableRateLimit" {
 		enableRateLimit = value
 		return true
@@ -168,6 +175,7 @@ func initialize virtual as bool:
 
 func initializeServer(server as HTTPServer) virtual as bool
 {
+	server.setDebugErrors(debugErrors)
 	if enableRateLimit {
 		var limit = new HTTPServerRateLimitHandler()
 		if enableRateLimit == "true" || enableRateLimit == "yes" {
@@ -183,6 +191,8 @@ func initializeServer(server as HTTPServer) virtual as bool
 	}
 	if enableHttpsForwarder:
 		addHttpsForwarderHandler(server)
+	if handler:
+		server.pushRequestHandler(handler)
 	return true
 }
 
@@ -332,6 +342,12 @@ func execute(args as array<string>) as bool
 
 func executeMain(args as array<string>) as int:
 	return execute(args) ? 0 : 1
+
+func executeForHandler(handler as HTTPServerRequestHandler, args as array<string>) as int
+{
+	setHandler(handler)
+	return executeMain(args)
+}
 
 func initializeWithIOManager(ioManager as IOManager, ctx as LoggingContext) virtual as bool:
 	return true
