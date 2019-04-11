@@ -1,0 +1,153 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Image:
+
+depend "objc-header-h:<UIKit/UIKit.h>"
+depend "objc-header-h:<ImageIO/ImageIO.h>"
+depend "objc-framework:CoreGraphics"
+depend "objc-framework:ImageIO"
+
+func forUIImage(uiImage as !"UIImage") static as this
+{
+	var v = new this()
+	v.uiImage = uiImage
+	return v
+}
+
+var uiImage public as !"UIImage"
+
+func readFromBuffer(data as buffer) as bool
+{
+	assert data
+	var img as !"UIImage"
+	lang "swift" {{{
+		img = UIImage(data: data)
+	}}}
+	assert img
+	this.uiImage = img
+	return true
+}
+
+func getPixelWidth override as int
+{
+	if uiImage == null:
+		return 0
+	var v as int
+	lang "swift" {{{
+		v = uiImage.size.width
+	}}}
+	return v
+}
+
+func getPixelHeight override as int
+{
+	if uiImage == null:
+		return 0
+	var v as int
+	lang "swift" {{{
+		v = uiImage.size.height
+	}}}
+	return v
+}
+
+func scaleToSize(w as int, h as int) override as Image:
+	return null
+
+func scaleToSize(w as int, h as int, callback as function<void, Image>) override
+{
+	assert callback
+	callback(scaleToSize(w, h))
+}
+
+func scaleToWidth(w as int) override as Image:
+	return scaleToSize(w, getProportionalHeight(w))
+
+func scaleToWidth(w as int, callback as function<void, Image>) override
+{
+	assert callback
+	callback(scaleToWidth(w))
+}
+
+func scaleToHeight(h as int) override as Image:
+	return scaleToSize(getProportionalWidth(h), h)
+
+func scaleToHeight(h as int, callback as function<void, Image>) override
+{
+	assert callback
+	callback(scaleToHeight(h))
+}
+
+func crop(x as int, y as int, w as int, h as int) override as Image
+{
+	var img as !"UIImage"
+	lang "swift" {{{
+		var rect = CGRect(x: x, y: y, width: w, height: h)
+		var imageRef = uiImage?.cgImage?.cropping(to: rect)
+		img = UIImage(cgImage: imageRef!)
+	}}}
+	return forUIImage(img)
+}
+
+func crop(x as int, y as int, w as int, h as int, callback as function<void, Image>) override
+{
+	assert callback
+	callback(crop(x, y, w, h))
+}
+
+func toRGBAData override stub as buffer
+
+func toJPGData override as buffer
+{
+	if !uiImage:
+		return null
+	var v as buffer
+	lang "swift" {{{
+		v = uiImage.jpegData(compressionQuality: 1.0)
+
+	}}}
+	return v
+}
+
+func toPNGData override as buffer
+{
+	if !uiImage:
+		return null
+	var v as buffer
+	lang "swift" {{{
+		if(!(uiImage.imageOrientation == UIImage.Orientation.up || uiImage.imageOrientation == UIImage.Orientation.upMirrored))
+		{
+			CGSize imgsize = uiImage.size
+			UIGraphicsBeginImageContext(imgsize)
+			uiImage.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize.width, height: imgsize.height))
+			uiImage = UIGraphicsGetImageFromCurrentImageContext()
+			UIGraphicsEndImageContext()
+		}
+		v = uiImage.pngData()
+	}}}
+	return v
+}
+
+func releaseImage override:
+	uiImage = null
