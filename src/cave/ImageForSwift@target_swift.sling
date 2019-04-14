@@ -36,6 +36,13 @@ func forUIImage(uiImage as !"UIImage") static as this
 	return v
 }
 
+func forBuffer(data as buffer) static as this
+{
+	var v = new this()
+	assert v.readFromBuffer(data)
+	return v
+}
+
 var uiImage public as !"UIImage"
 
 func readFromBuffer(data as buffer) as bool
@@ -72,8 +79,33 @@ func getPixelHeight override as int
 	return v
 }
 
-func scaleToSize(w as int, h as int) override as Image:
-	return null
+func scaleToSize(w as int, h as int) override as Image
+{
+	if w < 0 || h < 0:
+		return this
+	var imageData #used = toPNGData()
+	var img as !"UIImage"
+	var maxSize = w
+	if maxSize < h:
+		maxSize = h
+	lang "swift" {{{
+		let cgImageSrcRef = CGImageSourceCreateWithData(imageData! as CFData, nil)
+		let options = [
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceThumbnailMaxPixelSize: maxSize] as? CFDictionary?
+		let cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef!, 0, options!)!
+		let cgSize = CGSize(width: w, height: h)
+		let cgContextRef = CGContext(data: nil, width: Int(cgSize.width), height: Int(cgSize.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+		let cgRect = CGRect(x: 0, y: 0, width: w, height: h)
+		cgContextRef?.draw(cgImageRefInput, in: cgRect)
+		let cgImageRefOutput = cgContextRef!.makeImage()
+		img = UIImage(cgImage: cgImageRefOutput!)
+	}}}
+	if !img:
+		return null
+	return forUIImage(img)
+}
 
 func scaleToSize(w as int, h as int, callback as function<void, Image>) override
 {
@@ -136,15 +168,15 @@ func toPNGData override as buffer
 		return null
 	var v as buffer
 	lang "swift" {{{
-		if(!(uiImage.imageOrientation == UIImage.Orientation.up || uiImage.imageOrientation == UIImage.Orientation.upMirrored))
+		if(!(uiImage?.imageOrientation == UIImage.Orientation.up || uiImage?.imageOrientation == UIImage.Orientation.upMirrored))
 		{
-			CGSize imgsize = uiImage.size
-			UIGraphicsBeginImageContext(imgsize)
-			uiImage.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize.width, height: imgsize.height))
+			let imgsize = uiImage?.size
+			UIGraphicsBeginImageContext(imgsize!)
+			uiImage?.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize!.width, height: imgsize!.height))
 			uiImage = UIGraphicsGetImageFromCurrentImageContext()
 			UIGraphicsEndImageContext()
 		}
-		v = uiImage.pngData()
+		v = uiImage?.pngData()
 	}}}
 	return v
 }
