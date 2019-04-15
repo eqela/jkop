@@ -328,8 +328,8 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
 	if not buffer:
 		return -1
-	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getApplicationBufferSize()!!) }}}
-	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
 	var exitLoop = false
 	var v = 0
 	while exitLoop == false {
@@ -380,8 +380,8 @@ func write(buffer as buffer, size as int) override as int
 {
 	if not buffer:
 		return -1
-	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray()) }}}
-	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
 	while appBuff.remaining() > 0 {
 		netBuff.clear()
 		try {
@@ -390,14 +390,18 @@ func write(buffer as buffer, size as int) override as int
 				when (result!!.getStatus()) {
 					javax.net.ssl.SSLEngineResult.Status.OK -> {
 						netBuff.flip()
+						println("WRITE : REMAINING")
+						println(netBuff.remaining())
 						while(netBuff.remaining() > 0) {
 							writeJvcSocket(netBuff)
 						}
 					}
 					javax.net.ssl.SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+						println("WRITE :  BUFFER_OVERFLOW")
 						netBuff = enlargePacketBuffer(netBuff)
 					}
 					javax.net.ssl.SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+							println("WRITE :  BUFFER_UNDERFLOW")
 					}
 					javax.net.ssl.SSLEngineResult.Status.CLOSED -> {
 						close()
