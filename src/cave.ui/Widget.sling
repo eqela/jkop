@@ -33,6 +33,15 @@ IFDEF "target_iosoc"
 	depend "objc-header-m:<UIKit/UIGestureRecognizerSubclass.h>"
 }
 
+IFDEF "target_swift"
+{
+	modifier #typedef
+	basetype !"UIView" type extends
+	depend "swift-import:UIKit"
+	depend "swift-import-class:objc.runtime"
+	depend "swift-import-class:UIKit.UIGestureRecognizerSubclass"
+}
+
 IFDEF "target_macosoc"
 {
 	modifier #typedef
@@ -189,6 +198,11 @@ func addChild(parent as this, child as this) static
 			[parent addSubview:child];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			parent.addSubview(child)
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		var vg = assert parent as !"android.view.ViewGroup"
 		lang "java" {{{
@@ -244,6 +258,11 @@ func removeFromParent(child as this) static as this
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[child removeFromSuperview];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			child.removeFromSuperview()
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -304,6 +323,11 @@ func getParent(widget as this) static as this
 			return null
 		return lang "objc" this {{{ [widget superview] }}}
 	}
+	ELSE IFDEF "target_swift" {
+		if widget is ContainerWidget && (widget as! ContainerWidget).getScreenForWidget():
+			return null
+		return lang "swift" this {{{ widget.superview() }}}
+	}
 	ELSE IFDEF "target_android" {
 		var v as this = null
 		lang "java" {{{
@@ -350,6 +374,15 @@ func getChildren(widget as this) static as vector<this>
 		lang "objc" {{{
 			for(UIView* subview in widget.subviews) {
 				[v addObject:subview];
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v = new vector<this>
+		lang "swift" {{{
+			for(subview in widget.subviews) {
+				v.addObject(subview)
 			}
 		}}}
 		return v
@@ -415,6 +448,11 @@ func getX(widget as this) static as int
 			v = widget.frame.origin.x;
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = widget.frame.origin.x;
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		lang "java" {{{
 			v = (int)widget.getX();
@@ -446,6 +484,11 @@ func getY(widget as this) static as int
 	var v = 0
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
+			v = widget.frame.origin.y;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
 			v = widget.frame.origin.y;
 		}}}
 	}
@@ -502,6 +545,12 @@ func getAbsoluteX(widget as this) static as int
 			v = (NSInteger)(location.x);
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let location : CGPoint = widget.superview.convert(widget.frame.origin, to:nil)
+			v = (NSInteger)(location.x)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -537,6 +586,12 @@ func getAbsoluteY(widget as this) static as int
 			v = (NSInteger)(location.y);
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let location : CGPoint = widget.superview.convert(widget.frame.origin to:nil)
+			v = (NSInteger)(location.y)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -551,6 +606,11 @@ func getWidth(widget as this) static as int
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			v = widget.frame.size.width;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = widget.frame.size.width
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -593,6 +653,11 @@ func getHeight(widget as this) static as int
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			v = widget.frame.size.height;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = widget.frame.size.height
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -641,6 +706,11 @@ func move(widget as this, x as int #notLiteral, y as int #notLiteral) static
 			widget.frame = CGRectMake(x, y, widget.frame.size.width, widget.frame.size.height);
 		}}}
 	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			widget.frame = CGRectMake(x, y, widget.frame.size.width, widget.frame.size.height)
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		lang "java" {{{
 			widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
@@ -684,6 +754,18 @@ func isRootWidget(widget as this) static as bool
 func findScreen(widget as this) static as Screen
 {
 	IFDEF "target_iosoc" {
+		var pp = widget
+		while pp {
+			if pp is ContainerWidget {
+				var screen = (pp as! ContainerWidget).getScreenForWidget()
+				if screen:
+					return screen
+			}
+			pp = getParent(pp)
+		}
+		return null
+	}
+	ELSE IFDEF "target_swift" {
 		var pp = widget
 		while pp {
 			if pp is ContainerWidget {
@@ -786,6 +868,11 @@ func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as
 			widget.frame = CGRectMake(widget.frame.origin.x, widget.frame.origin.y, width, height);
 		}}}
 	}
+	ELSE IFDEF "target_iosoc" {
+		lang "swift" {{{
+			widget.frame = CGRectMake(widget.frame.origin.x, widget.frame.origin.y, width, height);
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		lang "java" {{{
 			int x = (int)widget.getX();
@@ -852,6 +939,28 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 				cw = 0
 			lang "objc" {{{
 				CGSize nsz = [widget sizeThatFits:CGSizeMake(cw, ch)];
+				srw = nsz.width;
+				if(nsz.width - srw > 0) {
+					srw ++;
+				}
+				srh = nsz.height;
+				if(nsz.height - srh > 0) {
+					srh ++;
+				}
+			}}}
+			if widthConstraint >= 0 && srw != widthConstraint:
+				srw = widthConstraint
+			setLayoutSize(widget, srw, srh)
+		}
+		ELSE IFDEF "target_swift" {
+			var srw as int
+			var srh as int
+			var cw = widthConstraint
+			var ch #used = 0
+			if cw < 0:
+				cw = 0
+			lang "swift" {{{
+				let nsz : CGSize = widget.sizeThatFits(CGSizeMake(cw, ch))
 				srw = nsz.width;
 				if(nsz.width - srw > 0) {
 					srw ++;
@@ -1062,6 +1171,122 @@ IFDEF "target_iosoc"
 	}
 }
 
+IFDEF "target_swift"
+{
+	class WidgetClickForwarder
+	{
+		prop handler as function
+		prop widget as Widget
+
+		func execute
+		{
+			lang "obswiftjc" {{{
+				(widget.window.subviews.objectAtIndex(0)).endEditing(YES)
+			}}}
+			handler()
+		}
+	}
+
+	class WidgetTouchForwarder
+	{
+		prop onStartHandler as function<void, double, double>
+		prop onTouchHandler as function<void, double, double>
+		prop onEndHandler as function<void, double, double>
+		prop widget as Widget
+
+		func execute(gesture as !"UIGestureRecognizer")
+		{
+			lang "swift" {{{
+				let tappedPoint : CGPoint = gesture.locationInView(widget)
+				let x : CGFloat = tappedPoint.x
+				let y : CGFloat = tappedPoint.y
+				if (gesture.state == UIGestureRecognizer.State.began && onStartHandler) {
+					onStartHandler((double)x, (double)y);
+				}
+				else if (gesture.state == UIGestureRecognizer.State.changed && onTouchHandler) {
+					onTouchHandler((double)x, (double)y);
+				}
+				else if (gesture.state == UIGestureRecognizer.State.ended && onEndHandler) {
+					onEndHandler((double)x, (double)y);
+				}
+			}}}
+		}
+	}
+
+	class MyGestureRecognizer extends !"UIGestureRecognizer"
+	{
+		lang "swift" {{{
+			- (id) init(target: Any?, action: Selector?)
+			{
+				if (super(target: target, action:action) == nil) {
+					return(nil);
+				}
+				return(self);
+			}
+		}}}
+
+		func touchesBegan(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "swift" {{{
+				super.touchesBegan(touches, event: withEvent)
+				if (self.state != UIGestureRecognizer.State.possible && touches.count > 1) {
+					return
+				}
+				self.state = UIGestureRecognizer.State.began
+			}}}
+		}
+
+		func touchesEnded(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "swift" {{{
+				super.touchesEnded(touches, event:withEvent)
+				self.state = UIGestureRecognizer.State.ended
+			}}}
+		}
+
+		func touchesMoved(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "swift" {{{
+				super.touchesMoved(touches, event:withEvent)
+				if (self.state == UIGestureRecognizer.State.failed || self.state == UIGestureRecognizer.State.recognized) {
+					return
+				}
+				self.state = UIGestureRecognizer.State.changed
+			}}}
+		}
+
+		func touchesCancelled(touches as !"NSSet *", withEvent as !"UIEvent *")
+		{
+			lang "swift" {{{
+				super.touchesCancelled(touches, event: withEvent)
+				self.state = UIGestureRecognizer.State.cancelled
+			}}}
+		}
+
+		func reset
+		{
+			lang "swift" {{{
+				super.reset()
+			}}}
+		}
+	}
+
+	class WidgetLongPressForwarder
+	{
+		prop handler as function
+		prop widget as Widget
+
+		func execute(gesture as !"UIGestureRecognizer")
+		{
+			lang "swift" {{{
+				if (gesture.state == UIGestureRecognizer.State.began) {
+					handler()
+				}
+			}}}
+		}
+	}
+}
+
 IFDEF "target_uwp" {
 	var existingWidgetClickHandler static as !"Windows.UI.Xaml.Input.PointerEventHandler"
 	var existingWidgetDoubleClickHandler static as !"Windows.UI.Xaml.Input.DoubleTappedEventHandler"
@@ -1090,6 +1315,16 @@ func setWidgetClickHandler(widget as this, handler as function) static
 			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[widget setUserInteractionEnabled:YES];
 			[widget addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute)]];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var forwarder = new WidgetClickForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setHandler(handler)
+		lang "swift" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			widget.setUserInteractionEnabled(YES)
+			widget.addGestureRecognizer(UITapGestureRecognizer(target: forwarder, action: #selector(execute)))
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -1203,6 +1438,16 @@ func setWidgetLongClickHandler(widget as this, handler as function) static
 			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[widget setUserInteractionEnabled:YES];
 			[widget addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
+		}}}
+	}
+	IFDEF "target_swift" {
+		var forwarder = new WidgetLongPressForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setHandler(handler)
+		lang "swift" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			widget.setUserInteractionEnabled(YES)
+			widget.addGestureRecognizer(UILongPressGestureRecognizer(target: forwarder, action: #selector(execute:)))
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -1365,6 +1610,18 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 			[widget addGestureRecognizer:[[CaveUIWidgetMyGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var forwarder = new WidgetTouchForwarder()
+		forwarder.setWidget(widget)
+		forwarder.setOnStartHandler(onStartHandler)
+		forwarder.setOnTouchHandler(onTouchHandler)
+		forwarder.setOnEndHandler(onEndHandler)
+		lang "swift" {{{
+			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			widget.setUserInteractionEnabled(YES)
+			widget.addGestureRecognizer(CaveUIWidgetMyGestureRecognizer(target: forwarder, action: #selector(execute:)))
+		}}}
+	}
 	ELSE IFDEF "target_uwp" {
 		if onStartHandler {
 			ERROR "setWidgetPointerHandlers/onStartHandler: Not implemented"
@@ -1437,6 +1694,11 @@ func setAlpha(widget as this, alpha as double) static
 			[widget setAlpha:(CGFloat)alpha];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			widget.setAlpha((CGFloat)alpha)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -1453,6 +1715,12 @@ func setRotation(widget as this, degrees as double) static
 	ELSE IFDEF "target_iosoc" {
 		degrees = -degrees
 		lang "objc" {{{
+			widget.setTransform(CGAffineTransformMakeRotation((CGFloat)degrees))
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		degrees = -degrees
+		lang "swift" {{{
 			[widget setTransform:CGAffineTransformMakeRotation((CGFloat)degrees)];
 		}}}
 	}
@@ -1500,6 +1768,16 @@ func setEnabled(widget as this, enabled as bool) static
 			}
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			if(enabled) {
+				widget.userInteractionEnabled = YES;
+			}
+			else {
+				widget.userInteractionEnabled = NO;
+			}
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -1531,6 +1809,12 @@ func setVisible(widget as this, visible as bool) static
 		var hidden #used = not visible
 		lang "objc" {{{
 			[widget setHidden:hidden];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var hidden #used = not visible
+		lang "swift" {{{
+			widget.setHidden(hidden)
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -1570,6 +1854,9 @@ func getVisible(widget as this) static as bool
 	ELSE IFDEF "target_iosoc" {
 		return lang "objc" bool {{{ !widget.hidden }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" bool {{{ !widget.hidden }}}
+	}
 	ELSE IFDEF "target_android" {
 		return lang "java" bool {{{ widget.getVisibility() == android.view.View.VISIBLE }}}
 	}
@@ -1602,6 +1889,11 @@ func setWidgetId(widget as this, idValue as object) static
 		IFDEF "target_iosoc" {
 			lang "objc" {{{
 				[widget setAccessibilityIdentifier:idValue];
+			}}}
+		}
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.setAccessibilityIdentifier(idValue)
 			}}}
 		}
 		ELSE {

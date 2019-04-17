@@ -373,6 +373,45 @@ ELSE IFDEF "target_iosoc"
 	}}}
 }
 
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextField" type extends
+	basetype !"UIPickerViewDelegate" type implements
+	basetype Widget type isAlso
+
+	var pickerView as !"UIPickerView"
+
+	lang "swift" {{{
+		- (NSInteger)numberOfComponentsInPickerView:(UIPickerView *)pickerView {
+			return 1;
+		}
+
+		- (NSInteger)pickerView:(UIPickerView *)pickerView numberOfRowsInComponent:(NSInteger)component {
+			return([self.getWidgetItemCount());
+		}
+
+		- (NSString *)pickerView:(UIPickerView *)pickerView titleForRow:(NSInteger)row forComponent:(NSInteger)component {
+			return(self.getWidgetTextForIndex(row);
+		}
+
+		- (void)pickerView:(UIPickerView *)pickerView didSelectRow:(NSInteger)row inComponent:(NSInteger)component {
+			self.onWidgetSelectionChanged();
+		}
+
+		- (CGRect)caretRectForPosition:(UITextPosition *)position {
+			return CGRectZero;
+		}
+
+		- (CGRect)textRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPadding, widgetPadding);
+		}
+
+		- (CGRect)editingRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPadding, widgetPadding);
+		}
+	}}}
+}
+
 ELSE IFDEF "target_macosoc"
 {
 	basetype !"NSTextField" type extends
@@ -534,6 +573,24 @@ ctor(context as GuiApplicationContext)
 			pickerView = picker;
 		}}}
 	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			let picker = UIPickerView()
+			picker.delegate = self
+			picker.dataSource = self
+			picker.showsSelectionIndicator = YES
+			self.inputView = picker
+			self.setPlaceholder = "(select)"
+			let toolBar = UIToolbar(frame: CGRectMake(0,0,320,44))
+			toolBar.barStyle = UIBarStyle.default
+			let flexButton = UIBarButtonItem(barButtonSystemItem: UIBarButtonItem.SystemItem.flexibleSpace, target: self, action: nil)
+			let barButtonDone = UIBarButtonItem(title: "Done", style: UIBarButtonItem.Style.bordered ,target:self, action: #selector(onPickerDone))
+			toolBar.items = [flexButton, barButtonDone]
+			toolBar.userInteractionEnabled = YES
+			self.inputAccessoryView = toolBar
+			pickerView = picker
+		}}}
+	}
 }
 
 func setWidgetStyle(style as string) as this
@@ -616,6 +673,11 @@ func updateWidgetFont private
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self setMinimumFontSize:widgetFontSize];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.minimumFontSize = widgetFontSize
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -721,6 +783,18 @@ func updateWidgetAppearance(layoutChanged as bool) private
 			// Padding is used automatically: See above
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil;
+			}
+			self.textColor = textColor.toUIColor()
+		}}}
+	}
 	ELSE IFDEF "target_html" {
 		if widgetBackgroundColor || widgetTextColor || widgetPadding > 0 {
 			if widgetBackgroundColor == null {
@@ -782,6 +856,19 @@ IFDEF "target_iosoc"
 	}
 }
 
+IFDEF "target_swift"
+{
+	func onPickerDone
+	{
+		var index #used = getSelectedWidgetIndex()
+		var text #used = lang "swift" string {{{ self.getWidgetTextForIndex(index) }}}
+		lang "swift" {{{
+			self.setText(text)
+			self.resignFirstResponder()
+		}}}
+	}
+}
+
 func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 {
 	var selectedIndex = getSelectedWidgetIndex()
@@ -826,6 +913,11 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[pickerView reloadAllComponents];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			pickerView.reloadAllComponents()
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -984,6 +1076,9 @@ func getSelectedWidgetIndex as int
 {
 	IFDEF "target_iosoc" {
 		return lang "objc" int {{{ [pickerView selectedRowInComponent:0] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ pickerView.selectedRowInComponent(0) }}}
 	}
 	ELSE IFDEF "target_android" {
 		return selectedWidgetIndex
