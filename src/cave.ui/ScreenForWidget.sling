@@ -564,6 +564,132 @@ IFDEF "target_macosoc"
 	}
 }
 
+IFDEF "target_swift"
+{
+	basetype !"UIViewController" type extends
+	basetype cave.Screen type isAlso
+	depend "swift-import:UIKit"
+
+	var keyboardY #used = 0
+	var statusBarStyle = lang "swift" !"UIStatusBarStyle" {{{ UIStatusBarStyle.default }}}
+	var screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask }}}
+	var uiApplication private as !"UIApplication"
+
+	ctor
+	{
+		onPrepareScreen()
+	}
+
+	func loadView
+	{
+		lang "swift" {{{
+			self.view = UIView ()
+		}}}
+		initialize()
+	}
+
+	func viewDidLayoutSubviews
+	{
+		updateContentViewSize()
+	}
+
+	func enableDefaultStatusBarStyle
+	{
+		lang "swift" {{{
+			statusBarStyle = UIStatusBarStyle.default
+			setNeedsStatusBarAppearanceUpdate()
+		}}}
+	}
+
+	func getUIApplication as !"UIApplication":
+		return uiApplication
+
+	func enableLightStatusBarStyle
+	{
+		lang "swift" {{{
+			statusBarStyle = UIStatusBarStyle.LightContent
+			setNeedsStatusBarAppearanceUpdate()
+		}}}
+	}
+
+	func onPreStartScreenWithData(data as cape.DynamicMap) virtual
+	{
+	}
+
+	lang "swift" {{{
+		func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+			uiApplication = application
+			onPreStartScreenWithData(null)
+			return true
+		}
+
+		func application(application: UIApplication, didReceiveRemoteNotification userInfo: [NSObject : AnyObject], fetchCompletionHandler completionHandler: (UIBackgroundFetchResult) -> Void) {
+			var data: CapeDynamicMap = CapeDynamicMap()
+			var o: NSMutableDictionary = userInfo
+			data.setStringAndObject("data", o)
+			onStartScreenWithData(data)
+		}
+
+		func applicationDidBecomeActive(application: UIApplication) {
+			onStartScreen()
+		}
+		
+		func applicationWillResignActive(application: UIApplication) {
+			onStopScreen()
+		}
+
+		var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+			return screenOrientation
+		}
+
+		var shouldAutorotate: Bool {
+			return true
+		}
+
+		var preferredStatusBarStyle: UIStatusBarStyle {
+			return statusBarStyle
+		}
+
+		func touchesBegan(touches: Set<NSObject>, withEvent event: UIEvent) {
+			self.view.endEditing(true)
+			super.touchesBegan(touches , withEvent:event)
+		}
+
+		func viewWillAppear(_ animated: Bool) {
+			NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide), name: UIKeyboardWillHideNotification, object: nil)
+			NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow), name: UIKeyboardWillShowNotification, object: nil)
+		}
+
+		func viewWillDisappear(_ animated: Bool) {
+			NotificationCenter.default.removeObserver(self)
+		}
+
+		func keyboardWillHide(note: NSNotification){
+			self.keyboardY = 0
+			updateContentViewSize()
+		}
+
+		func keyboardWillShow(note: NSNotification) {
+			var userInfo: NSDictionary = note.userInfo
+			var keyboardFrame: CGRect = CGRectValue(userInfo objectForKey:UIKeyboardFrameEndUserInfoKey)
+			self.keyboardY = keyboardFrame.origin.y
+			updateContentViewSize()
+		}
+	}}}
+
+	func updateContentViewSize
+	{
+		lang "swift" {{{
+			if(self.keyboardY > 0) {
+				self.view.subviews[0].frame = CGRectMake(0, 0, self.view.frame.size.width, self.keyboardY)
+			}
+			else {
+				self.view.subviews[0].frame = self.view.frame
+			}
+		}}}
+	}
+}
+
 var keyEvent as KeyEvent
 
 func onBackKeyPressEvent
@@ -621,6 +747,9 @@ func unlockOrientation
 			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
 		}}}
 	}
+	ELSE IFDEF("target_swift") {
+		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask }}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -641,6 +770,9 @@ func lockToLandscapeOrientation
 			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
 		}}}
 	}
+	ELSE IFDEF("target_swift") {
+		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientation.landscapeLeft }}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -660,6 +792,9 @@ func lockToPortraitOrientation
 		lang "kotlin" {{{
 			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
 		}}}
+	}
+	ELSE IFDEF("target_swift") {
+		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.Portrait }}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -694,8 +829,8 @@ func createContext private as GuiApplicationContext
 	ELSE IFDEF "target_uwp" {
 		v = GuiApplicationContextForUWP.getInstance()
 	}
-	ELSE IFDEF "target_kotlin" {
-		v = GuiApplicationContextForKotlin.forActivityContext(this)
+	ELSE IFDEF "target_swift" {
+		v = new GuiApplicationContextForSwift()
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -798,6 +933,14 @@ func setWidget(widget as ContainerWidget)
 			this.Content = widget;
 		}}}
 		widget.onWidgetAddingToParent()
+		Widget.onWidgetAddedToParent(widget)
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.view.addSubview(widget)
+		}}}
+		widget.onWidgetAddingToParent()
+		widget.setScreenForWidget(this)
 		Widget.onWidgetAddedToParent(widget)
 	}
 	ELSE {
