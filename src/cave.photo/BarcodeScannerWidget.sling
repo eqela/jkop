@@ -175,6 +175,68 @@ ELSE IFDEF "target_kotlin" {
 		kap.requestPermissions(perms, onRequestPermission)
 	}
 }
+ELSE IFDEF "target_swift" {
+	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
+	depend "swift-framework:AVFoundation"
+	depend "swift-import:UIKit"
+	depend "ldlib:c++"
+	depend "ldlib:z"
+
+	basetype !"UIView" type extends
+	basetype !"AVCaptureMetadataOutputObjectsDelegate" type implements
+	basetype ResizeAwareWidget type implements
+	basetype Widget type isAlso
+	var session as !"AVCaptureSession"
+	var preview as !"AVCaptureVideoPreviewLayer"
+	var supportedFormat as !"NSArray"
+	var sessionRunning as bool
+
+	func onWidgetResized
+	{
+		assert Widget.getHeight(this) > 0
+		assert Widget.getWidth(this) > 0
+		assert not sessionRunning
+		tryCameraPreview()
+	}
+
+	lang "swift" {{{
+		func captureOutput(_ captureOutput: AVCaptureOutput, didOutput metadataObjects: NSArray, from connection: AVCaptureConnection)
+		{
+			if metadataObjects?.count != 0 {
+				for barcodeMetadata in metadataObjects {
+					for supportedBarcode in supportedFormat {
+						if supportedBarcode == barcodeMetadata.type {
+							var barcodeObject = self.preview(transformedMetadataObject(for: barcodeMetadata)) as AVMetadataMachineReadableCodeObject
+							sync {
+								var obj = CavePhotoBarcodeObject()
+								obj.setRawValue(barcodeObject)
+								obj.setDisplayValue(barcodeObject)
+								obj.setFormat(supportedBarcode)
+								self.onReceiveDetection(obj)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		func captureDeviceInputForPosition(desiredPosition: AVCaptureDevicePosition) -> AVCaptureDeviceInput
+		{
+			for device in [devicesWithMediaType: AVMediaTypeVideo] {
+				if device.position == desiredPosition {
+					var error: Error = nil
+					var input: AVCaptureDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error]
+					if error {
+						println("Could not initialize for AVMediaTypeVideo for device %@"\(device))
+					} else if self.session(input: canAddInput) {
+						return input
+					}
+				}
+			}
+			return nil
+		}
+	}}}
+}
 ELSE {
 	basetype Widget type extends
 }
@@ -207,12 +269,18 @@ ctor(ctx as GuiApplicationContext)
 			self->session.sessionPreset = AVCaptureSessionPresetMedium;
 		}}}
 	}
-	IFDEF "target_kotlin" {
+	ELSE IFDEF "target_kotlin" {
 		base((ctx as! cave.GuiApplicationContextForKotlin).getActivityContext())
 		requestPermission(ctx as! KotlinApplicationContext)
 		lang "kotlin" {{{
 			surfaceHolder = getHolder()
 			surfaceHolder!!.addCallback(this)
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "objc" {{{
+			self.session = AVCaptureSession()
+			self.session.sessionPreset = AVCaptureSessionPresetMedium
 		}}}
 	}
 	widgetContext = ctx
@@ -413,6 +481,58 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			})
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_ALL)
+			{
+				supportedFormat = [AVMetadataObjectTypeUPCECode,
+							AVMetadataObjectTypeCode39Code,
+							AVMetadataObjectTypeCode39Mod43Code,
+							AVMetadataObjectTypeEAN13Code,
+							AVMetadataObjectTypeEAN8Code,
+							AVMetadataObjectTypeCode93Code,
+							AVMetadataObjectTypeCode128Code,
+							AVMetadataObjectTypePDF417Code,
+							AVMetadataObjectTypeQRCode,
+							AVMetadataObjectTypeAztecCode]
+			}
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_QRCODE)
+			{
+				supportedFormat = AVMetadataObjectTypeQRCode
+			}
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_EAN13)
+			{
+				supportedFormat = AVMetadataObjectTypeEAN13Code
+			}
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_UPCA)
+			{
+				supportedFormat = AVMetadataObjectTypeUPCECode
+			}
+			self.session(beginConfiguration)
+
+			var input: AVCaptureDeviceInput = nil
+			if (widgetPrimaryCamera == CavePhotoBarcodeScannerWidget.CAMERA_BACK)
+			{
+				input = self.captureDeviceInputForPosition(AVCaptureDevicePositionBack)
+			}
+			else
+			{
+				input = self.captureDeviceInputForPosition(AVCaptureDevicePositionFront);
+			}
+			if (!input) {
+				print("Error Getting Camera Input")
+				return
+			}
+			self.session.addInput(input)
+			self.session.commitConfiguration
+			var captureMetadataOutput = AVCaptureMetadataOutput()
+			self.session.addOutput(captureMetadataOutput)
+			dispatch_queue_t dispatchQueue
+			dispatchQueue = dispatch_queue_create("scanQueue", NULL)
+			captureMetadataOutput.setMetadataObjectsDelegate(queue:dispatchQueue])
+			captureMetadataOutput.setMetadataObjectTypes(captureMetadataOutput availableMetadataObjectTypes)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -459,6 +579,18 @@ func tryCameraPreview private
 			}}}
 		}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.preview = layerWithSession: self.session as AVCaptureVideoPreviewLayer
+			self.preview.setVideoGravity(AVLayerVideoGravityResizeAspect)
+			var rootLayer: CALayer = self.layer
+			rootLayer.setMasksToBounds(true)
+			self.preview.setFrame(rootLayer.bounds)
+			rootLayer.addSublayer(self.preview)
+			self.session = startRunning
+			self.sessionRunning = true
+		}}}
+	}
 }
 
 func onReceiveDetection(bcobj as BarcodeObject) private
@@ -479,6 +611,18 @@ func isBarcodeScanningAllowed as bool
 			}
 			else {
 				return false;
+			}
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			var mediaType: NSString = AVMediaTypeVideo
+			var authStatus: AVAuthorizationStatus = AVCaptureDevice(authorizationStatusForMediaType:mediaType)
+			if(authStatus != AVAuthorizationStatusDenied) {
+				return true
+			}
+			else {
+				return false
 			}
 		}}}
 	}
