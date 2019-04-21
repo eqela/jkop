@@ -327,10 +327,11 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
 	if not buffer:
 		return -1
-	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
-	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getApplicationBufferSize()!!) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
 	var exitLoop = false
 	var v = 0
+	var r = 0
 	while exitLoop == false {
 		v = readJvcSocket(netBuff)
 		if v > 0 {
@@ -340,6 +341,7 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 					appBuff.clear()
 					lang "kotlin" {{{
 						var result = sslEngine!!.unwrap(netBuff, appBuff)
+						r += result.bytesProduced()
 						when (result!!.getStatus()) {
 							javax.net.ssl.SSLEngineResult.Status.OK -> {
 								appBuff.flip()
@@ -370,16 +372,16 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 		}
 	}
 	var farray = appBuff.array()
-	farray.toUByteArray().copyInto(buffer)
-	return v
+	farray.toUByteArray().copyInto(buffer, 0, 0, appBuff.limit())
+	return r
 }
 
 func write(buffer as buffer, size as int) override as int
 {
 	if not buffer:
 		return -1
-	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, buffer!!.size) }}}
-	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buffer!!.size) }}}
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
 	while appBuff.remaining() > 0 {
 		netBuff.clear()
 		try {
