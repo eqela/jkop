@@ -224,6 +224,31 @@ IFDEF("target_iosoc")
 	}
 }
 
+IFDEF("target_swift")
+{
+	var displayLink as !"CADisplayLink"
+	var startTime as double = 0
+	depend "swift-import:QuartzCore"
+
+	func onAnimationFrame
+	{
+		if(startTime <= 0.0) {
+			lang "swift" {{{
+				startTime = displayLink.timestamp
+			}}}
+		}
+		var currentTime = lang "swift" double {{{ displayLink.timestamp }}}
+		var diff = currentTime - startTime
+		var diffms = Math.round(diff * 1000) as int
+		if(onProgress(diffms) == false) {
+			lang "swift" {{{
+				displayLink.remove(from : NSRunLoop.current, forMode: RunLoop.Mode.common)
+			}}}
+			displayLink = null
+		}
+	}
+}
+
 func start
 {
 	IFDEF("target_html") {
@@ -254,6 +279,12 @@ func start
 		lang "objc" {{{
 			displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onAnimationFrame)];
 			[displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			displayLink = CADisplayLink(target: self, selector: #selector(onAnimationFrame))
+			displayLink.add(to: NSRunLoop.main, forMode:  RunLoop.Mode.common)
 		}}}
 	}
 	ELSE {
