@@ -84,12 +84,6 @@ ELSE IFDEF "target_kotlin"
 	}
 }
 
-ELSE IFDEF "target_ios"
-{
-	basetype Widget
-	// FIXME
-}
-
 ELSE IFDEF "target_macosoc"
 {
 	basetype Widget
@@ -106,6 +100,78 @@ ELSE IFDEF "target_uwp"
 ELSE
 {
 	basetype Widget
+
+	class MyRadioButtonWidget #widget
+	{
+		ui HorizontalBoxWidget
+		{
+			spacing = context.getHeightValue("2000um")
+			AlignWidget {
+				LayerWidget radio {
+					heightRequest = context.getHeightValue("4000um")
+					widthRequest = context.getHeightValue("4000um")
+					CanvasWidget outline {
+					}
+					LayerWidget {
+						margin = context.getHeightValue("500um")
+						CanvasWidget canvas {
+						}
+					}
+				}
+			}
+			LabelWidget label {
+			}
+		}
+
+		prop widgetIndex as int
+		prop widgetContainer as parent
+		prop widgetColor as Color
+		prop widgetOutLineColor as Color
+		prop widgetText as string
+		prop widgetFontSize as int
+		prop widgetFontResource as string
+
+		func initializeWidget override
+		{
+			base.initializeWidget()
+			label.setWidgetText(widgetText)
+			label.setWidgetFontSize(widgetFontSize)
+			label.setWidgetFontResource(widgetFontResource)
+			if not widgetOutLineColor:
+				widgetOutLineColor = Color.black()
+			outline.setWidgetColor(widgetOutLineColor)
+			outline.setWidgetRoundingRadius(context.getHeightValue("2000um"))
+			canvas.setWidgetColor(Color.white())
+			canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+			Widget.setWidgetClickHandler(radio, func {
+				widgetContainer.updateSelectedWidget(widgetIndex)
+			})
+			Widget.setWidgetClickHandler(label, func {
+				widgetContainer.updateSelectedWidget(widgetIndex)
+			})
+		}
+
+		func onSelected
+		{
+			if not widgetColor:
+				widgetColor = Color.black()
+			canvas.setWidgetColor(widgetColor)
+			canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+		}
+
+		func onDeSelected
+		{
+			canvas.setWidgetColor(Color.white())
+			canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+		}
+
+		func getWidgetLabel as string
+		{
+			return label.getWidgetText()
+		}
+	}
+
+	var vrb as vector<MyRadioButtonWidget>
 }
 
 const HORIZONTAL = 0
@@ -115,6 +181,8 @@ var widgetContext as GuiApplicationContext
 var widgetName as string
 var widgetSelectedValue as string
 var widgetItems as vector<string>
+var widgetOrientation = VERTICAL
+var selectedWidgetIndex = -1
 prop widgetChangeHandler as function
 
 ctor(context as GuiApplicationContext)
@@ -130,6 +198,10 @@ ctor(context as GuiApplicationContext)
 		lang "kotlin" {{{
 			setOnCheckedChangeListener(this)
 		}}}
+	}
+	ELSE {
+		vrb = new vector<MyRadioButtonWidget>
+		updateRadioButtonContainer()
 	}
 	widgetContext = context
 }
@@ -206,7 +278,15 @@ func addWidgetItem(text as string, index as int)
 		Widget.addChild(this, v  as Widget)
 	}
 	ELSE {
-		ERROR("Not implemented")
+		var rb = new MyRadioButtonWidget(context)
+		rb.setWidgetText(text)
+		rb.setWidgetIndex(index)
+		rb.setWidgetContainer(this)
+		rb.setWidgetFontSize(widgetFontSize)
+		rb.setWidgetFontResource(widgetFontResource)
+		rb.setWidgetColor(widgetOnSelectedColor)
+		rb.setWidgetOutLineColor(widgetOutlineColor)
+		vrb += rb
 	}
 }
 
@@ -251,7 +331,7 @@ func setWidgetSelectedValue(indx as int)
 		}}}
 	}
 	ELSE {
-		ERROR("Not implemented")
+		updateSelectedWidget(findIndexForWidgetValue(selectedWidget))
 	}
 }
 
@@ -286,7 +366,8 @@ func setWidgetOrientation(orientation as int)
 			}}}
 		}
 		ELSE {
-			ERROR("Not implemented")
+			widgetOrientation = HORIZONTAL
+			updateRadioButtonContainer()
 		}
 	}
 	else if(orientation == VERTICAL) {
@@ -308,7 +389,8 @@ func setWidgetOrientation(orientation as int)
 			}}}
 		}
 		ELSE {
-			ERROR("Not implemented")
+			widgetOrientation = VERTICAL
+			updateRadioButtonContainer()
 		}
 	}
 }
@@ -339,4 +421,69 @@ func setWidgetValue(value as object)
 func getWidgetValue as object
 {
 	return(getWidgetSelectedValue())
+}
+
+func updateSelectedWidget(index as int)
+{
+	var v as object
+	if selectedWidgetIndex > -1 {
+		var widget = Vector.get(vrb, selectedWidgetIndex)
+		v = widget.getWidgetLabel()
+		if widget:
+			widget.onDeSelected()
+	}
+	var ww = Vector.get(vrb, index)
+	if ww:
+		ww.onSelected()
+	selectedWidgetIndex = index
+	widgetSelectedValue = v
+	onChangeSelectedItem()
+}
+
+func findIndexForWidgetValue(id as int) private as int
+{
+	var v = -1
+	if widgetItems {
+		var n = 0
+		var it as Iterator<string> #force = Vector.iterate(widgetItems)
+		while it {
+			var item = it.next()
+			if item == null:
+				break
+			if(item == String.asString(id)) {
+				v = n
+				break
+			}
+			n ++
+		}
+	}
+	return v
+}
+
+func getSelectedWidgetIndex as int:
+	return selectedWidgetIndex
+
+func updateRadioButtonContainer
+{
+	Widget.removeChildrenOf(this)
+	var box as ContainerWidget
+	if widgetOrientation == HORIZONTAL {
+		box = HorizontalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
+	}
+	else {
+		box = VerticalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
+	}
+	for(var i = 0; i < Vector.getSize(widgetItems); i++) {
+		var d = Vector.get(widgetItems, i)
+		if not d:
+			continue
+		addWidgetItem(d, i)
+		if widgetOrientation == HORIZONTAL {
+			(box as! HorizontalBoxWidget).addWidget(rb, 1.0)
+		}
+		else {
+			box.addWidget(rb)
+		}
+	}
+	addWidget(box)
 }
