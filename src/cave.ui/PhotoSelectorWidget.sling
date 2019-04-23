@@ -55,6 +55,37 @@ IFDEF "target_ios"
 	}
 }
 
+IFDEF "target_swift"
+{
+	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
+	depend "swift-import:UIKit"
+
+	class MyImagePickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
+	{
+		prop callback as function<void, Image, string, Error>
+
+		lang "swift" {{{
+			func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any])
+			{
+				var image = info[.editedImage] as? UIImage
+				var url = info[.referenceURL] as? URL
+				self.onImagePicked(image, filepath)
+				objc_removeAssociatedObjects(picker)
+				picker.dismiss(animated: true)
+			}
+		}}}
+
+		func onImagePicked(image as !"UIImage", filepath as string)
+		{
+			if callback {
+				var file = File.forPath(filepath)
+				if image:
+					callback(ImageForIOS.forUIImage(image), file.getBasename(), null)
+			}
+		}
+	}
+}
+
 var context as GuiApplicationContext
 
 ctor(context as GuiApplicationContext)
@@ -190,6 +221,24 @@ func openPhotoDialog(widget as Widget, callback as function<void, Image, string,
 			picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
 			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[screen presentViewController:picker animated:YES completion:nil];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, null, Error.forCode("no_screen_found"))
+			return
+		}
+		var delegate = new MyImagePickerDelegate()
+		delegate.setCallback(cb)
+		lang "swift" {{{
+			var picker = UIImagePickerController()
+			picker.delegate = delegate
+			picker.allowsEditing = true
+			picker.sourceType = UIImagePickerController.SourceType.photoLibrary
+			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+			screen.presentViewController(picker, animated: true)
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
