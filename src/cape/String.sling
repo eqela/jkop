@@ -225,6 +225,9 @@ func forASCIIBuffer(data as buffer #used) static as string
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ data!!.toByteArray()?.toString(kotlin.text.Charsets.US_ASCII) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ NSString(data: Data(data!), encoding: Swift.String.Encoding.ascii.rawValue) as Swift.String? }}}
+	}
 	ELSE {
 		ERROR "Not implemented."
 		return null
@@ -259,6 +262,9 @@ func forUTF8Buffer(data as buffer #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ kotlin.text.String(data!!.toByteArray(), kotlin.text.Charsets.UTF_8) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ NSString(data: Data(data!), encoding: Swift.String.Encoding.utf8.rawValue) as Swift.String? }}}
 	}
 	ELSE {
 		var sb = new StringBuilder()
@@ -305,6 +311,9 @@ func forUCS2Buffer(data as buffer #used) static as string
 			return(null)
 		}
 		return(lang "js" string {{{ data.toString("ucs2") }}})
+	}
+	ELSE IFDEF("target_swift") {
+		return(lang "swift" string {{{ NSString(data: Data(data!), encoding: Swift.String.Encoding.unicode.rawValue) as Swift.String? }}})
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -528,6 +537,9 @@ func forIntegerHex(vv as int #used, minlength as int = 0) static as string
 	ELSE IFDEF "target_kotlin" {
 		v = lang "kotlin" string {{{ vv.toString(16) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		v = lang "swift" string {{{ NSString(format:"%x", vv) as Swift.String? }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -561,6 +573,9 @@ func forIntegerOctal(vv as int #used) static as string
 	}
 	ELSE IFDEF "target_kotlin" {
 		v = lang "kotlin" string {{{ vv.toString(8) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		v = lang "swift" string {{{ NSString(format:"%o", vv) as Swift.String? }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1182,6 +1197,9 @@ func getChar(str as string #used, index as int #used) static as char
 	ELSE IFDEF "target_sushi" {
 		return lang "lua" char {{{ _sushi.getByteFromString(str, index) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" char {{{ str == nil || index < 0 || index >= (str! as NSString).length ? Character(UnicodeScalar(0)) : str![str!.index(str!.startIndex, offsetBy: index)] }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0 as char
@@ -1262,7 +1280,7 @@ func equalsIgnoreCase(str1 as string #used, str2 as string #used) static as bool
 		return lang "kotlin" bool {{{ str1.equals(str2, true) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" bool {{{ (str1! as NSString).caseInsensitiveCompare(str2!) == ComparisonResult.orderedSame }}}
+		return lang "swift" {{{ (str1! as NSString).caseInsensitiveCompare(str2!) == ComparisonResult.orderedSame }}}
 	}
 	ELSE {
 		return equals(toLowerCase(str1), toLowerCase(str2))
@@ -1330,6 +1348,14 @@ func compareToIgnoreCase(str1 as string #used, str2 as string #used) static as i
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str1.compareTo(str2, true) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		var n as int
+		lang "swift" {{{
+			let r = (str1! as NSString).caseInsensitiveCompare(str2!)
+			n = r == ComparisonResult.orderedAscending ? -1 : r == ComparisonResult.orderedSame ? 0 : 1
+		}}}
+		return n
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
@@ -1368,9 +1394,6 @@ func getHashCode(str as string #used) static as int
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.hashCode() }}}
-	}
-	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ (str! as NSString).hash }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1423,6 +1446,20 @@ func getIndexOf(str as string #used, c as char #used, start as int #used = 0) st
 	ELSE IFDEF "target_sushi" {
 		return lang "lua" int {{{ _sushi.getIndexOfCharacter(str, c, start) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		var v as int
+		lang "swift" {{{
+			let charset = NSCharacterSet(charactersIn: NSString(format:"%c") as Swift.String)
+			let r: NSRange = str!.rangeOfCharacter(from: charset as CharacterSet, options: [], range: NSMakeRange(start, (str! as NSString).length - start))
+			if(r.lowerBound == NSNotFound) {
+				v = -1
+			}
+			else {
+				v = r.lowerBound
+			}
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return -1
@@ -1465,6 +1502,10 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 	ELSE IFDEF "target_sushi" {
 		assert s
 		return lang "lua" int {{{ _sushi.getIndexOfSubstring(str, s, start) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		assert s
+		return lang "swift" int {{{ str!.range(of: s!, options: [], range: NSMakeRange(start, (str! as NSString).length - start)).lowerBound }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1511,6 +1552,14 @@ func getLastIndexOf(str as string #used, c as char #used, start as int #used = -
 		if start <= 0:
 			return lang "kotlin" int {{{ str.lastIndexOf(c) }}}
 		return lang "kotlin" int {{{ str.lastIndexOf(c, start) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var n as int
+		lang "swift" {{{
+			let charset = NSCharacterSet(charactersIn: NSString(format:"%c") as Swift.String)
+			n = str!.rangeOfCharacter(from: charset as CharacterSet, options: .backwards, range: NSMakeRange(0, start < 0 ? (str! as NSString).length : start)).lowerBound
+		}}}
+		return n
 	}
 	ELSE {
 		var ss = start
@@ -1569,6 +1618,9 @@ func getLastIndexOf(str as string #used, s as string #used, start as int #used =
 		if start <= 0:
 			return lang "kotlin" int {{{ str.lastIndexOf(s) }}}
 		return lang "kotlin" int {{{ str.lastIndexOf(s, start) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ str!.range(of: s!, options: .backwards, range: NSMakeRange(0, start < 0 ? (str! as NSString).length : start)).lowerBound }}}
 	}
 	ELSE {
 		var ss = start
