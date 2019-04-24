@@ -207,7 +207,7 @@ ELSE IFDEF "target_swift" {
 					for supportedBarcode in supportedFormat {
 						if supportedBarcode == barcodeMetadata.type {
 							var barcodeObject = self.preview(transformedMetadataObject(for: barcodeMetadata)) as AVMetadataMachineReadableCodeObject
-							sync {
+							DispatchQueue.main.async {
 								var obj = CavePhotoBarcodeObject()
 								obj.setRawValue(barcodeObject)
 								obj.setDisplayValue(barcodeObject)
@@ -222,13 +222,13 @@ ELSE IFDEF "target_swift" {
 
 		func captureDeviceInputForPosition(desiredPosition: AVCaptureDevicePosition) -> AVCaptureDeviceInput
 		{
-			for device in [devicesWithMediaType: AVMediaTypeVideo] {
+			for device in devicesWithMediaType {
 				if device.position == desiredPosition {
-					var error: Error = nil
-					var input: AVCaptureDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:device error:&error]
+					var error: NSError? = nil
+					let input = AVCaptureDeviceInput(device: device, error: &error)
 					if error {
 						println("Could not initialize for AVMediaTypeVideo for device %@"\(device))
-					} else if self.session(input: canAddInput) {
+					} else if self.session(canAddInput(_:input)) {
 						return input
 					}
 				}
@@ -485,51 +485,50 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 		lang "swift" {{{
 			if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_ALL)
 			{
-				supportedFormat = [AVMetadataObjectTypeUPCECode,
-							AVMetadataObjectTypeCode39Code,
-							AVMetadataObjectTypeCode39Mod43Code,
-							AVMetadataObjectTypeEAN13Code,
-							AVMetadataObjectTypeEAN8Code,
-							AVMetadataObjectTypeCode93Code,
-							AVMetadataObjectTypeCode128Code,
-							AVMetadataObjectTypePDF417Code,
-							AVMetadataObjectTypeQRCode,
-							AVMetadataObjectTypeAztecCode]
+				supportedFormat = [upce,
+							code39,
+							code39Mod43,
+							ean13,
+							ean8,
+							code93,
+							code128,
+							pdf417,
+							qr,
+							aztec]
 			}
 			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_QRCODE)
 			{
-				supportedFormat = AVMetadataObjectTypeQRCode
+				supportedFormat = qr
 			}
 			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_EAN13)
 			{
-				supportedFormat = AVMetadataObjectTypeEAN13Code
+				supportedFormat = ean13
 			}
 			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_UPCA)
 			{
-				supportedFormat = AVMetadataObjectTypeUPCECode
+				supportedFormat = upce
 			}
 			self.session(beginConfiguration)
 
 			var input: AVCaptureDeviceInput = nil
 			if (widgetPrimaryCamera == CavePhotoBarcodeScannerWidget.CAMERA_BACK)
 			{
-				input = self.captureDeviceInputForPosition(AVCaptureDevicePositionBack)
+				input = self.captureDeviceInputForPosition(AVCaptureDevicePosition.back)
 			}
 			else
 			{
-				input = self.captureDeviceInputForPosition(AVCaptureDevicePositionFront);
+				input = self.captureDeviceInputForPosition(AVCaptureDevicePosition.front)
 			}
 			if (!input) {
 				print("Error Getting Camera Input")
 				return
 			}
 			self.session.addInput(input)
-			self.session.commitConfiguration
+			self.session.commitConfiguration()
 			var captureMetadataOutput = AVCaptureMetadataOutput()
 			self.session.addOutput(captureMetadataOutput)
-			dispatch_queue_t dispatchQueue
-			dispatchQueue = dispatch_queue_create("scanQueue", NULL)
-			captureMetadataOutput.setMetadataObjectsDelegate(queue:dispatchQueue])
+			let dispatchQueue = DispatchQueue(label: "scanQueue")
+			captureMetadataOutput.setMetadataObjectsDelegate(_:queue:dispatchQueue)
 			captureMetadataOutput.setMetadataObjectTypes(captureMetadataOutput availableMetadataObjectTypes)
 		}}}
 	}
@@ -581,11 +580,11 @@ func tryCameraPreview private
 	}
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{
-			self.preview = layerWithSession: self.session as AVCaptureVideoPreviewLayer
-			self.preview.setVideoGravity(AVLayerVideoGravityResizeAspect)
-			var rootLayer: CALayer = self.layer
-			rootLayer.setMasksToBounds(true)
-			self.preview.setFrame(rootLayer.bounds)
+			self.preview = AVCaptureVideoPreviewLayer(session: self.session)
+			self.preview.videoGravity = resizeAspect
+			let rootLayer = self.layer
+			rootLayer.masksToBounds = true
+			self.preview.frame = rootLayer.bounds
 			rootLayer.addSublayer(self.preview)
 			self.session = startRunning
 			self.sessionRunning = true
@@ -616,9 +615,9 @@ func isBarcodeScanningAllowed as bool
 	}
 	IFDEF "target_swift" {
 		lang "swift" {{{
-			var mediaType: NSString = AVMediaTypeVideo
-			var authStatus: AVAuthorizationStatus = AVCaptureDevice(authorizationStatusForMediaType:mediaType)
-			if(authStatus != AVAuthorizationStatusDenied) {
+			let mediaType = video
+			let authStatus: AVAuthorizationStatus = AVCaptureDevice(authorizationStatus(for:mediaType))
+			if(authStatus != AVAuthorizationStatus.denied) {
 				return true
 			}
 			else {
