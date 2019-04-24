@@ -29,6 +29,11 @@ IFDEF "target_netcore"
 	depend "nuget:System.Threading.Thread@4.3.*"
 }
 
+IFDEF "target_swift"
+{
+	depend "Foundation"
+}
+
 IFDEF("target_posix") {
 	lang "c" {{{
 		#include <pthread.h>
@@ -105,6 +110,33 @@ IFDEF "target_objc" {
 				runnable.run()
 		}
 	}
+}
+
+IFDEF "target_swift" {
+	lang "swift" {{{
+		class MyThread : Foundation.Thread {
+			public override init() {
+				super.init()
+			}
+
+			private var runnable: Runnable? = nil
+
+			public override func main() {
+				if runnable != nil {
+					runnable!.run()
+				}
+			}
+
+			public func getRunnable() -> Runnable? {
+				return runnable
+			}
+
+			public func setRunnable(_ v: Runnable?) -> MyThread? {
+				runnable = v
+				return self
+			}
+		}
+	}}}
 }
 
 func start(runnable as Runnable) static as bool
@@ -192,6 +224,14 @@ func start(runnable as Runnable) static as bool
 		]], _sushi.serializeObject(runnable)) }}}
 		if r == 0:
 			return false
+		return true
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let thread: MyThread? = MyThread()
+			thread!.setRunnable(runnable)
+			thread!.start()
+		}}}
 		return true
 	}
 	ELSE {
