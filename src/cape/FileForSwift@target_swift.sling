@@ -73,7 +73,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 	{
 		if !buf || !handle:
 			return 0
-		var data as buffer
+		var data as !"Data"
 		var mx #used = lang "swift" int {{{ buf!.count }}}
 		lang "swift" {{{
 			data = handle?.readData(ofLength: mx)
@@ -87,7 +87,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 	}
 
 	func readAll as buffer:
-		return lang "swift" buffer {{{ handle?.readDataToEndOfFile() }}}
+		return lang "swift" buffer {{{ [UInt8](handle?.readDataToEndOfFile() as! Data) }}}
 
 }
 
@@ -205,12 +205,12 @@ func exists override as bool:
 func isExecutable override as bool:
 	return lang "swift" bool {{{ manager?.isExecutableFile(atPath: path!)}}}
 
-func remove override stub as bool
+func remove override as bool
 {
 	lang "swift" {{{
 		try? manager?.removeItem(atPath: path!)
 	}}}
-	if exist():
+	if exists():
 		return false
 	return true
 }
@@ -252,9 +252,36 @@ func isFile override as bool
 	return dir
 }
 
-func entries override stub as Iterator<File>
-func stat override stub as FileInfo
+func stat override as FileInfo
+{
+	var v = new FileInfo()
+	v.setFile(this)
+	lang "swift" {{{
+		do {
+			var dict: NSDictionary
+			dict = try manager?.attributesOfItem(atPath: path!) as! NSDictionary
+			v?.size = (dict[FileAttributeKey.size] as? NSNumber)?.intValue ?? 0
+			v?.createTime = Int((dict[FileAttributeKey.creationDate] as! NSDate).timeIntervalSince1970)
+			v?.accessTime = 0
+			v?.modifyTime = Int((dict[FileAttributeKey.modificationDate] as! NSDate).timeIntervalSince1970)
+			v?.ownerUser = (dict[FileAttributeKey.ownerAccountID] as? NSNumber)?.intValue ?? 0
+			v?.ownerGroup = (dict[FileAttributeKey.groupOwnerAccountID] as? NSNumber)?.intValue ?? 0
+			var mode = 0
+			var executable = manager?.isExecutableFile(atPath: path!)
+			var link = FileAttributeType.typeSymbolicLink.rawValue == dict[FileAttributeKey.type] as! String?
+			if isFile()! {
+				v!.setType(FileInfo.FILE_TYPE_FILE)
+			}
+			else if isDirectory()! {
+				v!.setType(FileInfo.FILE_TYPE_DIR)
+			}
+		} catch {
+		}
+	}}}
+	return v
+}
 
+func entries override stub as Iterator<File>
 func isLink override stub as bool
 func createDirectoryRecursive override stub as bool
 func removeDirectory override stub as bool
