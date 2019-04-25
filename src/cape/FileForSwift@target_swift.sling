@@ -73,7 +73,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 	{
 		if !buf || !handle:
 			return 0
-		var data as !"Data"
+		var data as buffer
 		var mx #used = lang "swift" int {{{ buf!.count }}}
 		lang "swift" {{{
 			data = handle?.readData(ofLength: mx)
@@ -87,7 +87,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 	}
 
 	func readAll as buffer:
-		return lang "swift" buffer {{{ [UInt8](handle?.readDataToEndOfFile() as! Data) }}}
+		return lang "swift" buffer {{{ handle?.readDataToEndOfFile() }}}
 
 }
 
@@ -106,7 +106,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 		lang "swift" {{{
 			do {
 				if let ptr = ptr {
-					handle?.write(Data(bytes: ptr))
+					handle?.write(ptr)
 				}
 			} catch let e {
 				v = -1
@@ -156,7 +156,7 @@ var manager as !"FileManager"
 
 ctor(path as string)
 {
-	this.path = lang "swift" string {{{ path.standardizingPath }}}
+	this.path = lang "swift" string {{{(path as! NSString).standardizingPath }}}
 	lang "swift" {{{
 		manager = FileManager.default
 	}}}
@@ -214,10 +214,10 @@ func getContentsString(encoding as string) override as string
 }
 
 func exists override as bool:
-	return lang "swift" bool {{{ manager?.fileExists(atPath: path!) }}}
+	return lang "swift" bool {{{ manager?.fileExists(atPath: path!) ?? false }}}
 
 func isExecutable override as bool:
-	return lang "swift" bool {{{ manager?.isExecutableFile(atPath: path!)}}}
+	return lang "swift" bool {{{ manager?.isExecutableFile(atPath: path!) ?? false }}}
 
 func remove override as bool
 {
@@ -244,7 +244,7 @@ func isDirectory override as bool
 	var dir as bool
 	lang "swift" {{{
 		var isDir : ObjCBool = false
-		v = manager?.fileExists(atPath:path!, isDirectory:&isDir)
+		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
 		dir = isDir.boolValue
 	}}}
 	if not v:
@@ -258,7 +258,7 @@ func isFile override as bool
 	var dir as bool
 	lang "swift" {{{
 		var isDir : ObjCBool = false
-		v = manager?.fileExists(atPath:path!, isDirectory:&isDir)
+		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
 		dir = !isDir.boolValue
 	}}}
 	if not v:
@@ -283,15 +283,15 @@ func stat override as FileInfo
 			var mode = 0
 			var executable = manager?.isExecutableFile(atPath: path!)
 			var link = FileAttributeType.typeSymbolicLink.rawValue == dict[FileAttributeKey.type] as! String?
-			if isFile()! {
-				v!.setType(FileInfo.FILE_TYPE_FILE)
-			}
-			else if isDirectory()! {
-				v!.setType(FileInfo.FILE_TYPE_DIR)
-			}
 		} catch {
 		}
 	}}}
+	if isFile() {
+		v.setType(FileInfo.FILE_TYPE_FILE)
+	}
+	else if isDirectory() {
+		v.setType(FileInfo.FILE_TYPE_DIR)
+	}
 	return v
 }
 
