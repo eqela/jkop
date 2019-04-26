@@ -1,0 +1,309 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is File:
+
+class MyReader is FileReader is Reader is SizedReader is Closable is SeekableReader
+{
+	prop handle as !"FileHandle"
+	prop size as int
+
+	func close
+	{
+		if !handle:
+			return
+		lang "swift" {{{
+			handle?.closeFile()
+		}}}
+		handle = null
+	}
+
+	func setCurrentPosition(n as int64) as bool
+	{
+		if handle:
+			return false
+		var v = true
+		lang "swift" {{{
+		do {
+			handle?.seek(toFileOffset: UInt64(n))
+		} catch let e {
+			v = false
+		}
+		}}}
+		return v
+	}
+
+	func getCurrentPosition as int64
+	{
+		if !handle:
+			return 0
+		var v as int64 = 0
+		lang "swift" {{{
+			do {
+				v = Int64(bitPattern: handle!.offsetInFile)
+			} catch let e {
+				v = 0
+			}
+		}}}
+		return v
+	}
+
+	func read(buf as buffer) as int
+	{
+		if !buf || !handle:
+			return 0
+		var data as buffer
+		var mx #used = lang "swift" int {{{ buf!.count }}}
+		lang "swift" {{{
+			data = handle?.readData(ofLength: mx)
+		}}}
+		if !data:
+			return 0
+		var dlen = lang "swift" int {{{ data!.count }}}
+		if dlen < 1:
+			return 0
+		return dlen
+	}
+
+	func readAll as buffer:
+		return lang "swift" buffer {{{ handle?.readDataToEndOfFile() }}}
+
+}
+
+class MyWriter is FileWriter is Writer is Closable is SeekableWriter
+{
+	prop handle as !"FileHandle"
+
+	func write(buffer as buffer, size as int) as int
+	{
+		if !buffer:
+			return 0
+		var ptr #used = buffer
+		if size >= 0 && size != Buffer.getSize(ptr):
+			ptr = Buffer.getSubBuffer(ptr, 0, size)
+		var v = Buffer.getSize(ptr)
+		lang "swift" {{{
+			do {
+				if let ptr = ptr {
+					handle?.write(ptr)
+				}
+			} catch let e {
+				v = -1
+			}
+		}}}
+		return v
+	}
+
+	func setCurrentPosition(n as int64) as bool
+	{
+		if !handle:
+			return false
+		var v = true
+		lang "swift" {{{
+			handle?.seek(toFileOffset: UInt64(n))
+		}}}
+		return v
+	}
+
+	func getCurrentPosition as int64
+	{
+		if !handle:
+			return 0
+		var v as int64 = 0
+		lang "swift" {{{
+			v = Int64(bitPattern: handle!.offsetInFile)
+		}}}
+		return v
+	}
+
+	func close
+	{
+		if !handle:
+			return
+		lang "swift" {{{
+			handle?.closeFile()
+		}}}
+		handle = null
+	}
+}
+
+func forPath(path as string) static as File:
+	return new this(path)
+
+var path as string
+var manager as !"FileManager"
+
+ctor(path as string)
+{
+	this.path = lang "swift" string {{{(path as! NSString).standardizingPath }}}
+	lang "swift" {{{
+		manager = FileManager.default
+	}}}
+}
+
+func entry(name as string) override as File:
+	return new this(path .. "/" .. name)
+
+func write override as FileWriter:
+	return getMyWriter(true)
+
+func append override as FileWriter:
+	return getMyWriter(false)
+
+func getMyReader private as MyReader
+{
+	var handle as !"FileHandle"
+	lang "swift" {{{
+		handle = FileHandle(forReadingAtPath: path!)
+	}}}
+	if !handle:
+		return null
+	var v = new MyReader()
+	v.setSize(getSize())
+	v.setHandle(handle)
+	return v
+}
+
+func getMyWriter(truncate as bool) private as MyWriter:
+	return null
+
+func read override as FileReader:
+	return getMyReader()
+
+func getPath override as string:
+	return path
+
+func getBasename override as string:
+	return lang "swift" string {{{ manager?.displayName(atPath: path!) }}}
+
+func getContentsBuffer override as buffer
+{
+	var rr = getMyReader()
+	if !rr:
+		return null
+	return rr.readAll()
+}
+
+func getContentsString(encoding as string) override as string
+{
+	var b = getContentsBuffer()
+	if !b:
+		return null
+	return String.forBuffer(b, encoding)
+}
+
+func exists override as bool:
+	return lang "swift" bool {{{ manager?.fileExists(atPath: path!) ?? false }}}
+
+func isExecutable override as bool:
+	return lang "swift" bool {{{ manager?.isExecutableFile(atPath: path!) ?? false }}}
+
+func remove override as bool
+{
+	lang "swift" {{{
+		try? manager?.removeItem(atPath: path!)
+	}}}
+	if exists():
+		return false
+	return true
+}
+
+func createDirectory override as bool
+{
+	var v as bool
+	lang "swift" {{{
+		try? manager?.createDirectory(atPath: path!, withIntermediateDirectories: false, attributes: nil)
+	}}}
+	return exists()
+}
+
+func isDirectory override as bool
+{
+	var v as bool
+	var dir as bool
+	lang "swift" {{{
+		var isDir : ObjCBool = false
+		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
+		dir = isDir.boolValue
+	}}}
+	if not v:
+		return false
+	return dir
+}
+
+func isFile override as bool
+{
+	var v as bool
+	var dir as bool
+	lang "swift" {{{
+		var isDir : ObjCBool = false
+		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
+		dir = !isDir.boolValue
+	}}}
+	if not v:
+		return false
+	return dir
+}
+
+func stat override as FileInfo
+{
+	var v = new FileInfo()
+	v.setFile(this)
+	lang "swift" {{{
+		do {
+			var dict: NSDictionary
+			dict = try manager?.attributesOfItem(atPath: path!) as! NSDictionary
+			v?.size = (dict[FileAttributeKey.size] as? NSNumber)?.intValue ?? 0
+			v?.createTime = Int((dict[FileAttributeKey.creationDate] as! NSDate).timeIntervalSince1970)
+			v?.accessTime = 0
+			v?.modifyTime = Int((dict[FileAttributeKey.modificationDate] as! NSDate).timeIntervalSince1970)
+			v?.ownerUser = (dict[FileAttributeKey.ownerAccountID] as? NSNumber)?.intValue ?? 0
+			v?.ownerGroup = (dict[FileAttributeKey.groupOwnerAccountID] as? NSNumber)?.intValue ?? 0
+			var mode = 0
+			var executable = manager?.isExecutableFile(atPath: path!)
+			var link = FileAttributeType.typeSymbolicLink.rawValue == dict[FileAttributeKey.type] as! String?
+		} catch {
+		}
+	}}}
+	if isFile() {
+		v.setType(FileInfo.FILE_TYPE_FILE)
+	}
+	else if isDirectory() {
+		v.setType(FileInfo.FILE_TYPE_DIR)
+	}
+	return v
+}
+
+func entries override stub as Iterator<File>
+func isLink override stub as bool
+func createDirectoryRecursive override stub as bool
+func removeDirectory override stub as bool
+func move(dest as File, replace as bool) override stub as bool
+func touch override stub as bool
+func setMode(mode as int) override stub as bool
+func setOwnerUser(uid as int) override stub as bool
+func setOwnerGroup(gid as int) override stub as bool
+func makeExecutable override stub as bool
+func isSame(file as File) override stub as bool
+func removeRecursive override stub as bool
