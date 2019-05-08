@@ -74,6 +74,14 @@ func forInt8Array(buf as int8[]) static as buffer
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" buffer {{{ buf!!.asUByteArray() }}}
 	}
+	IFDEF "target_swift" {
+		var data as buffer
+		lang "swift" {{{
+			let buffer = buf!.map { UInt8(bitPattern: $0) }
+			data = Foundation.Data(buffer)
+		}}}
+		return data
+	}
 	ELSE {
 		return null
 	}
@@ -89,6 +97,15 @@ func toInt8Array(buf as buffer) static as int8[]
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" buffer {{{ buf!!.asByteArray() }}}
+	}
+	IFDEF "target_swift" {
+		var v = new int8[]
+		lang "swift" {{{
+			for el in buf! {
+				v!.append(Int8(bitPattern: el))
+			}
+		}}}
+		return v
 	}
 	ELSE {
 		return null
@@ -139,6 +156,13 @@ func getInt8(buffer as buffer #used, offset as long #used) static as uint8
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" uint8 {{{ buffer!!.get(offset.toInt()) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint8
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 1))
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -211,6 +235,11 @@ func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, 
 			}
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			array!.replaceBytes(in: NSMakeRange(Int(doffset), Int(size)), withBytes: src!.bytes + Int(soffset), length: Int(size))
+		}}}
+	}
 	ELSE {
 		for(var n=0; n<size; n++):
 			array[doffset+n] = src[soffset+n]
@@ -260,6 +289,14 @@ func getInt16LE(buffer as buffer, offset as long) static as uint16
 		}}}
 		return v
 	}
+	ELSE IFDEF "target_swift" {
+		var v as uint16
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 2))
+			v = CFSwapInt16LittleToHost(UInt16(v))
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
@@ -295,6 +332,14 @@ func getInt16BE(buffer as buffer, offset as long) static as uint16
 				bb = bb.order(java.nio.ByteOrder.BIG_ENDIAN)
 			}
 			v = bb.getShort()?.toUShort()
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint16
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 2))
+			v = CFSwapInt16BigToHost(UInt16(v))
 		}}}
 		return v
 	}
@@ -336,6 +381,14 @@ func getInt32LE(buffer as buffer, offset as long) static as uint32
 		}}}
 		return v
 	}
+	ELSE IFDEF "target_swift" {
+		var v as uint32
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 4))
+			v = CFSwapInt32LittleToHost(UInt32(v))
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
@@ -374,6 +427,14 @@ func getInt32BE(buffer as buffer, offset as long) static as uint32
 		}}}
 		return v
 	}
+	ELSE IFDEF "target_swift" {
+		var v as uint32
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 4))
+			v = CFSwapInt32BigToHost(UInt32(v))
+		}}}
+		return v
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
@@ -401,6 +462,9 @@ func getSize(buffer as buffer #used) static as long
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" long {{{ (buffer.size).toLong() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" long {{{ Int64(buffer!.count) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -441,6 +505,11 @@ func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used)
 	ELSE IFDEF "target_lua" {
 		lang "lua" {{{
 			buffer[offset+1] = value
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			(buffer!.mutableBytes as UnsafeMutableRawPointer).assumingMemoryBound(to: UInt8.self)[Int(offset)] = value
 		}}}
 	}
 	ELSE {
