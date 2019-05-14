@@ -26,6 +26,7 @@ class is GuiApplicationContext imports cape imports capex.crypto:
 
 var instance static as this
 var imageCache = new map<string, Image>
+var screenDensity = 0
 
 func getInstance static as this
 {
@@ -34,17 +35,14 @@ func getInstance static as this
 	return instance
 }
 
-func clearResources
-{
+func clearResources:
 	imageCache = new map<string, Image>
-}
 
 func prepareResources(resources as array<string>, callback as function)
 {
-	if(resources == null || SIZE(resources) < 1) {
-		if(callback != null) {
+	if resources == null || SIZE(resources) < 1 {
+		if callback:
 			callback()
-		}
 		return
 	}
 	var loadedResources = 0
@@ -52,11 +50,10 @@ func prepareResources(resources as array<string>, callback as function)
 	var totalResources = SIZE(resources)
 	var onResourceLoadingComplete = func {
 		loadedResources ++
-		if(loadedResources >= totalResources) {
+		if loadedResources >= totalResources {
 			logInfo("All resources have been loaded")
-			if(callback != null) {
+			if callback:
 				callback()
-			}
 		}
 	}
 	var onLoad #used = func {
@@ -82,20 +79,19 @@ func prepareResources(resources as array<string>, callback as function)
 		numberOfFonts = 0
 	}
 	var style as object
-	foreach(path in resources) {
+	foreach path in resources {
 		var pp = path
 		var slash = String.lastIndexOf(pp, '/')
-		if(slash >= 0) {
+		if slash >= 0:
 			pp = String.getSubString(pp, slash+1)
-		}
 		var dot = String.lastIndexOf(pp, '.')
-		if(dot < 0) {
+		if dot < 0 {
 			onResourceLoadingComplete()
 			continue
 		}
 		var ext = String.getSubString(pp, dot+1)
 		pp = String.getSubString(pp, 0, dot)
-		if(String.equalsIgnoreCase(ext, "png") || String.equalsIgnoreCase(ext, "jpg") || String.equalsIgnoreCase(ext, "gif")) {
+		if String.equalsIgnoreCase(ext, "png") || String.equalsIgnoreCase(ext, "jpg") || String.equalsIgnoreCase(ext, "gif") {
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
 			var imgo = new ImageForBrowser()
 			var image as object
@@ -108,10 +104,10 @@ func prepareResources(resources as array<string>, callback as function)
 			imgo.image = image
 			imageCache[pp] = imgo
 		}
-		else if(String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf") || String.equalsIgnoreCase(ext, "woff")) {
+		else if String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf") || String.equalsIgnoreCase(ext, "woff") {
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
 			var head = HTMLDOM.getDocumentHead()
-			if(style == null) {
+			if style == null {
 				style = HTMLDOM.createElement("style")
 				HTMLDOM.appendChild(head, style)
 			}
@@ -121,7 +117,7 @@ func prepareResources(resources as array<string>, callback as function)
 				onResourceLoadingComplete()
 			}
 			else {
-				if(HTMLDOM.doesBrowserSupportFontLoading()) {
+				if HTMLDOM.doesBrowserSupportFontLoading() {
 					lang "js" {{{
 						numberOfFonts++;
 						document.fonts.load("12px " + pp).then(onFontLoad, onFontError);
@@ -140,10 +136,8 @@ func prepareResources(resources as array<string>, callback as function)
 	}
 }
 
-func getResourceImage(id as string) override as Image
-{
-	return(Map.getValue(imageCache, id))
-}
+func getResourceImage(id as string) override as Image:
+	return Map.getValue(imageCache, id)
 
 func getImageForBuffer(buffer as buffer, mimeType as string) override as Image
 {
@@ -192,52 +186,42 @@ func showConfirmDialog(title as string, message as string, okcallback as functio
 	lang "js" {{{
 		result = confirm(message);
 	}}}
-	if(result) {
-		if(okcallback != null) {
+	if result {
+		if okcallback:
 			okcallback()
-		}
 	}
 	else {
-		if(cancelcallback != null) {
+		if cancelcallback:
 			cancelcallback()
-		}
 	}
 }
 
-func showMessageDialog(title as string, message as string) override
-{
+func showMessageDialog(title as string, message as string) override:
 	showMessageDialog(title, message, null)
-}
 
 func showMessageDialog(title as string, message as string, callback as function) override
 {
 	lang "js" {{{
 		window.alert(message);
 	}}}
-	if(callback != null) {
+	if callback:
 		callback()
-	}
 }
 
-func showErrorDialog(message as string) override
-{
+func showErrorDialog(message as string) override:
 	showErrorDialog(message, null)
-}
 
 func showErrorDialog(message as string, callback as function) override
 {
 	lang "js" {{{
 		window.alert(message);
 	}}}
-	if(callback != null) {
+	if callback:
 		callback()
-	}
 }
 
-func getScreenTopMargin override as int
-{
-	return(0)
-}
+func getScreenTopMargin override as int:
+	return 0
 
 func getScreenWidth override as int
 {
@@ -245,7 +229,7 @@ func getScreenWidth override as int
 	lang "js" {{{
 		v = window.screen.availWidth;
 	}}}
-	return(v)
+	return v
 }
 
 func getScreenHeight override as int
@@ -254,51 +238,48 @@ func getScreenHeight override as int
 	lang "js" {{{
 		v = window.screen.availHeight;
 	}}}
-	return(v)
+	return v
 }
 
 func getScreenDensity override as int
 {
-	var ppi as int
-	// HACK: Firefox (and likely others) stubbornly uses a DPI value of n*96, regardless of what it really is.
-	// But in reality, most people wouldn't have 96 DPI anymore .. Thus we'll make a reasonable middle-ground guess
-	// of 1.3x the DPI (thus 1.3in, not 1in)
-	lang "js" {{{
-		var div = document.createElement("div");
-		div.setAttribute("style", "width: 1.3in; padding: 0; visibility: hidden; position: fixed; left: 0; top: 0;");
-		var bodys = document.getElementsByTagName("body");
-		bodys[0].appendChild(div);
-		ppi = div.offsetWidth;
-		if(ppi < 1) {
-			ppi = 1;
-		}
-		bodys[0].removeChild(div);
-	}}}
-	var qs = Environment.getQueryString()
-	if(cape.String.isEmpty(qs) == false) {
-		foreach(q in String.split(qs, '&')) {
-			if(cape.String.startsWith(q, "jkopDpi=") == false) {
-				continue
+	if screenDensity < 1 {
+		var ppi as int
+		// HACK: Firefox (and likely others) stubbornly uses a DPI value of n*96, regardless of what it really is.
+		// But in reality, most people wouldn't have 96 DPI anymore .. Thus we'll make a reasonable middle-ground guess
+		// of 1.3x the DPI (thus 1.3in, not 1in)
+		lang "js" {{{
+			var div = document.createElement("div");
+			div.setAttribute("style", "width: 1.3in; padding: 0; visibility: hidden; position: fixed; left: 0; top: 0;");
+			var bodys = document.getElementsByTagName("body");
+			bodys[0].appendChild(div);
+			ppi = div.offsetWidth;
+			if(ppi < 1) {
+				ppi = 1;
 			}
-			var val = cape.String.getSubString(q, 8)
-			if(cape.String.isEmpty(val) == false) {
-				ppi = cape.String.toInteger(val)
+			bodys[0].removeChild(div);
+		}}}
+		var qs = Environment.getQueryString()
+		if String.isEmpty(qs) == false {
+			foreach q in String.split(qs, '&') {
+				if String.startsWith(q, "jkopDpi=") == false:
+					continue
+				var val = cape.String.getSubString(q, 8)
+				if String.isEmpty(val) == false:
+					ppi = cape.String.toInteger(val)
+				break
 			}
-			break
 		}
+		screenDensity = ppi
 	}
-	return(ppi)
+	return screenDensity
 }
 
-func getHeightValue(spec as string) override as int
-{
-	return(cave.Length.asPoints(spec, getScreenDensity()))
-}
+func getHeightValue(spec as string) override as int:
+	return Length.asPoints(spec, getScreenDensity())
 
-func getWidthValue(spec as string) override as int
-{
-	return(cave.Length.asPoints(spec, getScreenDensity()))
-}
+func getWidthValue(spec as string) override as int:
+	return Length.asPoints(spec, getScreenDensity())
 
 func startTimer(timeout as long, callback as function) override
 {

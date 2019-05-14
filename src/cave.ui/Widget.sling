@@ -284,8 +284,11 @@ func removeFromParent(child as this) static as this
 	ELSE {
 		ERROR("Not implemented.")
 	}
-	if pp:
-		pp.onChildWidgetRemoved(child)
+	if pp {
+		var v = new vector<this>
+		v += child
+		pp.onChildWidgetsRemoved(v)
+	}
 	var screen = ScreenForWidget.findScreenForWidget(parentWidget)
 	if screen:
 		notifyOnRemovedFromScreen(child, screen)
@@ -368,6 +371,7 @@ func getParent(widget as this) static as this
 
 func getChildren(widget as this) static as vector<this>
 {
+	assert widget
 	IFDEF "target_iosoc" {
 		var v = new vector<this>
 		lang "objc" {{{
@@ -623,13 +627,10 @@ func getWidth(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		if isRootWidget(widget):
-			widget.cachedWidth = 0
-		if widget.cachedWidth < 1 {
+		if isRootWidget(widget) {
 			lang "js" {{{
 				v = widget.element.getBoundingClientRect().width;
 			}}}
-			widget.cachedWidth = v
 		}
 		else {
 			v = widget.cachedWidth
@@ -670,13 +671,10 @@ func getHeight(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_html" {
-		if isRootWidget(widget):
-			widget.cachedHeight = 0
-		if widget.cachedHeight < 1 {
+		if isRootWidget(widget) {
 			lang "js" {{{
 				v = widget.element.getBoundingClientRect().height;
 			}}}
-			widget.cachedHeight = v
 		}
 		else {
 			v = widget.cachedHeight
@@ -1011,22 +1009,28 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 			setLayoutSize(widget, srw, srh)
 		}
 		ELSE IFDEF "target_html" {
+			var ww = 0
+			var hh = 0
 			if widthConstraint >= 0 {
-				HTMLDOM.setStyle(widget.element, "white-space", "normal")
-				HTMLDOM.setStyle(widget.element, "width", String.forInteger(widthConstraint) .. "px")
+				var wws #used = String.forInteger(widthConstraint) .. "px"
+				lang "js" {{{
+					widget.element.style["white-space"] = "normal";
+					widget.element.style["width"] = wws;
+					hh = widget.element.offsetHeight;
+				}}}
 				widget.cachedWidth = widthConstraint
+				ww = widthConstraint
 			}
 			else {
-				HTMLDOM.setStyle(widget.element, "white-space", "nowrap")
-				HTMLDOM.setStyle(widget.element, "width", "auto")
-				var ww = getWidth(widget)
-				HTMLDOM.setStyle(widget.element, "width", String.forInteger(ww + 1) .. "px")
-				widget.cachedWidth = ww + 1
+				lang "js" {{{
+					widget.element.style["white-space"] = "nowrap";
+					widget.element.style["width"] = "auto";
+					ww = widget.element.getBoundingClientRect().width;
+					hh = widget.element.offsetHeight;
+				}}}
+				ww ++
 			}
-			HTMLDOM.setStyle(widget.element, "height", "auto")
-			lang "js" {{{
-				widget.cachedHeight = widget.element.offsetHeight;
-			}}}
+			setLayoutSize(widget, ww, hh)
 			if widget is ResizeAwareWidget:
 				(widget as! ResizeAwareWidget).onWidgetResized()
 		}
@@ -1621,9 +1625,26 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 
 func removeChildrenOf(widget as this) static
 {
+	assert widget
 	var children = getChildren(widget)
-	foreach child in children:
-		removeFromParent(child)
+	IFDEF "target_html" {
+		lang "js" {{{
+			widget.element.textContent = "";
+		}}}
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		var pp = widget as ContainerWidget
+		foreach child in children {
+			if screen:
+				notifyOnRemovedFromScreen(child, screen)
+			onWidgetRemovedFromParent(child)
+		}
+		if pp:
+			pp.onChildWidgetsRemoved(children)
+	}
+	ELSE {
+		foreach child in children:
+			removeFromParent(child)
+	}
 }
 
 func onLayoutChanged(widget as this) static
@@ -1778,7 +1799,7 @@ func setVisible(widget as this, visible as bool) static
 	assert widget
 	IFDEF "target_html" {
 		if visible {
-			HTMLDOM.setStyle(widget.element, "visibility", "visible")
+			HTMLDOM.setStyle(widget.element, "visibility", "inherit")
 		}
 		else {
 			HTMLDOM.setStyle(widget.element, "visibility", "hidden")
@@ -1826,7 +1847,8 @@ func getVisible(widget as this) static as bool
 	assert widget
 	IFDEF "target_html" {
 		var visible = false
-		if String.equals(HTMLDOM.getStyle(widget.element, "visibility"), "visible"):
+		var visibility = HTMLDOM.getStyle(widget.element, "visibility")
+		if String.equals(visibility, "visible") || String.equals(visibility, "inherit"):
 			visible = true
 		return visible
 	}

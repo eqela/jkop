@@ -77,11 +77,19 @@ func isModuleFile(ctx as LoggingContext, file as File) static as bool
 		if file.hasExtension("dll"):
 			return true
 	}
+	ELSE IFDEF"target_swift" {
+		if file.hasExtension("dylib") || file.hasExtension("tbd"):
+			return true
+	}
 	return false
 }
 
 IFDEF("target_cs") {
 	prop assembly as !"System.Reflection.Assembly" #preserve
+}
+
+IFDEF "target_swift" {
+	prop handle as object
 }
 
 func getModuleDescription as string
@@ -132,6 +140,19 @@ func loadFile(ctx as LoggingContext, file as File #preserve) as bool
 			return false
 		}
 		ctx.logDebug("Assembly successfully loaded: `" .. file.getPath() .. "'")
+		return true
+	}
+	ELSE IFDEF "target_swift" {
+		var path = file.getPath()
+		lang "swift" {{{
+			handle = dlopen(path, RTLD_NOW)
+			if (handle == nil) {
+				let errorString = String(validatingUTF8: dlerror())
+				ctx!.logDebug("Failed to load library: `" + (errorString)! + "'")
+				return false
+			}
+		}}}
+		ctx.logDebug("Assembly successfully loaded: `" .. path .. "'")
 		return true
 	}
 	ELSE {
@@ -196,6 +217,26 @@ func executeStaticMethod(ctx as LoggingContext, entityName as string #preserve, 
 			return false
 		}
 		return true
+	}
+	ELSE IFDEF "target_swift" {
+		if params != null {
+			ctx.logError("Function with parameters is not available.")
+			return false
+		}
+		else {
+			lang "swift" {{{
+				let sym = dlsym(handle, methodName)
+				if (sym == nil) {
+					let errorString = String(validatingUTF8: dlerror())
+					ctx!.logError("Failed to find method: `" + (errorString)! + "'")
+				}
+				typealias randomFunc = @convention(c) () -> AnyObject
+				let f = unsafeBitCast(sym, to: randomFunc.self)
+				f()
+				dlclose(handle)
+			}}}
+			return true
+		}
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -264,6 +305,11 @@ func createObject(ctx as LoggingContext, className as string #preserve) as objec
 			return null
 		}
 		return v
+	}
+	ELSE IFDEF "target_swift" {
+		// FIXME: Need for appropriate API
+		ERROR "Not implemented."
+		return null
 	}
 	ELSE {
 		ERROR "Not implemented."
