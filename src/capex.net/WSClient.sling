@@ -1,0 +1,198 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+const STATE_STOPPED = 0
+const STATE_DISCONNECTED = 1
+const STATE_CONNECTING = 2
+const STATE_CONNECTED = 3
+
+var url as string
+var eventLoop as EventLoop
+var socket as WSSocket
+var state = STATE_STOPPED
+var lastActivity = 0L
+prop reconnectInterval = 5000000L
+prop connectionTimeoutInterval = 30000000L
+prop pingInterval = 30000000L
+
+func getTickInterval as long
+{
+	if state == STATE_STOPPED:
+		return 0L
+	if state == STATE_DISCONNECTED:
+		return reconnectInterval
+	if state == STATE_CONNECTING:
+		return connectionTimeoutInterval
+	if state == STATE_CONNECTED:
+		return pingInterval
+	return 0L
+}
+
+func start(url as string, eventLoop as EventLoop)
+{
+	this.url = url
+	this.eventLoop = eventLoop
+	updateState(STATE_DISCONNECTED)
+	tick(nextTick)
+}
+
+func stop
+{
+	closeConnection()
+	updateState(STATE_STOPPED)
+	url = null
+	eventLoop = null
+}
+
+func closeConnection private
+{
+	if socket:
+		socket.close(0, null)
+	socket = null
+	updateState(STATE_DISCONNECTED)
+}
+
+func updateState(state as int) private
+{
+	if this.state != state {
+		this.state = state
+		onStateChanged(state)
+		scheduleTick()
+	}
+}
+
+func failConnection(error as Error)
+{
+	if error:
+		onConnectionError(error)
+	closeConnection()
+}
+
+var nextTick = 0L
+
+func scheduleTick private
+{
+	if eventLoop {
+		var ti = getTickInterval()
+		if ti > 0L {
+			nextTick ++
+			var tc = nextTick
+			eventLoop.runScheduled(getTickInterval(), RunnableFunction.forFunction(func {
+				tick(tc)
+			}))
+		}
+	}
+}
+
+func tick(tickId as long)
+{
+	if tickId < nextTick {
+		return
+	}
+	if state == STATE_STOPPED {
+		return
+	}
+	doTick()
+	scheduleTick()
+}
+
+func onActivity:
+	lastActivity = SystemClock.asUTCSeconds()
+
+func doTick private
+{
+	if state == STATE_DISCONNECTED {
+		socket = WSSocket.create()
+		if not socket {
+			failConnection(Error.forCode("failedToCreateWebSocket"))
+			return
+		}
+		updateState(STATE_CONNECTING)
+		socket.setOnOpenCallback(func {
+			onActivity()
+			updateState(STATE_CONNECTED)
+			onConnectionOpened()
+		})
+		socket.setOnCloseCallback(func(event as WSCloseEvent) {
+			closeConnection()
+			onConnectionClosed()
+		})
+		socket.setOnMessageCallback(func(event as WSMessage) {
+			onActivity()
+			onConnectionMessage(event)
+		})
+		socket.setOnErrorCallback(func(error as Error) {
+			failConnection(error)
+		})
+		socket.connect(url)
+		return
+	}
+	if state == STATE_CONNECTING {
+		failConnection(Error.forCode("connectionTimeout"))
+		return
+	}
+	if state == STATE_CONNECTED {
+		if SystemClock.asUTCSeconds() - lastActivity >= pingInterval / 1000000L:
+			sendPing()
+		return
+	}
+}
+
+func sendPing:
+	sendMessage(WSMessage.forPingMessage())
+
+func sendString(data as string):
+	sendMessage(WSMessage.forStringData(data))
+
+func sendBuffer(data as buffer):
+	sendMessage(WSMessage.forData(data))
+
+func sendMessage(message as WSMessage)
+{
+	onActivity()
+	if socket:
+		socket.send(message)
+}
+
+func onConnectionOpened virtual
+{
+}
+
+func onConnectionClosed virtual
+{
+}
+
+func onConnectionMessage(message as WSMessage) virtual
+{
+}
+
+func onConnectionError(error as Error) virtual
+{
+}
+
+func onStateChanged(newState as int) virtual
+{
+}

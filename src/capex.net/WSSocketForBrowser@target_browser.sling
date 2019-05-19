@@ -68,7 +68,7 @@ func onPrepareWSMessageForData(data as buffer)
 	onMessageCallback(WSMessage.forData(data))
 }
 
-func connect(url as string, protocols as string) override
+func connect(url as string) override
 {
 	lang "js" {{{
 		this.socket = new WebSocket(url);
@@ -79,7 +79,7 @@ func connect(url as string, protocols as string) override
 			this.onPrepareCloseEvent(e);
 		}.bind(this));
 		this.socket.addEventListener('error', function(e) {
-			this.onErrorCallback(CapeError.forMessage("Error occured"));
+			this.onErrorCallback(CapeError.forCode("unspecifiedError"));
 		}.bind(this));
 		this.socket.addEventListener('message', function(e) {
 			if(e.data instanceof ArrayBuffer) {
@@ -102,17 +102,21 @@ func connect(url as string, protocols as string) override
 func send(message as WSMessage) override
 {
 	if socket == null || message == null {
-		onErrorCallback(cape.Error.forMessage("No open connection"))
+		onErrorCallback(Error.forCode("noOpenConnection"))
 		return
 	}
-	if message.isText() {
+	if message.getIsPing() {
+		// browser websocket has no ping API, and presumably handles pings by itself. we hope.
+		return
+	}
+	else if message.isText() {
 		var m #used = message.getDataAsString()
 		lang "js" {{{
 			if(this.socket.readyState === this.socket.OPEN) {
 				this.socket.send(m);
 			}
 			else {
-				this.onErrorCallback(CapeError.forMessage("Failed to send data"))
+				this.onErrorCallback(CapeError.forCode("failedToSendData"))
 			}
 		}}}
 	}
@@ -123,7 +127,7 @@ func send(message as WSMessage) override
 				this.socket.send(m);
 			}
 			else {
-				this.onErrorCallback(CapeError.forMessage("Failed to send data"))
+				this.onErrorCallback(CapeError.forCode("failedToSendData"))
 			}
 		}}}
 	}
