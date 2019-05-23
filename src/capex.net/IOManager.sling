@@ -22,22 +22,12 @@
  * SOFTWARE.
  */
 
-class abstract imports cape:
+class is EventLoop abstract:
 
 func createDefault static as this
 {
 	IFDEF "target_cs" {
-		IFDEF "target_monocs" {
-			/* FIXME: Enable Epoll support
-			if(OS.isLinux()) {
-				return(new IOManagerMonoEpoll())
-			}
-			*/
-			return new IOManagerDotNetSelect()
-		}
-		ELSE {
-			return new IOManagerDotNetSelect()
-		}
+		return new IOManagerDotNetSelect()
 	}
 	ELSE IFDEF "target_objc" {
 		return new IOManagerSelect()
@@ -56,10 +46,11 @@ func createDefault static as this
 	}
 }
 
-prop executable = false
+func setCurrent(iomgr as this) static:
+	Thread.setLocalValue("__IOManager", iomgr)
 
-func execute(ctx as LoggingContext) virtual as bool:
-	return false
+func getCurrent static as this:
+	return Thread.getLocalValue("__IOManager") as this
 
 func addWithReadListener(o as object, rrl as function) virtual as IOManagerEntry
 {
@@ -77,6 +68,31 @@ func addWithWriteListener(o as object, wrl as function) virtual as IOManagerEntr
 	return v
 }
 
+func execute(ctx as LoggingContext) as bool
+{
+	setCurrent(this)
+	var v = doExecute(ctx)
+	Thread.removeLocalValue("__IOManager")
+	return v
+}
+
 func add(o as object) abstract as IOManagerEntry
 func startTimer(delay as long, handler as function<bool>) abstract as IOManagerTimer
 func stop abstract
+func doExecute(ctx as LoggingContext) abstract as bool
+
+func runScheduled(timeout as long, runnable as Runnable)
+{
+	assert runnable
+	assert timeout >= 0
+	startTimer(timeout, func as bool {
+		runnable.run()
+		return false
+	})
+}
+
+func runInBackground(runnable as Runnable)
+{
+	assert runnable
+	Thread.start(runnable)
+}

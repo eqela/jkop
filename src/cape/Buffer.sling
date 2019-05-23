@@ -29,6 +29,8 @@
 
 class:
 
+depend "swift-import:CoreFoundation"
+
 class MyBufferObject is BufferObject private
 {
 	prop buffer as buffer
@@ -77,8 +79,8 @@ func forInt8Array(buf as int8[]) static as buffer
 	IFDEF "target_swift" {
 		var data as buffer
 		lang "swift" {{{
-			let buffer = buf!.map { UInt8(bitPattern: $0) }
-			data = Foundation.Data(buffer)
+			let buffer = buf!.map { UInt8(bitPattern: $0 as! Int8) }
+			data = NSMutableData(data: Foundation.Data(buffer))
 		}}}
 		return data
 	}
@@ -99,10 +101,14 @@ func toInt8Array(buf as buffer) static as int8[]
 		return lang "kotlin" buffer {{{ buf!!.asByteArray() }}}
 	}
 	IFDEF "target_swift" {
-		var v = new int8[]
+		var v = new int8[SIZE buf]
 		lang "swift" {{{
-			for el in buf! {
-				v!.append(Int8(bitPattern: el))
+			var c: Int = 0
+			for el in buf! as Data {
+				if(c < buf!.length) {
+					v![c] = Int8(bitPattern: el)
+					c += 1
+				}
 			}
 		}}}
 		return v
@@ -464,7 +470,7 @@ func getSize(buffer as buffer #used) static as long
 		return lang "kotlin" long {{{ (buffer.size).toLong() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" long {{{ Int64(buffer!.count) }}}
+		return lang "swift" long {{{ Int64(buffer!.length) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"

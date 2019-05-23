@@ -352,7 +352,7 @@ class BCrypt
 		'6', '7', '8', '9'
 	]
 
-	var index64 static = [int8:
+	var index64 static = [int:
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
 		-1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
@@ -395,8 +395,10 @@ class BCrypt
 		var extractedSalt = String.getSubString(salt, off + 3, 22)
 		var pass as string
 		if minor >= 'a' {
-			pass = password .. "\u0000"
-			inputBytes = String.toUTF8Buffer(pass)
+			inputBytes = String.toUTF8Buffer(password)
+			var newSize = Buffer.getSize(inputBytes) + 1
+			inputBytes = Buffer.resize(inputBytes, newSize)
+			Buffer.setByte(inputBytes, newSize - 1, 0)
 		}
 		else {
 			pass = password .. ""
@@ -468,7 +470,7 @@ class BCrypt
 				break
 			}
 			var c2 as int = data[off++] & 0xff
-			c1 = (c1) | (c2 >> 4 & 0x0f)
+			c1 = (c1) | ((c2 >> 4) & 0x0f)
 			sb.append(base64Code[c1 & 0x3f])
 			c1 = (c2 & 0x0f) << 2
 			if (off >= len) {
@@ -491,18 +493,18 @@ class BCrypt
 		var sb = new StringBuilder()
 		if maxLen <= 0:
 			throw ExceptionWithString.forString("bcrypt: Invalid maximum bytes value", true)
-		var o as int8
-		var c1 as int8
-		var c2 as int8
-		var c3 as int8
-		var c4 as int8
+		var o as int
+		var c1 as int
+		var c2 as int
+		var c3 as int
+		var c4 as int
 		while(off < slen - 1 && olen < maxLen) {
 			c1 = char64(String.getChar(str, off++))
 			c2 = char64(String.getChar(str, off++))
 			if (c1 == -1 || c2 == -1):
 				break
-			o = (c1 << 2) as int8
-			o = (o | ((c2 & 0x30) >> 4)) as int8
+			o = c1 << 2
+			o = o | ((c2 & 0x30) >> 4)
 			sb.append(o as! char)
 			olen++
 			if (olen >= maxLen || off >= slen):
@@ -510,27 +512,27 @@ class BCrypt
 			c3 = char64(String.getChar(str, off++))
 			if (c3 == -1):
 				break
-			o = ((c2 & 0x0f) << 4) as int8
-			o = (o | ((c3 & 0x3c) >> 2)) as int8
+			o = (c2 & 0x0f) << 4
+			o = o | ((c3 & 0x3c) >> 2)
 			sb.append(o as! char)
 			olen++
 			if (olen >= maxLen || off >= slen):
 				break
 			c4 = char64(String.getChar(str, off++))
-			o = ((c3 & 0x03) << 6) as int8
-			o = (o | c4)  as int8
+			o = (c3 & 0x03) << 6
+			o = o | c4
 			sb.append(o as! char)
 			olen++
 		}
 		var ret = MALLOC(olen)
 		for(off = 0; off < olen; off++) {
-			var c = String.getChar(sb.toString(), off) as! int8
+			var c = String.getChar(sb.toString(), off) as! int
 			ret[off] = c as uint8
 		}
 		return ret
 	}
 
-	func char64(x as char) static as int8
+	func char64(x as char) static as int
 	{
 		if (x < 0 || x > SIZE(index64)):
 			return -1
@@ -540,25 +542,25 @@ class BCrypt
 	func encipher(lr as uint[], off as int)
 	{
 		assert lr
-		var l = lr[off]
-		var r = lr[off + 1]
+		var l = lr[off] as uint32
+		var r = lr[off + 1] as uint32
 		var i as int
-		l = (l ^ p[0]) as uint
+		l = (l ^ p[0] as uint32) as uint32
 		while (i <= BLOWFISH_NUM_ROUNDS - 2) {
-			var n = (s[(l >> 24) & 0xff]) as uint
-			n += (s[0x100 | ((l >> 16) & 0xff)]) as uint
-			n = (n ^ s[0x200 | ((l >> 8) & 0xff)]) as uint
-			n += (s[0x300 | (l & 0xff)]) as uint
+			var n = (s[(l >> 24) & 0xff]) as uint32
+			n += (s[0x100 | ((l >> 16) & 0xff)]) as uint32
+			n = (n ^ s[0x200 | ((l >> 8) & 0xff)] as uint32) as uint32
+			n += (s[0x300 | (l & 0xff)]) as uint32
 			i++
-			r = (r ^ n ^ p[i]) as uint
-			n = (s[(r >> 24) & 0xff]) as uint
-			n += (s[0x100 | ((r >> 16) & 0xff)]) as uint
-			n = (n ^ s[0x200 | ((r >> 8) & 0xff)]) as uint
-			n += (s[0x300 | (r & 0xff)]) as uint
+			r = (r ^ n ^ p[i] as uint32) as uint32
+			n = (s[(r >> 24) & 0xff]) as uint32
+			n += (s[0x100 | ((r >> 16) & 0xff)]) as uint32
+			n = (n ^ s[0x200 | ((r >> 8) & 0xff)] as uint32) as uint32
+			n += (s[0x300 | (r & 0xff)]) as uint32
 			i++
-			l = (l ^ n ^ p[i]) as uint
+			l = (l ^ n ^ (p[i] as uint32)) as uint32
 		}
-		lr[off] = (r ^ p[BLOWFISH_NUM_ROUNDS + 1]) as uint
+		lr[off] = (r ^ p[BLOWFISH_NUM_ROUNDS + 1] as uint32) as uint32
 		lr[off + 1] = l
 	}
 
@@ -568,7 +570,7 @@ class BCrypt
 		var word as uint = 0
 		var off = offp[0]
 		for (i = 0; i < 4; i++) {
-			word = ((word << 8) | (data[off] & 0xff)) as uint
+			word = (((word << 8) as uint) | (data[off] & 0xff)) as uint
 			off = (off + 1) % (Buffer.getSize(data) as int)
 		}
 		offp[0] = off

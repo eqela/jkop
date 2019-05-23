@@ -29,7 +29,8 @@ IFDEF "target_netcore"
 	depend "nuget:System.Threading.Thread@4.3.*"
 }
 
-IFDEF("target_posix") {
+IFDEF "target_posix"
+{
 	lang "c" {{{
 		#include <pthread.h>
 		#include <signal.h>
@@ -65,7 +66,8 @@ IFDEF("target_posix") {
 	}
 }
 
-IFDEF("target_win32") {
+IFDEF "target_win32"
+{
 	lang "c" {{{
 		#include <windows.h>
 	}}}
@@ -80,7 +82,8 @@ IFDEF("target_win32") {
 	}
 }
 
-IFDEF("target_java") {
+IFDEF "target_java"
+{
 	lang "java" {{{
 		private static class ThreadRunnable implements java.lang.Runnable {
 			private cape.Runnable runnable = null;
@@ -94,7 +97,8 @@ IFDEF("target_java") {
 	}}}
 }
 
-IFDEF "target_objc" {
+IFDEF "target_objc"
+{
 	class MyThread is !"NSThread"
 	{
 		prop runnable as Runnable
@@ -107,14 +111,15 @@ IFDEF "target_objc" {
 	}
 }
 
-IFDEF "target_swift" {
+IFDEF "target_swift"
+{
 	lang "swift" {{{
 		class MyThread : Foundation.Thread {
 			public override init() {
 				super.init()
 			}
 
-			private var runnable: Runnable? = nil
+			private var runnable: CapeRunnable? = nil
 
 			public override func main() {
 				if runnable != nil {
@@ -122,16 +127,68 @@ IFDEF "target_swift" {
 				}
 			}
 
-			public func getRunnable() -> Runnable? {
+			public func getRunnable() -> CapeRunnable? {
 				return runnable
 			}
 
-			public func setRunnable(_ v: Runnable?) -> MyThread? {
+			public func setRunnable(_ v: CapeRunnable?) -> MyThread? {
 				runnable = v
 				return self
 			}
 		}
 	}}}
+}
+
+func setLocalValue(id as string, value as object) static
+{
+	meta {
+		description [[
+			Sets a value in the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and can only be accessed from the current thread.
+		]]
+	}
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), value);
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
+
+func getLocalValue(id as string) static as object
+{
+	meta {
+		description [[
+			Gets a value from the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and must have been set by a prior call to setLocalValue in the same thread where this method is called.
+		]]
+	}
+	IFDEF "target_cs" {
+		return lang "cs" object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
+
+func removeLocalValue(id as string) static
+{
+	meta {
+		description [[
+			Removes a value from the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and would have been set by a previous call to setLocalValue in the same thread where this method is called.
+		]]
+	}
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), null);
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
 }
 
 func start(runnable as Runnable) static as bool
