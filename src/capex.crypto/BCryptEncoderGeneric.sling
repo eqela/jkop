@@ -30,7 +30,7 @@ func generateSalt(logRounds as int, bCryptVersion as string) override as string
 {
 	var salt as string
 	try {
-		salt = BCrypt.gensalt(logRounds)
+		salt = BCrypt.gensalt(logRounds, ctx)
 	}
 	catch e as exception {
 		Log.error(ctx, String.asString(e))
@@ -43,7 +43,7 @@ func hashPassword(password as string, salt as string) override as string
 	assert String.isNotEmpty(password) && String.isNotEmpty(salt)
 	var hash as string
 	try {
-		hash = BCrypt.hashpw(password, salt)
+		hash = BCrypt.hashpw(password, salt, ctx)
 	}
 	catch e as exception {
 		Log.error(ctx, String.asString(e))
@@ -56,7 +56,7 @@ func checkPassword(password as string, hash as string) override as bool
 	assert String.isNotEmpty(password) && String.isNotEmpty(hash)
 	var valid as bool
 	try {
-		valid = BCrypt.checkpw(password, hash)
+		valid = BCrypt.checkpw(password, hash, ctx)
 	}
 	catch e as exception {
 		Log.error(ctx, String.asString(e))
@@ -368,7 +368,7 @@ class BCrypt
 		51, 52, 53, -1, -1, -1, -1, -1
 	]
 
-	func hashpw(password as string, salt as string) static as string
+	func hashpw(password as string, salt as string, ctx as LoggingContext = null) static as string
 	{
 		assert String.isNotEmpty(password)
 		var inputBytes as buffer
@@ -404,22 +404,47 @@ class BCrypt
 			pass = password .. ""
 			inputBytes = String.toUTF8Buffer(pass)
 		}
-		var saltb = decodeBase64(extractedSalt, BCRYPT_SALT_LEN)
+		var saltb as buffer
+		try {
+			saltb = decodeBase64(extractedSalt, BCRYPT_SALT_LEN)
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
 		var cipher = copy(bfCryptCiphertext)
 		var b = new this()
-		hashed = b.cryptRaw(inputBytes, saltb, rounds, cipher)
+		try {
+			hashed = b.cryptRaw(inputBytes, saltb, rounds, cipher)
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
 		sb.append("$2")
 		if minor >= 'a':
 			sb.append(minor)
 		sb.append("$")
 		sb.append(String.forInteger(rounds))
 		sb.append("$")
-		sb.append(encodeBase64(saltb, Buffer.getSize(saltb)))
-		sb.append(encodeBase64(hashed, SIZE(bfCryptCiphertext) * 4 - 1))
+		var saltValue as string
+		try {
+			saltValue = encodeBase64(saltb, Buffer.getSize(saltb))
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		} 
+		sb.append(saltValue)
+		var hashedValue as string
+		try {
+			hashedValue = encodeBase64(hashed, SIZE(bfCryptCiphertext) * 4 - 1)
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
+		sb.append(hashedValue)
 		return sb.toString()
 	}
 
-	func gensalt(logRounds as int) static as string
+	func gensalt(logRounds as int, ctx as LoggingContext = null) static as string
 	{
 		if logRounds < 4 || logRounds > 31:
 			throw ExceptionWithString.forString("Bcrypt log rounds exceeds maximum (30)", true)
@@ -432,18 +457,39 @@ class BCrypt
 		rs.append("$2a$")
 		rs.append(String.forInteger(logRounds))
 		rs.append("$")
-		rs.append(encodeBase64(saltBuff, Buffer.getSize(saltBuff)))
+		var salt as string
+		try {
+			salt = encodeBase64(saltBuff, Buffer.getSize(saltBuff))
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
+		rs.append(salt)
 		return rs.toString()
 	}
 
-	func gensalt static as string:
-		return gensalt(GENSALT_DEFAULT_LOG2_ROUNDS)
+	func gensalt(ctx as LoggingContext = null) static as string
+	{
+		var salt as string
+		try {
+			salt = gensalt(GENSALT_DEFAULT_LOG2_ROUNDS)
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
+	}
 
-	func checkpw(plaintext as string, hashed as string) static as bool
+	func checkpw(plaintext as string, hashed as string, ctx as LoggingContext = null) static as bool
 	{
 		var hashedBytes as buffer
 		var tryBytes as buffer
-		var tryPw = hashpw(plaintext, hashed)
+		var tryPw as string
+		try {
+			tryPw = hashpw(plaintext, hashed, ctx)
+		}
+		catch e as exception {
+			Log.error(ctx, String.asString(e))
+		}
 		hashedBytes = String.toUTF8Buffer(hashed)
 		tryBytes = String.toUTF8Buffer(tryPw)
 		if Buffer.getSize(hashedBytes) != Buffer.getSize(tryBytes):
