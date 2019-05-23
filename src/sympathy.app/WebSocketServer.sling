@@ -22,26 +22,40 @@
  * SOFTWARE.
  */
 
-class abstract:
+class is CommonServer abstract:
 
-func instance static as this
+class MyWSServer is WSServer
 {
-	IFDEF "target_android" {
-		return new TCPClientForAndroid()
-	}
-	ELSE IFDEF "target_objc" {
-		return new TCPClientForObjC()
-	}
-	ELSE IFDEF "target_kotlin" {
-		return new TCPClientForKotlin()
-	}
-	ELSE {
-		return TCPClientForIOManager.forCurrentIOManager()
+	prop myParent as parent
+
+	func onMaintenance override
+	{
+		base.onMaintenance()
+		myParent.onMaintenance()
 	}
 }
 
-func connectSSL(address as string, port as int, callback as function<void,Error>) abstract
-func connect(address as string, port as int, callback as function<void,Error>) abstract
-func receive(callback as function<void,buffer,int>) abstract
-func send(data as buffer, size as int, callback as function<void,Error>) abstract
-func disconnect(callback as function<void,Error>) abstract
+func createConnectionHandler abstract as WSServerConnectionHandler
+
+func initializeServer(server as WSServer) virtual as bool:
+	return true
+
+func initializeNetworkServer(server as NetworkServer) override as bool
+{
+	assert base.initializeNetworkServer(server)
+	if server is WSServer:
+		assert initializeServer(server as! WSServer)
+	return true
+}
+
+func createServer override as NetworkServer
+{
+	var server = new MyWSServer()
+	server.setMaintenanceTimerDelay(getMaintenanceTimerDelay())
+	server.setMyParent(this)
+	server.setPort(getListenPort())
+	server.setCreateConnectionHandlerObject(func as WSServerConnectionHandler {
+		return createConnectionHandler()
+	})
+	return server
+}

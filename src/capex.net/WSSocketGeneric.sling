@@ -22,10 +22,22 @@
  * SOFTWARE.
  */
 
-class is WSSocket imports cape imports capex.net imports capex.crypto:
+class is WSSocket:
+
+import capex.net
+import capex.crypto
 
 class MyWSMessage
 {
+	func forPingControlFrame static as this:
+		return new this().setFin(1).setOpcode(PING_FRAME)
+
+	func forPongControlFrame static as this:
+		return new this().setFin(1).setOpcode(PONG_FRAME)
+
+	func create(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, maskingBuffer as buffer, payloadBuffer as buffer) static as this:
+		return new this().setFin(fin).setRsv1(rsv1).setRsv2(rsv2).setRsv3(rsv3).setOpcode(opcode).setMaskingBuffer(maskingBuffer).setPayloadBuffer(payloadBuffer)
+
 	const CLOSE_FRAME = 8
 	const PING_FRAME = 9
 	const PONG_FRAME = 10
@@ -38,9 +50,6 @@ class MyWSMessage
 	var maskingBuffer as buffer
 	var payloadBuffer as buffer
 	var messageBuffer as buffer
-
-	func create(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, maskingBuffer as buffer, payloadBuffer as buffer) static as this:
-		return new this().setFin(fin).setRsv1(rsv1).setRsv2(rsv2).setRsv3(rsv3).setOpcode(opcode).setMaskingBuffer(maskingBuffer).setPayloadBuffer(payloadBuffer)
 
 	func onChanged private:
 		messageBuffer = null
@@ -128,12 +137,6 @@ class MyWSMessage
 		}
 		return new this().setFin(1).setOpcode(CLOSE_FRAME)
 	}
-
-	func forPingControlFrame static as this:
-		return new this().setFin(1).setOpcode(PING_FRAME)
-
-	func forPongControlFrame static as this:
-		return new this().setFin(1).setOpcode(PONG_FRAME)
 
 	func isDataText as bool:
 		return opcode == 1
@@ -294,7 +297,7 @@ class MyWSCloseEvent is WSCloseEvent
 	}
 }
 
-class HTTPClientResponse is StringObject imports cape
+class HTTPClientResponse is StringObject
 {
 	prop httpVersion as string
 	prop httpStatus as string
@@ -322,7 +325,7 @@ class HTTPClientResponse is StringObject imports cape
 		return String.asString(rawHeaders)
 }
 
-class HTTPResponseParser imports cape
+class HTTPResponseParser
 {
 	class Chunk
 	{
@@ -546,74 +549,7 @@ class HTTPResponseParser imports cape
 	}
 }
 
-class WSHelper imports cape
-{
-	const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
-	func getAcceptValueForKey(key as string) static as string
-	{
-		var shaEncoder = assert SHAEncoder.create()
-		return Base64Encoder.encode(shaEncoder.encodeAsBuffer(String.toUTF8Buffer(key .. WEBSOCKET_GUID), SHAEncoder.SHA1))
-	}
-
-	func generateKey static as string
-	{
-		// FIXME: Should generate a random 16-byte key for security.
-		return Base64Encoder.encode(String.toUTF8Buffer("EXTREMEPERFORMED"))
-	}
-
-	func createOpenHandshakeHTTPRequest(url as URL, key as string) static as buffer
-	{
-		// FIXME: This is temporary, there can be more additions to this.
-		assert (url && key)
-		var sb = new StringBuilder()
-		sb.append("GET ")
-		var path = url.toStringNohost()
-		if String.isEmpty(path) {
-			sb.append('/')
-		}
-		else {
-			if String.getIndexOf(path, '/') != 0:
-				sb.append('/')
-			sb.append(path)
-		}
-		sb.append(" HTTP/1.1\r\n")
-		sb.append("Host: ")
-		sb.append(url.getHost())
-		var port = url.getPort()
-		if port != null {
-			sb.append(':')
-			sb.append(port)
-		}
-		sb.append("\r\n")
-		sb.append("Upgrade: websocket\r\n")
-		sb.append("Connection: Upgrade\r\n")
-		sb.append("Sec-WebSocket-Key: ")
-		sb.append(key)
-		sb.append("\r\nSec-WebSocket-Version: 13\r\n\r\n")
-		return String.toUTF8Buffer(sb.toString())
-	}
-
-	func createOpenHandshakeHTTPResponse(key as string) static as buffer
-	{
-		// FIXME: This is temporary, there can be more additions to this.
-		assert key
-		var sb = new StringBuilder()
-		sb.append("HTTP/1.1 101 Switching Protocols\r\n")
-		sb.append("Upgrade: websocket\r\n")
-		sb.append("Connection: Upgrade\r\n")
-		sb.append("Sec-WebSocket-Accept: ")
-		sb.append(getAcceptValueForKey(key))
-		sb.append("\r\n\r\n")
-		return String.toUTF8Buffer(sb.toString())
-	}
-
-	func generateMaskingKey static as buffer
-	{
-		// FIXME: Generate a unique 32-bit buffer
-		return String.toUTF8Buffer("byte")
-	}
-}
+const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 var client private as TCPClient
 var key private as string
@@ -622,11 +558,78 @@ var parser private as HTTPResponseParser
 var leftOverBuffer as buffer = null
 var frameNo = 1
 
+ctor
+{
+	key = generateKey()
+	accept = getAcceptValueForKey(key)
+}
+
+func getAcceptValueForKey(key as string) static as string
+{
+	var shaEncoder = assert SHAEncoder.create()
+	return Base64Encoder.encode(shaEncoder.encodeAsBuffer(String.toUTF8Buffer(key .. WEBSOCKET_GUID), SHAEncoder.SHA1))
+}
+
+func generateKey static as string
+{
+	// FIXME: Should generate a random 16-byte key for security.
+	return Base64Encoder.encode(String.toUTF8Buffer("EXTREMEPERFORMED"))
+}
+
+func createOpenHandshakeHTTPRequest(url as URL, key as string) static as buffer
+{
+	// FIXME: This is temporary, there can be more additions to this.
+	assert (url && key)
+	var sb = new StringBuilder()
+	sb.append("GET ")
+	var path = url.toStringNohost()
+	if String.isEmpty(path) {
+		sb.append('/')
+	}
+	else {
+		if String.getIndexOf(path, '/') != 0:
+			sb.append('/')
+		sb.append(path)
+	}
+	sb.append(" HTTP/1.1\r\n")
+	sb.append("Host: ")
+	sb.append(url.getHost())
+	var port = url.getPort()
+	if port != null {
+		sb.append(':')
+		sb.append(port)
+	}
+	sb.append("\r\n")
+	sb.append("Upgrade: websocket\r\n")
+	sb.append("Connection: Upgrade\r\n")
+	sb.append("Sec-WebSocket-Key: ")
+	sb.append(key)
+	sb.append("\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	return String.toUTF8Buffer(sb.toString())
+}
+
+func createOpenHandshakeHTTPResponse(key as string) static as buffer
+{
+	// FIXME: This is temporary, there can be more additions to this.
+	assert key
+	var sb = new StringBuilder()
+	sb.append("HTTP/1.1 101 Switching Protocols\r\n")
+	sb.append("Upgrade: websocket\r\n")
+	sb.append("Connection: Upgrade\r\n")
+	sb.append("Sec-WebSocket-Accept: ")
+	sb.append(getAcceptValueForKey(key))
+	sb.append("\r\n\r\n")
+	return String.toUTF8Buffer(sb.toString())
+}
+
+func generateMaskingKey static as buffer
+{
+	// FIXME: Generate a unique 32-bit buffer
+	return String.toUTF8Buffer("byte")
+}
+
 func processData(data as buffer, size as int) private as bool
 {
-	if data == null || size < 1 {
-		return false
-	}
 	var nbuffer as buffer
 	var nsize as int
 	if leftOverBuffer != null {
@@ -758,56 +761,30 @@ func onNewMessage(message as MyWSMessage) private
 		; // Ignoring Pong control frame received.
 	}
 	else {
-		var c = getOnMessageCallback()
-		if c != null {
+		var cb = getOnMessageCallback()
+		if cb {
 			if message.isDataText() {
-				c(WSMessage.forStringData(String.forUTF8Buffer(message.getPayloadBuffer())))
+				cb(WSMessage.forStringData(String.forUTF8Buffer(message.getPayloadBuffer())))
 			}
 			else {
-				c(WSMessage.forData(message.getPayloadBuffer()))
+				cb(WSMessage.forData(message.getPayloadBuffer()))
 			}
 			return
 		}
 	}
 }
 
-ctor
+func connect(url as string) override
 {
-	key = WSHelper.generateKey()
-	accept = WSHelper.getAcceptValueForKey(key)
-}
-
-func connect(url as string, protocols as string) override
-{
-	if client {
-		var c = client
-		client = null
-		c.disconnect(func(de as Error) {
-			;
-		})
-		c = null
-	}
-	client = TCPClient.instance()
-	assert client {
-		var c = getOnErrorCallback()
-		if c != null:
-			c(Error.forMessage("No TCPClient configured"))
-		var cc = getOnCloseCallback()
-		if cc:
-			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-	}
-	var u final = assert URL.forString(url) {
-		var c = getOnErrorCallback()
-		if c != null:
-			c(Error.forMessage("URL provided is invalid"))
-		var cc = getOnCloseCallback()
-		if cc:
-			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-	}
+	if client:
+		closeWithError(Error.forCode("alreadyConnected"))
+	assert client = TCPClient.instance():
+		closeWithError(Error.forCode("failedToCreateTcpClient"))
+	var u final = assert URL.forString(url):
+		closeWithError(Error.forCode("invalidUrl"))
 	var port = u.getPortInt()
-	if port < 1 {
+	if port < 1:
 		port = 80
-	}
 	var scheme = u.getScheme()
 	if String.equals("https", scheme) || String.equals("wss", scheme) {
 		client.connectSSL(u.getHost(), port, func(e as Error) {
@@ -820,44 +797,48 @@ func connect(url as string, protocols as string) override
 	})
 }
 
-func handleConnect(u as URL, e as Error) private
+func closeWithError(error as Error) private
 {
-	assert e {
-		parser = new HTTPResponseParser()
-		client.receive(func(data as buffer, size as int) {
-			onOpenHandshakeResponse(data, size)
-		})
-		var v = WSHelper.createOpenHandshakeHTTPRequest(u, key)
-		client.send(v, SIZE(v), func(oe as Error) {
-			assert oe
-			client.disconnect(func(de as Error) {
-				var c = getOnErrorCallback()
-				if c != null:
-					c(de)
-				var cc = getOnCloseCallback()
-				if cc:
-					cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			})
-		})
+	var cc = client
+	client = null
+	if error {
+		var ecb = getOnErrorCallback()
+		if ecb:
+			ecb(error)
 	}
-	var c = getOnErrorCallback()
-	if c != null:
-		c(e)
-	var cc = getOnCloseCallback()
-	if cc:
-		cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+	if cc {
+		var ccb = getOnCloseCallback()
+		if ccb:
+			ccb(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+		cc.disconnect(null)
+	}
+}
+
+func closeWithoutError private:
+	closeWithError(null)
+
+func handleConnect(u as URL, error as Error) private
+{
+	if error {
+		closeWithError(error)
+		return
+	}
+	parser = new HTTPResponseParser()
+	client.receive(func(data as buffer, size as int) {
+		onOpenHandshakeResponse(data, size)
+	})
+	var v = createOpenHandshakeHTTPRequest(u, key)
+	client.send(v, SIZE(v), func(oe as Error) {
+		if oe:
+			closeWithError(oe)
+	})
 }
 
 func onOpenHandshakeResponse(data as buffer, size as int) private
 {
 	assert parser
 	if size < 1 {
-		var c = getOnErrorCallback()
-		if c != null:
-			c(Error.forMessage("Data size is invalid"))
-		var cc = getOnCloseCallback()
-		if cc:
-			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+		closeWithError(Error.forCode("dataSizeInvalid"))
 		return
 	}
 	parser.onDataReceived(data, size)
@@ -866,68 +847,44 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 	parser.reset()
 	parser = null
 	var statusCode = headers.getHttpStatus()
-	if statusCode == "101" {
-		if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
-			var c = getOnErrorCallback()
-			if c != null:
-				c(Error.forMessage("Invalid WebSocket Headers(1)"))
-			var cc = getOnCloseCallback()
-			if cc:
-				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			return
-		}
-		else if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
-			var c = getOnErrorCallback()
-			if c != null:
-				c(Error.forMessage("Invalid WebSocket Headers(2)"))
-			var cc = getOnCloseCallback()
-			if cc:
-				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			return
-		}
-		else if String.equalsIgnoreCase("upgrade", headers.getHeader("connection")) == false {
-			var c = getOnErrorCallback()
-			if c != null:
-				c(Error.forMessage("Invalid WebSocket Headers(3)"))
-			var cc = getOnCloseCallback()
-			if cc:
-				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			return
-		}
-		else if String.equals(accept, headers.getHeader("sec-websocket-accept")) == false {
-			var c = getOnErrorCallback()
-			if c != null:
-				c(Error.forMessage("Invalid WebSocket Headers(4)"))
-			var cc = getOnCloseCallback()
-			if cc:
-				cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			return
-		}
-		client.receive(receiveData)
-		var c = getOnOpenCallback()
-		if c != null:
-			c()
+	if statusCode != "101" {
+		closeWithError(Error.forCode("invalidWebsocketHttpStatus"))
 		return
 	}
-	var c = getOnErrorCallback()
-	if c != null:
-		c(Error.forMessage("Invalid WebSocket HTTP Status"))
-	var cc = getOnCloseCallback()
-	if cc:
-		cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+	if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
+		closeWithError(Error.forCode("invalidWebsocketHeader1"))
+		return
+	}
+	else if String.equalsIgnoreCase("websocket", headers.getHeader("upgrade")) == false {
+		closeWithError(Error.forCode("invalidWebsocketHeader2"))
+		return
+	}
+	else if String.equalsIgnoreCase("upgrade", headers.getHeader("connection")) == false {
+		closeWithError(Error.forCode("invalidWebsocketHeader3"))
+		return
+	}
+	else if String.equals(accept, headers.getHeader("sec-websocket-accept")) == false {
+		closeWithError(Error.forCode("invalidWebsocketHeader4"))
+		return
+	}
+	client.receive(receiveData)
+	var ocb = getOnOpenCallback()
+	if ocb:
+		ocb()
 }
 
 func receiveData(buffer as buffer, size as int)
 {
-	if size != 0 {
-		if processData(buffer, size) == false {
-			var c = getOnCloseCallback()
-			if c:
-				c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
-			return
-		}
+	if not buffer || size < 1 {
+		closeWithError(Error.forCode("closedByServer"))
+		return
 	}
-	client.receive(receiveData)
+	if processData(buffer, size) == false {
+		closeWithError(Error.forCode("invalidDataReceived"))
+		return
+	}
+	if client:
+		client.receive(receiveData)
 }
 
 func send(message as WSMessage) override
@@ -935,11 +892,14 @@ func send(message as WSMessage) override
 	assert message
 	assert client
 	var v as MyWSMessage
-	if message.isText() {
-		v = MyWSMessage.create(1, 0, 0, 0, 1, WSHelper.generateMaskingKey(), message.getData())
+	if message.getIsPing() {
+		v = MyWSMessage.forPingControlFrame()
+	}
+	else if message.isText() {
+		v = MyWSMessage.create(1, 0, 0, 0, 1, generateMaskingKey(), message.getData())
 	}
 	else {
-		v = MyWSMessage.create(1, 0, 0, 0, 2, WSHelper.generateMaskingKey(), message.getData())
+		v = MyWSMessage.create(1, 0, 0, 0, 2, generateMaskingKey(), message.getData())
 	}
 	doSend(v)
 }
@@ -948,35 +908,22 @@ func doSend(message as MyWSMessage) private
 {
 	assert message
 	var data = message.toBuffer()
-	client.send(data, SIZE(data), func(e as Error) {
-		assert e
-		var c = getOnErrorCallback()
-		if c != null:
-			c(e)
-		var cc = getOnCloseCallback()
-		if cc:
-			cc(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+	client.send(data, SIZE(data), func(error as Error) {
+		if error:
+			closeWithError(error)
 	})
 }
 
 func close(statusCode as int, reason as string) override
 {
-	assert client {
-		var c = getOnCloseCallback()
-		if c != null:
-			c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_NORMAL))
-	}
+	assert client
 	var data = MyWSMessage.forCloseControlFrame(WSCloseEvent.CLOSE_NORMAL).toBuffer()
-	client.send(data, SIZE(data), func(e as Error) {
-		var c = getOnCloseCallback()
-		assert e {
-			if c != null:
-				c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_NORMAL))
+	client.send(data, SIZE(data), func(error as Error) {
+		if error {
+			closeWithError(error)
 		}
-		var ec = getOnErrorCallback()
-		if ec != null:
-			ec(e)
-		if c != null:
-			c(new MyWSCloseEvent().setStatusCode(WSCloseEvent.CLOSE_ABNORMAL))
+		else {
+			closeWithoutError()
+		}
 	})
 }
