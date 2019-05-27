@@ -21,14 +21,29 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+import capex.net
 
-class abstract:
+class is WSProtocolSource:
 
 var connection protected as WSServerConnection
 var logContext protected as LoggingContext
 var connectionIndexCounter static = 0
 var connectionIndex = connectionIndexCounter++
 prop connectionId as string
+var protocol as WSProtocol
+
+func setProtocol(protocol as WSProtocol) as this
+{
+	if this.protocol:
+		this.protocol.setSource(null)
+	this.protocol = protocol
+	if protocol:
+		protocol.setSource(this)
+	return this
+}
+
+func getProtocol as WSProtocol:
+	return protocol
 
 func getConnectionIdString as string
 {
@@ -86,17 +101,25 @@ func onMaintenance virtual
 
 func onOpened virtual
 {
+	if protocol:
+		protocol.onConnectionOpened()
 }
 
 func onClosed virtual
 {
+	if protocol:
+		protocol.onConnectionClosed()
 }
+
+func closeConnection:
+	close()
 
 func close
 {
 	assert connection:
 		onClosed()
 	connection.close()
+	setProtocol(null)
 }
 
 func onCloseMessage(message as WSServerMessage) virtual
@@ -114,4 +137,12 @@ func onPongMessage(message as WSServerMessage) virtual
 
 func onDataMessage(message as WSServerMessage) virtual
 {
+	if protocol && message {
+		if message.isDataText() {
+			protocol.onStringMessage(message.getPayloadBufferString())
+		}
+		else {
+			protocol.onBinaryMessage(message.getPayloadBuffer())
+		}
+	}
 }
