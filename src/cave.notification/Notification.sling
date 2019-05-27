@@ -40,7 +40,7 @@ ELSE IFDEF("target_iosoc")
 	depend "objc-framework:UserNotifications"
 }
 
-ELSE IFDEF("target_iosoc")
+ELSE IFDEF("target_swift")
 {
 	depend "swift-import:UserNotifications"
 }
@@ -183,18 +183,22 @@ func show(title as string, message as string) as bool
 	ELSE IFDEF("target_swift") {
 		var identifier #used = String.forInteger(SystemClock.asSeconds())
 		lang "swift" {{{
-			let center : UNUserNotificationCenter = UNUserNotificationCenter.current()
-			let options : UNAuthorizationOptions = UNAuthorizationOptions.alert + UNAuthorizationOptions.sound
-			center.requestAuthorization(options: options, completionHandler: nil)
-			let content : UNMutableNotificationContent = UNMutableNotificationContent()
-			content.title = t
-			content.body = message
-			content.sound = UNNotificationSound.defaultSound()
-			let trigger : UNTimeIntervalNotificationTrigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
-			let request : UNNotificationRequest = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
-			center.add(request, withCompletionHandler: nil)
+			if #available(iOS 10.0, *) {
+				let center : UNUserNotificationCenter = UNUserNotificationCenter.current()
+				let options : UNAuthorizationOptions = UNAuthorizationOptions(rawValue: UNAuthorizationOptions.alert.rawValue + UNAuthorizationOptions.sound.rawValue)
+				center.requestAuthorization(options: options, completionHandler: {_,_ in })
+				let content : UNMutableNotificationContent = UNMutableNotificationContent()
+				content.title = t!
+				content.body = message!
+				content.sound = UNNotificationSound.default
+				let trigger : UNTimeIntervalNotificationTrigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+				let request : UNNotificationRequest = UNNotificationRequest(identifier: identifier!, content: content, trigger: trigger)
+				center.add(request, withCompletionHandler: nil)
+				return true
+			} else {
+				return false
+			}
 		}}}
-		return true
 	}
 	ELSE {
 		ERROR("Not implemented.")

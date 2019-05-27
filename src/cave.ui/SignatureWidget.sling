@@ -270,71 +270,73 @@ IFDEF("target_iosoc")
 
 IFDEF("target_swift")
 {
+	depend "swift-import:UIKit"
+
 	var incrementalImage as !"UIImage"
 	lang "swift" {{{
 		var path : UIBezierPath? = nil
 		var dot : UIBezierPath? = nil
 		var pan : UIPanGestureRecognizer? = nil
 		var previousPoint : CGPoint? = nil
-		var p : CGPoint = nil
+		var p : CGPoint? = nil
 
 		func midpoint(_ p0: CGPoint, p1 point2: CGPoint) -> CGPoint {
-			return (CGPoint) {
-				(p0.x + p1.x) / 2.0,
-				(p0.y + p1.y) / 2.0
-			}
+			let point = CGPoint(x: (p0.x + point2.x) / 2.0, y: (p0.y + point2.y) / 2.0)
+			return point
 		}
 
 		func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-			let p : CGPoint = touches.anyObject.locationInView(self)
-			let radius : CGFloat = (CGFloat)strokeWidth / 2
-			let rect : CGRect = CGRectMake(p.x - radius, p.y - radius, 2 * radius, 2 * radius)
+			let p : CGPoint = touches.first!.location(in: self)
+			let radius : CGFloat = CGFloat(strokeWidth / 2)
+			let rect : CGRect = CGRect(x: p.x - radius, y: p.y - radius, width: 2 * radius, height: 2 * radius)
 			dot = UIBezierPath(ovalIn : rect)
 			self.constructIncrementalImage()
 		}
 
-		func pan(_ pan: UIPanGestureRecognizer) {
-			let currentPoint : CGPoint = pan.locationInView(self)
-			let midPoint : CGPoint = self.midpoint(previousPoint point2:currentPoint)
+		@objc func pan(_ pan: UIPanGestureRecognizer) {
+			let currentPoint : CGPoint = pan.location(in: self)
+			let midPoint : CGPoint = self.midpoint(previousPoint!, p1: currentPoint)
 			if (pan.state == UIGestureRecognizer.State.began) {
-				p = pan.locationInView(self)
-				path.move(to: p)
+				p = pan.location(in: self)
+				path!.move(to: p!)
 			}
 			else if (pan.state == UIGestureRecognizer.State.changed) {
-				path.move(to: p)
-				path.addQuadCurve(to: midPoint, controlPoint:previousPoint)
+				path!.move(to: p!)
+				path!.addQuadCurve(to: midPoint, controlPoint: previousPoint!)
 			}
 			self.constructIncrementalImage()
-			p = path.currentPoint()
+			p = path!.currentPoint
 			self.clearPath()
 			previousPoint = currentPoint
 		}
 
-		func draw(_ rect: CGRect) {
-			incrementalImage.drawInRect(rect)
+		public override func draw(_ rect: CGRect) {
+			if incrementalImage != nil {
+				incrementalImage.draw(in: rect)
+			}
 		}
 
-		func constructIncrementalImage {
+		func constructIncrementalImage() {
 			if (incrementalImage == nil) {
 				UIGraphicsBeginImageContextWithOptions(self.bounds.size, false, 0.0)
 			}
 			else {
 				UIGraphicsBeginImageContextWithOptions(incrementalImage.size, false, 0.0)
+				incrementalImage.draw(at: CGPoint.zero)
 			}
-			incrementalImage.drawAtPoint(CGPointZero)
-			UIColor(red: strokeColor.getRed(), green: strokeColor.getGreen(), blue: strokeColor.getBlue(), alpha: strokeColor getAlpha).setStroke()
-			path.lineWidth = strokeWidth
-			path.stroke()
+			UIColor(red: CGFloat(strokeColor.getRed()), green: CGFloat(strokeColor.getGreen()), blue: CGFloat(strokeColor.getBlue()), alpha: CGFloat(strokeColor.getAlpha())).setStroke()
+			path!.lineWidth = CGFloat(strokeWidth)
+			path!.stroke()
 			if (dot != nil) {
 				UIColor.black.setFill()
-				dot.fill()
+				dot!.fill()
 			}
 			incrementalImage = UIGraphicsGetImageFromCurrentImageContext()
 			UIGraphicsEndImageContext()
 			self.setNeedsDisplay()
 		}
 
-		func clearPath {
+		func clearPath() {
 			dot = nil
 			path = nil
 			path = UIBezierPath()
@@ -380,10 +382,11 @@ ctor(ctx as GuiApplicationContext)
 	IFDEF("target_swift") {
 		lang "swift" {{{
 			path = UIBezierPath()
-			pan = UIPanGestureRecognizer(target:self action: #selector(pan:))
-			pan.maximumNumberOfTouches = pan.minimumNumberOfTouches = 1
-			self.addGestureRecognizer(pan)
-			self.setBackgroundColor(UIColor.clear)
+			pan = UIPanGestureRecognizer(target:self, action: #selector(pan (_ :)))
+			pan!.minimumNumberOfTouches = 1
+			pan!.maximumNumberOfTouches = pan!.minimumNumberOfTouches
+			self.addGestureRecognizer(pan!)
+			self.backgroundColor = UIColor.clear
 		}}}
 	}
 }
