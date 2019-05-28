@@ -28,6 +28,7 @@ prop createOptionsResponseHandler as function<HTTPServerResponse,HTTPServerReque
 var requestHandlerListenerFunctions as vector<function<void,HTTPServerRequest,HTTPServerResponse,int,string>>
 var requestHandlerListenerObjects as vector<HTTPServerRequestHandlerListener>
 var handlerStack as HTTPServerRequestHandlerStack
+prop debugErrors = false
 
 ctor:
 	handlerStack = new HTTPServerRequestHandlerStack()
@@ -105,9 +106,20 @@ func createOptionsResponse(req as HTTPServerRequest) override as HTTPServerRespo
 func onRequest(req as HTTPServerRequest) override
 {
 	var rq final = req
-	handlerStack.handleRequest(req as HTTPServerRequest, func {
-		rq.sendResponse(HTTPServerResponse.forHTTPNotFound())
-	})
+	try {
+		handlerStack.handleRequest(req as HTTPServerRequest, func {
+			rq.sendResponse(HTTPServerResponse.forHTTPNotFound())
+		})
+	}
+	catch e as exception {
+		Log.error(logContext, "Exception while processing request: " .. String.asString(e))
+		if debugErrors {
+			rq.sendResponse(HTTPServerResponse.forException(e))
+		}
+		else {
+			rq.sendResponse(HTTPServerResponse.forHTTPInternalError())
+		}
+	}
 }
 
 func onRequestComplete(request as HTTPServerRequest, resp as HTTPServerResponse, bytesSent as int, remoteAddress as string) override
