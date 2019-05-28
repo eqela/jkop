@@ -109,7 +109,8 @@ IFDEF "target_objc" {
 
 func start(runnable as Runnable) static as bool
 {
-	IFDEF("target_cs") {
+	assert runnable
+	IFDEF "target_cs" {
 		IFDEF "target_uwp" {
 			ERROR "Not implemented"
 			return false
@@ -121,7 +122,7 @@ func start(runnable as Runnable) static as bool
 			return true
 		}
 	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		var v = false
 		lang "java" {{{
 			java.lang.Thread t = new java.lang.Thread(new ThreadRunnable(runnable));
@@ -132,12 +133,9 @@ func start(runnable as Runnable) static as bool
 			catch(Exception e) {
 			}
 		}}}
-		return(v)
+		return v
 	}
-	ELSE IFDEF("target_posix") {
-		if(runnable == null) {
-			return(false)
-		}
+	ELSE IFDEF "target_posix" {
 		var rv as int
 		lang "c" {{{
 			pthread_t t;
@@ -148,16 +146,12 @@ func start(runnable as Runnable) static as bool
 			rv = pthread_create(&t, &ta, (void*)
 			eq_os_ThreadImpl_thread_function, (void*)runnable);
 		}}}
-		if(rv != 0) {
-			return(false)
-		}
-		return(true)
+		if rv != 0:
+			return false
+		return true
 	}
-	ELSE IFDEF("target_win32") {
+	ELSE IFDEF "target_win32" {
 		var v as bool = false
-		if(runnable == null) {
-			return(v)
-		}
 		var rv as int = 0
 		lang "c" {{{
 			HANDLE hThread;
@@ -168,10 +162,9 @@ func start(runnable as Runnable) static as bool
 				rv = 1;
 			}
 		}}}
-		if(rv == 1) {
+		if rv == 1:
 			v = true
-		}
-		return(v)
+		return v
 	}
 	ELSE IFDEF "target_objc" {
 		var thread = new MyThread()
@@ -189,8 +182,20 @@ func start(runnable as Runnable) static as bool
 		}}}
 		return true
 	}
+	ELSE IFDEF "target_sushi" {
+		var r = lang "lua" int {{{ _sushi.startThread([[
+			function _threadMain(x)
+				local oo = _sushi.unserializeObject(x)
+				_sushi.setMetaTable(oo, _sushi.getGlobal(oo._qualifiedClassName))
+				oo:run()
+			end
+		]], _sushi.serializeObject(runnable)) }}}
+		if r == 0:
+			return false
+		return true
+	}
 	ELSE {
-		ERROR("Not implemented")
-		return(false)
+		ERROR "Not implemented"
+		return false
 	}
 }

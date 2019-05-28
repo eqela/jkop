@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2016-2019 Job and Esther Technologies Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,68 +24,34 @@
 
 class:
 
-IFDEF "target_netcore"
+func toBuffer(object as object) static as buffer
 {
-	depend "nuget:System.Threading.Thread@4.3.*"
-}
-
-func sleepSeconds(seconds as int) static
-{
+	assert object
 	IFDEF "target_sushi" {
-		lang "lua" {{{
-			_sushi.sleepSeconds(seconds)
-		}}}
+		return lang "lua" buffer {{{ _sushi.serializeObject(object) }}}
 	}
 	ELSE {
-		sleepMilliSeconds(seconds * 1000)
+		ERROR "Not implemented."
+		return null
 	}
 }
 
-func sleepMicroSeconds(uSeconds as int) static
+func fromBuffer(buffer as buffer) static as object
 {
+	assert buffer
 	IFDEF "target_sushi" {
+		var oo as object
 		lang "lua" {{{
-			_sushi.sleepMicroSeconds(uSeconds)
+			oo = _sushi.unserializeObject(buffer)
 		}}}
+		assert oo
+		lang "lua" {{{
+			_sushi.setMetaTable(oo, _sushi.getGlobal(oo._qualifiedClassName))
+		}}}
+		return oo
 	}
 	ELSE {
-		sleepMilliSeconds(uSeconds / 1000)
-	}
-}
-
-func sleepMilliSeconds(mSeconds as int) static
-{
-	IFDEF "target_sushi" {
-		lang "lua" {{{
-			_sushi.sleepMilliSeconds(mSeconds)
-		}}}
-	}
-	ELSE IFDEF "target_uwp" {
-		lang "cs" {{{
-			var v = System.Threading.Tasks.Task.Delay(mSeconds * 1000);
-			v.RunSynchronously();
-		}}}
-	}
-	ELSE IFDEF "target_cs" {
-		lang "cs" {{{
-			System.Threading.Thread.Sleep(mSeconds);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				java.lang.Thread.sleep(mSeconds);
-			}
-			catch(java.lang.InterruptedException e) {
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			java.lang.Thread.sleep(mSeconds.toLong())
-		}}}
-	}
-	ELSE {
-		ERROR "Not implemented"
+		ERROR "Not implemented."
+		return null
 	}
 }
