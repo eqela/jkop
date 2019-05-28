@@ -1,4 +1,3 @@
-
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
@@ -221,7 +220,7 @@ func forASCIIBuffer(data as buffer #used) static as string
 		return lang "kotlin" string {{{ data!!.toByteArray()?.toString(kotlin.text.Charsets.US_ASCII) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ NSString(data: data!, encoding: Swift.String.Encoding.ascii.rawValue) as Swift.String? }}}
+		return lang "swift" string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.ascii) }}}
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -259,7 +258,7 @@ func forUTF8Buffer(data as buffer #used) static as string
 		return lang "kotlin" string {{{ kotlin.text.String(data!!.toByteArray(), kotlin.text.Charsets.UTF_8) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ NSString(data: data!, encoding: Swift.String.Encoding.utf8.rawValue) as Swift.String? }}}
+		return lang "swift" string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.utf8) }}}
 	}
 	ELSE {
 		var sb = new StringBuilder()
@@ -308,7 +307,7 @@ func forUCS2Buffer(data as buffer #used) static as string
 		return(lang "js" string {{{ data.toString("ucs2") }}})
 	}
 	ELSE IFDEF("target_swift") {
-		return(lang "swift" string {{{ NSString(data: data!, encoding: Swift.String.Encoding.unicode.rawValue) as Swift.String? }}})
+		return lang "swift" string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.unicode) }}}
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -533,7 +532,7 @@ func forIntegerHex(vv as int #used, minlength as int = 0) static as string
 		v = lang "kotlin" string {{{ vv.toString(16) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" string {{{ NSString(format:"%x", vv) as Swift.String? }}}
+		v = lang "swift" string {{{ Swift.String(format:"%x", vv) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -570,7 +569,7 @@ func forIntegerOctal(vv as int #used) static as string
 		v = lang "kotlin" string {{{ vv.toString(8) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" string {{{ NSString(format:"%o", vv) as Swift.String? }}}
+		v = lang "swift" string {{{ Swift.String(format:"%o", vv) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -780,7 +779,7 @@ func toBuffer(str as string, charset as string) static as buffer
 		return lang "kotlin" buffer {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" buffer {{{ Data(str!.utf8) }}}
+		return lang "swift" buffer {{{ NSMutableData(data: (Data(str!.utf8))) }}}
 	}
 	ELSE IFDEF "target_stdlua" {
 		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
@@ -895,7 +894,7 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 		return lang "kotlin" uint8[] {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray()?.toTypedArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" uint8[] {{{ [UInt8](str!.utf8) }}}
+		return lang "swift" uint8[] {{{ NSMutableArray(array: [UInt8](str!.utf8)) }}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -985,7 +984,7 @@ func getLength(str as string #used) static as int
 		return lang "kotlin" int {{{ str.length }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ (str! as NSString).length }}}
+		return lang "swift" int {{{ str!.count }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1021,7 +1020,7 @@ func append(str1 as string #used, str2 as string #used) static as string
 		return lang "kotlin" string {{{ str1.plus(str2) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ (str1! as NSString).appending(str2!) }}}
+		return lang "swift" string {{{ str1! + str2! }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1196,7 +1195,7 @@ func getChar(str as string #used, index as int #used) static as char
 		return lang "lua" char {{{ _sushi.getByteFromString(str, index) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" char {{{ str == nil || index < 0 || index >= (str! as NSString).length ? Character(UnicodeScalar(0)) : str![str!.index(str!.startIndex, offsetBy: index)] }}}
+		return lang "swift" char {{{ str == nil || index < 0 || index >= str!.count ? Swift.Character(UnicodeScalar(0)) : str![str!.index(str!.startIndex, offsetBy: index)] }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1278,7 +1277,7 @@ func equalsIgnoreCase(str1 as string #used, str2 as string #used) static as bool
 		return lang "kotlin" bool {{{ str1.equals(str2, true) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" bool {{{ (str1! as NSString).caseInsensitiveCompare(str2!) == ComparisonResult.orderedSame }}}
+		return lang "swift" bool {{{ str1.range(of: str2, options: .caseInsensitive) != nil }}}
 	}
 	ELSE {
 		return equals(toLowerCase(str1), toLowerCase(str2))
@@ -1347,7 +1346,7 @@ func compareToIgnoreCase(str1 as string #used, str2 as string #used) static as i
 		return lang "kotlin" int {{{ str1.compareTo(str2, true) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var n as int
+		var n as int #used
 		lang "swift" {{{
 			let r = (str1! as NSString).caseInsensitiveCompare(str2!)
 			n = r == ComparisonResult.orderedAscending ? -1 : r == ComparisonResult.orderedSame ? 0 : 1
@@ -1448,16 +1447,10 @@ func getIndexOf(str as string #used, c as char #used, start as int #used = 0) st
 		return lang "lua" int {{{ _sushi.getIndexOfCharacter(str, c, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v as int
+		var v as int #used
 		lang "swift" {{{
-			let charset = NSCharacterSet(charactersIn: Swift.String(c))
-			let r: NSRange = str!.rangeOfCharacter(from: charset as CharacterSet, options: [], range: NSMakeRange(start, (str! as NSString).length - start))
-			if(r.lowerBound == NSNotFound) {
-				v = -1
-			}
-			else {
-				v = r.lowerBound
-			}
+			let range: Range<String.Index> = str!.range(of: Swift.String(c))!
+			v = str!.distance(from: str!.startIndex, to: range.lowerBound)
 		}}}
 		return v
 	}
@@ -1506,7 +1499,12 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 	}
 	ELSE IFDEF "target_swift" {
 		assert s
-		return lang "swift" int {{{ str!.range(of: s!, options: [], range: NSMakeRange(start, (str! as NSString).length - start)).lowerBound }}}
+		var v as int #used
+		lang "swift" {{{
+			let range: Range<String.Index> = str!.range(of: s!)!
+			v = str!.distance(from: str!.startIndex, to: range.lowerBound)
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1555,10 +1553,10 @@ func getLastIndexOf(str as string #used, c as char #used, start as int #used = -
 		return lang "kotlin" int {{{ str.lastIndexOf(c, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var n as int
+		var n as int #used
 		lang "swift" {{{
-			let charset = NSCharacterSet(charactersIn: NSString(format:"%c") as Swift.String)
-			n = str!.rangeOfCharacter(from: charset as CharacterSet, options: .backwards, range: NSMakeRange(0, start < 0 ? (str! as NSString).length : start)).lowerBound
+			let range: Range<String.Index> = str!.range(of: Swift.String(c), options: .backwards)!
+			n = str!.distance(from: str!.startIndex, to: range.lowerBound)
 		}}}
 		return n
 	}
@@ -1621,7 +1619,12 @@ func getLastIndexOf(str as string #used, s as string #used, start as int #used =
 		return lang "kotlin" int {{{ str.lastIndexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ str!.range(of: s!, options: .backwards, range: NSMakeRange(0, start < 0 ? (str! as NSString).length : start)).lowerBound }}}
+		var n as int #used
+		lang "swift" {{{
+			let range: Range<String.Index> = str!.range(of: s!, options: .backwards)!
+			n = str!.distance(from: str!.startIndex, to: range.lowerBound)
+		}}}
+		return n
 	}
 	ELSE {
 		var ss = start
@@ -1679,7 +1682,12 @@ func getSubString(str as string #used, start as int #used) static as string
 		return lang "lua" int {{{ _sushi.getSubstring(str, ss, #str) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ (str! as NSString).substring(from: ss) }}}
+		var v as string #used
+		lang "swift" {{{
+			let startIdx = str!.index(str!.startIndex, offsetBy: ss)
+			v = Swift.String(str![startIdx...])
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1731,7 +1739,13 @@ func getSubString(str as string #used, start as int #used, length as int #used) 
 		return lang "lua" int {{{ _sushi.getSubstring(str, ss, ss+ll) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ str!.substring(with: NSMakeRange(ss, ll)) }}}
+		var v as string #used
+		lang "swift" {{{
+			let fromIndex = str!.index(str!.startIndex, offsetBy: ss)
+			let toIndex = str!.index(str!.endIndex, offsetBy: (ss - str!.count) + ll)
+			v = str!.substring(with: fromIndex..<toIndex)
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -2080,7 +2094,16 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 		return lang "kotlin" string {{{ str.replace(oldChar, newChar) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ (str! as NSString).replacingOccurrences(of: oldChar.description, with: newChar.description) }}}
+		var v as string #used
+		lang "swift" {{{
+			let oldCharRange: Range<String.Index> = str!.range(of: Swift.String(oldChar))!
+			let oldCharIdx: Int = str!.distance(from: str!.startIndex, to: oldCharRange.lowerBound)
+			let oldCharStart = str!.index(str!.startIndex, offsetBy: oldCharIdx)
+			let oldCharEnd = str!.index(str!.startIndex, offsetBy:  oldCharIdx + Swift.String(oldChar).count)
+			v = str
+			v!.replaceSubrange(oldCharStart..<oldCharEnd, with: Swift.String(newChar))
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not Implemented"
@@ -2115,7 +2138,17 @@ func replace(str as string #used, target as string #used, replacement as string 
 		return lang "kotlin" string {{{ str.replace(target, replacement, false) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ (str! as NSString).replacingOccurrences(of: target!, with: replacement!) }}}
+		var v as string #used
+		lang "swift" {{{
+			let oldStrRange: Range<String.Index> = str!.range(of: target!)!
+			let oldStrIdx: Int = str!.distance(from: str!.startIndex, to: oldStrRange.lowerBound)
+
+			let start = str!.index(str!.startIndex, offsetBy: oldStrIdx)
+			let end = str!.index(str!.startIndex, offsetBy:  oldStrIdx + target!.count)
+			v = str
+			v!.replaceSubrange(start..<end, with: replacement!)
+		}}}
+		return v
 	}
 	ELSE {
 		ERROR "Not Implemented"
@@ -2172,7 +2205,7 @@ func toCharArray(str as string #used) static as char[]
 		return lang "kotlin" char[] {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" char[] {{{ Array(str) }}}
+		return lang "swift" char[] {{{ NSMutableArray(array: Array(str!)) }}}
 	}
 	ELSE IFDEF "target_lua" {
 		var it = CharacterIteratorForString.forString(str)
@@ -2436,7 +2469,7 @@ func toDouble(str as string #used) static as double
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" double {{{ str!.doubleValue }}}
+		return lang "swift" double {{{ Double(str!)! }}}
 	}
 	ELSE {
 		ERROR "Not Implemented"

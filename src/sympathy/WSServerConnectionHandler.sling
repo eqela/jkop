@@ -21,11 +21,48 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+import capex.net
 
-class abstract:
+class is WSProtocolSource:
 
 var connection protected as WSServerConnection
 var logContext protected as LoggingContext
+var connectionIndexCounter static = 0
+var connectionIndex = connectionIndexCounter++
+prop connectionId as string
+var protocol as WSProtocol
+
+func setProtocol(protocol as WSProtocol) as this
+{
+	if this.protocol:
+		this.protocol.setSource(null)
+	this.protocol = protocol
+	if protocol:
+		protocol.setSource(this)
+	return this
+}
+
+func getProtocol as WSProtocol:
+	return protocol
+
+func getConnectionIdString as string
+{
+	if String.isEmpty(connectionId):
+		return String.forInteger(connectionIndex)
+	return String.forInteger(connectionIndex) .. ":" .. connectionId
+}
+
+func logDebug(text as string):
+	Log.debug(logContext, "(ws=" .. getConnectionIdString() .. ") " .. text)
+
+func logInfo(text as string):
+	Log.info(logContext, "(ws=" .. getConnectionIdString() .. ") " .. text)
+
+func logWarning(text as string):
+	Log.warning(logContext, "(ws=" .. getConnectionIdString() .. ") " .. text)
+
+func logError(text as string):
+	Log.error(logContext, "(ws=" .. getConnectionIdString() .. ") " .. text)
 
 func setConnection(conn as WSServerConnection) as this
 {
@@ -45,6 +82,12 @@ func setLogContext(ctx as LoggingContext) as this
 func getLogContext as LoggingContext:
 	return logContext
 
+func sendString(data as string):
+	sendResponse(WSServerMessage.forText(data))
+
+func sendBuffer(data as buffer):
+	sendResponse(WSServerMessage.forBinary(data))
+
 func sendResponse(message as WSServerMessage) as int
 {
 	if connection == null:
@@ -58,17 +101,25 @@ func onMaintenance virtual
 
 func onOpened virtual
 {
+	if protocol:
+		protocol.onConnectionOpened()
 }
 
 func onClosed virtual
 {
+	if protocol:
+		protocol.onConnectionClosed()
 }
+
+func closeConnection:
+	close()
 
 func close
 {
 	assert connection:
 		onClosed()
 	connection.close()
+	setProtocol(null)
 }
 
 func onCloseMessage(message as WSServerMessage) virtual
@@ -86,4 +137,12 @@ func onPongMessage(message as WSServerMessage) virtual
 
 func onDataMessage(message as WSServerMessage) virtual
 {
+	if protocol && message {
+		if message.isDataText() {
+			protocol.onStringMessage(message.getPayloadBufferString())
+		}
+		else {
+			protocol.onBinaryMessage(message.getPayloadBuffer())
+		}
+	}
 }

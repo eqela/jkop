@@ -22,7 +22,9 @@
  * SOFTWARE.
  */
 
-class is NetworkConnection imports capex.crypto:
+class is NetworkConnection:
+
+import capex.crypto
 
 class ParserState private
 {
@@ -43,6 +45,7 @@ class ParserState private
 }
 
 prop connectionHandler as WSServerConnectionHandler
+prop pingInterval = 30L
 var parser as ParserState
 var isWebSocketConnectionOpen = false
 var webSocketGuid as string
@@ -59,14 +62,22 @@ dtor
 {
 	leftOverBuffer = null
 	webSocketGuid = null
-	resetParser()
+	parser.method = null
+	parser.uri = null
+	parser.version = null
+	parser.key = null
+	parser.headers = null
+	parser.headersDone = false
+	if parser.bodyStream:
+		parser.bodyStream.onDataStreamAbort()
+	parser.bodyStream = null
+	parser.bodyDone = false
+	parser.hdr = null
+	parser.contentLength = 0
+	parser.bodyIsChunked = false
+	parser.dataCounter = 0
 	parser = null
 }
-
-// This is not yet a valid WebSocket connection,
-// so maybe is not yet right to call this
-// connectionHandler.onOpened() method until
-// the open handshake is successful.
 
 func onOpened override:
 	connectionHandler.onOpened()
@@ -80,11 +91,7 @@ func onError(message as string) override:
 func onHTTPHeaderData(inputBuffer as buffer, offset as int, sz as int) private as bool
 {
 	// FIXME: Cannot handle SSL/TLS open handshake yet.
-
-	assert inputBuffer {
-		logDebug("Object 'inputBuffer' is null")
-	}
-	logDebug("HTTP header data size: " .. String.forInteger(sz))
+	assert inputBuffer
 	var p = 0
 	while p < sz {
 		var c = Buffer.getByte(inputBuffer, p + offset) as char
@@ -121,13 +128,10 @@ func onHTTPHeaderData(inputBuffer as buffer, offset as int, sz as int) private a
 				parser.version = "HTTP/0.9"
 				parser.headersDone = true
 				if p < sz {
-					logDebug("WebSocket open handshake received has body. Don't know how to handle SSL/TLS. Failing the process")
-					// sendErrorResponse(HTTPServerResponse.forHTTPInvalidRequest())
-					resetParser()
-					return(false)
+					// WebSocket open handshake received has body. Don't know how to handle SSL/TLS. Failing the process
+					return false
 				}
-				onOpenHandshake()
-				return true
+				return onOpenHandshake()
 			}
 		}
 		else if parser.version == null {
@@ -148,20 +152,14 @@ func onHTTPHeaderData(inputBuffer as buffer, offset as int, sz as int) private a
 				continue
 			}
 			else if c == '\n' {
-				if parser.hdr != null {
-					// sendErrorResponse(HTTPServerResponse.forHTTPInvalidRequest())
-					resetParser()
-					return(false)
-				}
+				if parser.hdr:
+					return false
 				parser.headersDone = true
 				if p < sz {
-					logDebug("WebSocket open handshake received has body. Don't know how to handle SSL/TLS. Failing the process")
-					// sendErrorResponse(HTTPServerResponse.forHTTPInvalidRequest())
-					resetParser()
-					return(false)
+					// WebSocket open handshake received has body. Don't know how to handle SSL/TLS. Failing the process
+					return false
 				}
-				onOpenHandshake()
-				return true
+				return onOpenHandshake()
 			}
 			if c >= 'A' && c <= 'Z' {
 				c = ('a' + c - 'A') as char
@@ -193,45 +191,39 @@ func onHTTPHeaderData(inputBuffer as buffer, offset as int, sz as int) private a
 			parser.hdr = new StringBuilder()
 		}
 		parser.hdr.append(c)
-		if parser.hdr.count() > 32 * 1024 {
-			// sendErrorResponse(HTTPServerResponse.forHTTPInvalidRequest())
-			resetParser()
+		if parser.hdr.count() > 32 * 1024:
 			return false
-		}
 	}
 	return false
 }
 
-func resetParser private
+func onHTTPError private
 {
-	parser.method = null
-	parser.uri = null
-	parser.version = null
-	parser.key = null
-	parser.headers = null
-	parser.headersDone = false
-	if parser.bodyStream:
-		parser.bodyStream.onDataStreamAbort()
-	parser.bodyStream = null
-	parser.bodyDone = false
-	parser.hdr = null
-	parser.contentLength = 0
-	parser.bodyIsChunked = false
-	parser.dataCounter = 0
+	var data = String.toUTF8Buffer("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n")
+	sendData(data, SIZE(data))
+	close()
+}
+
+func onWebsocketError private
+{
+	close()
 }
 
 func onDataReceived(data as buffer, size as int) override
 {
 	if isWebSocketConnectionOpen == false {
 		if onHTTPHeaderData(data, 0, size) == false:
-			close()
+			onHTTPError()
 		return
 	}
-	processData(data, size)
+	if not processData(data, size):
+		onWebsocketError()
 }
 
-func onOpenHandshake private
+func onOpenHandshake private as bool
 {
+	assert parser
+	assert parser.headers
 	var it = assert parser.headers.iterate()
 	var headers = new DynamicMap()
 	loop {
@@ -240,25 +232,21 @@ func onOpenHandshake private
 			break
 		headers.set(kvp.key, kvp.value)
 	}
-
 	// FIXME: Should have a method that passes to the connection handler for application layer
 	// FIXME: The client might have specified additional optional headers like custom sub protocols and we should handle them here
-
 	var key = headers.getString("sec-websocket-key")
 	var shaEncoder = assert SHAEncoder.create()
 	var accept = Base64Encoder.encode(shaEncoder.encodeAsBuffer(String.toUTF8Buffer(key .. webSocketGuid), SHAEncoder.SHA1))
 	var data = String.toUTF8Buffer("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " .. accept .. "\r\n\r\n")
 	sendData(data, SIZE(data))
 	isWebSocketConnectionOpen = true
+	return true
 }
 
 func processData(data as buffer, size as int) private as bool
 {
-	logDebug("Frame #" .. String.forInteger(frameNo) .. " data size: " .. String.forInteger(size))
-	if data == null || size < 1 {
-		logDebug("Abnormal exit (1)")
+	if data == null || size < 1:
 		return false
-	}
 	var nbuffer as buffer
 	var nsize as int
 	if leftOverBuffer != null {
@@ -268,7 +256,6 @@ func processData(data as buffer, size as int) private as bool
 		Buffer.copyFrom(nbuffer, leftOverBuffer, 0, 0, losize)
 		Buffer.copyFrom(nbuffer, data, 0, losize, size)
 		leftOverBuffer = null
-		logDebug("Frame #" .. String.forInteger(frameNo) .. " has leftover buffer with size: " .. String.forInteger(losize) .. ". New data size after concatenation: " .. String.forInteger(nsize))
 	}
 	else {
 		nbuffer = data
@@ -352,7 +339,6 @@ func processData(data as buffer, size as int) private as bool
 	}
 	var frameLength = p + payloadLength
 	if nsize < frameLength {
-		logDebug("Frame #" .. String.forInteger(frameNo) .. " current buffer with size: " .. String.forInteger(nsize) .. " is less than the computed frame length: " .. String.forInteger(frameLength) .. " . Current buffer saved as leftover buffer for next read")
 		leftOverBuffer = Buffer.allocate(nsize)
 		Buffer.copyFrom(leftOverBuffer, nbuffer, 0, 0, nsize)
 		frameNo ++
@@ -366,7 +352,6 @@ func processData(data as buffer, size as int) private as bool
 		var losize = nsize - frameLength
 		leftOverBuffer = Buffer.allocate(losize)
 		Buffer.copyFrom(leftOverBuffer, nbuffer, frameLength, 0, losize)
-		logDebug("Frame #" .. String.forInteger(frameNo) .. " current buffer has remaining size of: " .. String.forInteger(losize) .. ". Remaining buffer saved as leftover buffer for next read")
 	}
 	return true
 }
@@ -374,7 +359,7 @@ func processData(data as buffer, size as int) private as bool
 func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, mask as int, maskingBuffer as buffer, payloadLength as long, payloadBuffer as buffer) private
 {
 	if fin == 0 {
-		logWarning("No implementation yet for fragmented WebSocket message. Ignoring frame")
+		// No implementation yet for fragmented WebSocket message. Ignoring frame
 		return
 	}
 	if mask == 0 {
@@ -390,9 +375,7 @@ func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as i
 func onNewMessage(message as WSServerMessage) private
 {
 	if message.isCloseControlFrame() {
-		logDebug("Close control frame received")
 		if isWebSocketConnectionOpen == true {
-			logDebug("Haven't sent close frame yet, sending close frame response")
 			sendResponse(WSServerMessage.forCloseControlFrame(WSStatusCode.CLOSE_NORMAL))
 			isWebSocketConnectionOpen = false
 		}
@@ -403,7 +386,7 @@ func onNewMessage(message as WSServerMessage) private
 		sendResponse(WSServerMessage.forPongControlFrame())
 	}
 	else if message.isPongControlFrame() {
-		connectionHandler.onPingMessage(message)
+		connectionHandler.onPongMessage(message)
 	}
 	else {
 		connectionHandler.onDataMessage(message)
@@ -423,11 +406,12 @@ func unmaskPayload(maskedPayloadBuffer as buffer, payloadLength as int, maskingB
 
 func onMaintenance
 {
-	assert ping() > 0
+	if SystemClock.asSeconds() - getLastActivity() >= pingInterval:
+		sendPing()
 	connectionHandler.onMaintenance()
 }
 
-func ping private as int:
+func sendPing private as int:
 	return sendResponse(WSServerMessage.forPingControlFrame())
 
 func sendResponse(message as WSServerMessage) as int

@@ -373,6 +373,45 @@ ELSE IFDEF "target_iosoc"
 	}}}
 }
 
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextField" type extends
+	basetype !"UIPickerViewDelegate" type implements
+	basetype !"UIPickerViewDataSource" type implements
+	basetype Widget type isAlso
+
+	var pickerView as !"UIPickerView"
+
+	lang "swift" {{{
+		public func numberOfComponents(in pickerView: UIPickerView) -> Int {
+			return 1
+		}
+
+		public func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+			return Int(self.getWidgetItemCount())
+		}
+
+		public func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+			return self.getWidgetTextForIndex(row)
+		}
+		public func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+			self.onWidgetSelectionChanged()
+		}
+
+		override public func caretRect(for position: UITextPosition) -> CGRect {
+			return CGRect.zero
+		}
+
+		override public func textRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPadding), dy: CGFloat(widgetPadding))
+		}
+
+		override public func editingRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPadding), dy: CGFloat(widgetPadding))
+		}
+	}}}
+}
+
 ELSE IFDEF "target_macosoc"
 {
 	basetype !"NSTextField" type extends
@@ -509,6 +548,25 @@ ctor(context as GuiApplicationContext)
 	ELSE IFDEF "target_kotlin" {
 		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext(), lang "kotlin" int {{{ android.widget.Spinner.MODE_DROPDOWN }}})
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+			let picker = UIPickerView()
+			picker.delegate = self
+			picker.dataSource = self
+			picker.showsSelectionIndicator = true
+			self.inputView = picker
+			self.placeholder = "(select)"
+			let toolBar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+			toolBar.barStyle = UIBarStyle.default
+			let flexButton = UIBarButtonItem(barButtonSystemItem: UIBarButtonItem.SystemItem.flexibleSpace, target: self, action: nil)
+			let barButtonDone = UIBarButtonItem(title: "Done", style: UIBarButtonItem.Style.bordered, target:self, action: #selector(onPickerDone))
+			toolBar.items = [flexButton, barButtonDone]
+			toolBar.isUserInteractionEnabled = true
+			self.inputAccessoryView = toolBar
+			pickerView = picker
+		}}}
+	}
 	widgetContext = context
 	setWidgetStyle(VALUE "__THIS__")
 	IFDEF "target_android" {
@@ -618,6 +676,11 @@ func updateWidgetFont private
 			[self setMinimumFontSize:widgetFontSize];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.minimumFontSize = CGFloat(widgetFontSize)
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		if adapter {
 			(adapter as! MyAdapter).setWidgetFontSize(widgetFontSize)
@@ -721,6 +784,18 @@ func updateWidgetAppearance(layoutChanged as bool) private
 			// Padding is used automatically: See above
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil
+			}
+			self.textColor = textColor.toUIColor()
+		}}}
+	}
 	ELSE IFDEF "target_html" {
 		if widgetBackgroundColor || widgetTextColor || widgetPadding > 0 {
 			if widgetBackgroundColor == null {
@@ -782,6 +857,17 @@ IFDEF "target_iosoc"
 	}
 }
 
+IFDEF "target_swift"
+{
+	lang "swift" {{{
+		@objc public func onPickerDone() {
+			let index: Swift.Int = self.getSelectedWidgetIndex()
+			self.text = self.getWidgetTextForIndex(index)
+			self.resignFirstResponder()
+		}
+	}}}
+}
+
 func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 {
 	var selectedIndex = getSelectedWidgetIndex()
@@ -804,7 +890,7 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 		updateWidgetFont()
 	}
 	ELSE IFDEF "target_html" {
-		HTMLDOM.setInnerHTML(element, "")
+		HTMLDOM.setTextContent(element, "")
 		if widgetItems {
 			var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
 			while it {
@@ -812,7 +898,7 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 				if item == null:
 					break
 				var option = HTMLDOM.createElement("option")
-				HTMLDOM.setInnerHTML(option, item.value)
+				HTMLDOM.setTextContent(option, item.value)
 				HTMLDOM.setAttribute(option, "value", item.key)
 				HTMLDOM.appendChild(element, option)
 			}
@@ -826,6 +912,11 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[pickerView reloadAllComponents];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			pickerView.reloadAllComponents()
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -985,6 +1076,9 @@ func getSelectedWidgetIndex as int
 	IFDEF "target_iosoc" {
 		return lang "objc" int {{{ [pickerView selectedRowInComponent:0] }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ Int(pickerView.selectedRow(inComponent: 0)) }}}
+	}
 	ELSE IFDEF "target_android" {
 		return selectedWidgetIndex
 	}
@@ -1016,6 +1110,19 @@ func setSelectedWidgetIndex(index as int)
 		if index >= 0 && index < getWidgetItemCount() {
 			lang "objc" {{{
 				[pickerView selectRow:index inComponent:0 animated:NO];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		var txt = getWidgetTextForIndex(v)
+		if txt == null:
+			txt = ""
+		lang "swift" {{{
+			self.text = txt
+		}}}
+		if index >= 0 && index < getWidgetItemCount() {
+			lang "swift" {{{
+				pickerView.selectRow(Int(index), inComponent: 0, animated: false)
 			}}}
 		}
 	}

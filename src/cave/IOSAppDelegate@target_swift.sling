@@ -1,0 +1,145 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class implements !"UIApplicationDelegate" depends "swift-import:UIKit" imports cape:
+
+var window protected as !"UIWindow"
+var viewController protected as !"UIViewController"
+var ctx protected as cave.GuiApplicationContextForSwift
+prop openURLhandler as function<bool, !"UIApplication", !"URL", !"[UIApplication.OpenURLOptionsKey : Any]", !"String", object>
+prop statusBarHandler as function
+
+ctor
+{
+	lang "swift" {{{
+		super.init()
+	}}}
+	ctx = createContext()
+}
+
+func createContext virtual as GuiApplicationContextForSwift:
+	return new GuiApplicationContextForSwift()
+
+func createMainScreen(ctx as cave.GuiApplicationContextForSwift) virtual as !"UIViewController":
+	return null
+
+lang "swift" {{{
+	public func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
+		return self.doApplicationWillFinishLaunchingWithOptions(application, launchOptions)
+	}
+
+	public func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any]) {
+		(viewController as? CaveUiScreenForWidget)!.application(application, didReceiveRemoteNotification:userInfo)
+	}
+
+	public func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable : Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+		(viewController as? CaveUiScreenForWidget)!.application(application, didReceiveRemoteNotification:userInfo, fetchCompletionHandler:completionHandler)
+		completionHandler(UIBackgroundFetchResult.newData)
+	}
+
+	public func application(_ application: UIApplication, didChangeStatusBarFrame oldStatusBarFrame: CGRect) {
+		if(self.statusBarHandler != nil) {
+			self.statusBarHandler!()
+		}
+	}
+}}}
+
+func getAppDelegate static as this
+{
+	var uiApplication = lang "swift" object {{{ UIApplication.shared.delegate }}}
+	var appdelegate as this
+	if uiApplication is this:
+		appdelegate = uiApplication as! this
+	return appdelegate
+}
+
+func doApplicationWillFinishLaunchingWithOptions(application as !"UIApplication", launchOptions as !"[UIApplication.LaunchOptionsKey : Any]") as bool
+{
+	var cc = assert createMainScreen(ctx)
+	if cc is ScreenWithContext:
+		(cc as! ScreenWithContext).setContext(ctx)
+	viewController = cc
+	lang "swift" {{{
+		(viewController as? CaveUiScreenForWidget)!.application(application!, willFinishLaunchingWithOptions:launchOptions)
+	}}}
+	return true
+}
+
+lang "swift" {{{
+	public func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+		window = UIWindow(frame: UIScreen.main.bounds)
+		window.rootViewController = viewController
+		window.makeKeyAndVisible()
+		return true
+	}
+
+	public func applicationDidBecomeActive(_ application: UIApplication) {
+		let vc = viewController as! CaveUiScreenForWidget
+		if vc.responds(to: #selector(applicationDidBecomeActive( _:))) {
+			vc.applicationDidBecomeActive(application)
+		}
+	}
+
+	public  func applicationWillResignActive(_ application: UIApplication) {
+		let vc = viewController as! CaveUiScreenForWidget
+		if vc.responds(to: #selector(applicationWillResignActive(_ :))) {
+			vc.applicationWillResignActive(application)
+		}
+	}
+
+	public func applicationDidEnterBackground(_ application: UIApplication) {
+		let vc : AnyObject = viewController!
+		if vc.responds(to: #selector(applicationDidEnterBackground(_ :))) {
+			vc.applicationDidEnterBackground(application)
+		}
+	}
+
+	public func applicationWillEnterForeground(_ application: UIApplication) {
+		let vc : AnyObject = viewController!
+		if vc.responds(to: #selector(applicationWillEnterForeground(_ :))) {
+			vc.applicationWillEnterForeground(application)
+		}
+	}
+
+	public func applicationWillTerminate(_ application: UIApplication) {
+		let vc : AnyObject = viewController!
+		if vc.responds(to: #selector(applicationWillTerminate(_ :))) {
+			vc.applicationWillTerminate(application)
+		}
+	}
+
+	private func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey : Any] = [:]) -> Bool {
+		if(self.openURLhandler != nil) {
+			return self.openURLhandler!(app, url, options, nil, nil)
+		}
+		return false
+	}
+
+	private func application(_ application: UIApplication, open url: URL, sourceApplication: String?, annotation: Any) -> Bool {
+		if(self.openURLhandler != nil) {
+			return self.openURLhandler!(application, url, nil, sourceApplication, annotation as AnyObject)
+		}
+		return false
+	}
+}}}
