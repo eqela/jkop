@@ -46,6 +46,19 @@ func getApplicationData(ctx as GuiApplicationContext) static as File
 	ELSE IFDEF "target_kotlin" {
 		return ctx.getApplicationDataDirectory()
 	}
+	ELSE IFDEF "target_swift" {
+		var documentDirectory as string
+		lang "swift" {{{
+			documentDirectory = NSSearchPathForDirectoriesInDomains(FileManager.SearchPathDirectory.documentDirectory, FileManager.SearchPathDomainMask.userDomainMask, true)[0]
+		}}}
+		assert documentDirectory:
+			Log.error(ctx, "No document directory received from iOS API")
+		var dd = File.forPath(documentDirectory)
+		if not dd.isDirectory():
+			dd.createDirectoryRecursive()
+		Log.debug(ctx, "iOS document directory: `" .. dd.getPath() .. "'")
+		return dd
+	}
 	ELSE {
 		ERROR "Not implemented."
 		return null
@@ -73,6 +86,10 @@ func retrieveFile(ctx as GuiApplicationContext, filename as string) static as Fi
 				return null
 		}
 		return ff
+	}
+	ELSE IFDEF "target_swift" {
+		var dir = assert getApplicationData(ctx)
+		return dir.entry(filename)
 	}
 	ELSE {
 		ERROR "Not implemented."

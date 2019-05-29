@@ -124,6 +124,83 @@ ELSE IFDEF "target_iosoc"
 	}
 }
 
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextView" type extends
+	basetype !"UITextViewDelegate" type implements
+	basetype Widget type isAlso
+	basetype WidgetWithLayout
+	var maxLength as int
+
+	lang "swift" {{{
+		public func textViewDidChange(_ textView: UITextView) {
+			self.onChangeListener()
+		}
+
+		func textRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		func editingRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+			var rt : Bool = false
+			if (self.text.count < self.maxLength || text.count == 0 || self.maxLength == 0) {
+				rt = true
+			}
+			return rt
+		}
+	}}}
+
+	func setWidgetLayoutChanged
+	{
+	}
+
+	func hasWidgetLayoutChanged as bool:
+		return false
+
+	func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
+	{
+		var text #used = lang "swift" string {{{ self.text }}}
+		var rr = widgetRows
+		if rr < 1:
+			rr = 1
+		var sb = new StringBuilder()
+		for(var n = 1; n<rr; n++):
+			sb.append('\n')
+		var tmpStr #used = sb.toString()
+		lang "swift" {{{
+			self.text = tmpStr
+		}}}
+		var srw as int
+		var srh as int
+		var cw = widthConstraint
+		var ch #used = 0
+		if cw < 0:
+			cw = 0
+		lang "swift" {{{
+			let nsz : CGSize = self.sizeThatFits(CGSize(width: cw, height: ch))
+			srw = Int(nsz.width)
+			if (Int(nsz.width) - srw) > 0 {
+				srw += 1
+			}
+			srh = Int(nsz.height)
+			if (Int(nsz.height) - srh) > 0 {
+				srh += 1
+			}
+		}}}
+		if widthConstraint >= 0 && srw != widthConstraint:
+			srw = widthConstraint
+		Widget.setLayoutSize(this, srw, srh)
+		lang "swift" {{{
+			self.text = text
+		}}}
+		return true
+	}
+}
+
 ELSE IFDEF "target_macosoc"
 {
 	// FIXME
@@ -252,6 +329,12 @@ ctor(context as GuiApplicationContext)
 			self.delegate = self;
 		}}}
 	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero, textContainer: nil)
+			self.delegate = self
+		}}}
+	}
 	IFDEF "target_html" {
 		HTMLDOM.setStyle(element, "outline-width", "0")
 	}
@@ -318,6 +401,18 @@ func updateWidgetColors private
 			self.textColor = [textColor toUIColor];
 		}}}
 	}
+	IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil
+			}
+			self.textColor = textColor.toUIColor()
+		}}}
+	}
 	IFDEF "target_html" {
 		if not widgetBackgroundColor {
 			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
@@ -359,6 +454,18 @@ func updateWidgetFont private
 			[self setFont:font];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var ff = widgetFontFamily
+		if String.isEmpty(ff):
+			ff = "Arial"
+		lang "swift" {{{
+			var font : UIFont = UIFont(name: ff!, size: CGFloat(widgetFontSize))!
+			if(font == nil) {
+				font = UIFont(name: "Arial", size: CGFloat(widgetFontSize))!
+			}
+			self.font = font
+		}}}
+	}
 	ELSE IFDEF "target_android" {
 		lang "java" {{{
 			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
@@ -393,6 +500,11 @@ func focus
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self becomeFirstResponder];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.becomeFirstResponder()
 		}}}
 	}
 	ELSE {
@@ -481,6 +593,11 @@ func setWidgetText(text as string) as this
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self setText:text];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.text = text
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -588,6 +705,9 @@ func getWidgetText as string
 	}
 	ELSE IFDEF "target_iosoc" {
 		return lang "objc" string {{{ [self text] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ self.text }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
