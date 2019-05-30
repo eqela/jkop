@@ -1,0 +1,1369 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+**
+** The "live-tokenizing parser" is a generic implementation of a character-based
+** parser that is able to interpret a text file or buffer as a series of tokens.
+** The tokens are generated as the parsers moves along the file, and different
+** tokens can be accepted in different circumstances. As such, the source content
+** is tokenized "live", as opposed to being "pre-tokenized", where the tokens
+** would have been generated ahead of time, without regard to the semantic
+** position within the file.
+**
+
+class abstract:
+
+class Position public
+{
+	var line public as int
+	var column public as int
+	var position public as int
+	var allTokensSize public as int
+	var commentQueueSize public as int
+	var previousToken public as Token
+}
+
+const IMPROPER_COMMENT_NOOP = 0
+const IMPROPER_COMMENT_IGNORE = 1
+const IMPROPER_COMMENT_WARN_IGNORE = 2
+const IMPROPER_COMMENT_QUEUE = 3
+const IMPROPER_COMMENT_WARN_QUEUE = 4
+
+prop improperCommentPolicy = IMPROPER_COMMENT_NOOP
+prop tokensAreCaseSensitive = true
+prop fileEncoding = "UTF-8"
+prop collectAllTokens = true
+var iterator protected as CharacterIterator
+var currentTokenLine protected as int
+var currentTokenColumn protected as int
+var currentTokenSource protected as TokenSource
+var stagingToken protected as Token
+var acceptedToken protected as Token
+var commentQueue protected as Queue<Token>
+var allTokens protected as vector<Token>
+prop parseMessages as vector<Message>
+var previousToken protected as Token
+prop allowSkipSpaces = true
+
+func resetParserState virtual
+{
+	iterator = null
+	currentTokenLine = 0
+	currentTokenColumn = 0
+	currentTokenSource = null
+	stagingToken = null
+	acceptedToken = null
+	commentQueue = null
+	allTokens = null
+	parseMessages = null
+	previousToken = null
+}
+
+func getAllTokens as vector<Token>:
+	return allTokens
+
+func consumeParseMessages as vector<Message>
+{
+	var v = parseMessages
+	parseMessages = null
+	return v
+}
+
+func getDisplayText(txt as string) as string
+{
+	if String.isEmpty(txt):
+		return "<EMPTY>"
+	if txt == "\n":
+		return "<NL>"
+	if txt == "\r":
+		return "<CR>"
+	if txt == "\t":
+		return "<TAB>"
+	if txt == " ":
+		return "<SPACE>"
+	return txt
+}
+
+macro PARSE_ERROR_EXPECT(txt)
+{
+	skipSpaces()
+	updateStagingToken()
+	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), getStagingToken(), new StackTrace().toString())
+}
+
+macro PARSE_ERROR_EXPECT(txt, src)
+{
+	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), src, new StackTrace().toString())
+}
+
+macro PARSE_ERROR(txt)
+{
+	skipSpaces()
+	updateStagingToken()
+	throw ReferenceError.forMessage(txt, getStagingToken(), new StackTrace().toString())
+}
+
+macro PARSE_ERROR(txt, src)
+{
+	throw ReferenceError.forMessage(txt, src, new StackTrace().toString())
+}
+
+macro PARSE_VALIDATE_OBJECT(o)
+{
+	if not o:
+		PARSE_ERROR("Invalid object")
+}
+
+macro PARSE_WARNING_EXPECT(txt, src)
+{
+	onParseMessage(WarningMessage.forText("Expected: " .. txt, src))
+}
+
+macro PARSE_WARNING(txt)
+{
+	onParseMessage(WarningMessage.forText(txt, getStagingToken()))
+}
+
+macro PARSE_WARNING(txt, src)
+{
+	onParseMessage(WarningMessage.forText(txt, src))
+}
+
+macro PARSE_WARNING_DEPRECATED(src)
+{
+	onParseMessage(WarningMessage.forText("Deprecated construct", src))
+}
+
+macro PARSE_DEBUG(txt)
+{
+	onParseMessage(DebugMessage.forText(txt, getStagingToken()))
+}
+
+macro PARSE_DEBUG(txt, src)
+{
+	onParseMessage(DebugMessage.forText(txt, src))
+}
+
+func onParseMessage(message as Message)
+{
+	assert message
+	if parseMessages == null:
+		parseMessages = new vector<Message>
+	parseMessages += message
+}
+
+func initializeForTokenSource(source as TokenSource)
+{
+	if not source:
+		PARSE_ERROR("No token source")
+	var str = source.getContent()
+	if not str:
+		PARSE_ERROR("No content from source")
+	str = preprocessContent(str)
+	if not str:
+		PARSE_ERROR("Preprocessing failed")
+	resetParserState()
+	this.currentTokenSource = source
+	iterator = String.iterate(str)
+	iterator.moveToNextChar()
+	currentTokenLine = 0
+	currentTokenColumn = 0
+	updateStagingToken()
+}
+
+func initializeForFile(file as File)
+{
+	if not file:
+		PARSE_ERROR("Null content file for parser")
+	var content = readFileContentsString(file)
+	if not content:
+		PARSE_ERROR(MessageFormatter.getFileMessage(file, "Failed to read file"))
+	var ts = new TokenSource()
+	ts.setContent(content)
+	var cn = MessageFormatter.getFilePath(file)
+	if String.isEmpty(cn):
+		cn = "<file>"
+	ts.setName(cn)
+	ts.setFile(file)
+	initializeForTokenSource(ts)
+}
+
+func initializeForString(content as string, contentName as string = null)
+{
+	if not content:
+		PARSE_ERROR("Null content string for parser")
+	var ts = new TokenSource()
+	ts.setContent(content)
+	var cn = contentName
+	if String.isEmpty(cn):
+		cn = "<string>"
+	ts.setName(cn)
+	ts.setFile(null)
+	initializeForTokenSource(ts)
+}
+
+func isSpaceCharacter(n as char) virtual as bool
+{
+	if n == ' ' || n == '\t' || n == '\r' || n == '\n':
+		return true
+	return false
+}
+
+func getCurrentTokenSource virtual as TokenSource:
+	return currentTokenSource
+
+func getCurrentTokenLine virtual as int:
+	return currentTokenLine
+
+func getCurrentTokenColumn virtual as int:
+	return currentTokenColumn
+
+func getCurrentInputName virtual as string
+{
+	if currentTokenSource == null:
+		return "<none>"
+	return currentTokenSource.getName()
+}
+
+func getCurrentFile virtual as File
+{
+	if currentTokenSource == null:
+		return null
+	return currentTokenSource.getFile()
+}
+
+func getCurrentFileName virtual as string
+{
+	var currentFile = getCurrentFile()
+	if currentFile == null:
+		return null
+	return currentFile.baseName()
+}
+
+func getCurrentFileId virtual as string
+{
+	var currentFile = getCurrentFile()
+	if currentFile == null {
+		if currentTokenSource:
+			return currentTokenSource.getName()
+		return null
+	}
+	return currentFile.baseNameWithoutExtension()
+}
+
+func getCurrentDirectory virtual as File
+{
+	var currentFile = assert getCurrentFile()
+	return currentFile.getParent()
+}
+
+func getRelativeFile(name as string) virtual as File
+{
+	assert String.isNotEmpty(name)
+	assert String.indexOf(name, '\\') < 0
+	var currentFile = assert getCurrentFile()
+	var dd = assert currentFile.getParent()
+	foreach comp in String.split(name, '/') {
+		if String.isEmpty(comp) || comp == "." || comp == "..":
+			continue
+		dd = dd.entry(comp)
+	}
+	return dd
+}
+
+func getRelativeFileIgnoreCase(name as string) as File
+{
+	var r = getRelativeFile(name)
+	if r && r.exists():
+		return r
+	var currentFile = assert getCurrentFile()
+	var dd = assert currentFile.getParent()
+	var it = dd.entries()
+	while it {
+		var ff = it.next()
+		if not ff:
+			break
+		if String.equalsIgnoreCase(ff.baseName(), name):
+			return ff
+	}
+	return null
+}
+
+func readFileContentsString(file as File) virtual as string
+{
+	assert file
+	return file.getContentsString(fileEncoding)
+}
+
+func updateStagingToken virtual
+{
+	if stagingToken == null:
+		stagingToken = new Token()
+	stagingToken.value = null
+	stagingToken.line = currentTokenLine
+	stagingToken.column = currentTokenColumn
+	stagingToken.source = currentTokenSource
+	stagingToken.position = iterator.getCurrentPosition()
+}
+
+func getStagingToken virtual as Token:
+	return stagingToken
+
+func rememberPosition as Position
+{
+	var v = new Position()
+	v.line = currentTokenLine
+	v.column = currentTokenColumn
+	v.position = iterator.getCurrentPosition()
+	v.allTokensSize = Vector.getSize(allTokens)
+	if commentQueue {
+		v.commentQueueSize = commentQueue.getSize()
+	}
+	else {
+		v.commentQueueSize = 0
+	}
+	v.previousToken = previousToken
+	return v
+}
+
+func restorePosition(token as Position)
+{
+	assert token
+	currentTokenColumn = token.column
+	currentTokenLine = token.line
+	iterator.setCurrentPosition(token.position)
+	while Vector.getSize(allTokens) > token.allTokensSize:
+		Vector.popLast(allTokens)
+	while commentQueue && commentQueue.getSize() > token.commentQueueSize:
+		commentQueue.pop()
+	previousToken = token.previousToken
+	updateStagingToken()
+}
+
+macro REMEMBER_POSITION
+{
+	var ctc = currentTokenColumn
+	var ctl = currentTokenLine
+	var ctp = iterator.getCurrentPosition()
+	var ats = Vector.getSize(allTokens)
+	var cqs = 0
+	if commentQueue:
+		cqs = commentQueue.getSize()
+	var cpt = previousToken
+}
+
+macro RESTORE_POSITION
+{
+	currentTokenColumn = ctc
+	currentTokenLine = ctl
+	iterator.setCurrentPosition(ctp)
+	while Vector.getSize(allTokens) > ats:
+		Vector.popLast(allTokens)
+	while commentQueue && commentQueue.getSize() > cqs:
+		commentQueue.pop()
+	previousToken = cpt
+}
+
+func getPreviousToken as Token:
+	return previousToken
+
+func getAcceptedToken virtual as Token:
+	return acceptedToken
+
+func hasInputEnded virtual as bool:
+	return iterator.hasEnded()
+
+func peekNextCharacter virtual as char:
+	return iterator.getCurrentChar()
+
+func getNextCharacter virtual as char
+{
+	var v = iterator.getCurrentChar()
+	iterator.moveToNextChar()
+	if v == '\n' {
+		currentTokenLine ++
+		currentTokenColumn = 0
+	}
+	else {
+		currentTokenColumn ++
+	}
+	return v
+}
+
+func skipSpaces virtual as int
+{
+	if not allowSkipSpaces:
+		return 0
+	var v = 0
+	loop {
+		if skipSpaceCharacter() {
+			v ++
+			continue
+		}
+		if improperCommentPolicy != IMPROPER_COMMENT_NOOP {
+			var cc = acceptImmediateCommentToken()
+			if cc {
+				v ++
+				previousToken = cc
+				if improperCommentPolicy == IMPROPER_COMMENT_IGNORE:
+					continue
+				if improperCommentPolicy == IMPROPER_COMMENT_QUEUE || improperCommentPolicy == IMPROPER_COMMENT_WARN_QUEUE || improperCommentPolicy == IMPROPER_COMMENT_WARN_IGNORE {
+					if commentQueue == null:
+						commentQueue = new Queue<Token>()
+					commentQueue.push(cc)
+					continue
+				}
+			}
+		}
+		break
+	}
+	return v
+}
+
+func areTokensConnected(first as Token, second as Token) as bool
+{
+	assert first
+	assert second
+	assert first.line == second.line
+	assert first.column + String.getLength(first.value) == second.column
+	return true
+}
+
+func onTokenAccepted(token as Token) virtual
+{
+	assert token
+	previousToken = acceptedToken
+	acceptedToken = token
+	if token.value != null && collectAllTokens {
+		if allTokens == null:
+			allTokens = new vector<Token>
+		allTokens += token
+	}
+}
+
+func acceptEOF virtual as Token
+{
+	assert hasInputEnded()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.value = null
+	onTokenAccepted(v)
+	return v
+}
+
+func preprocessCharacter(c as char) as char
+{
+	if tokensAreCaseSensitive:
+		return c
+	return Character.toLowercase(c)
+}
+
+func getCharacterBoundaryClass(c as char) virtual as int
+{
+	if c == ' ' || c == '\n' || c == '\r' || c == '\t':
+		return 0
+	if Character.isAlphaNumeric(c) || c == '_':
+		return 1
+	return 2
+}
+
+func isTokenBoundary(c0 as char, c1 as char) virtual as bool
+{
+	var cl0 = getCharacterBoundaryClass(c0)
+	var cl1 = getCharacterBoundaryClass(c1)
+	if cl1 == 1 && cl0 == 1:
+		return false
+	return true
+}
+
+func acceptString(str as string) as string
+{
+	REMEMBER_POSITION()
+	var it = assert String.iterate(str)
+	var lc = 0 as char
+	loop {
+		var c = it.getNextChar()
+		if c < 1:
+			break
+		lc = c
+		if preprocessCharacter(c) != preprocessCharacter(getNextCharacter()) {
+			RESTORE_POSITION()
+			return null
+		}
+	}
+	return str
+}
+
+func acceptAnyString(strings as array<string>) as string
+{
+	foreach string in strings {
+		var v = acceptString(string)
+		if v:
+			return v
+	}
+	return null
+}
+
+func acceptAnyToken(tokens as array<string>) as Token
+{
+	foreach token in tokens {
+		var v = acceptToken(token)
+		if v:
+			return v
+	}
+	return null
+}
+
+func acceptConnectedToken(token as string) as Token
+{
+	REMEMBER_POSITION()
+	var v = assert acceptToken(token)
+	assert areTokensConnected(getPreviousToken(), getAcceptedToken()):
+		RESTORE_POSITION()
+	return v
+}
+
+func peekToken(token as string) as bool
+{
+	REMEMBER_POSITION()
+	if acceptToken(token) {
+		RESTORE_POSITION()
+		return true
+	}
+	return false
+}
+
+func peekToken(token as char) as bool:
+	return peekToken(String.forCharacter(token))
+
+func acceptToken(token as string) as Token
+{
+	assert token
+	skipSpaces()
+	REMEMBER_POSITION()
+	var it = assert String.iterate(token)
+	var lc = 0 as char
+	loop {
+		var c = it.getNextChar()
+		if c < 1:
+			break
+		lc = c
+		if preprocessCharacter(c) != preprocessCharacter(getNextCharacter()) {
+			RESTORE_POSITION()
+			return null
+		}
+	}
+	if isTokenBoundary(peekNextCharacter(), lc) == false {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = token
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptToken(c as char) as Token
+{
+	skipSpaces()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c):
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	if isTokenBoundary(peekNextCharacter(), c) == false {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	v.line = currentTokenLine
+	v.column = currentTokenColumn
+	v.position = iterator.getCurrentPosition()
+	v.value = String.forCharacter(c)
+	updateStagingToken()
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptToken(c0 as char, c1 as char) as Token
+{
+	skipSpaces()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c0):
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c1) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	v.value = sb.toString()
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptToken(c0 as char, c1 as char, c2 as char) as Token
+{
+	skipSpaces()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c0):
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c1) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c2) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	sb.append(c2)
+	v.value = sb.toString()
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptToken(c0 as char, c1 as char, c2 as char, c3 as char) as Token
+{
+	skipSpaces()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c0):
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c1) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c2) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	if preprocessCharacter(peekNextCharacter()) != preprocessCharacter(c3) {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	sb.append(c2)
+	sb.append(c3)
+	v.value = sb.toString()
+	onTokenAccepted(v)
+	return v
+}
+
+func preprocessIdentifier(t as string) virtual as string:
+	return t
+
+func acceptIdentifierToken virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 < 1 || isValidIdentifierPrefix(c0) == false:
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 || isValidIdentifierCharacter(cn) == false:
+			break
+		getNextCharacter()
+		sb.append(cn)
+	}
+	var ids = preprocessIdentifier(sb.toString())
+	if isValidIdentifier(ids) == false {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptBacktickQuotedStringToken virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '`':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	var slash = false
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		sb.append(cn)
+		if cn == '`' && slash == false:
+			break
+		if cn == '\\' {
+			if slash == true {
+				slash = false
+			}
+			else {
+				slash = true
+			}
+		}
+		else {
+			slash = false
+		}
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptSingleQuotedStringToken virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '\'':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	var slash = false
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		sb.append(cn)
+		if cn == '\'' && slash == false:
+			break
+		if cn == '\\' {
+			if slash == true {
+				slash = false
+			}
+			else {
+				slash = true
+			}
+		}
+		else {
+			slash = false
+		}
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptDoubleQuotedStringToken(escapeChar as char, allowNewlines as bool) virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '"':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	var escape = false
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn == '\n' && allowNewlines == false {
+			RESTORE_POSITION()
+			return null
+		}
+		sb.append(cn)
+		if cn == '"' && escape == false:
+			break
+		if escapeChar > 0 && cn == escapeChar {
+			if escape == true {
+				escape = false
+			}
+			else {
+				escape = true
+			}
+		}
+		else {
+			escape = false
+		}
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '0':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != 'x' && c1 != 'X' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if Character.isDigit(cn) {
+			sb.append(cn)
+		}
+		else if cn >= 'a' && cn <= 'f' {
+			sb.append(cn)
+		}
+		else if cn >= 'A' && cn <= 'F' {
+			sb.append(cn)
+		}
+		else if cn == '_' && acceptUnderscores {
+			;
+		}
+		else {
+			break
+		}
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	if ids == null || String.equals(ids, "0x") || String.equals(ids, "0X") {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptBinaryNumberLiteralToken(acceptUnderscores as bool) virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '0':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != 'b' && c1 != 'B' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn == '0' || cn == '1' {
+			sb.append(cn)
+		}
+		else if cn == '_' && acceptUnderscores {
+			;
+		}
+		else {
+			break
+		}
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	if ids == null || String.equals(ids, "0b") || String.equals(ids, "0B") {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptIntegerLiteralToken(acceptUnderscores as bool) as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if Character.isDigit(c0) == false:
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if Character.isDigit(cn) {
+			sb.append(cn)
+		}
+		else if cn == '_' && acceptUnderscores {
+			;
+		}
+		else {
+			break
+		}
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptDecimalNumberLiteralToken(acceptUnderscores as bool, allowStartWithDelimiter as bool, allowExponent as bool, allowEndWithDelimiter as bool = false) as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if Character.isDigit(c0) {
+		;
+	}
+	else if c0 == '.' && allowStartWithDelimiter {
+		;
+	}
+	else {
+		return null
+	}
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var hasDelimiter = false
+	var hasExp = false
+	var sb = new StringBuilder()
+	if c0 == '.':
+		hasDelimiter = true
+	sb.append(c0)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if Character.isDigit(cn) {
+			sb.append(cn)
+			getNextCharacter()
+		}
+		else if hasDelimiter == false && cn == '.' {
+			sb.append(cn)
+			hasDelimiter = true
+			getNextCharacter()
+		}
+		else if hasExp == false && allowExponent && (cn == 'e' || cn == 'E') {
+			sb.append(cn)
+			hasDelimiter = true
+			hasExp = true
+			getNextCharacter()
+			var nn = peekNextCharacter()
+			if nn == '+' || nn == '-' {
+				sb.append(nn)
+				getNextCharacter()
+			}
+		}
+		else if acceptUnderscores && cn == '_' {
+			getNextCharacter()
+		}
+		else {
+			break
+		}
+	}
+	var ids = sb.toString()
+	if ids == null || String.endsWith(ids, "e") || String.endsWith(ids, "E") {
+		RESTORE_POSITION()
+		return null
+	}
+	if ids == "." {
+		RESTORE_POSITION()
+		return null
+	}
+	if String.startsWith(ids, ".") {
+		if allowStartWithDelimiter {
+			ids = "0" .. ids
+		}
+		else {
+			RESTORE_POSITION()
+			return null
+		}
+	}
+	if String.endsWith(ids, ".") {
+		if allowEndWithDelimiter {
+			ids = ids .. "0"
+		}
+		else {
+			RESTORE_POSITION()
+			return null
+		}
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func isNumberLiteralSuffixReal(c as char) virtual as bool
+{
+	if c == 'd' || c == 'D' || c == 'f' || c == 'F':
+		return true
+	return false
+}
+
+func acceptImmediateHashCommentToken virtual as Token
+{
+	var c0 = peekNextCharacter()
+	if c0 != '#':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	loop {
+		var cn = peekNextCharacter()
+		if Character.isEOF(cn) {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn == '\r' {
+			getNextCharacter()
+			continue
+		}
+		if cn == '\n':
+			break
+		sb.append(cn)
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptImmediateSlashSlashCommentToken virtual as Token
+{
+	var c0 = peekNextCharacter()
+	if c0 != '/':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != '/' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn == '\r' {
+			getNextCharacter()
+			continue
+		}
+		if cn == '\n':
+			break
+		sb.append(cn)
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptImmediateSlashAsteriskCommentToken virtual as Token
+{
+	var c0 = peekNextCharacter()
+	if c0 != '/':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != '*' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	var pc = 0 as char
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn == '\r':
+			continue
+		sb.append(cn)
+		if pc == '*' && cn == '/':
+			break
+		pc = cn
+	}
+	var ids = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func parseIdentifierToken as Token
+{
+	var id = acceptIdentifierToken()
+	if not id:
+		PARSE_ERROR_EXPECT("identifier")
+	return id
+}
+
+func acceptIdentifier as string
+{
+	var v = assert acceptIdentifierToken()
+	return v.value
+}
+
+func parseIdentifier as string
+{
+	var v = assert parseIdentifierToken()
+	return v.value
+}
+
+func parseToken(token as string) as Token
+{
+	var v = acceptToken(token)
+	if not v:
+		PARSE_ERROR_EXPECT(token)
+	return v
+}
+
+func parseToken(token as char) as Token
+{
+	var v = acceptToken(token)
+	if not v:
+		PARSE_ERROR_EXPECT(String.forCharacter(token))
+	return v
+}
+
+func acceptCommentString as string
+{
+	var t = assert acceptCommentToken()
+	return t.getValue()
+}
+
+func acceptCommentToken virtual as Token
+{
+	if commentQueue && (improperCommentPolicy == IMPROPER_COMMENT_QUEUE || improperCommentPolicy == IMPROPER_COMMENT_WARN_QUEUE || improperCommentPolicy == IMPROPER_COMMENT_WARN_IGNORE) {
+		loop {
+			var cc = commentQueue.pop()
+			if cc {
+				var isImproper = true
+				if cc == previousToken:
+					isImproper = false
+				if improperCommentPolicy == IMPROPER_COMMENT_WARN_IGNORE {
+					if isImproper:
+						PARSE_WARNING("Improper comment", cc)
+				}
+				else {
+					if improperCommentPolicy == IMPROPER_COMMENT_WARN_QUEUE && isImproper:
+						PARSE_WARNING("Improper comment", cc)
+					return cc
+				}
+			}
+			else {
+				break
+			}
+		}
+	}
+	REMEMBER_POSITION()
+	var n = 0
+	loop {
+		if skipSpaceCharacter() {
+			n ++
+			continue
+		}
+		break
+	}
+	var v = acceptImmediateCommentToken()
+	if v:
+		return v
+	if n > 0:
+		RESTORE_POSITION()
+	return null
+}
+
+func skipSpaceCharacter virtual as bool
+{
+	if isSpaceCharacter(peekNextCharacter()) {
+		getNextCharacter()
+		return true
+	}
+	return false
+}
+
+func isValidIdentifier(t as string) virtual as bool
+{
+	assert t
+	var c = String.getChar(t, 0)
+	assert isValidIdentifierPrefix(c)
+	var it = assert String.iterate(t)
+	it.getNextChar()
+	loop {
+		var c = it.getNextChar()
+		if c < 1:
+			break
+		if isValidIdentifierCharacter(c) == false:
+			return false
+	}
+	return true
+}
+
+// Common overridables
+
+func isValidIdentifierPrefix(c as char) virtual as bool:
+	return false
+
+func isValidIdentifierCharacter(c as char) virtual as bool:
+	return false
+
+func preprocessContent(content as string) virtual as string:
+	return content
+
+func acceptImmediateCommentToken virtual as Token:
+	return null

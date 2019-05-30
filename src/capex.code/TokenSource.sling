@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2019 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,19 +22,75 @@
  * SOFTWARE.
  */
 
-class is Reader imports cape:
+class:
 
-func read(buf as buffer) as int
+func forFile(file as File, name as string) static as this
 {
-	if buf == null:
-		return 0
-	var v as int
-	lang "swift" {{{
-		var input = FileHandle.standardInput
-		var data = input.availableData
-		v = data.count - 1
-		var d = NSMutableData(data: data)
-		buf.replaceBytes(in: NSMakeRange(0, v), withBytes: d.bytes + 0, length: v)
-	}}}
+	var v = new this()
+	v.setFile(file)
+	v.setName(name)
 	return v
+}
+
+func forString(str as string) static as this
+{
+	var v = new this()
+	v.setContent(str)
+	return v
+}
+
+prop file as File
+var content as string
+var name as string
+var lines as vector<string>
+
+func setName(v as string) as this
+{
+	name = v
+	return this
+}
+
+func getName as string:
+	return name
+
+func getContent as string
+{
+	if content == null && file:
+		content = file.getContentsString("UTF-8")
+	return content
+}
+
+func setContent(v as string) as this
+{
+	content = v
+	return this
+}
+
+func recycleContent
+{
+	if file:
+		content = null
+}
+
+func getLines as vector<string>
+{
+	if lines == null {
+		var cc = getContent()
+		if cc {
+			lines = new vector<string>
+			foreach line in String.split(content, '\n') {
+				while String.endsWith(line, "\r"):
+					line = String.subString(line, 0, String.getLength(line)-1)
+				lines += line
+			}
+			recycleContent()
+		}
+	}
+	return lines
+}
+
+func getLine(n as int) as string
+{
+	var lines = assert getLines()
+	return Vector.getAt(lines, n)
 }
