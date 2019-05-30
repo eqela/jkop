@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class:
+class is WSProtocolSource:
 
 const STATE_STOPPED = 0
 const STATE_DISCONNECTED = 1
@@ -37,6 +37,8 @@ var lastActivity = 0L
 prop reconnectInterval = 5000000L
 prop connectionTimeoutInterval = 30000000L
 prop pingInterval = 30000000L
+prop protocol as WSProtocol
+prop stateChangeHandler as function<void,int>
 
 func getTickInterval as long
 {
@@ -51,10 +53,13 @@ func getTickInterval as long
 	return 0L
 }
 
-func start(url as string, eventLoop as EventLoop)
+func start(url as string, eventLoop as EventLoop, protocol as WSProtocol)
 {
 	this.url = url
 	this.eventLoop = eventLoop
+	this.protocol = protocol
+	if protocol:
+		protocol.setSource(this)
 	updateState(STATE_DISCONNECTED)
 	tick(nextTick)
 }
@@ -62,12 +67,15 @@ func start(url as string, eventLoop as EventLoop)
 func stop
 {
 	closeConnection()
+	if protocol:
+		protocol.setSource(null)
+	protocol = null
 	updateState(STATE_STOPPED)
 	url = null
 	eventLoop = null
 }
 
-func closeConnection private
+func closeConnection
 {
 	if socket:
 		socket.close(0, null)
@@ -179,20 +187,36 @@ func sendMessage(message as WSMessage)
 
 func onConnectionOpened virtual
 {
+	if protocol:
+		protocol.onConnectionOpened()
 }
 
 func onConnectionClosed virtual
 {
+	if protocol:
+		protocol.onConnectionClosed()
 }
 
 func onConnectionMessage(message as WSMessage) virtual
 {
+	if protocol && message {
+		if message.isText() {
+			protocol.onStringMessage(message.getDataAsString())
+		}
+		else {
+			protocol.onBinaryMessage(message.getData())
+		}
+	}
 }
 
 func onConnectionError(error as Error) virtual
 {
+	if protocol:
+		protocol.onConnectionError(error)
 }
 
 func onStateChanged(newState as int) virtual
 {
+	if stateChangeHandler:
+		stateChangeHandler(newState)
 }
