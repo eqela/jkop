@@ -81,6 +81,55 @@ ELSE IFDEF "target_iosoc" {
 		}
 	}
 }
+ELSE IFDEF "target_swift" {
+	depend "swift-import:ContactsUI"
+
+	class MyPickerDelegate implements !"CNContactPickerDelegate"
+	{
+		prop callback as function<void,Contact,Error>
+
+		lang "swift" {{{
+			@available(iOS 9.0, *)
+			@objc func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact)
+			{
+				self.onContactPicked(contact)
+				objc_removeAssociatedObjects(picker)
+			}
+
+			@available(iOS 9.0, *)
+		}}}
+		func onContactPicked(contact as !"CNContact")
+		{
+			if !callback || !contact:
+				return
+			var v = new Contact()
+			var givenName = lang "swift" string {{{ contact?.givenName }}}
+			var middleName = lang "swift" string {{{ contact?.middleName }}}
+			var familyName = lang "swift" string {{{ contact?.familyName }}}
+			var namesb = new StringBuilder()
+			if not String.isEmpty(givenName) {
+				namesb.append(givenName)
+			}
+			if not String.isEmpty(middleName) {
+				if namesb.count() > 0:
+					namesb.append(' ')
+				namesb.append(middleName)
+			}
+			if not String.isEmpty(familyName) {
+				if(namesb.count() > 0):
+					namesb.append(' ')
+				namesb.append(familyName)
+			}
+			v.setName(namesb.toString())
+			lang "swift" {{{
+				for value: CNLabeledValue in (contact?.phoneNumbers)! {
+					v!.addToPhoneNumbers(value.value.stringValue)
+				}
+			}}}
+			callback(v, null)
+		}
+	}
+}
 
 func isSupported static as bool
 {
@@ -91,6 +140,9 @@ func isSupported static as bool
 		return true
 	}
 	ELSE IFDEF "target_iosoc" {
+		return true
+	}
+	ELSE IFDEF "target_swift" {
 		return true
 	}
 	ELSE {
@@ -108,7 +160,7 @@ ctor(context as GuiApplicationContext)
 func pickOneContact(widget as Widget, callback as function<void,Contact,Error>)
 {
 	var cb final #used = callback
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		var fwidget final = widget
 		var screen final = ScreenForWidget.findScreenForWidget(fwidget)
 		if(screen == null) {
@@ -283,6 +335,30 @@ func pickOneContact(widget as Widget, callback as function<void,Contact,Error>)
 			picker.delegate = delegate;
 			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 			[screen presentViewController:picker animated:YES completion:nil];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var screen final = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, Error.forCode("noScreenFound"))
+			return
+		}
+		var delegate = new MyPickerDelegate()
+		delegate.setCallback(callback)
+		lang "swift" {{{
+			if #available(iOS 9.0, *) {
+				var picker = CNContactPickerViewController()
+				if(picker == nil) {
+		}}}
+		callback(null, Error.forCode("noContactData"))
+		lang "swift" {{{
+					return
+				}
+				picker.delegate = delegate
+				objc_setAssociatedObject(picker, "_pickerDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				screen?.present(picker, animated: true)
+			}
 		}}}
 	}
 	ELSE {
