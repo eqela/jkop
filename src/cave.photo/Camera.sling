@@ -62,20 +62,53 @@ ELSE IFDEF "target_android" {
 ELSE IFDEF "target_kotlin" {
 	depend "androidPermission:android.permission.CAMERA"
 }
+ELSE IFDEF "target_swift" {
+	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
+	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
+
+	class MyPickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
+	{
+		prop callback as function<void,Image,Error>
+
+		lang "swift" {{{
+			func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any])
+			{
+				var image = info[.originalImage] as? UIImage
+				self.onImagePicked(image)
+				objc_removeAssociatedObjects(picker)
+				picker.dismiss(animated: true)
+			}
+
+			func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+				picker.dismiss(animated: true)
+			}
+
+		}}}
+
+		func onImagePicked(image as !"UIImage")
+		{
+			if callback:
+				callback(ImageForSwift.forUIImage(image), null)
+		}
+	}
+}
 
 func isSupported static as bool
 {
 	IFDEF("target_android") {
-		return(true)
+		return true
 	}
 	ELSE IFDEF("target_iosoc") {
-		return(true)
+		return true
 	}
 	ELSE IFDEF("target_kotlin") {
-		return(true)
+		return true
+	}
+	ELSE IFDEF("target_swift") {
+		return true
 	}
 	ELSE {
-		return(false)
+		return false
 	}
 }
 
@@ -224,6 +257,30 @@ func takePicture(widget as Widget, callback as function<void,Image,Error>)
 				}}}
 			}
 		})
+	}
+	ELSE IFDEF("target_swift") {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if not screen {
+			if cb:
+				cb(null, Error.forCode("no_screen_found"))
+			return
+		}
+		var delegate = new MyPickerDelegate()
+		delegate.setCallback(callback)
+		lang "swift" {{{
+			var picker = UIImagePickerController()
+			picker.delegate = delegate as! UIImagePickerControllerDelegate & UINavigationControllerDelegate
+			picker.allowsEditing = true
+			if UIImagePickerController.isSourceTypeAvailable(.camera) {
+				picker.sourceType = UIImagePickerController.SourceType.camera
+			}
+			else {
+				picker.sourceType = UIImagePickerController.SourceType.photoLibrary
+			}
+			picker.modalPresentationStyle = UIModalPresentationStyle.fullScreen
+			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+			screen.present(picker, animated: true)
+		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
