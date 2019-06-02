@@ -644,98 +644,105 @@ func processData(data as buffer, size as int) private as bool
 		nbuffer = data
 		nsize = size
 	}
-	var p = 0
-	var fin = 0
-	var rsv1 = 0
-	var rsv2 = 0
-	var rsv3 = 0
-	var opcode = 0
-	var mask = 0
-	var payloadLength = 0
-	var lastMaskingBufferIndex = 0
-	var mi = 0
-	var maskingBuffer as buffer
-	var payloadBuffer as buffer
-	while p < nsize {
-		var b = Buffer.getByte(nbuffer, p)
-		if p == 0 {
-			if b & 0x80:
-				fin = 1
-			if b & 0x40:
-				rsv1 = 1
-			if b & 0x20:
-				rsv2 = 1
-			if b & 0x10:
-				rsv3 = 1
-			opcode = b & 0x0f
-		}
-		else if p == 1 {
-			mask = b & 0x80
-			if mask == 0 {
-				;
+	loop {
+		var p = 0
+		var fin = 0
+		var rsv1 = 0
+		var rsv2 = 0
+		var rsv3 = 0
+		var opcode = 0
+		var mask = 0
+		var payloadLength = 0
+		var lastMaskingBufferIndex = 0
+		var mi = 0
+		var maskingBuffer as buffer
+		var payloadBuffer as buffer
+		while p < nsize {
+			var b = Buffer.getByte(nbuffer, p)
+			if p == 0 {
+				if b & 0x80:
+					fin = 1
+				if b & 0x40:
+					rsv1 = 1
+				if b & 0x20:
+					rsv2 = 1
+				if b & 0x10:
+					rsv3 = 1
+				opcode = b & 0x0f
+			}
+			else if p == 1 {
+				mask = b & 0x80
+				if mask == 0 {
+					;
+				}
+				else {
+					maskingBuffer = Buffer.allocate(4)
+				}
+				payloadLength = b & 0x7f
+				if payloadLength >= 0 && payloadLength < 126 {
+					p++
+					if maskingBuffer != null:
+						lastMaskingBufferIndex = p + 3
+					continue
+				}
+				else if payloadLength == 126 {
+					var v as uint64
+					v |= Buffer.getByte(nbuffer, p + 1) & 0xFF << 8
+					v |= Buffer.getByte(nbuffer, p + 2) & 0xFF
+					payloadLength = v
+					p += 3
+					if maskingBuffer != null:
+						lastMaskingBufferIndex = p + 3
+					continue
+				}
+				else if payloadLength == 127 {
+					var v as uint64
+					v |= Buffer.getByte(nbuffer, p + 1) & 0x7f << 56
+					v |= Buffer.getByte(nbuffer, p + 2) & 0xFF << 48
+					v |= Buffer.getByte(nbuffer, p + 3) & 0xFF << 40
+					v |= Buffer.getByte(nbuffer, p + 4) & 0xFF << 32
+					v |= Buffer.getByte(nbuffer, p + 5) & 0xFF << 24
+					v |= Buffer.getByte(nbuffer, p + 6) & 0xFF << 16
+					v |= Buffer.getByte(nbuffer, p + 7) & 0xFF << 8
+					v |= Buffer.getByte(nbuffer, p + 8) & 0xFF
+					payloadLength = v
+					p += 9
+					if maskingBuffer != null:
+						lastMaskingBufferIndex = p + 3
+					continue
+				}
+				return false
+			}
+			else if p <= lastMaskingBufferIndex {
+				Buffer.setByte(maskingBuffer, mi, b)
+				mi++
 			}
 			else {
-				maskingBuffer = Buffer.allocate(4)
+				break
 			}
-			payloadLength = b & 0x7f
-			if payloadLength >= 0 && payloadLength < 126 {
-				p++
-				if maskingBuffer != null:
-					lastMaskingBufferIndex = p + 3
-				continue
-			}
-			else if payloadLength == 126 {
-				var v as uint64
-				v |= Buffer.getByte(nbuffer, p + 1) & 0xFF << 8
-				v |= Buffer.getByte(nbuffer, p + 2) & 0xFF
-				payloadLength = v
-				p += 3
-				if maskingBuffer != null:
-					lastMaskingBufferIndex = p + 3
-				continue
-			}
-			else if payloadLength == 127 {
-				var v as uint64
-				v |= Buffer.getByte(nbuffer, p + 1) & 0x7f << 56
-				v |= Buffer.getByte(nbuffer, p + 2) & 0xFF << 48
-				v |= Buffer.getByte(nbuffer, p + 3) & 0xFF << 40
-				v |= Buffer.getByte(nbuffer, p + 4) & 0xFF << 32
-				v |= Buffer.getByte(nbuffer, p + 5) & 0xFF << 24
-				v |= Buffer.getByte(nbuffer, p + 6) & 0xFF << 16
-				v |= Buffer.getByte(nbuffer, p + 7) & 0xFF << 8
-				v |= Buffer.getByte(nbuffer, p + 8) & 0xFF
-				payloadLength = v
-				p += 9
-				if maskingBuffer != null:
-					lastMaskingBufferIndex = p + 3
-				continue
-			}
-			return false
+			p++
 		}
-		else if p <= lastMaskingBufferIndex {
-			Buffer.setByte(maskingBuffer, mi, b)
-			mi++
+		var frameLength = p + payloadLength
+		if nsize < frameLength {
+			leftOverBuffer = Buffer.allocate(nsize)
+			Buffer.copyFrom(leftOverBuffer, nbuffer, 0, 0, nsize)
+			frameNo ++
+			break
+		}
+		payloadBuffer = Buffer.allocate(payloadLength)
+		Buffer.copyFrom(payloadBuffer, nbuffer, p, 0, payloadLength)
+		processFrame(fin, rsv1, rsv2, rsv3, opcode, mask, maskingBuffer, payloadLength, payloadBuffer)
+		frameNo = 1
+		if nsize > frameLength {
+			var losize = nsize - frameLength
+			var nnb = Buffer.allocate(losize)
+			Buffer.copyFrom(nnb, nbuffer, frameLength, 0, losize)
+			nbuffer = nnb
+			nsize = losize
 		}
 		else {
 			break
 		}
-		p++
-	}
-	var frameLength = p + payloadLength
-	if nsize < frameLength {
-		leftOverBuffer = Buffer.allocate(nsize)
-		Buffer.copyFrom(leftOverBuffer, nbuffer, 0, 0, nsize)
-		frameNo ++
-		return true
-	}
-	payloadBuffer = Buffer.allocate(payloadLength)
-	Buffer.copyFrom(payloadBuffer, nbuffer, p, 0, payloadLength)
-	processFrame(fin, rsv1, rsv2, rsv3, opcode, mask, maskingBuffer, payloadLength, payloadBuffer)
-	frameNo = 1
-	if nsize > frameLength {
-		var losize = nsize - frameLength
-		leftOverBuffer = Buffer.allocate(losize)
-		Buffer.copyFrom(leftOverBuffer, nbuffer, frameLength, 0, losize)
 	}
 	return true
 }

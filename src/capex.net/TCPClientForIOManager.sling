@@ -105,32 +105,67 @@ func receive(callback as function<void,buffer,int>) override
 	})
 }
 
+class MyBuffer
+{
+	prop data as buffer
+	prop size as int
+	prop callback as function<void,Error>
+}
+
+var toWrite = new Queue<MyBuffer>()
+var writeScheduled = false
+
 func send(data as buffer, size as int, callback as function<void,Error>) override
 {
 	assert tcpsocket {
 		if callback:
 			callback(Error.forCode("notConnected"))
 	}
+	var mb = new MyBuffer()
+	mb.setData(data)
+	mb.setSize(size)
+	mb.setCallback(callback)
+	toWrite.push(mb)
+	scheduleWrite()
+}
+
+func scheduleWrite private
+{
+	if writeScheduled:
+		return
+	if toWrite.getSize() < 1:
+		return
 	var ee as IOManagerEntry
 	ee = iomanager.addWithWriteListener(tcpsocket, func {
 		ee.remove()
-		var ss = getSocket()
-		var n = 0
-		if ss:
-			n = ss.write(data, size)
-		if callback {
-			if n < size {
-				callback(Error.forCode("failedToWrite"))
-			}
-			else {
-				callback(null)
+		writeScheduled = false
+		var mb = toWrite.pop()
+		if mb {
+			var data = mb.getData()
+			var size = mb.getSize()
+			var callback = mb.getCallback()
+			var ss = getSocket()
+			var n = 0
+			if ss:
+				n = ss.write(data, size)
+			if callback {
+				if n < size {
+					callback(Error.forCode("failedToWrite"))
+				}
+				else {
+					callback(null)
+				}
 			}
 		}
+		scheduleWrite()
 	})
+	writeScheduled = true
 }
 
 func disconnect(callback as function<void,Error>) override
 {
+	toWrite.clear()
+	writeScheduled = false
 	// FIXME: Needs to be made asynchronous
 	if sslsocket {
 		sslsocket.close()
