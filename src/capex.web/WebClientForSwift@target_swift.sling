@@ -1,0 +1,115 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient:
+
+depend "plist:{ \"NSAppTransportSecurity\" : { \"NSAllowsArbitraryLoads\" : \"true\" } }"
+
+class MyRequestListener implements !"NSURLConnectionDelegate" implements !"NSURLConnectionDataDelegate"
+{
+	prop callback as function<void, string, KeyValueList<string,string>, buffer>
+	var responseData as buffer #used
+	var responseCode as string #used
+	var responseHeaders as KeyValueList<string,string>
+
+	func processNSURLResponse(response as !"URLResponse")
+	{
+		responseHeaders = new KeyValueList<string,string>()
+		var k as string #used
+		var v as string #used
+		var c as int #used
+		lang "swift" {{{
+			let r = response as? HTTPURLResponse
+			if r != nil && r?.responds(to: #selector(getter: HTTPURLResponse.allHeaderFields)) ?? false {
+				c = Int(r?.statusCode ?? 0)
+		}}}
+		responseCode = String.forInteger(c)
+		lang "swift" {{{
+			let d = r?.allHeaderFields
+			for (key, value) in d as! [String:String] {
+				k = String(key)
+				v = d?[String(key)] as! String
+		}}}
+		k = String.toLowerCase(k)
+		responseHeaders.add(k, v)
+		lang "swift" {{{
+				}
+			}
+		}}}
+	}
+
+	lang "swift" {{{
+		public func connection(_ connection: NSURLConnection, didReceive response: URLResponse) {
+			processNSURLResponse(response)
+			responseData = NSMutableData()
+		}
+
+		public func connection(_ connection: NSURLConnection, didReceive data: Data) {
+			NSLog("HTTP data received")
+			responseData.append(data)
+		}
+
+		public func connection(_ connection: NSURLConnection, willCacheResponse cachedResponse: CachedURLResponse) -> CachedURLResponse? {
+			return nil
+		}
+
+		public func connectionDidFinishLoading(_ connection: NSURLConnection) {
+			callback!(responseCode, responseHeaders, responseData)
+		}
+		
+		public func connection(_ connection: NSURLConnection, didFailWithError error: Error) {
+			NSLog("HTTP connection failed: \(error)")
+			callback(nil, nil, nil)
+		}
+	}}}
+}
+
+func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) override
+{
+	lang "swift" {{{
+		var request = URLRequest(url: URL(string: url)!)
+		request.httpMethod = method!
+		request.timeoutInterval = 30
+	}}}
+	if(headers != null) {
+		var iter = headers.iterate()
+		loop {
+			var nh as KeyValuePair<string,string> #force = iter.next()
+			if(nh == null) {
+				break
+			}
+			var key #used = nh.key
+			var value #used = nh.value
+			lang "swift" {{{
+				request.setValue(value, forHTTPHeaderField:key!)
+			}}}
+		}
+	}
+	var requestListener = new MyRequestListener()
+	requestListener.setCallback(callback)
+	lang "swift" {{{
+		request.httpBody = body as Data?
+		let conn: NSURLConnection = NSURLConnection(request: request, delegate: requestListener)!
+	}}}
+}
