@@ -726,6 +726,119 @@ IFDEF "target_swift"
 	depend "swift-import:SystemConfiguration"
 	depend "swift-import:UIKit"
 	depend "swift-import:Security"
+
+	var googleMapsApiInitialized static = false
+
+	func mapView(mapview as !"GMSMapView", markerInfoWindow as !"GMSMarker") as Widget
+	{
+		var myMarker = lang "swift" MyMapMarker {{{ markerInfoWindow?.userData as? CaveGoogleMapsMapWidgetMyMapMarker }}}
+		var view = myMarker.getInfoWindowWidget()
+		if view:
+			Widget.layout(view, -1, false)
+		return view
+	}
+
+	lang "swift" {{{
+		public func mapView(_ mapview: GMSMapView, _ markerInfoWindow: GMSMarker?) -> UIView? {
+			let myMarker: CaveGoogleMapsMapWidgetMyMapMarker? = markerInfoWindow?.userData as? CaveGoogleMapsMapWidgetMyMapMarker
+			let view: UIView? = myMarker!.getInfoWindowWidget()
+			if view !== nil {
+				CaveUiWidget.layout(view, -1, false)
+			}
+			return view
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTapAt coordinate: CLLocationCoordinate2D) {
+			onMapClicked(coordinate.latitude, coordinate.longitude)
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTapInfoWindowOf marker: GMSMarker) {
+			let myMarker = marker.userData as? CaveGoogleMapsMapWidgetMyMapMarker
+			myMarker?.onInfoWindowClicked()
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
+			onMarkerClicked(marker)
+			return false
+		}
+
+		private func mapViewSnapshotReady(_ mapView: GMSMapView) {
+			if mapInitialized == false {
+				mapInitialized = true
+				placeQueuedMarkers()
+				if coordinateQueue != nil {
+					doZoomToCoordinates()
+				}
+				if centerQueue != nil {
+					doMoveToCenter()
+				}
+			}
+		}
+
+		private func mapView(_ mapView: GMSMapView, willMove gesture: Bool) {
+			onCameraStartMoving()
+		}
+	}}}
+
+	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", latitude as double, longitude as double, listener as GeoCoderAddressListener)
+	{
+		var addLine1 as string
+		var addLine2 as string
+		var country as string
+		var administrativeArea as string
+		var locality as string
+		var subLocality as string
+		var streetAddress as string
+		var postalCode as string
+		lang "swift" {{{
+			addLine1 = resp!.firstResult()!.addressLine1()
+			addLine2 = resp!.firstResult()!.addressLine2()
+			country = resp!.firstResult()!.country
+			administrativeArea = resp!.firstResult()!.administrativeArea
+			locality = resp!.firstResult()!.locality
+			subLocality = resp!.firstResult()!.subLocality
+			streetAddress = resp!.firstResult()!.thoroughfare
+			postalCode = resp!.firstResult()!.postalCode
+		}}}
+		var sb = new StringBuilder()
+		if addLine1:
+			sb.append(addLine1)
+		if not String.isEmpty(addLine2) {
+			if sb.count() > 0:
+				sb.append(' ')
+			sb.append(addLine2)
+		}
+		var v = new PhysicalAddress()
+		v.setCompleteAddress(sb.toString())
+		v.setLatitude(latitude)
+		v.setLongitude(longitude)
+		v.setCountry(country)
+		v.setAdministrativeArea(administrativeArea)
+		v.setLocality(locality)
+		v.setSubLocality(subLocality)
+		v.setStreetAddress(streetAddress)
+		v.setPostalCode(postalCode)
+		if listener:
+			listener.onQueryAddressCompleted(v)
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+	{
+		var myObject #used = this
+		lang "swift" {{{
+			var gc = GMSGeocoder()
+			gc.reverseGeocodeCoordinate(CLLocationCoordinate2DMake(latitude, longitude), completionHandler: { resp, error in
+				if error != nil {
+					print("MapWidget: Error: \(error?.localizedDescription ?? "")")
+				}
+				myObject?.onGeoCoderAddress(resp, latitude, longitude, listener)
+			})
+		}}}
+		return true
+	}
+
+	func queryLocation(address as string, listener as GeoCoderLocationListener) as bool:
+		return true
 }
 
 class MyMapMarker is MapMarker
@@ -748,26 +861,32 @@ class MyMapMarker is MapMarker
 		this.lat = lat
 		this.lon = lon
 		if markerObject {
-			IFDEF("target_html") {
+			IFDEF "target_html" {
 				lang "js" {{{
 					this.markerObject.setPosition({ lat: lat, lng: lon });
 				}}}
 			}
-			ELSE IFDEF("target_android") {
+			ELSE IFDEF "target_android" {
 				lang "java" {{{
 					com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(this.lat, this.lon);
 					((com.google.android.gms.maps.model.Marker)markerObject).setPosition(pos);
 				}}}
 			}
-			ELSE IFDEF("target_kotlin") {
+			ELSE IFDEF "target_kotlin" {
 				lang "kotlin" {{{
 					var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(this.lat, this.lon)
 					(markerObject as com.google.android.gms.maps.model.Marker).setPosition(pos);
 				}}}
 			}
-			ELSE IFDEF("target_iosoc") {
+			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setPosition:CLLocationCoordinate2DMake(lat, lon)];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.position = CLLocationCoordinate2DMake(lat, lon)
+
 				}}}
 			}
 			ELSE {
@@ -779,17 +898,17 @@ class MyMapMarker is MapMarker
 	func remove
 	{
 		if markerObject {
-			IFDEF("target_html") {
+			IFDEF "target_html" {
 				lang "js" {{{
 					this.markerObject.setMap(null);
 				}}}
 			}
-			ELSE IFDEF("target_android") {
+			ELSE IFDEF "target_android" {
 				lang "java" {{{
 					((com.google.android.gms.maps.model.Marker)markerObject).remove();
 				}}}
 			}
-			ELSE IFDEF("target_kotlin") {
+			ELSE IFDEF "target_kotlin" {
 				lang "kotlin" {{{
 					(markerObject as com.google.android.gms.maps.model.Marker).remove();
 				}}}
@@ -797,6 +916,11 @@ class MyMapMarker is MapMarker
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setMap:nil];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.map = nil
 				}}}
 			}
 			ELSE {
@@ -822,6 +946,11 @@ class MyMapMarker is MapMarker
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSMarker*)self->markerObject setRotation:deg];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.rotation = deg
 				}}}
 			}
 		}
@@ -910,6 +1039,11 @@ class MyMapSettings public
 					[(GMSUISettings*)self->settingObject setZoomGestures:canZoom];
 				}}}
 			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.zoomGestures = canZoom
+				}}}
+			}
 			ELSE {
 				"Not implemented"
 			}
@@ -933,6 +1067,11 @@ class MyMapSettings public
 			ELSE IFDEF "target_iosoc" {
 				lang "objc" {{{
 					[(GMSUISettings*)self->settingObject setTiltGestures:canTilt];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.tiltGestures = canTilt
 				}}}
 			}
 			ELSE {
@@ -960,6 +1099,11 @@ class MyMapSettings public
 					[(GMSUISettings*)self->settingObject setRotateGestures:canRotate];
 				}}}
 			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.rotateGestures = canRotate
+				}}}
+			}
 			ELSE {
 				"Not implemented"
 			}
@@ -985,6 +1129,11 @@ class MyMapSettings public
 					((GMSMapView*)self->mapObject).myLocationEnabled = mapHasMyLocation;
 				}}}
 			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(mapObject as? GMSMapView)?.isMyLocationEnabled = mapHasMyLocation
+				}}}
+			}
 			ELSE {
 				"Not implemented"
 			}
@@ -1006,10 +1155,18 @@ class MyMapSettings public
 
 func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
 {
-	IFDEF("target_iosoc") {
+	IFDEF "target_iosoc" {
 		if(googleMapsApiInitialized == false) {
 			lang "objc" {{{
 				[GMSServices provideAPIKey:iosApiKey];
+			}}}
+			googleMapsApiInitialized = true
+		}
+	}
+	IFDEF "target_swift" {
+		if not googleMapsApiInitialized {
+			lang "swift" {{{
+				GMSServices.provideAPIKey(iosApiKey!)
 			}}}
 			googleMapsApiInitialized = true
 		}
@@ -1054,7 +1211,7 @@ ctor(context as GuiApplicationContext) private
 			setBackgroundColor(0xff000000.toInt())
 		}}}
 	}
-	ELSE IFDEF "target_swift" {
+		ELSE IFDEF "target_swift" {
 		lang "swift" {{{
 			super.init(frame: CGRect.zero)
 		}}}
@@ -1098,6 +1255,31 @@ func onWidgetAddedToParent
 			}}}
 		}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.delegate = self
+			var settings = self.settings
+			settings.setAllGesturesEnabled(true)
+			settings.compassButton = true
+			settings.indoorPicker = true
+			settings.myLocationButton = false
+			settings.rotateGestures = mapSettings!.getCanRotate()
+			settings.scrollGestures = true
+			settings.tiltGestures = mapSettings!.getCanTilt()
+			settings.zoomGestures = mapSettings!.getCanZoom()
+			isBuildingsEnabled = true
+			isIndoorEnabled = true
+			isMyLocationEnabled = mapSettings!.getMapHasMyLocation()
+			mapSettings?.setSettingObject(settings)
+			mapSettings?.setMapObject(self)
+		}}}
+		if(zoomInCenter) {
+			lang "swift" {{{
+				let camera = GMSCameraPosition.camera(withLatitude: centerLat, longitude: centerLon, zoom: Float(defaultZoomLevel), bearing: 0, viewingAngle: 45)
+				animate(to: camera)
+			}}}
+		}
+	}
 	ELSE IFDEF("target_android") {
 		var myObject #used = this
 		if(created == false) {
@@ -1137,6 +1319,9 @@ func onMarkerClicked(marker as object)
 	ELSE IFDEF "target_iosoc" {
 		myMarker = lang "objc" MyMapMarker {{{ ((GMSMarker *)marker).userData }}}
 	}
+	ELSE IFDEF "target_swift" {
+		myMarker = lang "swift" MyMapMarker {{{ (marker as? GMSMarker)?.userData as? CaveGoogleMapsMapWidgetMyMapMarker }}}
+	}
 	ELSE {
 		ERROR "Not yet implemented"
 	}
@@ -1146,9 +1331,8 @@ func onMarkerClicked(marker as object)
 
 func onMapClicked(lat as double, lon as double) private
 {
-	if(mapClickHandler != null) {
+	if mapClickHandler:
 		mapClickHandler(lat, lon)
-	}
 }
 
 func addMapClickHandler(handler as function<void,double,double>)
@@ -1289,6 +1473,21 @@ func doAddMapMarker(marker as MyMapMarker) private
 			marker->markerObject = mm;
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var img as ImageForSwift
+		if marker.getIcon():
+			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForSwift
+		lang "swift" {{{
+			let mm = GMSMarker(position: CLLocationCoordinate2DMake(_: (marker?.getLat())!, _: (marker?.getLon())!))
+			mm.title = marker?.getTitle()
+			if(img != nil) {
+				mm.icon = img?.uiImage
+			}
+			mm.map = self
+			mm.userData = marker
+			marker?.markerObject = mm
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -1373,6 +1572,16 @@ func moveCamera(camera as MapCamera, animated as bool)
 			}
 			else {
 				[self moveCamera:[GMSCameraUpdate setCamera:camerapos]];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let camerapos = GMSCameraPosition.camera(withLatitude: (camera?.getLatitude())!, longitude: (camera?.getLongitude())!, zoom: Float((camera?.getZoom())!), bearing: (camera?.getBearing())!, viewingAngle: (camera?.getAngle())!)
+			if animated {
+				animate(to: camerapos)
+			} else {
+				moveCamera(GMSCameraUpdate.setCamera(camerapos))
 			}
 		}}}
 	}
@@ -1464,6 +1673,25 @@ func doZoomToCoordinates
 			}
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let path = GMSMutablePath()
+			for case let coor as CapeDynamicMap in coordinateQueue! {
+				if(coor == nil) {
+					continue;
+				}
+				path.add(CLLocationCoordinate2DMake(coor.getDouble("latitude", 0.0), coor.getDouble("longitude", 0.0)))
+			}
+			let bounds = GMSCoordinateBounds(path: path)
+			let update = GMSCameraUpdate.fit(bounds, withPadding: 70.0)
+			if(coordinateQueueMoveWithAnimation) {
+				self.animate(with: update)
+			}
+			else {
+				self.moveCamera(update)
+			}
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 	}
@@ -1482,6 +1710,10 @@ func getMapCenterLatitude as double
 	ELSE IFDEF "target_iosoc" {
 		assert mapInitialized
 		return lang "objc" double {{{ [self camera].target.latitude }}}
+	}
+	ELSE IFDEF "target_swift" {
+		assert mapInitialized
+		return lang "swift" double {{{ self.camera.target.latitude }}}
 	}
 	ELSE IFDEF "target_html" {
 		var lat = 0.0
@@ -1511,6 +1743,10 @@ func getMapCenterLongitude as double
 	ELSE IFDEF "target_iosoc" {
 		assert mapInitialized
 		return lang "objc" double {{{ [self camera].target.longitude }}}
+	}
+	ELSE IFDEF "target_swift" {
+		assert mapInitialized
+		return lang "swift" double {{{ self.camera.target.longitude }}}
 	}
 	ELSE IFDEF "target_html" {
 		var lng = 0.0
