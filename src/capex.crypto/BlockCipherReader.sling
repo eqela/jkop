@@ -52,6 +52,8 @@ var cindex as int
 var bnext as buffer
 var nsize as int
 var ddata as buffer
+var flen as long
+var offlen as long
 
 func getSize as int
 {
@@ -133,6 +135,10 @@ func readBlock(ptr as buffer, offset as int, size as int) as int
 	}
 	if(nsize < 1) {
 		nsize = readAndDecrypt(bnext)
+		var fbuf = decryptBuffer(ptr, bnext)
+		if Buffer.getSize(fbuf) < cipher.getBlockSize() || nsize < cipher.getBlockSize():
+			return 0
+		offlen = offlen + Buffer.getSize(fbuf)
 	}
 	if(csize < 1) {
 		if(nsize < cipher.getBlockSize()) {
@@ -144,6 +150,10 @@ func readBlock(ptr as buffer, offset as int, size as int) as int
 		cindex = 0
 		bnext = nn
 		nsize = readAndDecrypt(bnext)
+		var fbuf = decryptBuffer(ptr, bnext)
+		if Buffer.getSize(fbuf) < cipher.getBlockSize() || nsize < cipher.getBlockSize():
+			return 0
+		offlen = offlen + Buffer.getSize(fbuf)
 	}
 	var data = cipher.getBlockSize()
 	if(nsize < cipher.getBlockSize()) {
@@ -165,4 +175,22 @@ func readBlock(ptr as buffer, offset as int, size as int) as int
 	Buffer.copyFrom(bcurrent, ptr, cindex, offset, size)
 	cindex += size
 	return(size)
+}
+
+func decryptBuffer(ptr as buffer, bnext as buffer) as buffer
+{
+	var bNextSize = Buffer.getSize(bnext)
+	var padding = Buffer.getByte(bnext, bNextSize - 1)
+	var finalLength = bNextSize - padding
+	var fbuf as buffer
+	if finalLength < 0 {
+		fbuf = bnext
+	}
+	else if padding >= 1 {
+		fbuf = Buffer.resize(bnext, finalLength)
+	}
+	flen = flen + Buffer.getSize(fbuf)
+	Buffer.resize(ptr, flen)
+	Buffer.copyFrom(ptr, fbuf, 0, offlen, Buffer.getSize(fbuf))
+	return fbuf
 }
