@@ -56,7 +56,12 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 
 	func onLooperPrepared
 	{
-		myHandler = new !"android.os.Handler"(lang "java" !"android.os.Looper" {{{ getLooper() }}})
+		IFDEF "target_java" {
+			myHandler = new !"android.os.Handler"(lang "java" !"android.os.Looper" {{{ getLooper() }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			myHandler = new !"android.os.Handler"(lang "kotlin" !"android.os.Looper" {{{ getLooper() }}})
+		}
 		if taskQueue {
 			loop {
 				var t = taskQueue.pop()
@@ -85,8 +90,17 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	func setErrorCallback(ec as function):
 		errorCallback = ec
 
-	func isRunning as bool:
-		return lang "java" bool {{{ isAlive() }}}
+	func isRunning as bool
+	{
+		var v as bool
+		IFDEF "target_java" {
+			v = lang "java" bool {{{ isAlive() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" bool {{{ isAlive() }}}
+		}
+		return v
+	}
 
 	func executeErrorCallback(callback as function<void, Error>, error as Error = null)
 	{
@@ -113,8 +127,14 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	func executeInUIThread(f as function)
 	{
 		var t #used = new Task(f)
-		if not lang "java" bool {{{ uiHandler.post(t) }}}:
-			PRINT "Failed to post task to UI thread handler"
+		IFDEF "target_java" {
+			if not lang "java" bool {{{ uiHandler.post(t) }}}:
+				PRINT "Failed to post task to UI thread handler"
+		}
+		ELSE IFDEF "target_kotlin" {
+			if not lang "kotlin" bool {{{ uiHandler!!.post(t) }}}:
+				PRINT "Failed to post task to UI thread handler"
+		}
 	}
 
 	func executeInTCPThread(f as function)
@@ -131,8 +151,14 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 
 	func doExecuteInTCPThread(task as Task)
 	{
-		if not lang "java" bool {{{ myHandler.post(task) }}}:
-			PRINT "Failed to post task to TCPClientThread handler"
+		IFDEF "target_java" {
+			if not lang "java" bool {{{ myHandler.post(task) }}}:
+				PRINT "Failed to post task to TCPClientThread handler"
+		}
+		ELSE IFDEF "target_kotlin" {
+			if not lang "kotlin" bool {{{ myHandler!!.post(task) }}}:
+				PRINT "Failed to post task to TCPClientThread handler"
+		}
 	}
 
 	func connectSSL(address as string, port as int, callback as function<void, Error>)

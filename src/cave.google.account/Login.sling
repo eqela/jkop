@@ -22,14 +22,13 @@
  * SOFTWARE.
  */
 
-class imports cape imports cave imports cave.ui:
+import cape
+import cave
+import cave.ui
+
+class:
 
 IFDEF "target_android"
-{
-	depend "gradle:com.google.android.gms:play-services-auth:11.0.0"
-}
-
-ELSE IFDEF "target_kotlin"
 {
 	depend "gradle:com.google.android.gms:play-services-auth:11.0.0"
 }
@@ -186,16 +185,30 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 			}
 			var token as string
 			var email as string
-			lang "java" {{{
-				com.google.android.gms.auth.api.signin.GoogleSignInResult result = com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInResultFromIntent(data);
-				if(result.isSuccess()) {
-					com.google.android.gms.auth.api.signin.GoogleSignInAccount account = result.getSignInAccount();
-					if(account != null) {
-						email = account.getEmail();
-						token = account.getIdToken();
+			IFDEF "target_java" {
+				lang "java" {{{
+					com.google.android.gms.auth.api.signin.GoogleSignInResult result = com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInResultFromIntent(data);
+					if(result.isSuccess()) {
+						com.google.android.gms.auth.api.signin.GoogleSignInAccount account = result.getSignInAccount();
+						if(account != null) {
+							email = account.getEmail();
+							token = account.getIdToken();
+						}
 					}
-				}
-			}}}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					var result : com.google.android.gms.auth.api.signin.GoogleSignInResult = com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInResultFromIntent(data)
+					if(result.isSuccess()) {
+						var account : com.google.android.gms.auth.api.signin.GoogleSignInAccount? = result.getSignInAccount()
+						if(account != null) {
+							email = account.getEmail()
+							token = account.getIdToken()
+						}
+					}
+				}}}
+			}
 			if(cb != null) {
 				if(token == null) {
 					cb(null, null, cape.Error.forCode("login_failed"))
@@ -205,63 +218,30 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 				}
 			}
 		})
-		lang "java" {{{
-			com.google.android.gms.auth.api.signin.GoogleSignInOptions gso = new com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
-				.requestIdToken(serverClientId)
-				.requestEmail()
-				.build();
-			com.google.android.gms.common.api.GoogleApiClient googleAPIClient = new com.google.android.gms.common.api.GoogleApiClient.Builder(activity)
-				.addApi(com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API, gso)
-				.build();
-			activity.startActivityForResult(com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInIntent(googleAPIClient), 0);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if(screen == null) {
-			if(cb != null):
-				cb(null, null, Error.forCode("no_screen_found"))
-			return
-		}
-		var ctx = context as GuiApplicationContextForKotlin
-		var activity = ctx.getAndroidActivityContext() as !"android.app.Activity"
-		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
-			if(requestCode != 0) {
-				if(cb != null):
-					cb(null, null, Error.forCode("invalid_request_code"))
-				return
-			}
-			var token as string
-			var email as string
-			lang "kotlin" {{{
-				var result : com.google.android.gms.auth.api.signin.GoogleSignInResult = com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInResultFromIntent(data)
-				if(result.isSuccess()) {
-					var account : com.google.android.gms.auth.api.signin.GoogleSignInAccount? = result.getSignInAccount()
-					if(account != null) {
-						email = account.getEmail()
-						token = account.getIdToken()
-					}
-				}
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.auth.api.signin.GoogleSignInOptions gso = new com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+					.requestIdToken(serverClientId)
+					.requestEmail()
+					.build();
+				com.google.android.gms.common.api.GoogleApiClient googleAPIClient = new com.google.android.gms.common.api.GoogleApiClient.Builder(activity)
+					.addApi(com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API, gso)
+					.build();
+				activity.startActivityForResult(com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInIntent(googleAPIClient), 0);
 			}}}
-			if(cb != null) {
-				if(token == null) {
-					cb(null, null, Error.forCode("login_failed"))
-				}
-				else {
-					cb(email, token, null)
-				}
-			}
-		})
-		lang "kotlin" {{{
-			var gso : com.google.android.gms.auth.api.signin.GoogleSignInOptions = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
-				.requestIdToken(serverClientId)
-				.requestEmail()
-				.build()
-			var googleAPIClient : com.google.android.gms.common.api.GoogleApiClient? = com.google.android.gms.common.api.GoogleApiClient.Builder(ctx.getAndroidActivityContext() as android.content.Context)
-				.addApi(com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API, gso)
-				.build()
-			activity!!.startActivityForResult(com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInIntent(googleAPIClient), 0)
-		}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var gso : com.google.android.gms.auth.api.signin.GoogleSignInOptions = com.google.android.gms.auth.api.signin.GoogleSignInOptions.Builder(com.google.android.gms.auth.api.signin.GoogleSignInOptions.DEFAULT_SIGN_IN)
+					.requestIdToken(serverClientId)
+					.requestEmail()
+					.build()
+				var googleAPIClient : com.google.android.gms.common.api.GoogleApiClient? = com.google.android.gms.common.api.GoogleApiClient.Builder(ctx.getAndroidActivityContext() as android.content.Context)
+					.addApi(com.google.android.gms.auth.api.Auth.GOOGLE_SIGN_IN_API, gso)
+					.build()
+				activity!!.startActivityForResult(com.google.android.gms.auth.api.Auth.GoogleSignInApi.getSignInIntent(googleAPIClient), 0)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_iosoc" {
 		var screen = ScreenForWidget.findScreenForWidget(widget)

@@ -72,12 +72,6 @@ ELSE IFDEF "target_android"
 	basetype Widget type isAlso
 }
 
-ELSE IFDEF "target_kotlin"
-{
-	basetype !"android.widget.CheckBox" type extends
-	basetype Widget type isAlso
-}
-
 ELSE IFDEF "target_iosoc"
 {
 	basetype HorizontalBoxWidget
@@ -122,9 +116,6 @@ ctor(context as GuiApplicationContext)
 	IFDEF("target_android") {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
-	}
 	ELSE IFDEF "target_swift" {
 		base(context)
 	}
@@ -133,13 +124,22 @@ ctor(context as GuiApplicationContext)
 	widgetTextColor = Color.black()
 	setWidgetTextColor(widgetTextColor)
 	IFDEF("target_android") {
-		lang "java" {{{
-			setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
-				public void onCheckedChanged(android.widget.CompoundButton buttonView, boolean isChecked) {
-					onCheckChangeListener();
+		IFDEF "target_java" {
+			lang "java" {{{
+				setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
+					public void onCheckedChanged(android.widget.CompoundButton buttonView, boolean isChecked) {
+						onCheckChangeListener();
+					}
+				});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setOnCheckedChangeListener { view, isChecked ->
+					onCheckChangeListener()
 				}
-			});
-		}}}
+			}}}
+		}
 	}
 	ELSE IFDEF("target_iosoc") {
 		lang "objc" {{{
@@ -151,13 +151,6 @@ ctor(context as GuiApplicationContext)
 		addWidget(uiSwitch)
 		addWidget(labelWidget = new LabelWidget(context), 1.0)
 	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setOnCheckedChangeListener { view, isChecked ->
-				onCheckChangeListener()
-			}
-		}}}
-	}
 }
 
 func setWidgetText(text as string)
@@ -168,18 +161,20 @@ func setWidgetText(text as string)
 		HTMLDOM.setTextContent(child, text)
 	}
 	ELSE IFDEF("target_android") {
-		lang "java" {{{
-			setText(text);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setText(text);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setText(text)
+			}}}
+		}
 	}
 	ELSE IFDEF("target_iosoc") {
 		if labelWidget:
 			labelWidget.setWidgetText(text)
-	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setText(text)
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -226,33 +221,34 @@ func updateWidgetFont private
 	}
 	ELSE IFDEF("target_android") {
 		base.setTextColor(widgetTextColor.toARGBInt32())
-		lang "java" {{{
-			if(widgetFontResource != null) {
-				android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
-				setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
-			}
-			else {
-				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widgetFontResource != null) {
+					android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widgetFontResource != null) {
+					var ctx = (widgetContext as cave.GuiApplicationContextForAndroid).getActivityContext()
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL)
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL))
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF("target_iosoc") {
 		if labelWidget {
 			labelWidget.setWidgetTextColor(widgetTextColor)
 			labelWidget.setWidgetFontFamily(widgetFontFamily)
 		}
-	}
-	ELSE IFDEF("target_kotlin") {
-		base.setTextColor(widgetTextColor.toARGBInt32())
-		lang "kotlin" {{{
-			if(widgetFontResource != null) {
-				var ctx = (widgetContext as cave.GuiApplicationContextForKotlin).getActivityContext()
-				setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL)
-			}
-			else {
-				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL))
-			}
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -265,13 +261,17 @@ func getWidgetChecked as bool
 		return(lang "js" bool {{{ this.element.firstChild.checked }}})
 	}
 	ELSE IFDEF("target_android") {
-		return(lang "java" bool {{{ isChecked() }}})
+		var v as bool
+		IFDEF "target_java" {
+			v = lang "java" bool {{{ isChecked() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" bool {{{ isChecked() }}}
+		}
+		return v
 	}
 	ELSE IFDEF "target_iosoc" {
 		return lang "objc" bool {{{ ((UISwitch*)uiSwitch).on }}}
-	}
-	ELSE IFDEF("target_kotlin") {
-		return(lang "kotlin" bool {{{ isChecked() }}})
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -301,9 +301,6 @@ func setWidgetChecked(x as bool)
 		lang "objc" {{{
 			[(UISwitch*)uiSwitch setOn:x animated:NO];
 		}}}
-	}
-	ELSE IFDEF("target_kotlin") {
-		base.setChecked(x)
 	}
 	ELSE {
 		ERROR("Not implemented")

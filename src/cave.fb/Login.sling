@@ -22,14 +22,13 @@
  * SOFTWARE.
  */
 
-class imports cape imports cave imports cave.ui:
+import cape
+import cave
+import cave.ui
+
+class:
 
 IFDEF "target_android"
-{
-	depend "gradle:com.facebook.android:facebook-android-sdk:4.14.0"
-}
-
-ELSE IFDEF "target_android"
 {
 	depend "gradle:com.facebook.android:facebook-android-sdk:4.14.0"
 }
@@ -132,13 +131,12 @@ func initialize as bool
 	}
 	IFDEF "target_android" {
 		var activity = (context as GuiApplicationContextForAndroid).getAndroidActivityContext()
-		lang "java" {{{
-			com.facebook.FacebookSdk.sdkInitialize(activity);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext()
-		lang "kotlin" {{{ com.facebook.FacebookSdk.sdkInitialize(activity) }}}
+		IFDEF "target_java" {
+			lang "java" {{{ com.facebook.FacebookSdk.sdkInitialize(activity); }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{ com.facebook.FacebookSdk.sdkInitialize(activity) }}}
+		}
 	}
 	return true
 }
@@ -182,84 +180,82 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 			}
 			return
 		}
-		var callbackManager final = lang "java" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
+		var cbm as !"com.facebook.CallbackManager"
+		IFDEF "target_java" {
+			cbm = lang "java" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			cbm = lang "kotlin" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
+		}
+		var callbackManager final = cbm
 		var activity = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
 		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
 			callbackManager.onActivityResult(requestCode, resultCode, data)
 		})
-		lang "java" {{{
-			com.facebook.login.LoginManager lm = com.facebook.login.LoginManager.getInstance();
-			if(com.facebook.AccessToken.getCurrentAccessToken() != null) {
-				lm.logOut();
-			}
-			lm.registerCallback(callbackManager, new com.facebook.FacebookCallback<com.facebook.login.LoginResult>() {
-				@Override
-				public void onSuccess(com.facebook.login.LoginResult loginResult) {
-					if(cb == null) {
-						return;
-					}
-					com.facebook.AccessToken ac = loginResult.getAccessToken();
-					if(ac == null) {
-						cb.execute(null, null, cape.Error.forCode("login_failed"));
-					}
-					else {
-						cb.execute(ac.getUserId(), ac.getToken(), null);
-					}
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.facebook.login.LoginManager lm = com.facebook.login.LoginManager.getInstance();
+				if(com.facebook.AccessToken.getCurrentAccessToken() != null) {
+					lm.logOut();
 				}
-				@Override
-				public void onCancel() {
-				}
-				@Override
-				public void onError(com.facebook.FacebookException exception) {
-					if(cb != null) {
-						cb.execute(null, null, cape.Error.forMessage(exception.toString()));
+				lm.registerCallback(callbackManager, new com.facebook.FacebookCallback<com.facebook.login.LoginResult>() {
+					@Override
+					public void onSuccess(com.facebook.login.LoginResult loginResult) {
+						if(cb == null) {
+							return;
+						}
+						com.facebook.AccessToken ac = loginResult.getAccessToken();
+						if(ac == null) {
+							cb.execute(null, null, cape.Error.forCode("login_failed"));
+						}
+						else {
+							cb.execute(ac.getUserId(), ac.getToken(), null);
+						}
 					}
-				}
-			});
-			lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"));
-		}}}
-		return
-	}
-	ELSE IFDEF "target_kotlin" {
-		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if(screen == null) {
-			if(cb != null):
-				cb(null, null, Error.forCode("no_screen_found"))
-			return
+					@Override
+					public void onCancel() {
+					}
+					@Override
+					public void onError(com.facebook.FacebookException exception) {
+						if(cb != null) {
+							cb.execute(null, null, cape.Error.forMessage(exception.toString()));
+						}
+					}
+				});
+				lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"));
+			}}}
 		}
-		var callbackManager = lang "kotlin" !"com.facebook.CallbackManager" {{{ com.facebook.CallbackManager.Factory.create() }}}
-		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
-		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
-			callbackManager.onActivityResult(requestCode, resultCode, data)
-		})
-		lang "kotlin" {{{
-			var lm : com.facebook.login.LoginManager = com.facebook.login.LoginManager.getInstance()
-			if(com.facebook.AccessToken.getCurrentAccessToken() != null) {
-				lm.logOut()
-			}
-			lm.registerCallback(callbackManager, object : com.facebook.FacebookCallback<com.facebook.login.LoginResult> {
-				override fun onSuccess(loginResult: com.facebook.login.LoginResult) {
-					if(cb == null) {
-						return
-					}
-					var ac: com.facebook.AccessToken = loginResult.getAccessToken()
-					if(ac == null) {
-						cb.invoke(null, null, cape.Error.forCode("login_failed"))
-					}
-					else {
-						cb.invoke(ac.getUserId(), ac.getToken(), null)
-					}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var lm : com.facebook.login.LoginManager = com.facebook.login.LoginManager.getInstance()
+				if(com.facebook.AccessToken.getCurrentAccessToken() != null) {
+					lm.logOut()
 				}
-				override fun onCancel() {
-				}
-				override fun onError(exception: com.facebook.FacebookException) {
-					if(cb != null) {
-						cb.invoke(null, null, cape.Error.forMessage(exception.toString()))
+				lm.registerCallback(callbackManager, object : com.facebook.FacebookCallback<com.facebook.login.LoginResult> {
+					override fun onSuccess(loginResult: com.facebook.login.LoginResult) {
+						if(cb == null) {
+							return
+						}
+						var ac: com.facebook.AccessToken = loginResult.getAccessToken()
+						if(ac == null) {
+							cb.invoke(null, null, cape.Error.forCode("login_failed"))
+						}
+						else {
+							cb.invoke(ac.getUserId(), ac.getToken(), null)
+						}
 					}
-				}
-			})
-			lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"))
-		}}}
+					override fun onCancel() {
+					}
+					override fun onError(exception: com.facebook.FacebookException) {
+						if(cb != null) {
+							cb.invoke(null, null, cape.Error.forMessage(exception.toString()))
+						}
+					}
+				})
+				lm.logInWithReadPermissions(activity, java.util.Arrays.asList("public_profile","email"))
+			}}}
+		}
+		return
 	}
 	ELSE IFDEF "target_iosoc" {
 		var screen = cave.ui.ScreenForWidget.findScreenForWidget(widget)
@@ -320,7 +316,6 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"URL", options as !"[UIApplication.OpenURLOptionsKey : Any]", source as !"String", annot as object) as bool {
 			return lang "swift" bool {{{ FBSDKApplicationDelegate.sharedInstance().application(app, open: url, sourceApplication: "com.apple.mobilesafari", annotation: annot) }}}
 		})
-
 		lang "swift" {{{
 			let loginManager = FBSDKLoginManager()
 			loginManager.loginBehavior = FBSDKLoginBehavior.native

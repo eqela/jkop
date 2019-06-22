@@ -54,12 +54,6 @@ IFDEF "target_android"
 	basetype !"android.view.View" type extends
 }
 
-IFDEF "target_kotlin"
-{
-	modifier #typedef
-	basetype !"android.view.View" type extends
-}
-
 IFDEF "target_reactjs"
 {
 	modifier #typedef
@@ -204,15 +198,16 @@ func addChild(parent as this, child as this) static
 	}
 	ELSE IFDEF "target_android" {
 		var vg = assert parent as !"android.view.ViewGroup"
-		lang "java" {{{
-			vg.addView(child);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var vg = assert parent as !"android.view.ViewGroup"
-		lang "kotlin" {{{
-			vg!!.addView(child)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				vg.addView(child);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				vg!!.addView(child)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.appendChild(parent.element, child.element)
@@ -265,18 +260,9 @@ func removeFromParent(child as this) static as this
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			if(parentWidget != null && parentWidget instanceof android.view.ViewGroup) {
-				((android.view.ViewGroup)parentWidget).removeView(child);
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(parentWidget != null && parentWidget is android.view.ViewGroup) {
-				(parentWidget as? android.view.ViewGroup)!!.removeView(child)
-			}
-		}}}
+		if parentWidget != null && parentWidget is !"android.view.ViewGroup" {
+			(parentWidget as! !"android.view.ViewGroup").removeView(child)
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.remove(child.element)
@@ -332,25 +318,24 @@ func getParent(widget as this) static as this
 	}
 	ELSE IFDEF "target_android" {
 		var v as this = null
-		lang "java" {{{
-			android.view.ViewParent vp = widget.getParent();
-			if(vp != null && vp instanceof android.view.ViewGroup) {
-				v = (android.view.ViewGroup)vp;
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.view.ViewParent vp = widget.getParent();
+				if(vp != null && vp instanceof android.view.ViewGroup) {
+					v = (android.view.ViewGroup)vp;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var vp : android.view.ViewParent? = widget!!.getParent()
+				if(vp != null && vp is android.view.ViewGroup) {
+					v = (vp as? android.view.ViewGroup)
+				}
+			}}}
+		}
 		return(v)
 	}
-	ELSE IFDEF "target_kotlin" {
-		var v as this = null
-		lang "kotlin" {{{
-			var vp : android.view.ViewParent? = widget!!.getParent()
-			if(vp != null && vp is android.view.ViewGroup) {
-				v = (vp as? android.view.ViewGroup)
-			}
-		}}}
-		return v
-	}
-
 	ELSE IFDEF "target_html" {
 		var pe = assert HTMLDOM.getParentElement(widget.element)
 		return domElementAsWidget(pe)
@@ -392,31 +377,30 @@ func getChildren(widget as this) static as vector<this>
 	}
 	ELSE IFDEF "target_android" {
 		var v = new vector<this>
-		lang "java" {{{
-			if(widget instanceof android.view.ViewGroup) {
-				android.view.ViewGroup vg = (android.view.ViewGroup)widget;
-				int n;
-				for(n=0; n<vg.getChildCount(); n++) {
-					v.add(vg.getChildAt(n));
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widget instanceof android.view.ViewGroup) {
+					android.view.ViewGroup vg = (android.view.ViewGroup)widget;
+					int n;
+					for(n=0; n<vg.getChildCount(); n++) {
+						v.add(vg.getChildAt(n));
+					}
 				}
-			}
-		}}}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widget is android.view.ViewGroup) {
+					var vg : android.view.ViewGroup? = widget as? android.view.ViewGroup
+					var n = 0
+					for(n in 0..vg!!.getChildCount()) {
+						v!!.add(vg!!.getChildAt(n))
+					}
+				}
+			}}}
+		}
 		return v
 	}
-	ELSE IFDEF "target_kotlin" {
-		var v = new vector<this>
-		lang "kotlin" {{{
-			if(widget is android.view.ViewGroup) {
-				var vg : android.view.ViewGroup? = widget as? android.view.ViewGroup
-				var n = 0
-				for(n in 0..vg!!.getChildCount()) {
-					v!!.add(vg!!.getChildAt(n))
-				}
-			}
-		}}}
-		return v
-	}
-
 	ELSE IFDEF "target_html" {
 		var v = new vector<this>
 		var dome #used = widget.element
@@ -457,14 +441,16 @@ func getX(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = (int)widget.getX();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getX().toInt()
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				v = (int)widget.getX();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v = widget!!.getX().toInt()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -496,14 +482,16 @@ func getY(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = (int)widget.getY();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getY().toInt()
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				v = (int)widget.getY();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v = widget!!.getY().toInt()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -529,18 +517,20 @@ func getAbsoluteX(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int[] location = new int[2];
-			widget.getLocationOnScreen(location);
-			v = location[0];
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var location = IntArray(2)
-			widget!!.getLocationOnScreen(location)
-			v = location[0]
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int[] location = new int[2];
+				widget.getLocationOnScreen(location);
+				v = location[0];
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var location = IntArray(2)
+				widget!!.getLocationOnScreen(location)
+				v = location[0]
+			}}}
+		}
 	}
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
@@ -570,18 +560,20 @@ func getAbsoluteY(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int[] location = new int[2];
-			widget.getLocationOnScreen(location);
-			v = location[1];
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var location = IntArray(2)
-			widget!!.getLocationOnScreen(location)
-			v = location[1]
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int[] location = new int[2];
+				widget.getLocationOnScreen(location);
+				v = location[1];
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var location = IntArray(2)
+				widget!!.getLocationOnScreen(location)
+				v = location[1]
+			}}}
+		}
 	}
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
@@ -617,14 +609,12 @@ func getWidth(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = widget.getWidth();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getWidth()
-		}}}
+		IFDEF "target_java" {
+			v = lang "java" int {{{ widget.getWidth(); }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" int {{{ widget.getWidth() }}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		if isRootWidget(widget) {
@@ -661,14 +651,12 @@ func getHeight(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = widget.getHeight();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getHeight()
-		}}}
+		IFDEF "target_java" {
+			v = lang "java" int {{{ widget.getHeight(); }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" int {{{ widget.getHeight() }}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		if isRootWidget(widget) {
@@ -709,14 +697,16 @@ func move(widget as this, x as int #notLiteral, y as int #notLiteral) static
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.layout(x, y, x+widget!!.getWidth(), y+widget!!.getHeight())
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.layout(x, y, x+widget!!.getWidth(), y+widget!!.getHeight())
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -777,29 +767,28 @@ func findScreen(widget as this) static as Screen
 	ELSE IFDEF "target_android" {
 		var view #used = widget
 		var scr as !"android.app.Activity"
-		lang "java" {{{
-			if(view == null) {
-				return(null);
-			}
-			android.content.Context ctx = view.getContext();
-			if(ctx != null && ctx instanceof android.app.Activity) {
-				scr = (android.app.Activity)ctx;
-			}
-		}}}
-		return scr as Screen
-	}
-	ELSE IFDEF "target_kotlin" {
-		var view #used = widget
-		var scr as !"android.app.Activity"
-		lang "kotlin" {{{
-			if(view == null) {
-				return(null)
-			}
-			var ctx : android.content.Context = view.getContext()
-			if(ctx != null && ctx is android.app.Activity) {
-				scr = ctx as? android.app.Activity
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(view == null) {
+					return(null);
+				}
+				android.content.Context ctx = view.getContext();
+				if(ctx != null && ctx instanceof android.app.Activity) {
+					scr = (android.app.Activity)ctx;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(view == null) {
+					return(null)
+				}
+				var ctx : android.content.Context = view.getContext()
+				if(ctx != null && ctx is android.app.Activity) {
+					scr = ctx as? android.app.Activity
+				}
+			}}}
+		}
 		return scr as Screen
 	}
 	ELSE IFDEF "target_html" {
@@ -871,18 +860,20 @@ func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int x = (int)widget.getX();
-			int y = (int)widget.getY();
-			widget.layout(x, y, x+width, y+height);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var x = widget!!.getX().toInt()
-			var y = widget!!.getY().toInt()
-			widget!!.layout(x, y, x+width, y+height)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int x = (int)widget.getX();
+				int y = (int)widget.getY();
+				widget.layout(x, y, x+width, y+height);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var x = widget!!.getX().toInt()
+				var y = widget!!.getY().toInt()
+				widget!!.layout(x, y, x+width, y+height)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -977,33 +968,30 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 		ELSE IFDEF "target_android" {
 			var srw as int
 			var srh as int
-			lang "java" {{{
-				int msw = android.view.View.MeasureSpec.UNSPECIFIED;
-				int msh = android.view.View.MeasureSpec.UNSPECIFIED;
-				if(widthConstraint >= 0) {
-					msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY);
-				}
-				widget.measure(msw, msh);
-				srw = widget.getMeasuredWidth();
-				srh = widget.getMeasuredHeight();
-			}}}
-			if widthConstraint >= 0 && srw < widthConstraint:
-				srw = widthConstraint
-			setLayoutSize(widget, srw, srh)
-		}
-		ELSE IFDEF "target_kotlin" {
-			var srw = 0
-			var srh = 0
-			lang "kotlin" {{{
-				var msw = android.view.View.MeasureSpec.UNSPECIFIED
-				var msh = android.view.View.MeasureSpec.UNSPECIFIED
-				if(widthConstraint >= 0) {
-					msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY)
-				}
-				widget!!.measure(msw, msh)
-				srw = widget!!.getMeasuredWidth()
-				srh = widget!!.getMeasuredHeight()
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+					int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+					if(widthConstraint >= 0) {
+						msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY);
+					}
+					widget.measure(msw, msh);
+					srw = widget.getMeasuredWidth();
+					srh = widget.getMeasuredHeight();
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					var msw = android.view.View.MeasureSpec.UNSPECIFIED
+					var msh = android.view.View.MeasureSpec.UNSPECIFIED
+					if(widthConstraint >= 0) {
+						msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY)
+					}
+					widget!!.measure(msw, msh)
+					srw = widget!!.getMeasuredWidth()
+					srh = widget!!.getMeasuredHeight()
+				}}}
+			}
 			if widthConstraint >= 0 && srw < widthConstraint:
 				srw = widthConstraint
 			setLayoutSize(widget, srw, srh)
@@ -1312,31 +1300,32 @@ func setWidgetClickHandler(widget as this, handler as function) static
 	}
 	ELSE IFDEF "target_android" {
 		var hf final #used = handler
-		lang "java" {{{
-			if(handler == null) {
-				widget.setOnClickListener(null);
-			}
-			else {
-				widget.setOnClickListener(new android.view.View.OnClickListener() {
-					public void onClick(android.view.View view) {
-						hf.execute();
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var hf final #used = handler
-		lang "kotlin" {{{
-			if(handler == null) {
-				widget!!.setOnClickListener(null)
-			}
-			else {
-				widget!!.setOnClickListener({ view ->
-					hf!!.invoke()
-				})
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					widget.setOnClickListener(null);
+				}
+				else {
+					widget.setOnClickListener(new android.view.View.OnClickListener() {
+						public void onClick(android.view.View view) {
+							hf.execute();
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					widget!!.setOnClickListener(null)
+				}
+				else {
+					widget!!.setOnClickListener({ view ->
+						hf!!.invoke()
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1435,35 +1424,36 @@ func setWidgetLongClickHandler(widget as this, handler as function) static
 	}
 	ELSE IFDEF "target_android" {
 		var hf final #used = handler
-		lang "java" {{{
-			if(handler == null) {
-				widget.setOnLongClickListener(null);
-			}
-			else {
-				widget.setOnLongClickListener(new android.view.View.OnLongClickListener() {
-					public boolean onLongClick(android.view.View view) {
-						hf.execute();
-						return true;
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var hf final #used = handler
-		lang "kotlin" {{{
-			if(handler == null) {
-				widget!!.setOnLongClickListener(null)
-			}
-			else {
-				widget!!.setOnLongClickListener(object : android.view.View.OnLongClickListener {
-					override fun onLongClick(view : android.view.View?) : Boolean {
-						hf!!.invoke()
-						return true
-					}
-				})
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					widget.setOnLongClickListener(null);
+				}
+				else {
+					widget.setOnLongClickListener(new android.view.View.OnLongClickListener() {
+						public boolean onLongClick(android.view.View view) {
+							hf.execute();
+							return true;
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					widget!!.setOnLongClickListener(null)
+				}
+				else {
+					widget!!.setOnLongClickListener(object : android.view.View.OnLongClickListener {
+						override fun onLongClick(view : android.view.View?) : Boolean {
+							hf!!.invoke()
+							return true
+						}
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1494,55 +1484,54 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 		var othf final #used = onTouchHandler
 		var oshf final #used = onStartHandler
 		var oehf final #used = onEndHandler
-		lang "java" {{{
-			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
-				widget.setOnTouchListener(null);
-			}
-			else {
-				widget.setOnTouchListener(new android.view.View.OnTouchListener() {
-					public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
-						int action = event.getAction();
-						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
-							oshf.execute((double)event.getX(), (double)event.getY());
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+					widget.setOnTouchListener(null);
+				}
+				else {
+					widget.setOnTouchListener(new android.view.View.OnTouchListener() {
+						public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
+							int action = event.getAction();
+							if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+								oshf.execute((double)event.getX(), (double)event.getY());
+							}
+							else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+								othf.execute((double)event.getX(), (double)event.getY());
+							}
+							else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
+								oehf.execute((double)event.getX(), (double)event.getY());
+							}
+							return true;
 						}
-						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
-							othf.execute((double)event.getX(), (double)event.getY());
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+					widget!!.setOnTouchListener(null)
+				}
+				else {
+					widget!!.setOnTouchListener(object : android.view.View.OnTouchListener {
+						override fun onTouch(view : android.view.View?, event : android.view.MotionEvent?) : Boolean {
+							var action = event!!.getAction()
+							if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+								oshf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+								othf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
+								oehf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							return true
 						}
-						else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
-							oehf.execute((double)event.getX(), (double)event.getY());
-						}
-						return true;
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var othf final #used = onTouchHandler
-		var oshf final #used = onStartHandler
-		var oehf final #used = onEndHandler
-		lang "kotlin" {{{
-			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
-				widget!!.setOnTouchListener(null)
-			}
-			else {
-				widget!!.setOnTouchListener(object : android.view.View.OnTouchListener {
-					override fun onTouch(view : android.view.View?, event : android.view.MotionEvent?) : Boolean {
-						var action = event!!.getAction()
-						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
-							oshf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
-							othf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
-							oehf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						return true
-					}
-				})
-			}
-		}}}
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1677,14 +1666,16 @@ func setAlpha(widget as this, alpha as double) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setAlpha((float)alpha);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.setAlpha(alpha.toFloat())
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setAlpha((float)alpha);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.setAlpha(alpha.toFloat())
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html5" {
 		HTMLDOM.setStyle(widget.element, "opacity", String.forDouble(alpha))
@@ -1708,9 +1699,16 @@ func setRotation(widget as this, degrees as double) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setRotation((float)degrees);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setRotation((float)degrees);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlins" {{{
+				widget!!.setRotation(degrees.toFloat())
+			}}}
+		}
 	}
 	ELSE IFDEF "target_iosoc" {
 		degrees = -degrees
@@ -1742,14 +1740,16 @@ func setEnabled(widget as this, enabled as bool) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setEnabled(enabled);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.setEnabled(enabled)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setEnabled(enabled);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.setEnabled(enabled)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html5" {
 		var elem #used = widget.element
@@ -1817,24 +1817,26 @@ func setVisible(widget as this, visible as bool) static
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			if(visible) {
-				widget.setVisibility(android.view.View.VISIBLE);
-			}
-			else {
-				widget.setVisibility(android.view.View.INVISIBLE);
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(visible) {
-				widget!!.setVisibility(android.view.View.VISIBLE)
-			}
-			else {
-				widget!!.setVisibility(android.view.View.INVISIBLE)
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(visible) {
+					widget.setVisibility(android.view.View.VISIBLE);
+				}
+				else {
+					widget.setVisibility(android.view.View.INVISIBLE);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(visible) {
+					widget!!.setVisibility(android.view.View.VISIBLE)
+				}
+				else {
+					widget!!.setVisibility(android.view.View.INVISIBLE)
+				}
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1858,10 +1860,14 @@ func getVisible(widget as this) static as bool
 		return lang "swift" bool {{{ widget.isHidden }}}
 	}
 	ELSE IFDEF "target_android" {
-		return lang "java" bool {{{ widget.getVisibility() == android.view.View.VISIBLE }}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" bool {{{ widget!!.getVisibility() == android.view.View.VISIBLE }}}
+		var v as bool
+		IFDEF "target_java" {
+			v = lang "java" bool {{{ widget.getVisibility() == android.view.View.VISIBLE }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" bool {{{ widget!!.getVisibility() == android.view.View.VISIBLE }}}
+		}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1880,11 +1886,13 @@ func setWidgetId(widget as this, idValue as object) static
 			HTMLDOM.setAttribute(widget.element, "id", String.asString(idValue))
 		}
 		IFDEF "target_android" {
-			lang "java" {{{
-				if(idValue instanceof java.lang.Integer) {
-					widget.setId(((java.lang.Integer)idValue).intValue());
-				}
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					if(idValue instanceof java.lang.Integer) {
+						widget.setId(((java.lang.Integer)idValue).intValue());
+					}
+				}}}
+			}
 		}
 		IFDEF "target_iosoc" {
 			lang "objc" {{{
