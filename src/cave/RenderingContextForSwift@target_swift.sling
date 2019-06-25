@@ -41,6 +41,9 @@ var rectObject as !"CGRect"
 var pathObject as !"UIBezierPath"
 var fontDescription as FontDescription
 var textAlign = RenderingContext.ALIGN_LEFT
+var lineWidth = 5
+var strokeColor as !"UIColor"
+var fillColor as !"UIColor"
 var textBaseline as int
 
 func setFillStyle(style as object) override
@@ -53,7 +56,7 @@ func setFillStyle(style as object) override
 		f = style as! Color
 	}
 	if f {
-		var fillColor = f.toUIColor()
+		fillColor = f.toUIColor()
 		lang "swift" {{{ fillColor.setFill() }}}
 	}
 }
@@ -68,7 +71,7 @@ func setStrokeStyle(style as object) override
 		f = style as! Color
 	}
 	if f {
-		var strokeColor = f.toUIColor()
+		strokeColor = f.toUIColor()
 		lang "swift" {{{ strokeColor.setStroke() }}}
 	}
 }
@@ -118,6 +121,7 @@ func setLineJoin(join as int) override
 
 func setLineWidth(width as double) override
 {
+	lineWidth = width as float
 	lang "swift" {{{ cgContext.setLineWidth(CGFloat(width)) }}}
 }
 
@@ -199,16 +203,48 @@ func clip override
 	lang "swift" {{{ cgContext.clip() }}}
 }
 
-func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) stub override
-func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) stub override
-func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) stub override
-func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) stub override
-func isPointInPath(x as double, y as double) stub override as bool
-func scale(scalewidth as double, scaleheight as double) stub override
-func rotate(angle as double) stub override
-func translate(x as double, y as double) stub override
-func transform(a as double, b as double, c as double, d as double, e as double, f as double) stub override
+func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override
+{
+	lang "swift" {{{ cgContext.addQuadCurve(to: CGPoint(x: cpx, y: cpy), control: CGPoint(x: x, y: y)) }}}
+}
+
+func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override
+{
+	lang "swift" {{{ cgContext.addCurve(to: CGPoint(x: x, y: y), control1: CGPoint(x: cp1x, y: cp1y), control2: CGPoint(x: cp2x, y: cp2y)) }}}
+}
+
+func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override
+{
+	lang "swift" {{{ cgContext.addArc(center: CGPoint(x: x, y: y), radius: CGFloat(r), startAngle: CGFloat(sAngle), endAngle: CGFloat(eAngle), clockwise: counterclockwise) }}}
+}
+
+func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double)
+{
+	lang "swift" {{{ cgContext.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x2, y: y2), radius: CGFloat(r)) }}}
+}
+
+func scale(scalewidth as double, scaleheight as double) override
+{
+	lang "swift" {{{ cgContext.scaleBy(x: CGFloat(scalewidth), y: CGFloat(scaleheight)) }}}
+}
+
+func rotate(angle as double) override
+{
+	lang "swift" {{{ cgContext.rotate(by: CGFloat(angle)) }}}
+}
+
+func translate(x as double, y as double) override
+{
+	lang "swift" {{{ cgContext.translateBy(x: CGFloat(x), y: CGFloat(y)) }}}
+}
+
+func transform(a as double, b as double, c as double, d as double, e as double, f as double) override
+{
+	lang "swift" {{{ cgContext.concatenate(_: CGAffineTransform(a: CGFloat(a), b: CGFloat(b), c: CGFloat(c), d: CGFloat(d), tx: CGFloat(e), ty: CGFloat(f))) }}}
+}
+
 func setTransform(a as double, b as double, c as double, d as double, e as double, f as double) stub override
+
 func setFont(font as FontDescription) override:
 	fontDescription = font
 
@@ -218,13 +254,88 @@ func setTextAlign(align as int) override:
 func setTextBaseline(baseline as int) override:
 	textBaseline = baseline
 
-func fillText(text as string, x as double, y as double, maxWidth as double) stub override
-func strokeText(text as string, x as double, y as double, maxWidth as double) stub override
+func fillText(text as string, x as double, y as double, maxWidth as double) override
+{
+	lang "swift" {{{
+		let text = NSAttributedString(string: text, attributes: [
+			NSAttributedString.Key.font: getFontDescription(CGFloat(maxWidth)),
+			NSAttributedString.Key.foregroundColor: fillColor
+		])
+		text.draw(at: CGPoint(x: x, y: y))
+	}}}
+}
+
+func strokeText(text as string, x as double, y as double, maxWidth as double) override
+{
+	lang "swift" {{{
+		let text = NSAttributedString(string: text, attributes: [
+			NSAttributedString.Key.font: getFontDescription(CGFloat(maxWidth)),
+			NSAttributedString.Key.strokeColor:strokeColor,
+			NSAttributedString.Key.strokeWidth: lineWidth
+		])
+		text.draw(at: CGPoint(x: x, y: y))
+	}}}
+}
+
 func measureTextHeight(text as string) stub override as double
 func measureTextWidth(text as string) stub override as double
-func drawImage(img as Image, x as double, y as double) stub override
-func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) stub override
-func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) stub override
-func setGlobalAlpha(alpha as double) stub override
-func save stub override
-func restore stub override
+
+func drawImage(img as Image, x as double, y as double) override
+{
+	var image = assert img as ImageForSwift
+	var simg = assert image.getSwiftBitmap()
+	lang "swift" {{{ simg.draw(at: CGPoint(x: x, y: y)) }}}
+}
+
+func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
+{
+	var image = assert img as ImageForSwift
+	var simg = assert image.getSwiftBitmap()
+	lang "swift" {{{ simg.draw(in: CGRect(x: x, y: y, width: width, height: height)) }}}
+}
+
+func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) override
+{
+	assert img
+	var croped = assert img.crop(sx as int, sy as int, swidth as int, sheight as int)
+	var scaled = assert croped.scaleToSize(width as int, height as int)
+	var aimage = assert scaled as ImageForSwift
+	var image = assert aimage.getSwiftBitmap()
+	lang "swift" {{{ image.draw(at: CGPoint(x: x, y: y)) }}}
+}
+
+func setGlobalAlpha(alpha as double) override
+{
+	lang "swift" {{{ cgContext.setAlpha(CGFloat(alpha)) }}}
+}
+
+func save override
+{
+	lang "swift" {{{ cgContext.saveGState() }}}
+}
+
+func restore override
+{
+	lang "swift" {{{ cgContext.restoreGState() }}}
+}
+
+func getFontDescription(size as !"CGFloat") private as !"UIFont"
+{
+	var font as !"UIFont"
+	if fontDescription {
+		var bold = fontDescription.getBold()
+		var italic = fontDescription.getItalic()
+		lang "swift" {{{
+			if(bold) {
+				font = UIFont.boldSystemFont(ofSize: size)
+			}
+			if(italic) {
+				font = UIFont.italicSystemFont(ofSize: size)
+			}
+		}}}
+	}
+	else {
+		lang "swift" {{{ font = UIFont.systemFont(ofSize: size) }}}
+	}
+	return font
+}

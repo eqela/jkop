@@ -32,9 +32,16 @@ class MyAudioClip is AudioClip is Runnable
 	func run
 	{
 		var sid as int #used
-		lang "java" {{{
-			sid = soundPool.play(soundId, 1, 1, 0, 0, 1);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				sid = soundPool.play(soundId, 1, 1, 0, 0, 1);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				sid = soundPool!!.play(soundId, lv.toFloat(), rv.toFloat(), 0, 0, r.toFloat())
+			}}}
+		}
 	}
 
 	func play as bool
@@ -45,9 +52,7 @@ class MyAudioClip is AudioClip is Runnable
 
 class MyAudioStream is AudioStream
 {
-	lang "java" {{{
-		android.media.MediaPlayer mp;
-	}}}
+	var mp as !"android.media.MediaPlayer"
 
 	var resourceId as int #used
 	var prepared = false
@@ -57,16 +62,30 @@ class MyAudioStream is AudioStream
 	{
 		var rid #used = (activityContext.getPackageName() as! string) .. ":raw/" .. id
 		var resourceid as int #used
-		lang "java" {{{
-			android.content.res.Resources res = activityContext.getResources();
-			if(res != null) {
-				int aid = res.getIdentifier(rid, null, null);
-				if(aid > 0) {
-					mp = android.media.MediaPlayer.create(activityContext, aid);
-					resourceid = aid;
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.content.res.Resources res = activityContext.getResources();
+				if(res != null) {
+					int aid = res.getIdentifier(rid, null, null);
+					if(aid > 0) {
+						mp = android.media.MediaPlayer.create(activityContext, aid);
+						resourceid = aid;
+					}
 				}
-			}
-		}}}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val res : android.content.res.Resources = activityContext.getResources()
+				if(res != null) {
+					val aid = res.getIdentifier(rid, null, null)
+					if(aid > 0) {
+						mp = android.media.MediaPlayer.create(activityContext, aid)
+						resourceid = aid
+					}
+				}
+			}}}
+		}
 	}
 
 	func play as bool
@@ -92,22 +111,42 @@ class MyAudioStream is AudioStream
 	func getCurrentTime as int
 	{
 		var ct as int
-		lang "java" {{{
-			if(mp != null) {
-				ct = mp.getCurrentPosition() / milli;
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					ct = mp.getCurrentPosition() / milli;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val m = mp
+				if(m != null) {
+					ct = m.getCurrentPosition() / milli
+				}
+			}}}
+		}
 		return(ct)
 	}
 
 	func getDuration as int
 	{
 		var n as int
-		lang "java" {{{
-			if(mp != null) {
-				n = (int)(mp.getDuration() / milli);
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					n = (int)(mp.getDuration() / milli);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val m = mp
+				if(m != null) {
+					n = (m.getDuration()).toInt() / milli
+				}
+			}}}
+		}
 		return(n)
 	}
 
@@ -130,75 +169,87 @@ class MyAudioStream is AudioStream
 
 	func playback(action as string, obj as object = null) as bool
 	{
-		lang "java" {{{
-			if(mp == null) {
-		}}}
-		return(false)
-		lang "java" {{{
-			}
-		}}}
+		assert mp
 		if(action == "play") {
 			if(!prepared) {
+				IFDEF "target_java" {
+					lang "java" {{{
+						try{
+							mp.prepareAsync();
+						}
+						catch(java.lang.IllegalStateException e) {
+							e.printStackTrace();
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						try {
+							m!!.prepareAsync()
+						}
+						catch(e : java.lang.IllegalStateException) {
+							e.printStackTrace()
+						}
+					}}}
+				}
+				prepared = true
+			}
+			IFDEF "target_java" {
 				lang "java" {{{
 					try{
-						mp.prepareAsync();
+						mp.start();
 					}
 					catch(java.lang.IllegalStateException e) {
 						e.printStackTrace();
 					}
 				}}}
-				prepared = true
 			}
-			lang "java" {{{
-				try{
-					mp.start();
-				}
-				catch(java.lang.IllegalStateException e) {
-					e.printStackTrace();
-				}
-			}}}
-		}
-		else if(action == "stop") {
-			lang "java" {{{
-				try{
-					if(mp.isPlaying()) {
-						mp.seekTo(0);
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						m!!.start()
 					}
-					mp.stop();
-				}
-				catch(java.lang.IllegalStateException e) {
-					e.printStackTrace();
-				}
-			}}}
-			prepared = false
-		}
-		else if(action == "pause") {
-			lang "java" {{{
-				try{
-					if(mp.isPlaying()) {
-						mp.pause();
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
 					}
-				}
-				catch(java.lang.IllegalStateException e) {
-					e.printStackTrace();
-				}
-			}}}
-		}
-		else if(action == "loop") {
-			if(obj is BooleanObject) {
-				var v #used = Boolean.asBoolean(obj)
-				lang "java" {{{
-					mp.setLooping(v);
 				}}}
 			}
 		}
-		else if(action == "seek") {
-			if(obj is IntegerObject) {
-				var sec #used = Integer.asInteger(obj)
+		else if(action == "stop") {
+			IFDEF "target_java" {
 				lang "java" {{{
 					try{
-						if(prepared) {
-							mp.seekTo(sec * milli);
+						if(mp.isPlaying()) {
+							mp.seekTo(0);
+						}
+						mp.stop();
+					}
+					catch(java.lang.IllegalStateException e) {
+						e.printStackTrace();
+					}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						if(m!!.isPlaying()) {
+							m!!.seekTo(0)
+						}
+						m!!.stop()
+					}
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
+					}
+				}}}
+			}
+			prepared = false
+		}
+		else if(action == "pause") {
+			IFDEF "target_java" {
+				lang "java" {{{
+					try{
+						if(mp.isPlaying()) {
+							mp.pause();
 						}
 					}
 					catch(java.lang.IllegalStateException e) {
@@ -206,13 +257,76 @@ class MyAudioStream is AudioStream
 					}
 				}}}
 			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						if(m!!.isPlaying()) {
+							m!!.pause()
+						}
+					}
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
+					}
+				}}}
+			}
+		}
+		else if(action == "loop") {
+			if(obj is BooleanObject) {
+				var v #used = Boolean.asBoolean(obj)
+				IFDEF "target_java" {
+					lang "java" {{{
+						mp.setLooping(v);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						m!!.setLooping(v)
+					}}}
+				}
+			}
+		}
+		else if(action == "seek") {
+			if(obj is IntegerObject) {
+				var sec #used = Integer.asInteger(obj)
+				IFDEF "target_java" {
+					lang "java" {{{
+						try{
+							if(prepared) {
+								mp.seekTo(sec * milli);
+							}
+						}
+						catch(java.lang.IllegalStateException e) {
+							e.printStackTrace();
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						try {
+							if(prepared) {
+								m!!.seekTo(sec * milli)
+							}
+						}
+						catch(e : java.lang.IllegalStateException) {
+							e.printStackTrace()
+						}
+					}}}
+				}
+			}
 		}
 		else if(action == "volume") {
 			if(obj is DoubleObject) {
 				var v #used = Double.asDouble(obj)
-				lang "java" {{{
-						mp.setVolume((float)v, (float)v);
-				}}}
+				IFDEF "target_java" {
+					lang "java" {{{
+							mp.setVolume((float)v, (float)v);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						m!!.setVolume(v.toFloat(), v.toFloat())
+					}}}
+				}
 			}
 		}
 		return(true)
@@ -220,11 +334,21 @@ class MyAudioStream is AudioStream
 
 	dtor
 	{
-		lang "java" {{{
-			if(mp != null) {
-				mp.release();
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					mp.release();
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			var m = mp
+			lang "kotlin" {{{
+				if(m != null) {
+					m.release()
+				}
+			}}}
+		}
 	}
 }
 
@@ -243,9 +367,16 @@ var soundPool as !"android.media.SoundPool"
 
 ctor
 {
-	lang "java" {{{
-		soundPool = new android.media.SoundPool(128, android.media.AudioManager.STREAM_MUSIC, 0);
-	}}}
+	IFDEF "target_java" {
+		lang "java" {{{
+			soundPool = new android.media.SoundPool(128, android.media.AudioManager.STREAM_MUSIC, 0);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			soundPool = android.media.SoundPool(128, android.media.AudioManager.STREAM_MUSIC, 0)
+		}}}
+	}
 }
 
 func sanitizeResourceName(n as string) private as string
@@ -284,15 +415,28 @@ func getClipForResource(id as string) override as AudioClip
 	}
 	var soundId = -1
 	var rid #used = (activityContext.getPackageName() as! string) .. ":raw/" .. sanitizeResourceName(id)
-	lang "java" {{{
-		android.content.res.Resources res = activityContext.getResources();
-		if(res != null) {
-			int aid = res.getIdentifier(rid, null, null);
-			if(aid > 0) {
-				soundId = soundPool.load(activityContext, aid, 1);
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.content.res.Resources res = activityContext.getResources();
+			if(res != null) {
+				int aid = res.getIdentifier(rid, null, null);
+				if(aid > 0) {
+					soundId = soundPool.load(activityContext, aid, 1);
+				}
 			}
-		}
-	}}}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			val res : android.content.res.Resources = activityContext.getResources()
+			if(res != null) {
+				val aid = res.getIdentifier(rid, null, null)
+				if(aid > 0) {
+					soundId = soundPool!!.load(activityContext, aid, 1)
+				}
+			}
+		}}}
+	}
 	if(soundId < 0) {
 		return(null)
 	}

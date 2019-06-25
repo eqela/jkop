@@ -88,7 +88,10 @@ func contains <T> (vector as vector<T> #used, object as T #used) static as bool
 		return lang "swift" bool {{{ vector.contains(object) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		foreach oo in vector {
+			if object == oo:
+				return true
+		}
 		return false
 	}
 }
@@ -165,6 +168,9 @@ func insert <T> (vector as vector<T> #used, object as T #used, index as int #use
 	}
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{ vector.insert(object, at: index) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{ _sushi.insertToIndexedTable(vector, index + 1, object) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -284,6 +290,9 @@ func set <T> (vector as vector<T> #used, index as int #used, val as T #used) sta
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{ vector![index] = val }}}
 	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{ vector[index + 1]  = val }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -328,7 +337,7 @@ func remove <T> (vector as vector<T>, index as int) static as T
 	}
 	ELSE IFDEF "target_sushi" {
 		lang "lua" {{{
-			_sushi.removeFromTable(vector, index+1)
+			_sushi.removeFromIndexedTable(vector, index+1)
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
@@ -450,8 +459,11 @@ func clear <T> (vector as vector<T> #used) static
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{ vector.removeAllObjects() }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{ _sushi.clearTable(vector) }}}
+	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 }
 
@@ -489,17 +501,17 @@ func isNotEmpty <T> (vector as vector<T>) static as bool:
 
 func removeRange <T> (vector as vector<T> #used, index as int #used, count as int #used) static
 {
-	IFDEF("target_cs") {
+	IFDEF "target_cs" {
 		lang "cs" {{{
 			vector.RemoveRange(index, count);
 		}}}
 	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		lang "java" {{{
 			vector.subList(index, index+count).clear();
 		}}}
 	}
-	ELSE IFDEF("target_js") {
+	ELSE IFDEF "target_js" {
 		lang "js" {{{
 			vector.splice(index, count);
 		}}}
@@ -516,7 +528,8 @@ func removeRange <T> (vector as vector<T> #used, index as int #used, count as in
 		lang "swift" {{{ vector.removeObjects(in: NSMakeRange(index, count)) }}}
 	}
 	ELSE {
-		ERROR("not implemented!")
+		for(var n=0; n<count; n++):
+			remove(vector, index)
 	}
 }
 
@@ -602,13 +615,18 @@ func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
 				if c == 1 {
 					return ComparisonResult.orderedDescending
 				}
-				if c == 0 {
+				else if c == 0 {
 					return ComparisonResult.orderedSame
 				}
 				else {
 					return ComparisonResult.orderedAscending
 				}
 			})
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_sushi.sortTable(vector, comparer)
 		}}}
 	}
 	ELSE {

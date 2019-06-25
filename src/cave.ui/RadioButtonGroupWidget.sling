@@ -65,19 +65,6 @@ ELSE IFDEF "target_android"
 	basetype !"android.widget.RadioGroup" type extends
 	basetype !"android.widget.RadioGroup.OnCheckedChangeListener" type implements
 
-	func onCheckedChanged(group as !"android.widget.RadioGroup", checkedId as int)
-	{
-		widgetSelectedValue = Vector.get(widgetItems, checkedId)
-		onChangeSelectedItem()
-	}
-}
-
-ELSE IFDEF "target_kotlin"
-{
-	basetype Widget type isAlso
-	basetype !"android.widget.RadioGroup" type extends
-	basetype !"android.widget.RadioGroup.OnCheckedChangeListener" type implements
-
 	func onCheckedChanged(group as !"android.widget.RadioGroup", checkedId as int) override
 	{
 		widgetSelectedValue = Vector.get(widgetItems, checkedId)
@@ -208,24 +195,25 @@ var widgetContext as GuiApplicationContext
 var widgetName as string
 var widgetSelectedValue as string
 var widgetItems as vector<string>
-var selectedWidgetIndex = -1
+var selectedWidgetIndex #used = -1
 prop widgetChangeHandler as function
 
 ctor(context as GuiApplicationContext)
 {
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		lang "java" {{{
-			setOnCheckedChangeListener(this);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setOnCheckedChangeListener(this);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setOnCheckedChangeListener(this)
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		lang "kotlin" {{{
-			setOnCheckedChangeListener(this)
-		}}}
-	}
-	ELSE {
+	ELSE IFDEF "target_ios" {
 		base(context)
 		vrb = new vector<MyRadioButtonWidget>
 	}
@@ -237,29 +225,49 @@ func addWidgetItem(text as string, index as int)
 	if not widgetItems:
 		widgetItems = new vector<string>
 	widgetItems += text
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		var v = new !"android.widget.RadioButton"((widgetContext as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		lang "java" {{{
-			v.setText(text);
-			v.setTextColor(cave.Color.black().toARGBInt32());
-			android.content.res.ColorStateList cl = new android.content.res.ColorStateList(
-				new int[][]{
-					new int[]{-android.R.attr.state_enabled},
-					new int[]{android.R.attr.state_enabled}
-				},
-				new int[] {
-					android.graphics.Color.DKGRAY,
-					android.graphics.Color.DKGRAY
+		IFDEF "target_java" {
+			lang "java" {{{
+				v.setText(text);
+				v.setTextColor(cave.Color.black().toARGBInt32());
+				android.content.res.ColorStateList cl = new android.content.res.ColorStateList(
+					new int[][]{
+						new int[]{-android.R.attr.state_enabled},
+						new int[]{android.R.attr.state_enabled}
+					},
+					new int[] {
+						android.graphics.Color.DKGRAY,
+						android.graphics.Color.DKGRAY
+					}
+				);
+				if(android.os.Build.VERSION.SDK_INT > 20) {
+					v.setButtonTintList(cl);
 				}
-			);
-			if(android.os.Build.VERSION.SDK_INT > 20) {
-				v.setButtonTintList(cl);
-			}
-			v.setId(index);
-		}}}
+				v.setId(index);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v!!.setText(text)
+				v.setTextColor(cave.Color.black()!!.toARGBInt32())
+				val states = arrayOf(
+					intArrayOf(-android.R.attr.state_enabled),
+					intArrayOf(android.R.attr.state_enabled)
+				)
+				val cl = android.content.res.ColorStateList(
+					states,
+					intArrayOf(android.graphics.Color.DKGRAY, android.graphics.Color.DKGRAY)
+				)
+				if(android.os.Build.VERSION.SDK_INT > 20) {
+					v.setButtonTintList(cl)
+				}
+				v.setId(index)
+			}}}
+		}
 		Widget.addChild(this, v as Widget)
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		var input = HTMLDOM.createElement("input")
 		HTMLDOM.setAttribute(input, "type", "radio")
 		HTMLDOM.setAttribute(input, "value", text)
@@ -283,26 +291,6 @@ func addWidgetItem(text as string, index as int)
 		}
 		radiobuttons += input
 	}
-	ELSE IFDEF("target_kotlin") {
-		var v = new !"android.widget.RadioButton"((widgetContext as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		lang "kotlin" {{{
-			v!!.setText(text)
-			v.setTextColor(cave.Color.black()!!.toARGBInt32())
-			val states = arrayOf(
-				intArrayOf(-android.R.attr.state_enabled),
-				intArrayOf(android.R.attr.state_enabled)
-			)
-			val cl = android.content.res.ColorStateList(
-				states,
-				intArrayOf(android.graphics.Color.DKGRAY, android.graphics.Color.DKGRAY)
-			)
-			if(android.os.Build.VERSION.SDK_INT > 20) {
-				v.setButtonTintList(cl)
-			}
-			v.setId(index)
-		}}}
-		Widget.addChild(this, v as Widget)
-	}
 	ELSE {
 		var rb = new MyRadioButtonWidget(widgetContext)
 		rb.setWidgetText(text)
@@ -316,17 +304,29 @@ func addWidgetItem(text as string, index as int)
 
 func setWidgetSelectedValue(indx as int)
 {
-	IFDEF("target_android") {
-		lang "java" {{{
-			if(indx < 0) {
-				clearCheck();
-			}
-			else {
-				check(indx);
-			}
-		}}}
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(indx < 0) {
+					clearCheck();
+				}
+				else {
+					check(indx);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(indx < 0) {
+					clearCheck()
+				}
+				else {
+					check(indx)
+				}
+			}}}
+		}
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		widgetSelectedValue = null
 		var n = 0
 		foreach button in radiobuttons {
@@ -344,16 +344,6 @@ func setWidgetSelectedValue(indx as int)
 			n ++
 		}
 	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			if(indx < 0) {
-				clearCheck()
-			}
-			else {
-				check(indx)
-			}
-		}}}
-	}
 	ELSE {
 		updateSelectedWidget(findIndexForWidgetValue(indx))
 	}
@@ -362,7 +352,7 @@ func setWidgetSelectedValue(indx as int)
 func setWidgetName(name as string)
 {
 	widgetName = name
-	IFDEF("target_html") {
+	IFDEF "target_html" {
 		foreach(o in radiobuttons) {
 			HTMLDOM.setAttribute(o, "name", name)
 		}
@@ -372,22 +362,24 @@ func setWidgetName(name as string)
 func setWidgetOrientation(orientation as int)
 {
 	if(orientation == HORIZONTAL) {
-		IFDEF("target_android") {
-			lang "java" {{{
-				setOrientation(android.widget.LinearLayout.HORIZONTAL);
-			}}}
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					setOrientation(android.widget.LinearLayout.HORIZONTAL);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					setOrientation(android.widget.LinearLayout.HORIZONTAL);
+				}}}
+			}
 		}
-		ELSE IFDEF("target_html") {
+		ELSE IFDEF "target_html" {
 			var p as object
 			foreach(rb in radiobuttons) {
 				p = HTMLDOM.getParentElement(rb)
 				HTMLDOM.setStyle(p, "display", "inline-block")
 			}
-		}
-		ELSE IFDEF("target_kotlin") {
-			lang "kotlin" {{{
-				setOrientation(android.widget.LinearLayout.HORIZONTAL);
-			}}}
 		}
 		ELSE {
 			box = HorizontalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
@@ -395,22 +387,24 @@ func setWidgetOrientation(orientation as int)
 		}
 	}
 	else if(orientation == VERTICAL) {
-		IFDEF("target_android") {
-			lang "java" {{{
-				setOrientation(android.widget.LinearLayout.VERTICAL);
-			}}}
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					setOrientation(android.widget.LinearLayout.VERTICAL);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					setOrientation(android.widget.LinearLayout.VERTICAL);
+				}}}
+			}
 		}
-		ELSE IFDEF("target_html") {
+		ELSE IFDEF "target_html" {
 			var p as object
 			foreach(rb in radiobuttons) {
 				p = HTMLDOM.getParentElement(rb)
 				HTMLDOM.setStyle(p, "display", "block")
 			}
-		}
-		ELSE IFDEF("target_kotlin") {
-			lang "kotlin" {{{
-				setOrientation(android.widget.LinearLayout.VERTICAL);
-			}}}
 		}
 		ELSE {
 			box = VerticalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
