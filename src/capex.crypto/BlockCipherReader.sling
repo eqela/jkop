@@ -53,7 +53,6 @@ var bnext as buffer
 var nsize as int
 var ddata as buffer
 var flen as long
-var offlen as long
 
 func getSize as int
 {
@@ -135,56 +134,62 @@ func readBlock(ptr as buffer, offset as int, size as int) as int
 	}
 	if(nsize < 1) {
 		nsize = readAndDecrypt(bnext)
-		var fbuf = removePadding(ptr, bnext)
-		if Buffer.getSize(fbuf) < cipher.getBlockSize() || nsize < cipher.getBlockSize():
-			return 0
-		offlen = offlen + Buffer.getSize(fbuf)
 	}
 	if(csize < 1) {
-		if(nsize < cipher.getBlockSize()) {
+		if(nsize < cipher.getBlockSize()):
 			return(0)
-		}
 		var nn = bcurrent
 		bcurrent = bnext
 		csize = nsize
 		cindex = 0
 		bnext = nn
 		nsize = readAndDecrypt(bnext)
-		var fbuf = removePadding(ptr, bnext)
-		if Buffer.getSize(fbuf) < cipher.getBlockSize() || nsize < cipher.getBlockSize():
-			return 0
-		offlen = offlen + Buffer.getSize(fbuf)
 	}
-	cindex += size
-	return(size)
-}
-
-func removePadding(ptr as buffer, bnext as buffer) as buffer
-{
-	var bNextSize = Buffer.getSize(bnext)
-	var padding = Buffer.getByte(bnext, bNextSize - 1)
-	var finalLength = bNextSize - padding
-	var fbuf as buffer
-	if finalLength < 0 {
-		fbuf = bnext
-	}
-	else if padding == 10 {
-		for(var sz = bNextSize - 1; sz >= 6; sz--) {
-			var x = Buffer.getByte(bnext, sz)
-			if x != 10 {
-				fbuf = bnext
-				break
+	var data = cipher.getBlockSize()
+	if(nsize < cipher.getBlockSize()) {
+		var ptr2 = bcurrent
+		if(ptr2 != null) {
+			data -= Buffer.getByte(ptr2, 0)
+			var newSize = Buffer.getSize(bcurrent)
+			var padding = Buffer.getByte(bcurrent, (newSize - 1))
+			var finalLength = newSize - padding
+			var fbuf as buffer
+			if finalLength < 0 {
+				fbuf = bcurrent
 			}
-			else if sz == 6 {
-				fbuf = Buffer.resize(bnext, finalLength)
-			} 
+			else if padding == 10 {
+				for(var sz = newSize - 1; sz >= 6; sz--) {
+					var x = Buffer.getByte(bcurrent, sz)
+					if x != 10 {
+						fbuf = bcurrent
+						break
+					}
+					else if sz == 6 {
+						fbuf = Buffer.resize(bcurrent, finalLength)
+					} 
+				}
+			}
+			else if padding >= 1 {
+				fbuf = Buffer.resize(bcurrent, finalLength)
+			}
+			flen = flen + Buffer.getSize(fbuf)
+			cipher.setCipherTextLength(flen)
+			Buffer.copyFrom(ptr, fbuf, 0, offset, finalLength)
+			
 		}
 	}
-	else if padding >= 1 {
-		fbuf = Buffer.resize(bnext, finalLength)
+	data = data - cindex
+	if(data < 1) {
+		csize = 0
+		return(readBlock(ptr, offset, size))
 	}
-	flen = flen + Buffer.getSize(fbuf)
-	Buffer.resize(ptr, flen)
-	Buffer.copyFrom(ptr, fbuf, 0, offlen, Buffer.getSize(fbuf))
-	return fbuf
+	if(data < size) {
+		Buffer.copyFrom(ptr, bcurrent, cindex, offset, data)
+		cindex += data
+		return(data)
+	}
+	flen = flen + Buffer.getSize(bcurrent)
+	Buffer.copyFrom(ptr, bcurrent, cindex, offset, size)
+	cindex += size
+	return(size)
 }
