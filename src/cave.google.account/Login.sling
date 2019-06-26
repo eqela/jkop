@@ -84,7 +84,54 @@ ELSE IFDEF "target_iosoc"
 			}
 		}
 	}
+}
 
+ELSE IFDEF "target_swift"
+{
+	depend "swift-import:UIKit"
+	depend "swift-import:GoogleSignIn"
+	depend "swift-import:SafariServices"
+	depend "swift-import:SystemConfiguration"
+
+	class MyDelegate implements !"Foundation.NSObject" implements !"GIDSignInDelegate" implements !"GIDSignInUIDelegate"
+	{
+		prop appdelegate as IOSAppDelegate
+		prop parentViewController as !"UIViewController"
+		prop callback as function<void,string,string,cape.Error>
+
+		lang "swift" {{{
+			public func sign(_ signIn: GIDSignIn!, didSignInFor user: GIDGoogleUser!, withError error: Error?) {
+				if error == nil {
+					onSignInUser(user.profile.email, user.authentication.idToken)
+					objc_removeAssociatedObjects(signIn)
+				}
+				else {
+					print(error?.localizedDescription)
+				}
+			}
+
+			private func sign(_ signIn: GIDSignIn!, didDisconnectWith user: GIDGoogleUser!, withError error: Error!) {
+			}
+
+			private func sign(inWillDispatch signIn: GIDSignIn?, error: Error?) {
+			}
+
+			private func sign(_ signIn: GIDSignIn!, present viewController: UIViewController!) {
+				parentViewController!.present(viewController, animated: true, completion: nil)
+			}
+
+			private func sign(_ signIn: GIDSignIn!, dismiss viewController: UIViewController!) {
+				viewController?.dismiss(animated: true)
+			}
+		}}}
+
+		func onSignInUser(email as string, token as string)
+		{
+			appdelegate.setOpenURLhandler(null)
+			if callback:
+				callback(email, token, null)
+		}
+	}
 }
 
 ELSE IFDEF "target_browser"
@@ -271,6 +318,33 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 			[signInObject signIn];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, null, Error.forCode("no_screen_found"))
+			return
+		}
+		var appdelegate as IOSAppDelegate
+		lang "swift" {{{
+			appdelegate = UIApplication.shared.delegate as? CaveIOSAppDelegate
+		}}}
+		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"URL", options as !"[UIApplication.OpenURLOptionsKey : Any]", sourceApplications as !"String", annotation as object) as bool {
+			return lang "swift" bool {{{ GIDSignIn.sharedInstance().handle(url, sourceApplication: sourceApplications, annotation: annotation) }}}
+		})
+		var delegate = new MyDelegate()
+		delegate.setAppdelegate(appdelegate)
+		delegate.setCallback(callback)
+		delegate.setParentViewController(screen)
+		lang "swift" {{{
+			let signInObject = GIDSignIn.sharedInstance()
+			signInObject?.clientID = self.iOSClientId
+			signInObject?.delegate = delegate
+			signInObject?.uiDelegate = delegate
+			objc_setAssociatedObject(signInObject, "_signInDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+			signInObject?.signIn()
+		}}}
+	}
 	ELSE {
 		ERROR("Not implemented")
 		if(cb != null) {
@@ -285,6 +359,12 @@ func logout
 		lang "objc" {{{
 			GIDSignIn* signInObject = [GIDSignIn sharedInstance];
 			[signInObject signOut];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let signInObject: GIDSignIn = GIDSignIn.sharedInstance()
+			signInObject.signOut()
 		}}}
 	}
 	ELSE IFDEF "target_browser" {
