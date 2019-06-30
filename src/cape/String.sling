@@ -260,6 +260,9 @@ func forUTF8Buffer(data as buffer #used) static as string
 	ELSE IFDEF "target_swift" {
 		return lang "swift" string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.utf8) }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.convertBufferToString(data) }}}
+	}
 	ELSE {
 		var sb = new StringBuilder()
 		var ci = CharacterIteratorForBuffer.forBuffer(data)
@@ -807,16 +810,8 @@ func toBuffer(str as string, charset as string) static as buffer
 		}
 	}
 	ELSE IFDEF "target_sushi" {
-		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
-			var v as buffer
-			lang "lua" {{{
-				v = {}
-				for i=1, #str do
-					v[#v + 1] = _sushi.getByteFromString(str, i-1)
-				end
-			}}}
-			return v
-		}
+		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset):
+			return lang "lua" buffer {{{ _sushi.convertStringToBuffer(str) }}}
 	}
 	var bytes = assert getBytesUnsigned(str, charset)
 	var c = SIZE bytes
@@ -1764,15 +1759,10 @@ func subString(str as string, start as int, length as int) static as string #dep
 func getSubString(str as string #used, start as int #used, length as int #used) static as string
 {
 	assert str
-	var strl = getLength(str)
-	if start >= strl:
-		return ""
 	var ss = start
 	if ss < 0:
 		ss = 0
 	var ll = length
-	if ll > strl - start:
-		ll = strl - start
 	IFDEF "target_cs" {
 		return lang "cs" string {{{ str.Substring(ss, ll)  }}}
 	}
