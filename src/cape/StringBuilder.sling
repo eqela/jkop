@@ -51,7 +51,7 @@ ELSE IFDEF "target_java" {
 ELSE IFDEF "target_js" {
 	var builder as !"String" #used
 }
-ELSE IFDEF "target_lua" {
+ELSE IFDEF "target_stdlua" {
 	var builder as string
 }
 ELSE IFDEF "target_kotlin" {
@@ -59,6 +59,20 @@ ELSE IFDEF "target_kotlin" {
 }
 ELSE IFDEF "target_swift" {
 	var builder as !"NSMutableString" #used
+}
+ELSE {
+	var buffer as buffer
+	var position = 0
+
+	func resizeTo(size as long)
+	{
+		var osz = SIZE buffer
+		if osz < size {
+			while osz < size:
+				osz += 1024
+			buffer = Buffer.resize(buffer, osz)
+		}
+	}
 }
 
 ctor:
@@ -86,7 +100,7 @@ func initialize
 			this.builder = new String();
 		}}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_stdlua" {
 		this.builder = ""
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -100,7 +114,7 @@ func initialize
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented."
+		buffer = MALLOC 1024
 	}
 }
 
@@ -122,7 +136,7 @@ func clear
 	ELSE IFDEF "target_js" {
 		initialize()
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_stdlua" {
 		this.builder = ""
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -134,7 +148,8 @@ func clear
 		builder = ""
 	}
 	ELSE {
-		ERROR "Not implemented."
+		buffer = MALLOC 1024
+		position = 0
 	}
 }
 
@@ -152,9 +167,6 @@ func count as int
 	ELSE IFDEF "target_js" {
 		return lang "js" int {{{ this.builder.length }}}
 	}
-	ELSE IFDEF "target_sushi" {
-		return lang "lua" int {{{ _sushi.getStringLength(self.builder) }}}
-	}
 	ELSE IFDEF "target_stdlua" {
 		return lang "lua" int {{{ string.len(self.builder) }}}
 	}
@@ -165,8 +177,7 @@ func count as int
 		return lang "swift" int {{{ (builder! as NSString).length }}}
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return 0
+		return position
 	}
 }
 
@@ -214,7 +225,7 @@ func append(str as string #used) as this
 		}}}
 		return this
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_stdlua" {
 		builder = builder .. str
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -230,7 +241,13 @@ func append(str as string #used) as this
 		return this
 	}
 	ELSE {
-		ERROR "Not implemented."
+		var nbuf = String.toUTF8Buffer(str)
+		if nbuf {
+			var nsz = SIZE nbuf
+			resizeTo(position + nsz)
+			Buffer.copyFrom(buffer, nbuf, 0, position, nsz)
+			position += nsz
+		}
 		return this
 	}
 }
@@ -289,6 +306,7 @@ func insert(index as int, str as string) as this
 			builder.insert(str!, at: index)
 		}}}
 	}
+	/*
 	ELSE IFDEF "target_sushi" {
 		var ss = builder
 		var len = lang "lua" long {{{ _sushi.getStringLength(ss) }}}
@@ -296,8 +314,16 @@ func insert(index as int, str as string) as this
 		var lp = lang "lua" string {{{ _sushi.getSubstring(ss, index, len) }}}
 		builder = fp .. str .. lp
 	}
+	*/
 	ELSE {
-		ERROR "Not implemented."
+		var nbuf = String.toUTF8Buffer(str)
+		if nbuf {
+			var nsz = SIZE nbuf
+			resizeTo(position + nsz)
+			Buffer.copyFrom(buffer, buffer, index, index+nsz, position-index)
+			Buffer.copyFrom(buffer, nbuf, 0, index, nsz)
+			position += nsz
+		}
 	}
 	return this
 }
@@ -337,6 +363,7 @@ func remove(index as int, length as int) as this
 			builder.deleteCharacters(in: NSMakeRange(index, length))
 		}}}
 	}
+	/*
 	ELSE IFDEF "target_lua" {
 		var str = builder
 		var len = lang "lua" long {{{ _sushi.getStringLength(str) }}}
@@ -353,8 +380,10 @@ func remove(index as int, length as int) as this
 			builder = a .. b
 		}
 	}
+	*/
 	ELSE {
-		ERROR "Not implemented."
+		Buffer.copyFrom(buffer, buffer, index+length, index, position-index-length)
+		position -= length
 	}
 	return this
 }
@@ -381,7 +410,7 @@ func toString as string
 	ELSE IFDEF "target_js" {
 		return lang "js" string {{{ this.builder.toString() }}}
 	}
-	ELSE IFDEF "target_lua" {
+	ELSE IFDEF "target_stdlua" {
 		return builder
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -391,7 +420,9 @@ func toString as string
 		return lang "swift" string {{{ builder as Swift.String? }}}
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		var bb = buffer
+		if position < SIZE(bb):
+			bb = Buffer.getSubBuffer(bb, 0, position)
+		return String.forUTF8Buffer(bb)
 	}
 }
