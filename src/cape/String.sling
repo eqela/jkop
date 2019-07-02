@@ -793,8 +793,45 @@ func forDouble(vv as double #used) static as string
 ** Converts a string to a buffer of bytes, encoded using the UTF8 encoding.
 **
 
-func toUTF8Buffer(str as string) static as buffer:
-	return toBuffer(str, "UTF8")
+func toUTF8Buffer(str as string) static as buffer
+{
+	assert str
+	IFDEF "target_objc" {
+		var v as buffer
+		lang "objc" {{{
+			v = [[str dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" buffer {{{ str.toByteArray(kotlin.text.Charsets.UTF_8)?.toUByteArray() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" buffer {{{ NSMutableData(data: (Data(str.utf8))) }}}
+	}
+	ELSE IFDEF "target_stdlua" {
+		var v as buffer
+		lang "lua" {{{
+			v = {}
+			for i=1, #str do
+				v[#v + 1] = string.byte(str, i)
+			end
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _sushi.convertStringToBuffer(str) }}}
+	}
+	ELSE {
+		var bytes = assert getBytesUnsigned(str, "UTF-8")
+		var c = SIZE bytes
+		var bb = MALLOC c
+		var n as int
+		for(n=0; n<c; n++):
+			Buffer.setByte(bb, n, bytes[n])
+		return bb
+	}
+}
 
 **
 ** Converts a string to a buffer of bytes, encoded using the specified "charset"
@@ -808,44 +845,20 @@ func toBuffer(str as string, charset as string) static as buffer
 {
 	assert str
 	assert charset
-	IFDEF "target_objc" {
-		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
-			var v as buffer
-			lang "objc" {{{
-				v = [[str dataUsingEncoding:NSUTF8StringEncoding] mutableCopy];
-			}}}
-			return v
-		}
-	}
-	ELSE IFDEF "target_kotlin" {
+	IFDEF "target_kotlin" {
 		return lang "kotlin" buffer {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray() }}}
 	}
-	ELSE IFDEF "target_swift" {
-		return lang "swift" buffer {{{ NSMutableData(data: (Data(str.utf8))) }}}
-	}
-	ELSE IFDEF "target_stdlua" {
-		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
-			var v as buffer
-			lang "lua" {{{
-				v = {}
-				for i=1, #str do
-					v[#v + 1] = string.byte(str, i)
-				end
-			}}}
-			return v
-		}
-	}
-	ELSE IFDEF "target_sushi" {
+	ELSE {
 		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset):
-			return lang "lua" buffer {{{ _sushi.convertStringToBuffer(str) }}}
+			return toUTF8Buffer(str)
+		var bytes = assert getBytesUnsigned(str, charset)
+		var c = SIZE bytes
+		var bb = MALLOC c
+		var n as int
+		for(n=0; n<c; n++):
+			Buffer.setByte(bb, n, bytes[n])
+		return bb
 	}
-	var bytes = assert getBytesUnsigned(str, charset)
-	var c = SIZE bytes
-	var bb = MALLOC c
-	var n as int
-	for(n=0; n<c; n++):
-		Buffer.setByte(bb, n, bytes[n])
-	return bb
 }
 
 func getBytesUnsigned(str as string) private static as uint8[]:
@@ -1326,6 +1339,9 @@ func equalsIgnoreCase(str1 as string #used, str2 as string #used) static as bool
 	ELSE IFDEF "target_swift" {
 		return lang "swift" bool {{{ str1.range(of: str2, options: .caseInsensitive) != nil }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return 0 == lang "lua" int {{{ _sushi.compareIgnoreCase(str1, str2) }}}
+	}
 	ELSE {
 		return equals(toLowerCase(str1), toLowerCase(str2))
 	}
@@ -1732,8 +1748,6 @@ func subString(str as string, start as int) static as string #deprecated:
 func getSubString(str as string #used, start as int #used) static as string
 {
 	assert str
-	if start >= getLength(str):
-		return ""
 	var ss = start
 	if ss < 0:
 		ss = 0
@@ -1788,24 +1802,23 @@ func getSubString(str as string #used, start as int #used, length as int #used) 
 	var ss = start
 	if ss < 0:
 		ss = 0
-	var ll #used = length
 	IFDEF "target_cs" {
-		return lang "cs" string {{{ str.Substring(ss, ll)  }}}
+		return lang "cs" string {{{ str.Substring(ss, length)  }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" string {{{ [str substringWithRange:NSMakeRange(ss, ll)] }}}
+		return lang "objc" string {{{ [str substringWithRange:NSMakeRange(ss, length)] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" string {{{ str.substring(ss, ss+ll) }}}
+		return lang "java" string {{{ str.substring(ss, ss+length) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" string {{{ str.substring(ss, ss+ll) }}}
+		return lang "js" string {{{ str.substring(ss, ss+length) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" string {{{ str.substring(ss, ss+ll) }}}
+		return lang "kotlin" string {{{ str.substring(ss, ss+length) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		var v = lang "lua" string {{{ _sushi.getSubstring(str, ss, ss+ll) }}}
+		var v = lang "lua" string {{{ _sushi.getSubstring(str, ss, ss+length) }}}
 		if not v:
 			v = ""
 		return v
@@ -1814,7 +1827,7 @@ func getSubString(str as string #used, start as int #used, length as int #used) 
 		var v as string #used
 		lang "swift" {{{
 			let fromIndex = str.index(str.startIndex, offsetBy: ss)
-			let toIndex = str.index(str.endIndex, offsetBy: (ss - str.count) + ll)
+			let toIndex = str.index(str.endIndex, offsetBy: (ss - str.count) + length)
 			v = str.substring(with: fromIndex..<toIndex)
 		}}}
 		return v
@@ -2294,13 +2307,15 @@ func toCharArray(str as string #used) static as char[]
 		lang "lua" {{{
 			v = {}
 		}}}
+		var n = 0
 		while it {
 			var c = it.getNextChar()
 			if Character.isEOF(c):
 				break
 			lang "lua" {{{
-				v[#v + 1] = c
+				v[n + 1] = c
 			}}}
+			n++
 		}
 		return v
 	}
