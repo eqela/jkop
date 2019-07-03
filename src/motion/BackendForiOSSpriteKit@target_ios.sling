@@ -1,0 +1,740 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Backend:
+
+IFDEF "target_swift" {
+	depend "swift-import:SpriteKit"
+
+	class MySprite is Sprite abstract
+	{
+		var context protected as GuiApplicationContext
+		var layer protected as MySpriteLayer
+		var spriteNode public as !"SKNode"
+		var myx protected = 0.0
+		var myy protected = 0.0
+		var myWidth protected = 0.0
+		var myHeight protected = 0.0
+		var myRotation protected = 0.0
+
+		func setContext(ctx as GuiApplicationContext):
+			context = ctx
+
+		func setLayer(value as MySpriteLayer):
+			layer = value
+
+		func move(x as double, y as double)
+		{
+			var xf #used = x * layer.layerWidthFactor
+			var yf #used = - (y * layer.layerHeightFactor)
+			lang "swift" {{{
+				var a = xf - Double((_layer?.backendWidth)! / 2)
+				var b = (myWidth * (_layer?.layerWidthFactor)!) / 2
+				var c = yf + Double(_layer!.backendHeight / 2)
+				var d = (myHeight * (_layer?.layerHeightFactor)!) / 2
+				spriteNode?.position = CGPoint(x: a + b, y: c - d)
+			}}}
+			myx = x
+			myy = y
+		}
+
+		func scale(scalex as double, scaley as double)
+		{
+			lang "swift" {{{
+				spriteNode?.xScale = CGFloat(scalex)
+				spriteNode?.yScale = CGFloat(scaley)
+			}}}
+		}
+
+		func setRotation(angle as double)
+		{
+			lang "swift" {{{
+				spriteNode?.zRotation = CGFloat(-angle)
+			}}}
+			myRotation = angle
+		}
+
+		func setAlpha(alpha as double)
+		{
+			lang "swift" {{{
+				spriteNode?.alpha = CGFloat(alpha)
+			}}}
+		}
+
+		func getX as double:
+			return myx
+
+		func getY as double:
+			return myy
+
+		func getWidth as double:
+			return myWidth
+
+		func getHeight as double:
+			return myHeight
+
+		func getRotation as double:
+			return myRotation
+
+		func getAlpha as double:
+			return lang "swift" double {{{ Double(spriteNode!.alpha) }}}
+
+		func getScaleX as double:
+			return lang "swift" double {{{ Double(spriteNode!.xScale) }}}
+
+		func getScaleY as double:
+			return lang "swift" double {{{ Double(spriteNode!.yScale) }}}
+
+		func removeFromContainer
+		{
+			var nn = spriteNode
+			if nn {
+				lang "swift" {{{
+					nn?.removeFromParent()
+				}}}
+				spriteNode = null
+			}
+		}
+	}
+
+	class MyTextureSprite is MySprite is TextureSprite
+	{
+		func initializeForParent(parent as !"SKNode")
+		{
+			var sp as !"SKSpriteNode"
+			lang "swift" {{{
+				sp = SKSpriteNode()
+				sp?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+				parent?.addChild(sp!)
+			}}}
+			spriteNode = sp
+		}
+
+		func resize(width as double, height as double)
+		{
+			var sp = assert spriteNode as !"SKSpriteNode"
+			var xf #used = width * layer.layerWidthFactor
+			var yf #used = height * layer.layerHeightFactor
+			lang "swift" {{{
+				sp?.size = CGSize(width: xf, height: yf)
+			}}}
+			myWidth = width
+			myHeight = height
+		}
+
+		func setTexture(texture as Texture):
+			setTextureWithSize(texture, getWidth(), getHeight())
+
+		func setTextureWithSize(texture as Texture, width as double, height as double)
+		{
+			var sp = assert spriteNode as !"SKSpriteNode"
+			var w = SpriteUtil.getAspectWidth(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+			var h = SpriteUtil.getAspectHeight(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+			if w <= 0.0:
+				w = height
+			if h <= 0.0:
+				h = width
+			resize(w, h)
+			if texture == null {
+				lang "swift" {{{
+					sp?.texture = nil
+					sp?.color = (CaveColor.forRGBADouble(0.0, 0.0, 0.0, 0.0)?.toAppleColor())!
+				}}}
+			}
+			else if texture is MyImageTexture {
+				var tt = (texture as! MyImageTexture).skTexture
+				lang "swift" {{{
+					sp?.color = (CaveColor.forRGBADouble(0.0, 0.0, 0.0, 0.0)?.toAppleColor())!
+					sp?.texture = tt
+				}}}
+			}
+			else if texture is MyColorTexture {
+				var cc = (texture as! MyColorTexture).color
+				lang "swift" {{{
+					sp?.texture = nil
+				}}}
+				if !cc {
+					lang "swift" {{{
+						sp?.color = (CaveColor.forRGBADouble(0.0, 0.0, 0.0, 0.0)?.toAppleColor())!
+					}}}
+				}
+				else {
+					IFDEF "target_swift" {
+						lang "swift" {{{
+							sp?.color = (CaveColor.forRGBADouble(0.0, 0.0, 0.0, 0.0)?.toAppleColor())!
+						}}}
+					}
+				}
+			}
+			else {
+				lang "swift" {{{
+					sp?.texture = nil
+					sp?.color = (CaveColor.forRGBADouble(0.0, 0.0, 0.0, 0.0)?.toAppleColor())!
+				}}}
+			}
+		}
+	}
+
+	class MyTextSprite is MySprite is TextSprite
+	{
+		var labelNode as !"SKLabelNode"
+		var backgroundNode as !"SKSpriteNode"
+
+		func initializeForParent(parent as !"SKNode")
+		{
+			var myColor #used = Color.forRGBADouble(0.0, 0.0, 0.0, 0.0)
+			lang "swift" {{{
+				labelNode = SKLabelNode(text: "")
+				labelNode?.verticalAlignmentMode = .top
+				labelNode?.horizontalAlignmentMode = .left
+				labelNode?.position = CGPoint(x: 0, y: 0)
+				backgroundNode = SKSpriteNode(color: (myColor?.toAppleColor())!, size: CGSize(width: (labelNode?.frame.size.width)!, height: (labelNode?.frame.size.height)!))
+				backgroundNode?.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+				backgroundNode?.addChild(labelNode!)
+				parent?.addChild(backgroundNode!)
+			}}}
+			spriteNode = backgroundNode
+			updateMySize()
+		}
+
+		func updateMySize
+		{
+			lang "swift" {{{
+				myWidth = Double((labelNode?.frame.size.width)!) / (_layer?.layerWidthFactor)!
+				myHeight = Double((labelNode?.frame.size.height)!) / (_layer?.layerHeightFactor)!
+			}}}
+		}
+
+		func createFontName(original as string, bold as bool, italic as bool) as string
+		{
+			var v = original
+			if String.isEmpty(v):
+				v = "Arial"
+			if bold || italic {
+				lang "swift" {{{
+					var ud = UIFontDescriptor(name: v!, size: 18)
+					var traits: Int = 0
+					if bold {
+						traits |= Int(UIFontDescriptor.SymbolicTraits.traitBold.rawValue)
+					}
+					if italic {
+						traits |= Int(UIFontDescriptor.SymbolicTraits.traitItalic.rawValue)
+					}
+					ud = ud.withSymbolicTraits(UIFontDescriptor.SymbolicTraits(rawValue:UInt32(traits)))!
+					var uf = UIFont(descriptor: ud, size: 18)
+					if uf != nil {
+						v = uf.fontName
+					}
+				}}}
+			}
+			return v
+		}
+
+		func setText(text as TextProperties)
+		{
+			var label = labelNode as !"SKLabelNode"
+
+			// Handle the case of null parameter
+
+			if !text {
+				lang "swift" {{{
+					label?.text = ""
+				}}}
+				return
+			}
+
+			// Set the actual text content
+
+			lang "swift" {{{
+				label?.text = text?.getText()
+			}}}
+
+			// Text (font) color
+
+			var textColor = text.getTextColor()
+			if textColor == null:
+				textColor = Color.black()
+			lang "swift" {{{
+				label?.fontColor = textColor?.toAppleColor()
+			}}}
+
+			// Font size
+
+			var hsz = 0.0
+			var fsDesc = text.getFontSizeDescription()
+			if not String.isEmpty(fsDesc) {
+				var density = 0
+				var gc = context as GuiApplicationContext
+				if gc:
+					density = gc.getScreenDensity()
+				if density < 1:
+					density = 96
+				hsz = Length.asPoints(fsDesc, density)
+			}
+			else {
+				var fsRelative = text.getFontSizeRelative()
+				if fsRelative > 0.0 {
+					hsz = layer.layerHeightFactor * fsRelative
+				}
+				else {
+					hsz = text.getFontSizeAbsolute() * 18
+				}
+			}
+			if hsz < 1:
+				hsz = 18
+			lang "swift" {{{
+				label?.fontSize = CGFloat(hsz)
+			}}}
+
+			// Font family
+
+			var fontFamily #used = createFontName(text.getFontFamily(), text.getFontIsBold(), text.getFontIsItalic())
+			lang "swift" {{{
+				label?.fontName = fontFamily
+			}}}
+			var fontResource = text.getFontResource()
+			if not String.isEmpty(fontResource):
+				ERROR "Not implemented: font resource support"
+			var fontFile = text.getFontFile()
+			if fontFile:
+				ERROR "Not implemented: font file support"
+
+			// Background color
+
+			var bgc = text.getBackgroundColor()
+			if bgc == null:
+				bgc = Color.forRGBADouble(0.0, 0.0, 0.0, 0.0)
+			lang "swift" {{{
+				backgroundNode?.color = (bgc?.toAppleColor())!
+			}}}
+
+			// Update the size of the background to match the text
+
+			setRotation(0.0)
+			lang "swift" {{{
+				backgroundNode?.size = CGSize(width: (labelNode?.frame.size.width)!, height: (labelNode?.frame.size.height)!)
+				labelNode?.position = CGPoint(x: -((labelNode?.frame.size.width)!/2), y: (labelNode?.frame.size.height)!/2)
+			}}}
+			updateMySize()
+		}
+	}
+
+	class MySpriteLayer is SpriteLayer
+	{
+		var node public as !"SKNode"
+		var referenceWidth = 1.0
+		var referenceHeight = 0.0
+		var realReferenceHeight = 0.0
+		var backendWidth public as int
+		var backendHeight public as int
+		var layerWidthFactor public = 0.0
+		var layerHeightFactor public = 0.0
+		var context as GuiApplicationContext
+		var ppi = -1
+
+		ctor
+		{
+			node = lang "swift" !"SKNode" {{{ SKNode() }}}
+		}
+
+		func setContext(ctx as GuiApplicationContext):
+			context = ctx
+
+		func onMetricsChanged
+		{
+			if referenceWidth == 0.0 {
+				layerWidthFactor = 0.0
+			}
+			else {
+				layerWidthFactor = (backendWidth as double) / referenceWidth
+			}
+			var rh = referenceHeight
+			if rh <= 0.0:
+				rh = backendHeight * referenceWidth / backendWidth
+			if rh == 0.0 {
+				layerHeightFactor = 0.0
+			}
+			else {
+				layerHeightFactor = (backendHeight as double) / rh
+			}
+			realReferenceHeight = rh
+		}
+
+		func setBackendSize(width as int, height as int)
+		{
+			backendWidth = width
+			backendHeight = height
+			onMetricsChanged()
+		}
+
+		func addTextureSpriteForSize(texture as Texture, width as double, height as double) as TextureSprite
+		{
+			var v = new MyTextureSprite()
+			v.setContext(context)
+			v.setLayer(this)
+			v.initializeForParent(node)
+			v.setTextureWithSize(texture, width, height)
+			return v
+		}
+
+		func addTextSprite(text as TextProperties) as TextSprite
+		{
+			var v = new MyTextSprite()
+			v.setContext(context)
+			v.setLayer(this)
+			v.initializeForParent(node)
+			v.setText(text)
+			return v
+		}
+
+		func addContainerSprite(width as double, height as double) as ContainerSprite
+		{
+			ERROR "Not implemented"
+			return null
+		}
+
+		func removeSprite(sprite as Sprite)
+		{
+			assert sprite
+			sprite.removeFromContainer()
+		}
+
+		func removeAllSprites
+		{
+			lang "swift" {{{
+				node?.removeAllChildren()
+			}}}
+		}
+
+		func setReferenceWidth(referenceWidth as double)
+		{
+			this.referenceWidth = referenceWidth
+			onMetricsChanged()
+		}
+
+		func setReferenceHeight(referenceHeight as double)
+		{
+			this.referenceHeight = referenceHeight
+			onMetricsChanged()
+		}
+
+		func getReferenceWidth as double:
+			return referenceWidth
+
+		func getReferenceHeight as double:
+			return realReferenceHeight
+
+		func getPPI private as int
+		{
+			if ppi < 0 {
+				if context:
+					ppi = context.getScreenDensity()
+				if ppi < 0:
+					ppi = 96
+			}
+			return ppi
+		}
+
+		func getHeightValue(spec as string) as double:
+			return Length.asPoints(spec, getPPI()) / layerHeightFactor
+
+		func getWidthValue(spec as string) as double:
+			return Length.asPoints(spec, getPPI()) / layerWidthFactor
+	}
+
+	class MyImageTexture is Texture
+	{
+		func forImage(image as Image) static as this
+		{
+			assert image
+			var ii = assert image as ImageForSwift
+			var uii = ii.uiImage
+			var texture as !"SKTexture"
+			lang "swift" {{{
+				texture = SKTexture(image: uii!)
+			}}}
+			assert texture
+			var v = new this()
+			v.pixelWidth = image.getPixelWidth()
+			v.pixelHeight = image.getPixelHeight()
+			v.skTexture = texture
+			return v
+		}
+
+		var skTexture public as !"SKTexture"
+		var pixelWidth as int
+		var pixelHeight as int
+
+		func getPixelWidth as int:
+			return pixelWidth
+
+		func getPixelHeight as int:
+			return pixelHeight
+	}
+
+	class MyColorTexture is Texture
+	{
+		func forColor(color as Color) static as this
+		{
+			var v = new this()
+			v.color = color
+			return v
+		}
+
+		var color public as Color
+
+		func getPixelWidth as int:
+			return 0
+
+		func getPixelHeight as int:
+			return 0
+	}
+
+	class MyScene is !"SKScene"
+	{
+
+		var lastFrame = 0.0
+		var prnt public as parent
+		var keyEvent as KeyEvent
+		var pointerEvent as PointerEvent
+
+		lang "swift" {{{
+			override init(size: CGSize) {
+				super.init(size: size)
+			}
+
+			convenience required init?(coder decoder: Foundation.NSCoder) {
+				self.init(coder: decoder)
+			}
+		}}}
+
+		func initWithSize(size as !"CGSize!") as object
+		{
+			keyEvent = new KeyEvent()
+			pointerEvent = new PointerEvent()
+			lang "swift" {{{
+				backgroundColor = SKColor(red: CGFloat(0.0), green: CGFloat(0.0), blue: CGFloat(0.0), alpha: 1.0)
+				self.scaleMode = .resizeFill
+				self.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+			}}}
+			return this
+		}
+
+		func update(currentTime as !"TimeInterval!")
+		{
+			var thisDouble = currentTime as double
+			var thisFrame = (thisDouble * 1000.0) as long
+			prnt.onTick(thisFrame, thisDouble - lastFrame)
+			lastFrame = thisDouble
+		}
+
+		IFDEF "target_swift" {
+			func onTouchEvent(id as int, action as int, x as int, y as int)
+			{
+				pointerEvent.pointerId = id
+				if action == 0 {
+					pointerEvent.action = PointerEvent.MOVE
+				}
+				else if action == 1 {
+					pointerEvent.action = PointerEvent.DOWN
+				}
+				else if action == 2 {
+					pointerEvent.action = PointerEvent.UP
+				}
+				pointerEvent.x = x
+				pointerEvent.y = y
+				pointerEvent.isConsumed = false
+				prnt.onPointerEvent(pointerEvent)
+			}
+
+			lang "swift" {{{
+				func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+					for touch: UITouch in touches {
+						let tapPoint: CGPoint = touch.location(in: view)
+						onTouchEvent(Int(bitPattern: ObjectIdentifier(touch)), 1, Int(tapPoint.x), Int(tapPoint.y))
+					}
+				}
+				func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+					for touch: UITouch in touches {
+						let tapPoint: CGPoint = touch.location(in: view)
+						onTouchEvent(Int(bitPattern: ObjectIdentifier(touch)), 0, Int(tapPoint.x), Int(tapPoint.y))
+					}
+				}
+				func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+					for touch: UITouch in touches {
+						let tapPoint: CGPoint = touch.location(in: view)
+						onTouchEvent(Int(bitPattern: ObjectIdentifier(touch)), 2, Int(tapPoint.x), Int(tapPoint.y))
+					}
+				}
+			}}}
+		}
+	}
+
+	var context as GuiApplicationContext
+	var view as !"SKView"
+	var skScene as MyScene
+	var gameTime as TimeValue
+	var sceneManager as SceneManager
+
+	func getView as !"SKView":
+		return view
+
+	func initialize(context as GuiApplicationContext, view as !"SKView", scene as Scene, debug as bool)
+	{
+		this.context = context
+		this.view = view
+		if debug {
+			lang "swift" {{{
+				view?.showsFPS = true
+				view?.showsNodeCount = true
+			}}}
+		}
+		lang "swift" {{{
+			skScene = MotionBackendForSwiftMyScene().initWithSize(view?.frame.size) as! MotionBackendForSwiftMyScene
+			view?.presentScene(skScene)
+		}}}
+		skScene.prnt = this
+		sceneManager = new SceneManager()
+		sceneManager.setContext(context)
+		sceneManager.setBackend(this)
+		sceneManager.pushScene(scene)
+		sceneManager.initialize()
+	}
+
+	func onPointerEvent(event as PointerEvent)
+	{
+		assert event
+		var bew = 0
+		var beh = 0
+		if skScene {
+			lang "swift" {{{
+				bew = Int((skScene?.size.width)!)
+				beh = Int((skScene?.size.height)!)
+			}}}
+		}
+		event.x = event.x / (bew as double)
+		event.y = event.y / (beh as double)
+		var scene = sceneManager.getCurrentScene()
+		if scene:
+			scene.onPointerEvent(event)
+	}
+
+	func onKeyEvent(event as KeyEvent)
+	{
+		var scene = sceneManager.getCurrentScene()
+		if scene:
+			scene.onKeyEvent(event)
+	}
+
+	func cleanup
+	{
+		if sceneManager {
+			sceneManager.cleanup()
+			sceneManager = null
+		}
+		var vv = view
+		if vv {
+			lang "swift" {{{
+				vv?.removeFromSuperview()
+			}}}
+			view = null
+		}
+		skScene = null
+	}
+
+	func start
+	{
+		var ss = skScene
+		if ss {
+			lang "swift" {{{
+				ss?.isPaused = false
+			}}}
+		}
+		sceneManager.start()
+	}
+
+	func stop
+	{
+		sceneManager.stop()
+		var ss = skScene
+		if ss {
+			lang "swift" {{{
+				ss?.isPaused = true
+			}}}
+		}
+	}
+
+	func onTick(totalTime as long, deltaTime as double)
+	{
+		if gameTime == null:
+			gameTime = new TimeValue()
+		gameTime.setMilliSeconds(totalTime)
+		// FIXME: Too slow
+		var skScene = sceneManager.getCurrentScene()
+		if skScene:
+			skScene.tick(gameTime, deltaTime)
+	}
+
+	func createSpriteLayer override as SpriteLayer
+	{
+		var v = new MySpriteLayer()
+		v.setContext(context)
+		var node = v.node
+		var bew = 0
+		var beh = 0
+		lang "swift" {{{
+			skScene?.addChild(node!)
+			bew = Int((skScene?.size.width)!)
+			beh = Int((skScene?.size.height)!)
+		}}}
+		v.setBackendSize(bew, beh)
+		return v
+	}
+
+	func createImageFromResource(name as string) override as Image:
+		return context.getResourceImage(name)
+
+	func createTextureForImage(image as Image) override as Texture:
+		return MyImageTexture.forImage(image)
+
+	func createTextureForColor(color as Color) override as Texture:
+		return MyColorTexture.forColor(color)
+
+	func deleteSpriteLayer(layer as SpriteLayer) override
+	{
+		var msl = assert layer as MySpriteLayer
+		var node = assert msl.node
+		lang "swift" {{{
+			node?.removeFromParent()
+		}}}
+		msl.node = null
+	}
+
+	func deleteTexture(texture as Texture) override
+	{
+		assert texture
+		if texture is MyImageTexture:
+			(texture as! MyImageTexture).skTexture = null
+	}
+}
