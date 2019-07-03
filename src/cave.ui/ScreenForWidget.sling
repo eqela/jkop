@@ -30,27 +30,44 @@ func findScreenForWidget(widget as Widget) static as this:
 var context protected as GuiApplicationContext
 var myWidget as Widget
 
-IFDEF "target_iosoc"
-{
-	basetype !"UIViewController" type extends
-	basetype cave.Screen type isAlso
-	depend "objc-header-h:<UIKit/UIKit.h>"
+IFDEF "target_ios" {
+	IFDEF "target_objc" {
+		basetype !"UIViewController" type extends
+		basetype cave.Screen type isAlso
+		depend "objc-header-h:<UIKit/UIKit.h>"
+		var statusBarStyle = lang "objc" !"UIStatusBarStyle" {{{ UIStatusBarStyleDefault }}}
+		var screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
+	}
+	ELSE IFDEF "target_swift" {
+		basetype SwiftController type extends
+		basetype cave.Screen type isAlso
+		var statusBarStyle = lang "swift" !"UIStatusBarStyle" {{{ UIStatusBarStyle.default }}}
+		var screenOrientation = lang "swift" !"UInt" {{{ UIInterfaceOrientationMask.all.rawValue }}}
+	}
 
 	var keyboardY #used = 0
-	var statusBarStyle = lang "objc" !"UIStatusBarStyle" {{{ UIStatusBarStyleDefault }}}
-	var screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
 	var uiApplication private as !"UIApplication"
 
 	ctor
 	{
-		onPrepareScreen()
+		IFDEF "target_objc" {
+			onPrepareScreen()
+		}
 	}
 
 	func loadView
 	{
-		lang "objc" {{{
-			self.view = [[UIView alloc] init];
-		}}}
+		IFDEF "target_swift" {
+			onPrepareScreen()
+			lang "swift" {{{
+				self.view = UIView()
+			}}}
+		}
+		ELSE IFDEF "target_objc" {
+			lang "objc" {{{
+				self.view = [[UIView alloc] init];
+			}}}
+		}
 		initialize()
 	}
 
@@ -59,258 +76,230 @@ IFDEF "target_iosoc"
 		updateContentViewSize()
 	}
 
-	func enableDefaultStatusBarStyle
+	func getUIApplication as !"UIApplication"
 	{
-		lang "objc" {{{
-			statusBarStyle = UIStatusBarStyleDefault;
-			[self setNeedsStatusBarAppearanceUpdate];
-		}}}
+		return uiApplication
 	}
 
-	func getUIApplication as !"UIApplication":
-		return uiApplication
+	func enableDefaultStatusBarStyle
+	{
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				statusBarStyle = UIStatusBarStyleDefault;
+				[self setNeedsStatusBarAppearanceUpdate];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				statusBarStyle = UIStatusBarStyle.default
+				self.setNeedsStatusBarAppearanceUpdate()
+			}}}
+		}
+	}
 
 	func enableLightStatusBarStyle
 	{
-		lang "objc" {{{
-			statusBarStyle = UIStatusBarStyleLightContent;
-			[self setNeedsStatusBarAppearanceUpdate];
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				statusBarStyle = UIStatusBarStyleLightContent;
+				[self setNeedsStatusBarAppearanceUpdate];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				statusBarStyle = UIStatusBarStyle.lightContent
+				self.setNeedsStatusBarAppearanceUpdate()
+			}}}
+		}
 	}
 
 	func onPreStartScreenWithData(data as DynamicMap) virtual
 	{
 	}
 
-	lang "objc" {{{
-		- (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-			uiApplication = application;
-
-			// FIXME:
-
-			[self onPreStartScreenWithData: NULL];
-			return YES;
-		}
-
-		- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo {
-			CapeDynamicMap *data = [[CapeDynamicMap alloc] init];
-			NSMutableDictionary *o = [userInfo mutableCopy];
-			[data setStringAndObject:@"data" value:o];
-			[self onStartScreenWithData:data];
-		}
-
-		- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
-			CapeDynamicMap *data = [[CapeDynamicMap alloc] init];
-			NSMutableDictionary *o = [userInfo mutableCopy];
-			[data setStringAndObject:@"data" value:o];
-			[self onStartScreenWithData:data];
-		}
-
-		- (void)applicationDidBecomeActive:(UIApplication *)application {
-			[self onStartScreen];
-		}
-
-		- (void)applicationWillResignActive:(UIApplication *)application {
-			[self onStopScreen];
-		}
-
-		- (NSUInteger)supportedInterfaceOrientations {
-			return(self->screenOrientation);
-		}
-
-		- (BOOL)shouldAutorotate {
-			return YES;
-		}
-
-		- (UIStatusBarStyle)preferredStatusBarStyle
-		{
-			return(self->statusBarStyle);
-		}
-
-		- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
-			[self.view endEditing:YES];
-			[super touchesBegan:touches withEvent:event];
-		}
-
-		- (void)viewWillAppear:(BOOL)animated
-		{
-			[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
-			[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
-		}
-
-		- (void)viewWillDisappear:(BOOL)animated
-		{
-			[[NSNotificationCenter defaultCenter] removeObserver:self];
-		}
-
-		- (void)keyboardWillHide:(NSNotification *)note
-		{
-			self->keyboardY = 0;
-			[self updateContentViewSize];
-		}
-
-		- (void)keyboardWillShow:(NSNotification *)note
-		{
-			NSDictionary *userInfo = note.userInfo;
-			CGRect keyboardFrame = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
-			self->keyboardY = keyboardFrame.origin.y;
-			[self updateContentViewSize];
-		}
-	}}}
-
-	func updateContentViewSize
-	{
+	IFDEF "target_objc" {
 		lang "objc" {{{
-			if(self->keyboardY > 0) {
-				self.view.subviews[0].frame = CGRectMake(0, 0, self.view.frame.size.width, self->keyboardY);
+			- (BOOL)application:(UIApplication *)application willFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+				uiApplication = application;
+
+				// FIXME:
+
+				[self onPreStartScreenWithData: NULL];
+				return YES;
 			}
-			else {
-				self.view.subviews[0].frame = self.view.frame;
+
+			- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo {
+				CapeDynamicMap *data = [[CapeDynamicMap alloc] init];
+				NSMutableDictionary *o = [userInfo mutableCopy];
+				[data setStringAndObject:@"data" value:o];
+				[self onStartScreenWithData:data];
+			}
+
+			- (void)application:(UIApplication *)application didReceiveRemoteNotification:(NSDictionary *)userInfo fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))completionHandler {
+				CapeDynamicMap *data = [[CapeDynamicMap alloc] init];
+				NSMutableDictionary *o = [userInfo mutableCopy];
+				[data setStringAndObject:@"data" value:o];
+				[self onStartScreenWithData:data];
+			}
+
+			- (void)applicationDidBecomeActive:(UIApplication *)application {
+				[self onStartScreen];
+			}
+
+			- (void)applicationWillResignActive:(UIApplication *)application {
+				[self onStopScreen];
+			}
+
+			- (NSUInteger)supportedInterfaceOrientations {
+				return(self->screenOrientation);
+			}
+
+			- (BOOL)shouldAutorotate {
+				return YES;
+			}
+
+			- (UIStatusBarStyle)preferredStatusBarStyle
+			{
+				return(self->statusBarStyle);
+			}
+
+			- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+				[self.view endEditing:YES];
+				[super touchesBegan:touches withEvent:event];
+			}
+
+			- (void)viewWillAppear:(BOOL)animated
+			{
+				[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillHide:) name:UIKeyboardWillHideNotification object:nil];
+				[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardWillShow:) name:UIKeyboardWillShowNotification object:nil];
+			}
+
+			- (void)viewWillDisappear:(BOOL)animated
+			{
+				[[NSNotificationCenter defaultCenter] removeObserver:self];
+			}
+
+			- (void)keyboardWillHide:(NSNotification *)note
+			{
+				self->keyboardY = 0;
+				[self updateContentViewSize];
+			}
+
+			- (void)keyboardWillShow:(NSNotification *)note
+			{
+				NSDictionary *userInfo = note.userInfo;
+				CGRect keyboardFrame = [[userInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
+				self->keyboardY = keyboardFrame.origin.y;
+				[self updateContentViewSize];
 			}
 		}}}
 	}
-}
-
-IFDEF "target_swift"
-{
-	basetype cave.Screen type isAlso
-	basetype SwiftController type extends
-	depend "swift-import:UIKit"
-
-	var keyboardY #used = 0
-	var statusBarStyle = lang "swift" !"UIStatusBarStyle" {{{ UIStatusBarStyle.default }}}
-	var screenOrientation = lang "swift" !"UInt" {{{ UIInterfaceOrientationMask.all.rawValue }}}
-	var uiApplication private as !"UIApplication"
-
-	func loadView override
-	{
-		onPrepareScreen()
+	ELSE IFDEF "target_swift" {
 		lang "swift" {{{
-			self.view = UIView()
+			convenience required init?(coder decoder: Foundation.NSCoder) {
+				self.init(coder: decoder)
+			}
+
+			func supportedInterfaceOrientations() -> UInt {
+				return(self.screenOrientation!)
+			}
+
+			func shouldAutorotate() -> Bool {
+				return true
+			}
+
+			func preferredStatusBarStyle() -> UIStatusBarStyle {
+				return self.statusBarStyle!
+			}
+
+			func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+				self.view.endEditing(true)
+				super.touchesBegan(touches, with:event)
+			}
+
+			public override func viewWillAppear(_ animated: Bool) {
+				NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_ :)), name:UIResponder.keyboardWillHideNotification, object:nil)
+				NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_ :)), name:UIResponder.keyboardWillShowNotification, object:nil)
+			}
+
+			public override func viewWillDisappear(_ animated: Bool) {
+				NotificationCenter.default.removeObserver(self)
+			}
+
+			@objc func keyboardWillHide(_ note: NSNotification) {
+				self.keyboardY = 0;
+				self.updateContentViewSize()
+			}
+
+			@objc func keyboardWillShow(_ note: NSNotification) {
+				let userInfo : NSDictionary = note.userInfo! as NSDictionary
+				let keyboardFrame : CGRect = (userInfo.object(forKey: UIResponder.keyboardFrameEndUserInfoKey) as! NSValue).cgRectValue
+				self.keyboardY = Int(keyboardFrame.origin.y)
+				self.updateContentViewSize()
+			}
 		}}}
-		initialize()
-	}
 
-	func viewDidLayoutSubviews override
-	{
-		updateContentViewSize()
-	}
+		func applicationWillTerminate(application as !"UIApplication"):
+			;
 
-	func enableDefaultStatusBarStyle
-	{
-		lang "swift" {{{
-			statusBarStyle = UIStatusBarStyle.default
-			self.setNeedsStatusBarAppearanceUpdate()
-		}}}
-	}
+		func applicationDidBecomeActive(application as !"UIApplication"):
+			onStartScreen()
 
-	func getUIApplication as !"UIApplication":
-		return uiApplication
+		func applicationWillResignActive(application as !"UIApplication"):
+			onStopScreen()
 
-	func enableLightStatusBarStyle
-	{
-		lang "swift" {{{
-			statusBarStyle = UIStatusBarStyle.lightContent
-			self.setNeedsStatusBarAppearanceUpdate()
-		}}}
-	}
-
-	func onPreStartScreenWithData(data as DynamicMap) virtual
-	{
-	}
-
-	lang "swift" {{{
-		convenience required init?(coder decoder: Foundation.NSCoder) {
-			self.init(coder: decoder)
+		func application(application as !"UIApplication", userInfo pname didReceiveRemoteNotification as !"[AnyHashable : Any]")
+		{
+			var data = new DynamicMap()
+			data.set("data", userInfo as object)
+			onStartScreenWithData(data)
 		}
 
-		func supportedInterfaceOrientations() -> UInt {
-			return(self.screenOrientation!)
+		func applicationWithCompletionHandler(application as !"UIApplication", userInfo pname didReceiveRemoteNotification as !"[AnyHashable : Any]", completionHandler pname fetchCompletionHandler as !"@escaping (UIBackgroundFetchResult) -> Void")
+		{
+			var data = new DynamicMap()
+			data.set("data", userInfo as object)
+			onStartScreenWithData(data)
 		}
 
-		func shouldAutorotate() -> Bool {
+		func applicationWithLaunchOptions(application as !"UIApplication", launchOptions pname willFinishLaunchingWithOptions as !"[UIApplication.LaunchOptionsKey : Any]" = null) as bool
+		{
+			uiApplication = application
+			onPreStartScreenWithData(null)
 			return true
 		}
 
-		func preferredStatusBarStyle() -> UIStatusBarStyle {
-			return self.statusBarStyle!
-		}
+		func applicationDidEnterBackground(application as !"UIApplication"):
+			;
 
-		func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
-			self.view.endEditing(true)
-			super.touchesBegan(touches, with:event)
-		}
+		func applicationWillEnterForeground(application as !"UIApplication"):
+			;
 
-		public override func viewWillAppear(_ animated: Bool) {
-			NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_ :)), name:UIResponder.keyboardWillHideNotification, object:nil)
-			NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_ :)), name:UIResponder.keyboardWillShowNotification, object:nil)
-		}
-
-		public override func viewWillDisappear(_ animated: Bool) {
-			NotificationCenter.default.removeObserver(self)
-		}
-
-		@objc func keyboardWillHide(_ note: NSNotification) {
-			self.keyboardY = 0;
-			self.updateContentViewSize()
-		}
-
-		@objc func keyboardWillShow(_ note: NSNotification) {
-			let userInfo : NSDictionary = note.userInfo! as NSDictionary
-			let keyboardFrame : CGRect = (userInfo.object(forKey: UIResponder.keyboardFrameEndUserInfoKey) as! NSValue).cgRectValue
-			self.keyboardY = Int(keyboardFrame.origin.y)
-			self.updateContentViewSize()
-		}
-	}}}
+	}
 
 	func updateContentViewSize
 	{
-		lang "swift" {{{
-			if(self.keyboardY > 0) {
-				self.view.subviews[0].frame = CGRect(x: 0, y: 0, width: self.view.frame.size.width, height: CGFloat(self.keyboardY))
-			}
-			else {
-				self.view.subviews[0].frame = self.view.frame
-			}
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				if(self->keyboardY > 0) {
+					self.view.subviews[0].frame = CGRectMake(0, 0, self.view.frame.size.width, self->keyboardY);
+				}
+				else {
+					self.view.subviews[0].frame = self.view.frame;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				if(self.keyboardY > 0) {
+					self.view.subviews[0].frame = CGRect(x: 0, y: 0, width: self.view.frame.size.width, height: CGFloat(self.keyboardY))
+				}
+				else {
+					self.view.subviews[0].frame = self.view.frame
+				}
+			}}}
+		}
 	}
-
-	func applicationWillTerminate(application as !"UIApplication"):
-		;
-
-	func applicationDidBecomeActive(application as !"UIApplication"):
-		onStartScreen()
-
-	func applicationWillResignActive(application as !"UIApplication"):
-		onStopScreen()
-
-	func application(application as !"UIApplication", userInfo pname didReceiveRemoteNotification as !"[AnyHashable : Any]")
-	{
-		var data = new DynamicMap()
-		data.set("data", userInfo as object)
-		onStartScreenWithData(data)
-	}
-
-	func applicationWithCompletionHandler(application as !"UIApplication", userInfo pname didReceiveRemoteNotification as !"[AnyHashable : Any]", completionHandler pname fetchCompletionHandler as !"@escaping (UIBackgroundFetchResult) -> Void")
-	{
-		var data = new DynamicMap()
-		data.set("data", userInfo as object)
-		onStartScreenWithData(data)
-	}
-
-	func applicationWithLaunchOptions(application as !"UIApplication", launchOptions pname willFinishLaunchingWithOptions as !"[UIApplication.LaunchOptionsKey : Any]" = null) as bool
-	{
-		uiApplication = application
-		onPreStartScreenWithData(null)
-		return true
-	}
-
-	func applicationDidEnterBackground(application as !"UIApplication"):
-		;
-
-	func applicationWillEnterForeground(application as !"UIApplication"):
-		;
-
 }
 
 IFDEF "target_android"
@@ -692,11 +681,13 @@ func unlockOrientation
 			}}}
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
-		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
-	}
-	ELSE IFDEF "target_swift" {
-		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.all.rawValue }}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
+		}
+		ELSE IFDEF "target_swift" {
+			screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.all.rawValue }}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -717,11 +708,13 @@ func lockToLandscapeOrientation
 			}}}
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
-		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskLandscapeLeft }}}
-	}
-	ELSE IFDEF "target_swift" {
-		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.landscapeLeft.rawValue }}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskLandscapeLeft }}}
+		}
+		ELSE IFDEF "target_swift" {
+			screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.landscapeLeft.rawValue }}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -742,11 +735,13 @@ func lockToPortraitOrientation
 			}}}
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
-		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskPortrait }}}
-	}
-	ELSE IFDEF "target_swift" {
-		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.portrait.rawValue }}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskPortrait }}}
+		}
+		ELSE IFDEF "target_swift" {
+			screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.portrait.rawValue }}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -766,11 +761,8 @@ func getContext as GuiApplicationContext
 func createContext private as GuiApplicationContext
 {
 	var v as GuiApplicationContext
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		v = new GuiApplicationContextForIOS()
-	}
-	ELSE IFDEF "target_swift" {
-		v = new GuiApplicationContextForSwift()
 	}
 	ELSE IFDEF "target_android" {
 		v = GuiApplicationContextForAndroid.forActivityContext(this)
@@ -849,18 +841,17 @@ func setWidget(widget as ContainerWidget)
 	assert widget
 	myWidget = widget
 	widget.setAllowResize(false)
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[self.view addSubview:widget];
-		}}}
-		widget.onWidgetAddingToParent()
-		widget.setScreenForWidget(this)
-		Widget.onWidgetAddedToParent(widget)
-	}
-	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			self.view.addSubview(widget!)
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self.view addSubview:widget];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.view.addSubview(widget!)
+			}}}
+		}
 		widget.onWidgetAddingToParent()
 		widget.setScreenForWidget(this)
 		Widget.onWidgetAddedToParent(widget)
