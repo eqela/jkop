@@ -80,6 +80,50 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	}
 }
 
+class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
+{
+	var handle = -1
+	prop file as File
+
+	dtor
+	{
+		close()
+	}
+
+	func write(buf as buffer, size as int) as int
+	{
+		var v = -1
+		var handle = this.handle
+		lang "lua" {{{
+			v = _sushi.writeToHandle(handle, buf, size)
+		}}}
+		return v
+	}
+
+	func close
+	{
+		var handle = this.handle
+		if handle >= 0 {
+			lang "lua" {{{
+				_sushi.closeHandle(handle)
+			}}}
+			this.handle = -1
+		}
+	}
+
+	func setCurrentPosition(n as int64) as bool
+	{
+		ERROR "Not implemented"
+		return false
+	}
+
+	func getCurrentPosition as int64
+	{
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
 var path as string
 
 func forPath(path as string) static as File
@@ -120,12 +164,38 @@ func read override as FileReader
 	return v
 }
 
-func write override stub as FileWriter
-func append override stub as FileWriter
+func write override as FileWriter
+{
+	var handle as object
+	var path = this.path
+	lang "lua" {{{
+		handle = _sushi.openFileForWriting(path)
+	}}}
+	assert handle
+	var v = new MyFileWriter()
+	v.setFile(this)
+	v.handle = handle
+	return v
+}
+
+func append override as FileWriter
+{
+	var handle as object
+	var path = this.path
+	lang "lua" {{{
+		handle = _sushi.openFileForAppending(path)
+	}}}
+	assert handle
+	var v = new MyFileWriter()
+	v.setFile(this)
+	v.handle = handle
+	return v
+}
+
 
 func stat override as FileInfo
 {
-	var path = getPath()
+	var path = this.path
 	var mode = 0
 	var valid = true
 	lang "lua" {{{
@@ -166,9 +236,33 @@ func stat override as FileInfo
 	return v
 }
 
-func createDirectory override stub as bool
-func createDirectoryRecursive override stub as bool
-func removeDirectory override stub as bool
+func createDirectory override as bool
+{
+	var path = this.path
+	var r = lang "lua" int {{{ _sushi.createDirectory(path) }}}
+	if r == 1:
+		return true
+	return false
+}
+
+func createDirectoryRecursive override as bool
+{
+	if isDirectory():
+		return true
+	var parent = getParent()
+	if parent:
+		assert parent.createDirectoryRecursive()
+	return createDirectory()
+}
+
+func removeDirectory override as bool
+{
+	var path = this.path
+	var r = lang "lua" int {{{ _sushi.removeDirectory(path) }}}
+	if r == 1:
+		return true
+	return false
+}
 
 func normalizePath(apath as string) private as string
 {
@@ -243,17 +337,14 @@ func setPath(v as string)
 func getPath override as string:
 	return path
 
-func isSame(file as File) override stub as bool
-
 func remove override as bool
 {
 	var path = this.path
-	if lang "lua" bool {{{ os.remove(path) == nil }}}:
-		return false
-	return true
+	if lang "lua" int {{{ _sushi.removeFile(path) }}} == 1:
+		return true
+	return false
 }
 
-func removeRecursive override stub as bool
 func makeExecutable override stub as bool
 
 class MyDirectoryIterator is Iterator<File> is Closable
@@ -290,7 +381,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 
 func entries override as Iterator<File>
 {
-	var pp = getPath()
+	var pp = this.path
 	assert String.isNotEmpty(pp)
 	var handle = assert lang "lua" object {{{ _sushi.openDirectory(pp) }}}
 	var v = new MyDirectoryIterator()
