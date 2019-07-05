@@ -129,8 +129,14 @@ func isEmpty(str as string) static as bool
 {
 	if not str:
 		return true
-	if getLength(str) < 1:
-		return true
+	IFDEF "target_sushi" {
+		if lang "lua" int {{{ _sushi.getStringLength(str) }}} < 1:
+			return true
+	}
+	ELSE {
+		if getLength(str) < 1:
+			return true
+	}
 	return false
 }
 
@@ -1030,6 +1036,9 @@ func getLength(str as string #used) static as int
 	ELSE IFDEF "target_swift" {
 		return lang "swift" int {{{ str.count }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" int {{{ _sushi.getUTF8CharacterCount(str) }}}
+	}
 	ELSE {
 		var it = iterate(str)
 		var v = 0
@@ -1508,7 +1517,7 @@ func indexOf(str as string, c as char, start as int = 0) static as int #deprecat
 
 func getIndexOf(str as string #used, c as char #used, start as int #used = 0) static as int
 {
-	if str == null:
+	if str == null || c == 0:
 		return -1
 	IFDEF "target_cs" {
 		return lang "cs" int {{{ str.IndexOf(c, start) }}}
@@ -1570,6 +1579,8 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 {
 	if str == null || s == null:
 		return -1
+	if String.isEmpty(s):
+		return 0
 	IFDEF "target_cs" {
 		return lang "cs" int {{{ str.IndexOf(s, start) }}}
 	}
@@ -1925,7 +1936,7 @@ func startsWith(str1 as string, str2 as string #used, offset as int = 0) static 
 		return lang "kotlin" bool {{{ nstr.startsWith(str2) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _sushi.getSubstring(str1, 0, _sushi.getStringLength(str2)) == str2 }}}
+		return lang "lua" bool {{{ _sushi.stringStartsWith(str1, str2, offset) }}}
 	}
 	ELSE IFDEF "target_stdlua" {
 		return lang "lua" bool {{{ string.sub(str1, 1, string.len(str2)) == str2 }}}
@@ -2340,19 +2351,46 @@ func split(str as string, delim as char, max as int = 0) static as vector<string
 	var v = new vector<string>
 	if str == null:
 		return v
-	var n = 0
-	loop {
-		if max > 0 && Vector.getSize(v) >= max - 1 {
-			Vector.append(v, getSubString(str, n))
-			break
+	IFDEF "target_sushi" {
+		var it = iterate(str)
+		var sb = new StringBuilder()
+		var n = 0
+		loop {
+			var c = it.getNextChar()
+			if Character.isEOF(c):
+				break
+			if c == delim && (max < 1 || n < max) {
+				var s = sb.toString()
+				if not s:
+					s = ""
+				v += s
+				sb.clear()
+				n++
+			}
+			else {
+				sb.append(c)
+			}
 		}
-		var x = indexOf(str, delim, n)
-		if x < 0 {
-			Vector.append(v, getSubString(str, n))
-			break
+		var s = sb.toString()
+		if not s:
+			s = ""
+		v += s
+	}
+	ELSE {
+		var n = 0
+		loop {
+			if max > 0 && Vector.getSize(v) >= max - 1 {
+				Vector.append(v, getSubString(str, n))
+				break
+			}
+			var x = indexOf(str, delim, n)
+			if x < 0 {
+				Vector.append(v, getSubString(str, n))
+				break
+			}
+			Vector.append(v, getSubString(str, n, x - n))
+			n = x + 1
 		}
-		Vector.append(v, getSubString(str, n, x - n))
-		n = x + 1
 	}
 	return v
 }
