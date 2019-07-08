@@ -24,15 +24,21 @@
 
 class is Image:
 
-depend "objc-header-h:<UIKit/UIKit.h>"
-depend "objc-header-h:<ImageIO/ImageIO.h>"
-depend "objc-framework:CoreGraphics"
-depend "objc-framework:ImageIO"
+depend "swift-import:UIKit"
+depend "swift-import:CoreGraphics"
+depend "swift-import:ImageIO"
 
 func forUIImage(uiImage as !"UIImage") static as this
 {
 	var v = new this()
 	v.uiImage = uiImage
+	return v
+}
+
+func forBuffer(data as buffer) static as this
+{
+	var v = new this()
+	assert v.readFromBuffer(data)
 	return v
 }
 
@@ -43,7 +49,7 @@ func readFromBuffer(data as buffer) as bool
 	assert data
 	var img as !"UIImage"
 	lang "swift" {{{
-		img = UIImage(data: data)
+		img = UIImage(data: data as! Data)
 	}}}
 	assert img
 	this.uiImage = img
@@ -56,7 +62,7 @@ func getPixelWidth override as int
 		return 0
 	var v as int
 	lang "swift" {{{
-		v = uiImage.size.width
+		v = Int(uiImage?.size.width ?? 0)
 	}}}
 	return v
 }
@@ -67,13 +73,38 @@ func getPixelHeight override as int
 		return 0
 	var v as int
 	lang "swift" {{{
-		v = uiImage.size.height
+		v = Int(uiImage?.size.height ?? 0)
 	}}}
 	return v
 }
 
-func scaleToSize(w as int, h as int) override as Image:
-	return null
+func scaleToSize(w as int, h as int) override as Image
+{
+	if w < 0 || h < 0:
+		return this
+	var imageData #used = toPNGData()
+	var img as !"UIImage"
+	var maxSize = w
+	if maxSize < h:
+		maxSize = h
+	lang "swift" {{{
+		let cgImageSrcRef = CGImageSourceCreateWithData(imageData! as CFData, nil)
+		let options = [
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceThumbnailMaxPixelSize: maxSize] as? CFDictionary?
+		let cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef!, 0, options!)!
+		let cgSize = CGSize(width: w, height: h)
+		let cgContextRef = CGContext(data: nil, width: Int(cgSize.width), height: Int(cgSize.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+		let cgRect = CGRect(x: 0, y: 0, width: w, height: h)
+		cgContextRef?.draw(cgImageRefInput, in: cgRect)
+		let cgImageRefOutput = cgContextRef!.makeImage()
+		img = UIImage(cgImage: cgImageRefOutput!)
+	}}}
+	if !img:
+		return null
+	return forUIImage(img)
+}
 
 func scaleToSize(w as int, h as int, callback as function<void, Image>) override
 {
@@ -124,7 +155,7 @@ func toJPGData override as buffer
 		return null
 	var v as buffer
 	lang "swift" {{{
-		v = uiImage.jpegData(compressionQuality: 1.0)
+		v = NSMutableData(data: (uiImage?.jpegData(compressionQuality: 1.0))!)
 
 	}}}
 	return v
@@ -136,18 +167,42 @@ func toPNGData override as buffer
 		return null
 	var v as buffer
 	lang "swift" {{{
-		if(!(uiImage.imageOrientation == UIImage.Orientation.up || uiImage.imageOrientation == UIImage.Orientation.upMirrored))
+		if(!(uiImage?.imageOrientation == UIImage.Orientation.up || uiImage?.imageOrientation == UIImage.Orientation.upMirrored))
 		{
-			CGSize imgsize = uiImage.size
-			UIGraphicsBeginImageContext(imgsize)
-			uiImage.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize.width, height: imgsize.height))
+			let imgsize = uiImage?.size
+			UIGraphicsBeginImageContext(imgsize!)
+			uiImage?.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize!.width, height: imgsize!.height))
 			uiImage = UIGraphicsGetImageFromCurrentImageContext()
 			UIGraphicsEndImageContext()
 		}
-		v = uiImage.pngData()
+		v = NSMutableData(data: (uiImage?.pngData())!)
 	}}}
 	return v
 }
 
 func releaseImage override:
 	uiImage = null
+
+func forFile(file as File) static as this
+{
+	var v = new this()
+	assert v.readFromFile(file)
+	return v
+}
+
+func readFromFile(file as File) as bool
+{
+	assert file
+	var pp = file.getPath()
+	assert String.isNotEmpty(pp)
+	var img as !"UIImage"
+	lang "swift" {{{
+		img = UIImage(contentsOfFile: pp!)
+	}}}
+	assert img
+	this.uiImage = img
+	return true
+}
+
+func getSwiftBitmap as !"UIImage":
+	return uiImage

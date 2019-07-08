@@ -162,7 +162,7 @@ IFDEF "target_android"
 		prop duration as long
 		prop animator as !"android.animation.TimeAnimator"
 
-		func onTimeUpdate(animation as !"android.animation.TimeAnimator", totalTime as long, deltaTime as long)
+		func onTimeUpdate(animation as !"android.animation.TimeAnimator", totalTime as long, deltaTime as long) implement
 		{
 			if(startTime < 0) {
 				startTime = totalTime
@@ -176,30 +176,7 @@ IFDEF "target_android"
 	var animator as !"android.animation.TimeAnimator"
 }
 
-IFDEF "target_kotlin"
-{
-	class MyAnimatorListener implements !"android.animation.TimeAnimator.TimeListener"
-	{
-		prop listener as parent
-		prop startTime as long = -1
-		prop duration as long
-		prop animator as !"android.animation.TimeAnimator"
-
-		func onTimeUpdate(animation as !"android.animation.TimeAnimator", totalTime as long, deltaTime as long) override
-		{
-			if(startTime < 0) {
-				startTime = totalTime
-			}
-			if(listener.onProgress(totalTime - startTime) == false) {
-				animator.end()
-			}
-		}
-	}
-
-	var animator as !"android.animation.TimeAnimator"
-}
-
-IFDEF("target_iosoc")
+IFDEF "target_iosoc"
 {
 	var displayLink as !"CADisplayLink"
 	var startTime as double = 0
@@ -224,6 +201,29 @@ IFDEF("target_iosoc")
 	}
 }
 
+IFDEF "target_swift"
+{
+	var displayLink as !"CADisplayLink"
+	var startTime as double = 0
+	depend "swift-import:QuartzCore"
+	depend "swift-import:UIKit"
+
+	lang "swift" {{{
+		@objc public func onAnimationFrame() {
+			if self.startTime <= 0.0 {
+				self.startTime = displayLink.timestamp
+			}
+			var currentTime: Swift.Double = displayLink.timestamp
+			var diff: Swift.Double = currentTime - self.startTime
+			var diffms: Swift.Int = Swift.Int(CapeMath.round16(diff * 1000))
+			if self.onProgress(Swift.Int64(diffms)) == false {
+				displayLink.remove(from : RunLoop.current, forMode: RunLoop.Mode.common)
+				self.displayLink = nil
+			}
+		}
+	}}}
+}
+
 func start
 {
 	IFDEF("target_html") {
@@ -241,19 +241,16 @@ func start
 		animator.setTimeListener(listener)
 		animator.start()
 	}
-	ELSE IFDEF "target_kotlin" {
-		animator = new !"android.animation.TimeAnimator"()
-		var listener = new MyAnimatorListener()
-		listener.setListener(this)
-		listener.setDuration(duration)
-		listener.setAnimator(animator)
-		animator.setTimeListener(listener)
-		animator.start()
-	}
 	ELSE IFDEF "target_iosoc" {
 		lang "objc" {{{
 			displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(onAnimationFrame)];
 			[displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			displayLink = CADisplayLink(target: self, selector: #selector(onAnimationFrame))
+			displayLink.add(to: RunLoop.main, forMode: RunLoop.Mode.common)
 		}}}
 	}
 	ELSE {

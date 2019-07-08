@@ -22,13 +22,7 @@
  * SOFTWARE.
  */
 
-class:
-
-import cape
-import capex.net
-import capex.util
-import capex.console
-import sympathy
+class is CommonServer:
 
 class MyHTTPServer is HTTPServer
 {
@@ -41,57 +35,30 @@ class MyHTTPServer is HTTPServer
 	}
 }
 
-prop enableRequestLogging = true
-prop listenPort = 8080
-prop loggingDirectory as File
-prop configFile as File
-prop enableDebugMessages = false
-prop alsoPrintOnConsole = false
-prop maintenanceTimerDelay = 60
-prop timeoutDelay = 30
-prop enableRateLimit as string
 prop enableHttpsForwarder = false
+prop enableRequestLogging = true
+prop enableRateLimit as string
+prop timeoutDelay = 30
 prop debugErrors = false
 prop handler as HTTPServerRequestHandler
-var ctx protected as LoggingContext
 
 ctor
 {
-	ctx = new ConsoleApplicationContext()
+	envConfigure("enableHttpsForwarder", Environment.getVariable("SYMPATHY_ENABLE_HTTPS_FORWARDER"))
+	envConfigure("enableRequestLogging", Environment.getVariable("SYMPATHY_ENABLE_REQUEST_LOGGING"))
 	envConfigure("enableRateLimit", Environment.getVariable("SYMPATHY_ENABLE_RATE_LIMIT"))
 	envConfigure("timeoutDelay", Environment.getVariable("SYMPATHY_TIMEOUT_DELAY"))
-	envConfigure("maintenanceTimerDelay", Environment.getVariable("SYMPATHY_MAINTENANCE_TIMER_DELAY"))
-	envConfigure("listenPort", Environment.getVariable("SYMPATHY_LISTEN_PORT"))
-	envConfigure("enableRequestLogging", Environment.getVariable("SYMPATHY_ENABLE_REQUEST_LOGGING"))
-	envConfigure("enableHttpsForwarder", Environment.getVariable("SYMPATHY_ENABLE_HTTPS_FORWARDER"))
-	envConfigure("loggingDirectory", Environment.getVariable("SYMPATHY_LOGGING_DIRECTORY"))
-	envConfigure("enableDebugMessages", Environment.getVariable("SYMPATHY_ENABLE_DEBUG_MESSAGES"))
-	envConfigure("alsoPrintOnConsole", Environment.getVariable("SYMPATHY_ALSO_PRINT_ON_CONSOLE"))
 	envConfigure("debugErrors", Environment.getVariable("SYMPATHY_DEBUG_ERRORS"))
 }
 
-func getConfigFileDirectory as File
+func configure(key as string, value as string, relativeTo as File, error as Error) override as bool
 {
-	if configFile == null:
-		return null
-	return configFile.getParent()
-}
-
-func onMaintenance virtual
-{
-}
-
-func envConfigure(key as string, value as string)
-{
-	assert key
-	assert value
-	configure(key, value, null, null)
-}
-
-func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
-{
-	if key == "debugErrors" {
-		debugErrors = Boolean.asBoolean(value)
+	if key == "enableHttpsForwarder" {
+		enableHttpsForwarder = Boolean.asBoolean(value)
+		return true
+	}
+	if key == "enableRequestLogging" {
+		enableRequestLogging = Boolean.asBoolean(value)
 		return true
 	}
 	if key == "enableRateLimit" {
@@ -104,52 +71,11 @@ func configure(key as string, value as string, relativeTo as File, error as Erro
 			timeoutDelay = 30
 		return true
 	}
-	if key == "maintenanceTimerDelay" {
-		maintenanceTimerDelay = Integer.asInteger(value)
-		if maintenanceTimerDelay < 0:
-			maintenanceTimerDelay = 0
+	if key == "debugErrors" {
+		debugErrors = Boolean.asBoolean(value)
 		return true
 	}
-	if key == "listenPort" {
-		listenPort = Integer.asInteger(value)
-		return true
-	}
-	if key == "enableRequestLogging" {
-		enableRequestLogging = Boolean.asBoolean(value)
-		return true
-	}
-	if key == "enableHttpsForwarder" {
-		enableHttpsForwarder = Boolean.asBoolean(value)
-		return true
-	}
-	if key == "loggingDirectory" {
-		if value {
-			loggingDirectory = File.forRelativePath(value, relativeTo)
-		}
-		else {
-			loggingDirectory = null
-		}
-		return true
-	}
-	if key == "enableDebugMessages" {
-		enableDebugMessages = Boolean.asBoolean(value)
-		return true
-	}
-	if key == "alsoPrintOnConsole" {
-		alsoPrintOnConsole = Boolean.asBoolean(value)
-		return true
-	}
-	return false
-}
-
-func doConfigure(key as string, value as string, relativeTo as File) private as bool
-{
-	var error = new Error()
-	if configure(key, value, relativeTo, error) == false {
-		Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. key .. "'"))
-		return false
-	}
-	return true
+	return base.configure(key, value, relativeTo, error)
 }
 
 func addHttpsForwarderHandler(server as HTTPServer)
@@ -169,9 +95,6 @@ func addHttpsForwarderHandler(server as HTTPServer)
 		req.sendResponse(HTTPServerResponse.forHTTPTemporaryRedirect("https://" .. host .. path))
 	})
 }
-
-func initialize virtual as bool:
-	return true
 
 func initializeServer(server as HTTPServer) virtual as bool
 {
@@ -196,158 +119,29 @@ func initializeServer(server as HTTPServer) virtual as bool
 	return true
 }
 
-func printUsage(stdout as PrintWriter) virtual
+func initializeNetworkServer(server as NetworkServer) override as bool
 {
-	var flags = [
-		[ "debug", "Enable debug messages in logging" ],
-		[ "v|version|vv", "Display version information" ],
-		[ "h|help", "Usage information" ]
-	]
-	var options = [
-		[ "config", "Specify a configuration file to use" ],
-		[ "listen", "Specify the TCP port to listen to" ],
-		[ "O<option>", "Manually specify configuration parameters (key/value pairs)" ]
-	]
-	ConsoleApplication.printUsage(stdout, null, null, flags, options)
-}
-
-func printHeader(stdout as PrintWriter) virtual
-{
-}
-
-func printVersion(stdout as PrintWriter, longFormat as bool) virtual
-{
-}
-
-func acceptCommandLineArgument(arg as CommandLineArgument) virtual as bool:
-	return false
-
-func execute(args as array<string>) as bool
-{
-	var stdout = Stdout.instance()
-	var arguments = ConsoleApplication.parseCommandLineArguments(args)
-	foreach(arg in arguments) {
-		if arg.isFlag("v") || arg.isFlag("version") {
-			printVersion(stdout, false)
-			return true
-		}
-		else if arg.isFlag("vv") {
-			printVersion(stdout, true)
-			return true
-		}
+	assert base.initializeNetworkServer(server)
+	if server is HTTPServer {
+		assert initializeServer(server as! HTTPServer)
+		if enableRequestLogging:
+			(server as! HTTPServer).addRequestHandlerListener(new HTTPServerRequestLogger().setLogContext(ctx).setLogdir(getLoggingDirectory()))
 	}
-	printHeader(stdout)
-	var showHelp = false
-	var options = new KeyValueListForStrings()
-	foreach(arg in arguments) {
-		if arg.isOption("config") {
-			if configFile {
-				Log.error(ctx, "Duplicate config file parameter supplied: `" .. arg.getComplete() .. "'")
-				return false
-			}
-			configFile = File.forPath(arg.getStringValue())
-		}
-		else if arg.isFlag("help") || arg.isFlag("h") {
-			showHelp = true
-		}
-		else if arg.isFlag("debug") {
-			enableDebugMessages = true
-		}
-		else if arg.isOption("listen") {
-			listenPort = arg.getIntegerValue()
-		}
-		else if arg.key && String.startsWith(arg.key, "O") {
-			var key = String.getSubString(arg.key, 1)
-			if String.isEmpty(key) {
-				Log.error(ctx, "Invalid option parameter: `" .. arg.getComplete() .. "'")
-				return false
-			}
-			options.add(key, arg.getStringValue())
-		}
-		else if acceptCommandLineArgument(arg) {
-			; // all good
-		}
-		else {
-			arg.reportAsUnsupported(ctx)
-			return false
-		}
-	}
-	if showHelp {
-		printUsage(stdout)
-		return true
-	}
-	if configFile {
-		var config = SimpleConfigFile.forFile(configFile)
-		if config == null {
-			Log.error(ctx, "Failed to read configuration file: `" .. configFile.getPath() .. "'")
-			return false
-		}
-		var it = config.iterate()
-		while it {
-			var kvp = it.next()
-			if kvp == null:
-				break
-			var key = kvp.key
-			var value = kvp.value
-			if doConfigure(key, value, configFile.getParent()) == false:
-				return false
-		}
-	}
-	var oit as Iterator<KeyValuePair<string,string>> #force = options.iterate()
-	while oit {
-		var kvp = oit.next()
-		if kvp == null:
-			break
-		var key = kvp.key
-		var value = kvp.value
-		if doConfigure(key, value, null) == false:
-			return false
-	}
-	if loggingDirectory {
-		Log.debug(ctx, "Configuring logging to directory: `" .. loggingDirectory.getPath() .. "'")
-		var dlc = DirectoryLoggingContext.create(loggingDirectory)
-		if enableDebugMessages:
-			dlc.setEnableDebugMessages(true)
-		dlc.setAlsoPrintOnConsole(alsoPrintOnConsole)
-		ctx = dlc
-	}
-	else {
-		var cac = ctx as ConsoleApplicationContext
-		if cac && enableDebugMessages:
-			cac.setEnableDebugMessages(true)
-	}
-	var server = new MyHTTPServer()
-	server.setTimeoutDelay(timeoutDelay)
-	server.setMaintenanceTimerDelay(maintenanceTimerDelay)
-	server.setMyParent(this)
-	server.setPort(listenPort)
-	assert initialize():
-		Log.error(ctx, "Failed to initialize application")
-	assert initializeServer(server) {
-		Log.error(ctx, "Failed to configure HTTP server")
-	}
-	if enableRequestLogging:
-		server.addRequestHandlerListener(new HTTPServerRequestLogger().setLogContext(ctx).setLogdir(loggingDirectory))
-	var ioManager = assert IOManager.createDefault():
-		Log.error(ctx, "FAILED to create IO manager")
-	assert server.initialize(ioManager, ctx):
-		Log.error(ctx, "Failed to initialize HTTP server.")
-	assert initializeWithIOManager(ioManager, ctx):
-		Log.error(ctx, "Failed to initialize with IOManager")
-	assert ioManager.execute(ctx):
-		Log.error(ctx, "Failed to execute IO manager")
-	Log.info(ctx, "Exiting normally.")
 	return true
 }
 
-func executeMain(args as array<string>) as int:
-	return execute(args) ? 0 : 1
+func createServer override as NetworkServer
+{
+	var server = new MyHTTPServer()
+	server.setTimeoutDelay(timeoutDelay)
+	server.setMaintenanceTimerDelay(getMaintenanceTimerDelay())
+	server.setMyParent(this)
+	server.setPort(getListenPort())
+	return server
+}
 
 func executeForHandler(handler as HTTPServerRequestHandler, args as array<string>) as int
 {
 	setHandler(handler)
 	return executeMain(args)
 }
-
-func initializeWithIOManager(ioManager as IOManager, ctx as LoggingContext) virtual as bool:
-	return true

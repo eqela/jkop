@@ -24,10 +24,8 @@
 
 class is GeoLocationManager imports cape:
 
-IFDEF("target_android") {
-	depend "androidPermission:android.permission.ACCESS_FINE_LOCATION"
-	depend "androidPermission:android.permission.ACCESS_COARSE_LOCATION"
-}
+depend "androidPermission:android.permission.ACCESS_FINE_LOCATION"
+depend "androidPermission:android.permission.ACCESS_COARSE_LOCATION"
 
 var instance static as this
 
@@ -38,10 +36,19 @@ func getInstance(ctx as AndroidApplicationContext) static as this
 	return instance
 }
 
-lang "java" {{{
-	private android.location.LocationManager locationManager;
-	private LocationCallBack lcb;
-}}}
+IFDEF "target_java" {
+	lang "java" {{{
+		private android.location.LocationManager locationManager;
+		private LocationCallBack lcb;
+	}}}
+}
+ELSE IFDEF "target_kotlin" {
+	lang "kotlin" {{{
+		private var locationManager: android.location.LocationManager? = null
+		private var lcb: LocationCallBack?
+	}}}
+}
+
 var context as AndroidApplicationContext
 
 ctor(context as AndroidApplicationContext) private
@@ -49,16 +56,32 @@ ctor(context as AndroidApplicationContext) private
 	base()
 	this.context = context
 	var acontext = context.getAndroidActivityContext()
-	lang "java" {{{
-		lcb = new LocationCallBack(this);
-		locationManager = (android.location.LocationManager)acontext.getSystemService(acontext.LOCATION_SERVICE);
-	}}}
+	IFDEF "target_java" {
+		lang "java" {{{
+			lcb = new LocationCallBack(this);
+			locationManager = (android.location.LocationManager)acontext.getSystemService(acontext.LOCATION_SERVICE);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			lcb = LocationCallBack(this)
+			locationManager = acontext?.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+		}}}
+	}
 }
 
 func isLocationServiceEnabled override as bool
 {
-	var isGPSEnabled = lang "java" bool {{{ locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) }}}
-	var isNetworkEnabled = lang "java" bool {{{ locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) }}}
+	var isGPSEnabled as bool
+	var isNetworkEnabled as bool
+	IFDEF "target_java" {
+		isGPSEnabled = lang "java" bool {{{ locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) }}}
+		isNetworkEnabled = lang "java" bool {{{ locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		isGPSEnabled = lang "kotlin" bool {{{ locationManager!!.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) }}}
+		isNetworkEnabled = lang "kotlin" bool {{{ locationManager!!.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) }}}
+	}
 	return isGPSEnabled || isNetworkEnabled
 }
 
@@ -73,26 +96,48 @@ func startLocationUpdates(callback as function<void,bool>) override
 			return
 		}
 		var v = true
-		lang "java" {{{
-			boolean isGPSEnabled = false;
-			boolean isNetworkEnabled = false;
-			try {
-				isGPSEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER);
-				isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER);
-				if(isGPSEnabled) {
-					locationManager.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 0, 0, lcb);
+		var isGPSEnabled #used = false
+		var isNetworkEnabled #used = false
+		IFDEF "target_java" {
+			lang "java" {{{
+				try {
+					isGPSEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER);
+					isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER);
+					if(isGPSEnabled) {
+						locationManager.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 0, 0, lcb);
+					}
+					else if(isNetworkEnabled) {
+						locationManager.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 0, 0, lcb);
+					}
+					else {
+						v = false;
+					}
 				}
-				else if(isNetworkEnabled) {
-					locationManager.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 0, 0, lcb);
-				}
-				else {
+				catch (java.lang.Exception e) {
 					v = false;
 				}
-			}
-			catch (java.lang.Exception e) {
-				v = false;
-			}
-		}}}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				try {
+					isGPSEnabled = locationManager!!.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+					isNetworkEnabled = locationManager!!.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+					if(isGPSEnabled) {
+						locationManager!!.requestLocationUpdates(android.location.LocationManager.GPS_PROVIDER, 0.toLong(), 0.toFloat(), lcb)
+					}
+					else if(isNetworkEnabled) {
+						locationManager!!.requestLocationUpdates(android.location.LocationManager.NETWORK_PROVIDER, 0.toLong(), 0.toFloat(), lcb)
+					}
+					else {
+						v = false
+					}
+				}	
+				catch (e: Exception) {
+					v = false
+				}
+			}}}
+		}
 		if cb:
 			cb(v)
 	})
@@ -100,90 +145,131 @@ func startLocationUpdates(callback as function<void,bool>) override
 
 func stopLocationUpdates override
 {
-	lang "java" {{{
-		if(locationManager != null) {
-			locationManager.removeUpdates(lcb);
-		}
-	}}}
+	IFDEF "target_java" {
+		lang "java" {{{
+			if(locationManager != null) {
+				locationManager.removeUpdates(lcb);
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			if(locationManager != null) {
+				locationManager!!.removeUpdates(lcb)
+			}
+		}}}
+	}
 }
 
 func getLastLocation(callback as function<void, GeoLocation, Error>) override
 {
 	var error #used = Error.forCode("failedToGetLastLocation")
-	lang "java" {{{
-		if(locationManager == null) {
-			callback.execute(null, error);
-		}
-		try {
-			java.util.List<java.lang.String> providers = locationManager.getProviders(true);
-			android.location.Location location = null;
-			for (java.lang.String provider : providers) {
-				android.location.Location loc = locationManager.getLastKnownLocation(provider);
-				if(loc == null) {
-					continue;
-				}
-				if(location != null) {
-					long locationTime = location.getTime();
-					long locTime = loc.getTime();
-					long diff = java.lang.Math.abs(locTime - locationTime);
-					if(diff < 5000) {
-						if(loc.getAccuracy() < location.getAccuracy()) {
-							location = loc;
+	IFDEF "target_java" {
+		lang "java" {{{
+			if(locationManager == null) {
+				callback.execute(null, error);
+			}
+			try {
+				java.util.List<java.lang.String> providers = locationManager.getProviders(true);
+				android.location.Location location = null;
+				for (java.lang.String provider : providers) {
+					android.location.Location loc = locationManager.getLastKnownLocation(provider);
+					if(loc == null) {
+						continue;
+					}
+					if(location != null) {
+						long locationTime = location.getTime();
+						long locTime = loc.getTime();
+						long diff = java.lang.Math.abs(locTime - locationTime);
+						if(diff < 5000) {
+							if(loc.getAccuracy() < location.getAccuracy()) {
+								location = loc;
+							}
+						}
+						else {
+							if(locTime > locationTime) {
+								location = loc;
+							}
 						}
 					}
 					else {
-						if(locTime > locationTime) {
-							location = loc;
-						}
+						location = loc;
 					}
 				}
+				if(location == null) {
+					callback.execute(null, error);
+				}
 				else {
-					location = loc;
+					GeoLocation myLocation = new GeoLocation();
+					myLocation.setLatitude(location.getLatitude());
+					myLocation.setLongitude(location.getLongitude());
+					callback.execute(myLocation, null);
 				}
 			}
-			if(location == null) {
+			catch(java.lang.Exception e) {
 				callback.execute(null, error);
 			}
-			else {
-				GeoLocation myLocation = new GeoLocation();
-				myLocation.setLatitude(location.getLatitude());
-				myLocation.setLongitude(location.getLongitude());
-				callback.execute(myLocation, null);
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+IFDEF "target_java" {
+	lang "java" {{{
+		class LocationCallBack implements android.location.LocationListener {
+
+			public LocationCallBack(GeoLocationManagerForAndroid self) {
+				this.self = self;
 			}
-		}
-		catch(java.lang.Exception e) {
-			callback.execute(null, error);
+
+			private GeoLocationManagerForAndroid self;
+
+			@Override
+			public void onLocationChanged(android.location.Location location) {
+				GeoLocation l = new GeoLocation();
+				l.setLatitude(location.getLatitude());
+				l.setLongitude(location.getLongitude());
+				self.notifyListeners(l);
+			}
+
+			@Override
+			public void onProviderDisabled(String provider) {
+			}
+
+			@Override
+			public void onProviderEnabled(String provider) {
+			}
+
+			@Override
+			public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
+			}
 		}
 	}}}
 }
+ELSE IFDEF "target_kotlin" {
+	lang "kotlin" {{{
+		class LocationCallBack(self:GeoLocationManagerForKotlin): android.location.LocationListener {
+			private var self: GeoLocationManagerForKotlin
+			init {
+				this.self = self
+			}
+			override fun onLocationChanged(location: android.location.Location) {
+				var l = GeoLocation()
+				l?.setLatitude(location!!.getLatitude())
+				l?.setLongitude(location!!.getLongitude())
+				self?.notifyListeners(l)
+			}
 
-lang "java" {{{
-	class LocationCallBack implements android.location.LocationListener {
+			override fun onProviderDisabled(provider: String) {
+			}
 
-		public LocationCallBack(GeoLocationManagerForAndroid self) {
-			this.self = self;
+			override fun onProviderEnabled(provider: String) {
+			}
+
+			override fun onStatusChanged(provider: String, status: Int, extras: android.os.Bundle) {
+			}
 		}
-
-		private GeoLocationManagerForAndroid self;
-
-		@Override
-		public void onLocationChanged(android.location.Location location) {
-			GeoLocation l = new GeoLocation();
-			l.setLatitude(location.getLatitude());
-			l.setLongitude(location.getLongitude());
-			self.notifyListeners(l);
-		}
-
-		@Override
-		public void onProviderDisabled(String provider) {
-		}
-
-		@Override
-		public void onProviderEnabled(String provider) {
-		}
-
-		@Override
-		public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
-		}
-	}
-}}}
+	}}}
+}

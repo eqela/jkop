@@ -24,8 +24,6 @@
 
 class is IOManager:
 
-import cape
-
 class MyEntry is IOManagerEntry
 {
 	prop master as IOManager
@@ -68,6 +66,25 @@ class MyEntry is IOManagerEntry
 		update()
 	}
 
+	func getClientSocket as !"java.net.Socket"
+	{
+		if source is TCPSocketForKotlin {
+			return (source as! TCPSocketForKotlin).getJavaClientSocket()
+		}
+		else if source is SSLSocketKotlin {
+			return (source as! SSLSocketKotlin).getJavaClientSocket()
+		}
+		return null
+	}
+
+	func getServerSocket as !"java.net.ServerSocket"
+	{
+		if source is TCPSocketForKotlin {
+			return (source as! TCPSocketForKotlin).getJavaServerSocket()
+		}
+		return null
+	}
+
 	func update
 	{
 		if source == null || master == null:
@@ -75,7 +92,7 @@ class MyEntry is IOManagerEntry
 		if rrl == null && wrl == null:
 			return
 		var selector = assert (master as! IOManagerForKotlin).getSelector()
-		var ss = (source as! TCPSocketForKotlin).getJavaServerSocket()
+		var ss = getServerSocket()
 		if ss {
 			lang "kotlin" {{{
 				var channel : java.nio.channels.ServerSocketChannel? = ss.getChannel()
@@ -94,7 +111,7 @@ class MyEntry is IOManagerEntry
 				}
 			}}}
 		}
-		var cs = (source as! TCPSocketForKotlin).getJavaClientSocket()
+		var cs = getClientSocket()
 		if cs {
 			lang "kotlin" {{{
 				var channel : java.nio.channels.SocketChannel? = cs.getChannel()
@@ -154,7 +171,7 @@ ctor
 func getSelector as !"java.nio.channels.Selector":
 	return selector
 
-func execute(ctx as LoggingContext) override as bool
+func doExecute(ctx as LoggingContext) override as bool
 {
 	Log.debug(ctx, "IOManagerForKotlin started")
 	loop {

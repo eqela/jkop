@@ -45,13 +45,14 @@ IFDEF "target_iosoc"
 	depend "objc-header-m:<UIKit/UIKit.h>"
 }
 
-IFDEF "target_android"
+IFDEF "target_swift"
 {
-	basetype !"android.widget.ImageView" type extends
+	basetype !"UIImageView" type extends
 	basetype Widget type isAlso
+	depend "swift-import:UIKit"
 }
 
-IFDEF "target_kotlin"
+IFDEF "target_android"
 {
 	basetype !"android.widget.ImageView" type extends
 	basetype Widget type isAlso
@@ -88,8 +89,10 @@ ctor(context as GuiApplicationContext)
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! GuiApplicationContextForKotlin).getActivityContext())
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+		}}}
 	}
 	widgetContext = context
 	setWidgetImageScaleMethod(STRETCH)
@@ -133,42 +136,64 @@ func setWidgetImageScaleMethod(method as int)
 			}}}
 		}
 	}
-	ELSE IFDEF "target_android" {
+	ELSE IFDEF "target_swift" {
 		if method == FIT {
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+			lang "swift" {{{
+				self.contentMode = UIView.ContentMode.scaleAspectFit
 			}}}
 		}
 		else if method == FILL {
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+			lang "swift" {{{
+				self.clipsToBounds = true
+				self.contentMode = UIView.ContentMode.scaleAspectFill
 			}}}
 		}
 		else {
 			if method != STRETCH:
 				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+			lang "swift" {{{
+				self.contentMode = UIView.ContentMode.scaleAspectFill
 			}}}
 		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		if method == FIT {
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE)
-			}}}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			if method == FIT {
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+				}}}
+			}
+			else if method == FILL {
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+				}}}
+			}
+			else {
+				if method != STRETCH:
+					Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+				}}}
+			}
 		}
-		else if method == FILL {
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP)
-			}}}
-		}
-		else {
-			if method != STRETCH:
-				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.FIT_XY)
-			}}}
+		ELSE IFDEF "target_kotlin" {
+			if method == FIT {
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE)
+				}}}
+			}
+			else if method == FILL {
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP)
+				}}}
+			}
+			else {
+				if method != STRETCH:
+					Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.FIT_XY)
+				}}}
+			}
 		}
 	}
 	ELSE {
@@ -193,15 +218,6 @@ func setWidgetImage(image as Image)
 			base.setImageBitmap(ifa.getAndroidBitmap())
 		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		var ifk = widgetImage as ImageForKotlin
-		if !ifk {
-			base.setImageBitmap(null)
-		}
-		else {
-			base.setImageBitmap(ifk.getKotlinBitmap())
-		}
-	}
 	ELSE IFDEF "target_html" {
 		var src as string
 		var img = widgetImage as ImageForBrowser
@@ -223,6 +239,15 @@ func setWidgetImage(image as Image)
 			uiImage = img.uiImage
 		lang "objc" {{{
 			[self setImage:uiImage];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var uiImage as !"UIImage"
+		var img = widgetImage as ImageForSwift
+		if img:
+			uiImage = img.uiImage
+		lang "swift" {{{
+			self.image = uiImage
 		}}}
 	}
 	ELSE {

@@ -44,22 +44,7 @@ IFDEF "target_android"
 	basetype Widget type isAlso
 	depend "androidPermission:android.permission.INTERNET"
 
-	class MyWebViewClient is !"android.webkit.WebViewClient"
-	{
-		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", url as string) as bool
-		{
-			return((view as! parent).overrideWidgetUrlLoading(url))
-		}
-	}
-}
-
-IFDEF "target_kotlin"
-{
-	basetype !"android.webkit.WebView" type extends
-	basetype Widget type isAlso
-	depend "androidPermission:android.permission.INTERNET"
-
-	class MyWebViewClient is !"android.webkit.WebViewClient"
+	class MyWebViewClient extends !"android.webkit.WebViewClient"
 	{
 		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", url as string) override as bool
 		{
@@ -78,6 +63,19 @@ IFDEF "target_iosoc"
 		- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType
 		{
 			return(![self overrideWidgetUrlLoading:[[request URL] absoluteString]]);
+		}
+	}}}
+}
+
+IFDEF "target_swift"
+{
+	basetype !"UIWebView" type extends
+	basetype !"UIWebViewDelegate" type implements
+	basetype Widget type isAlso
+
+	lang "swift" {{{
+		func webView(_ webView: UIWebView, shouldStartLoadWith request: URLRequest, navigationType: UIWebView.NavigationType) -> Bool {
+			return self.overrideWidgetUrlLoading(request.url!.absoluteString)
 		}
 	}}}
 }
@@ -103,25 +101,31 @@ ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		lang "java" {{{
-			setWebViewClient(new MyWebViewClient());
-			setWebChromeClient(new android.webkit.WebChromeClient());
-			android.webkit.WebSettings settings = getSettings();
-			settings.setJavaScriptEnabled(true);
-		}}}
-	}
-	IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		lang "kotlin" {{{
-			setWebViewClient(MyWebViewClient())
-			setWebChromeClient(android.webkit.WebChromeClient())
-			var settings : android.webkit.WebSettings = getSettings()
-			settings!!.setJavaScriptEnabled(true)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setWebViewClient(new MyWebViewClient());
+				setWebChromeClient(new android.webkit.WebChromeClient());
+				android.webkit.WebSettings settings = getSettings();
+				settings.setJavaScriptEnabled(true);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setWebViewClient(MyWebViewClient())
+				setWebChromeClient(android.webkit.WebChromeClient())
+				var settings : android.webkit.WebSettings = getSettings()
+				settings!!.setJavaScriptEnabled(true)
+			}}}
+		}
 	}
 	IFDEF "target_iosoc" {
 		lang "objc" {{{
 			[self setDelegate:self];
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
 		}}}
 	}
 	widgetContext = context
@@ -166,18 +170,25 @@ func updateWidgetContent private
 	var url = widgetUrl
 	if(url != null) {
 		IFDEF "target_android" {
-			lang "java" {{{
-				loadUrl(url);
-			}}}
-		}
-		ELSE IFDEF "target_kotlin" {
-			lang "kotlin" {{{
-				loadUrl(url)
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					loadUrl(url);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					loadUrl(url)
+				}}}
+			}
 		}
 		ELSE IFDEF "target_iosoc" {
 			lang "objc" {{{
 				[self loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.loadRequest(URLRequest(url: URL(string: url!)!))
 			}}}
 		}
 		ELSE IFDEF "target_html" {
@@ -192,14 +203,16 @@ func updateWidgetContent private
 	else {
 		var htmlString #used = widgetHtmlString
 		IFDEF "target_android" {
-			lang "java" {{{
-				loadData(htmlString, "text/html", null);
-			}}}
-		}
-		ELSE IFDEF "target_kotlin" {
-			lang "kotlin" {{{
-				loadData(htmlString, "text/html", null)
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					loadData(htmlString, "text/html", null);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					loadData(htmlString, "text/html", null)
+				}}}
+			}
 		}
 		ELSE IFDEF "target_iosoc" {
 			lang "objc" {{{
