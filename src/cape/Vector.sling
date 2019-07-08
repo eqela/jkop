@@ -124,8 +124,8 @@ func append <T> (vector as vector<T> #used, object as T #used) static
 		}}}
 	}
 	ELSE IFDEF "target_lua" {
-		var sz = getSize(vector)
 		lang "lua" {{{
+			local sz = vector["n"] or 0
 			vector[sz + 1] = object
 			vector["n"] = sz + 1
 		}}}
@@ -172,8 +172,8 @@ func insert <T> (vector as vector<T> #used, object as T #used, index as int #use
 		lang "swift" {{{ vector.insert(object, at: index) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		var sz = getSize(vector)
 		lang "lua" {{{
+			local sz = vector["n"] or 0
 			_sushi.insertToIndexedTable(vector, index + 1, object)
 			vector["n"] = sz + 1
 		}}}
@@ -210,12 +210,7 @@ func getSize <T> (vector as vector<T> #used) static as int
 		return lang "js" int {{{ vector.length }}}
 	}
 	ELSE IFDEF "target_lua" {
-		var sz as int
-		lang "lua" {{{
-			sz = vector["n"]
-			if sz == nil then sz = #vector vector["n"] = sz end
-		}}}
-		return sz
+		return lang "lua" int {{{ vector["n"] or 0 }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ vector.count() }}}
@@ -382,9 +377,10 @@ func removeFirst <T> (vector as vector<T>) static
 
 func popLast <T> (vector as vector<T>) static as T
 {
-	if vector == null || getSize(vector) < 1:
+	var sz = getSize(vector)
+	if vector == null || sz < 1:
 		return DEFAULT(T)
-	var v = get(vector, getSize(vector)-1)
+	var v = get(vector, sz-1)
 	removeLast(vector)
 	return v
 }
@@ -482,6 +478,18 @@ func isEmpty <T> (vector as vector<T> #used) static as bool
 	}
 	ELSE IFDEF "target_kotlin" {
 		return vector == null || lang "kotlin" bool {{{ vector!!.isEmpty() }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		if vector == null:
+			return true
+		var v = false
+		lang "lua" {{{
+			local sz = vector["n"]
+			if sz == nil or sz < 1 then
+				v = true
+			end
+		}}}
+		return v
 	}
 	ELSE {
 		return getSize(vector) < 1
