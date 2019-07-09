@@ -33,22 +33,48 @@ ELSE IFDEF "target_ios"
 {
 	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
 	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
-	depend "objc-header-h:<UIKit/UIKit.h>"
+
+	IFDEF "target_objc" {
+		depend "objc-header-h:<UIKit/UIKit.h>"
+	}
+	ELSE IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+	}
 
 	class MyPickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
 	{
+		IFDEF "target_swift" {
+			basetype !"NSObject" type extends
+
+			ctor override:
+				;
+		}
+
 		prop callback as function<void, buffer, string, string, Error>
 
-		lang "objc" {{{
-			- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info
-			{
-				UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
-				NSURL *url = [info objectForKey:UIImagePickerControllerReferenceURL];
-				[self onImagePicked:image filepath:url.path];
-				objc_removeAssociatedObjects(picker);
-				[picker dismissViewControllerAnimated:YES completion:NULL];
-			}
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info
+				{
+					UIImage *image = [info objectForKey:UIImagePickerControllerEditedImage];
+					NSURL *url = [info objectForKey:UIImagePickerControllerReferenceURL];
+					[self onImagePicked:image filepath:url.path];
+					objc_removeAssociatedObjects(picker);
+					[picker dismissViewControllerAnimated:YES completion:NULL];
+				}
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
+					let image = info[.editedImage] as? UIImage
+					let url = info[.referenceURL] as? URL
+					onImagePicked(image, url?.path)
+					objc_removeAssociatedObjects(picker)
+					picker.dismiss(animated: true)
+				}
+			}}}
+		}
 
 		func onImagePicked(image as !"UIImage", filepath as string)
 		{
@@ -59,59 +85,6 @@ ELSE IFDEF "target_ios"
 				var error as Error
 				if image {
 					var img = ImageForIOS.forUIImage(image)
-					if file.hasExtension("jpeg") || file.hasExtension("jpg") {
-						mtype = "image/jpeg"
-						buf = img.toJPGData()
-					}
-					else if file.hasExtension("png") {
-						mtype = "image/png"
-						buf = img.toPNGData()
-					}
-				}
-				if not buf {
-					buf = file.getContentsBuffer()
-					if buf {
-						mtype = MimeTypeRegistry.determineTypeForFile(file)
-					}
-					else {
-						mtype = null
-						buf = null
-						error = Error.forCode("failedToReadFile")
-					}
-				}
-				callback(buf, file.getBasename(), mtype, error)
-			}
-		}
-	}
-}
-
-ELSE IFDEF "target_swift"
-{
-	depend "swift-import:UIKit"
-
-	class MyPickerDelegate implements !"UIImagePickerControllerDelegate" implements !"UINavigationControllerDelegate"
-	{
-		prop callback as function<void, buffer, string, string, Error>
-
-		lang "swift" {{{
-			func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-				let image = info[.editedImage] as? UIImage
-				let url = info[.referenceURL] as? URL
-				onImagePicked(image, url?.path)
-				objc_removeAssociatedObjects(picker)
-				picker.dismiss(animated: true)
-			}
-		}}}
-
-		func onImagePicked(image as !"UIImage", filepath as string)
-		{
-			if callback {
-				var file = File.forPath(filepath)
-				var mtype as string
-				var buf as buffer
-				var error as Error
-				if image {
-					var img = ImageForSwift.forUIImage(image)
 					if file.hasExtension("jpeg") || file.hasExtension("jpg") {
 						mtype = "image/jpeg"
 						buf = img.toJPGData()
@@ -362,7 +335,7 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 			elm.click();
 		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios" {
 		var screen = ScreenForWidget.findScreenForWidget(widget)
 		if(screen == null) {
 			if(cb != null) {
@@ -372,34 +345,28 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 		}
 		var delegate = new MyPickerDelegate()
 		delegate.setCallback(cb)
-		lang "objc" {{{
-			UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-			picker.delegate = delegate;
-			picker.allowsEditing = YES;
-			picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-			picker.modalPresentationStyle = UIModalPresentationFullScreen;
-			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[screen presentViewController:picker animated:YES completion:nil];
-		}}}
-	}
-	ELSE IFDEF "target_swift" {
-		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if !screen {
-			if cb:
-				cb(null, null, null, Error.forCode("no_screen_found"))
-			return
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+				picker.delegate = delegate;
+				picker.allowsEditing = YES;
+				picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+				picker.modalPresentationStyle = UIModalPresentationFullScreen;
+				objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[screen presentViewController:picker animated:YES completion:nil];
+			}}}
 		}
-		var delegate = new MyPickerDelegate()
-		delegate.setCallback(cb)
-		lang "swift" {{{
-			let picker = UIImagePickerController()
-			picker.delegate = delegate
-			picker.allowsEditing = true
-			picker.sourceType = UIImagePickerController.SourceType.photoLibrary
-			picker.modalPresentationStyle = UIModalPresentationStyle.fullScreen
-			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-			screen?.present(picker, animated: true)
-		}}}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let picker = UIImagePickerController()
+				picker.delegate = delegate
+				picker.allowsEditing = true
+				picker.sourceType = UIImagePickerController.SourceType.photoLibrary
+				picker.modalPresentationStyle = UIModalPresentationStyle.fullScreen
+				objc_setAssociatedObject(picker, "_pickerDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				screen?.present(picker, animated: true)
+			}}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")

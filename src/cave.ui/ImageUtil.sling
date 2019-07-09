@@ -24,10 +24,12 @@
 
 class:
 
-IFDEF "target_swift" {
-	depend "swift-import:UIKit"
-	depend "swift-import:CoreGraphics"
-	depend "swift-import:ImageIO"
+IFDEF "target_ios" {
+	IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+		depend "swift-import:CoreGraphics"
+		depend "swift-import:ImageIO"
+	}
 }
 
 func createCircularImage(m as Image) static as Image
@@ -36,39 +38,38 @@ func createCircularImage(m as Image) static as Image
 	var image = m
 	var minSize = Math.min(image.getPixelWidth(), image.getPixelHeight()) as int
 	image = image.crop(0, 0, minSize, minSize)
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		var outputImage as !"UIImage"
 		var bytesData #used = image.toPNGData()
-		lang "objc" {{{
-			NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
-			UIImage *uiImage = [UIImage imageWithData:imageData];
-			CGRect rect = CGRectMake(0, 0, [image getPixelWidth], [image getPixelHeight]);
-			UIGraphicsBeginImageContextWithOptions(rect.size, NO, uiImage.scale); {
-				UIBezierPath *interior = [UIBezierPath bezierPathWithOvalInRect:rect];
-				[interior addClip];
-				[uiImage drawInRect:rect];
-			}
-			outputImage = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
+				UIImage *uiImage = [UIImage imageWithData:imageData];
+				CGRect rect = CGRectMake(0, 0, [image getPixelWidth], [image getPixelHeight]);
+				UIGraphicsBeginImageContextWithOptions(rect.size, NO, uiImage.scale); {
+					UIBezierPath *interior = [UIBezierPath bezierPathWithOvalInRect:rect];
+					[interior addClip];
+					[uiImage drawInRect:rect];
+				}
+				outputImage = UIGraphicsGetImageFromCurrentImageContext();
+				UIGraphicsEndImageContext();
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let uiImage = UIImage(data: bytesData as! Data)
+				let rect = CGRect(x: 0, y: 0, width: image.getPixelWidth(), height: image.getPixelHeight())
+				UIGraphicsBeginImageContextWithOptions(rect.size, _: false, _: uiImage!.scale)
+				do {
+					let interior = UIBezierPath(ovalIn: rect)
+					interior.addClip()
+					uiImage?.draw(in: rect)
+				}
+				outputImage = UIGraphicsGetImageFromCurrentImageContext()
+				UIGraphicsEndImageContext()
+			}}}
+		}
 		return ImageForIOS.forUIImage(outputImage)
-	}
-	IFDEF "target_swift" {
-		var outputImage as !"UIImage"
-		var bytesData #used = image.toPNGData()
-		lang "swift" {{{
-			let uiImage = UIImage(data: bytesData as! Data)
-			let rect = CGRect(x: 0, y: 0, width: image.getPixelWidth(), height: image.getPixelHeight())
-			UIGraphicsBeginImageContextWithOptions(rect.size, _: false, _: uiImage!.scale)
-			do {
-				let interior = UIBezierPath(ovalIn: rect)
-				interior.addClip()
-				uiImage?.draw(in: rect)
-			}
-			outputImage = UIGraphicsGetImageFromCurrentImageContext()
-			UIGraphicsEndImageContext()
-		}}}
-		return ImageForSwift.forUIImage(outputImage)
 	}
 	ELSE IFDEF "target_android" {
 		var w #used = image.getPixelWidth()
