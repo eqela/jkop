@@ -24,10 +24,18 @@
 
 class is Image imports cape:
 
-depend "objc-header-h:<UIKit/UIKit.h>"
-depend "objc-header-h:<ImageIO/ImageIO.h>"
-depend "objc-framework:CoreGraphics"
-depend "objc-framework:ImageIO"
+IFDEF "target_objc" {
+	depend "objc-header-h:<UIKit/UIKit.h>"
+	depend "objc-header-h:<ImageIO/ImageIO.h>"
+	depend "objc-framework:CoreGraphics"
+	depend "objc-framework:ImageIO"
+
+}
+ELSE IFDEF "target_swift" {
+	depend "swift-import:UIKit"
+	depend "swift-import:CoreGraphics"
+	depend "swift-import:ImageIO"
+}
 
 func forFile(file as File) static as this
 {
@@ -56,9 +64,16 @@ func readFromBuffer(data as buffer) as bool
 {
 	assert data
 	var img as !"UIImage"
-	lang "objc" {{{
-		img = [UIImage imageWithData:data];
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			img = [UIImage imageWithData:data];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			img = UIImage(data: data as! Data)
+		}}}
+	}
 	assert img
 	this.uiImage = img
 	return true
@@ -70,9 +85,16 @@ func readFromFile(file as File) as bool
 	var pp = file.getPath()
 	assert String.isNotEmpty(pp)
 	var img as !"UIImage"
-	lang "objc" {{{
-		img = [UIImage imageWithContentsOfFile:pp];
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			img = [UIImage imageWithContentsOfFile:pp];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			img = UIImage(contentsOfFile: pp!)
+		}}}
+	}
 	assert img
 	this.uiImage = img
 	return true
@@ -83,9 +105,16 @@ func getPixelWidth override as int
 	if uiImage == null:
 		return 0
 	var v as int
-	lang "objc" {{{
-		v = uiImage.size.width;
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			v = uiImage.size.width;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = Int(uiImage?.size.width ?? 0)
+		}}}
+	}
 	return v
 }
 
@@ -94,45 +123,67 @@ func getPixelHeight override as int
 	if uiImage == null:
 		return 0
 	var v as int
-	lang "objc" {{{
-		v = uiImage.size.height;
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			v = uiImage.size.height;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = Int(uiImage?.size.height ?? 0)
+		}}}
+	}
 	return v
 }
 
 func scaleToSize(w as int, h as int) override as Image
 {
-	if(w < 0 || h < 0) {
-		return(this)
-	}
+	if w < 0 || h < 0:
+		return this
 	var imageData #used = toPNGData()
 	var img as !"UIImage"
 	var maxSize = w
-	if(maxSize < h) {
+	if maxSize < h:
 		maxSize = h
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			CFDataRef cfDataRef = CFDataCreate(NULL, [imageData bytes], [imageData length]);
+			CGImageSourceRef cgImageSrcRef = CGImageSourceCreateWithData(cfDataRef, NULL);
+			CFDictionaryRef options = (__bridge CFDictionaryRef) @{
+				(id) kCGImageSourceCreateThumbnailWithTransform : @YES,
+				(id) kCGImageSourceCreateThumbnailFromImageAlways : @YES,
+				(id) kCGImageSourceThumbnailMaxPixelSize : @(maxSize)
+			};
+			CGImageRef cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef, 0, options);
+			CFRelease(cgImageSrcRef);
+			CGSize cgSize = CGSizeMake(w, h);
+			CGContextRef cgContextRef = CGBitmapContextCreate(NULL, cgSize.width, cgSize.height, 8, 0, CGColorSpaceCreateDeviceRGB(), kCGImageAlphaPremultipliedLast);
+			CGRect cgRect = CGRectMake(0.0, 0.0, w, h);
+			CGContextDrawImage(cgContextRef, cgRect, cgImageRefInput);
+			CGImageRelease(cgImageRefInput);
+			CGImageRef cgImageRefOutput = CGBitmapContextCreateImage(cgContextRef);
+			img = [[UIImage alloc] initWithCGImage:cgImageRefOutput];
+		}}}
 	}
-	lang "objc" {{{
-		CFDataRef cfDataRef = CFDataCreate(NULL, [imageData bytes], [imageData length]);
-		CGImageSourceRef cgImageSrcRef = CGImageSourceCreateWithData(cfDataRef, NULL);
-		CFDictionaryRef options = (__bridge CFDictionaryRef) @{
-			(id) kCGImageSourceCreateThumbnailWithTransform : @YES,
-			(id) kCGImageSourceCreateThumbnailFromImageAlways : @YES,
-			(id) kCGImageSourceThumbnailMaxPixelSize : @(maxSize)
-		};
-		CGImageRef cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef, 0, options);
-		CFRelease(cgImageSrcRef);
-		CGSize cgSize = CGSizeMake(w, h);
-		CGContextRef cgContextRef = CGBitmapContextCreate(NULL, cgSize.width, cgSize.height, 8, 0, CGColorSpaceCreateDeviceRGB(), kCGImageAlphaPremultipliedLast);
-		CGRect cgRect = CGRectMake(0.0, 0.0, w, h);
-		CGContextDrawImage(cgContextRef, cgRect, cgImageRefInput);
-		CGImageRelease(cgImageRefInput);
-		CGImageRef cgImageRefOutput = CGBitmapContextCreateImage(cgContextRef);
-		img = [[UIImage alloc] initWithCGImage:cgImageRefOutput];
-	}}}
-	if(img == null) {
-		return(null)
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let cgImageSrcRef = CGImageSourceCreateWithData(imageData! as CFData, nil)
+			let options = [
+				kCGImageSourceCreateThumbnailWithTransform: true,
+				kCGImageSourceCreateThumbnailFromImageAlways: true,
+				kCGImageSourceThumbnailMaxPixelSize: maxSize] as? CFDictionary?
+			let cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef!, 0, options!)!
+			let cgSize = CGSize(width: w, height: h)
+			let cgContextRef = CGContext(data: nil, width: Int(cgSize.width), height: Int(cgSize.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+			let cgRect = CGRect(x: 0, y: 0, width: w, height: h)
+			cgContextRef?.draw(cgImageRefInput, in: cgRect)
+			let cgImageRefOutput = cgContextRef!.makeImage()
+			img = UIImage(cgImage: cgImageRefOutput!)
+		}}}
 	}
-	return(forUIImage(img))
+	if not img:
+		return null
+	return forUIImage(img)
 }
 
 func scaleToSize(w as int, h as int, callback as function<void, Image>) override
@@ -162,12 +213,21 @@ func scaleToHeight(h as int, callback as function<void, Image>) override
 func crop(x as int, y as int, w as int, h as int) override as Image
 {
 	var img as !"UIImage"
-	lang "objc" {{{
-		CGRect rect = CGRectMake(x, y, w, h);
-		CGImageRef imageRef = CGImageCreateWithImageInRect([uiImage CGImage], rect);
-		img = [UIImage imageWithCGImage:imageRef scale:[uiImage scale] orientation: [uiImage imageOrientation]];
-		CGImageRelease(imageRef);
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			CGRect rect = CGRectMake(x, y, w, h);
+			CGImageRef imageRef = CGImageCreateWithImageInRect([uiImage CGImage], rect);
+			img = [UIImage imageWithCGImage:imageRef scale:[uiImage scale] orientation: [uiImage imageOrientation]];
+			CGImageRelease(imageRef);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			var rect = CGRect(x: x, y: y, width: w, height: h)
+			var imageRef = uiImage?.cgImage?.cropping(to: rect)
+			img = UIImage(cgImage: imageRef!)
+		}}}
+	}
 	return forUIImage(img)
 }
 
@@ -181,37 +241,58 @@ func toRGBAData override stub as buffer
 
 func toJPGData override as buffer
 {
-	if(uiImage == null) {
-		return(null)
-	}
+	if not uiImage:
+		return null
 	var v as buffer
-	lang "objc" {{{
-		v = UIImageJPEGRepresentation(uiImage, 1.0);
-	}}}
-	return(v)
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			v = UIImageJPEGRepresentation(uiImage, 1.0);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			v = NSMutableData(data: (uiImage?.jpegData(compressionQuality: 1.0))!)
+		}}}
+	}
+	return v
 }
 
 func toPNGData override as buffer
 {
-	if(uiImage == null) {
-		return(null)
-	}
+	if not uiImage:
+		return null
 	var v as buffer
-	lang "objc" {{{
-		if(!(uiImage.imageOrientation == UIImageOrientationUp || uiImage.imageOrientation == UIImageOrientationUpMirrored))
-		{
-			CGSize imgsize = uiImage.size;
-			UIGraphicsBeginImageContext(imgsize);
-			[uiImage drawInRect:CGRectMake(0.0, 0.0, imgsize.width, imgsize.height)];
-			uiImage = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-		}
-		v = UIImagePNGRepresentation(uiImage);
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			if(!(uiImage.imageOrientation == UIImageOrientationUp || uiImage.imageOrientation == UIImageOrientationUpMirrored))
+			{
+				CGSize imgsize = uiImage.size;
+				UIGraphicsBeginImageContext(imgsize);
+				[uiImage drawInRect:CGRectMake(0.0, 0.0, imgsize.width, imgsize.height)];
+				uiImage = UIGraphicsGetImageFromCurrentImageContext();
+				UIGraphicsEndImageContext();
+			}
+			v = UIImagePNGRepresentation(uiImage);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			if(!(uiImage?.imageOrientation == UIImage.Orientation.up || uiImage?.imageOrientation == UIImage.Orientation.upMirrored))
+			{
+				let imgsize = uiImage?.size
+				UIGraphicsBeginImageContext(imgsize!)
+				uiImage?.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize!.width, height: imgsize!.height))
+				uiImage = UIGraphicsGetImageFromCurrentImageContext()
+				UIGraphicsEndImageContext()
+			}
+			v = NSMutableData(data: (uiImage?.pngData())!)
+		}}}
+	}
 	return v
 }
 
-func releaseImage override
-{
+func releaseImage override:
 	uiImage = null
-}
+
+func getBitmap as !"UIImage":
+	return uiImage

@@ -38,22 +38,50 @@ IFDEF "target_ios"
 	prop screenForWidget as Screen
 	var receivePointerEvents = false
 
-	func layoutSubviews:
+	func layoutSubviews override:
 		onNativelyResized()
 
-	lang "objc" {{{
-		- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+			{
+				if(self->receivePointerEvents) {
+					return([super pointInside:point withEvent:event]);
+				}
+				for (UIView *view in self.subviews) {
+					if(!view.hidden && view.alpha > 0 && view.userInteractionEnabled && [view pointInside:[self convertPoint:point toView:view] withEvent:event])
+						return(YES);
+				}
+				return(NO);
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var ss as Screen
+
+		func setSS(s as Screen) as this
 		{
-			if(self->receivePointerEvents) {
-				return([super pointInside:point withEvent:event]);
-			}
-			for (UIView *view in self.subviews) {
-				if(!view.hidden && view.alpha > 0 && view.userInteractionEnabled && [view pointInside:[self convertPoint:point toView:view] withEvent:event])
-					return(YES);
-			}
-			return(NO);
+			this.ss = s
+			return this
 		}
-	}}}
+
+		func getSS as Screen:
+			return this.ss
+
+		lang "swift" {{{
+			public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+				if receivePointerEvents {
+					return super.point(inside: point, with: event)
+				}
+				for view in subviews {
+					if !view.isHidden && view.alpha > 0 && view.isUserInteractionEnabled && view.point(inside: convert(point, to: view), with: event) {
+						return true
+					}
+				}
+				return false
+			}
+		}}}
+	}
 }
 
 ELSE IFDEF "target_android"
@@ -155,40 +183,6 @@ ELSE IFDEF "target_uwp"
 	}}}
 }
 
-ELSE IFDEF "target_swift"
-{
-	basetype Widget type extends
-	prop screenForWidget as Screen
-	var receivePointerEvents = false
-	var ss as Screen
-
-	func setSS(s as Screen) as this
-	{
-		this.ss = s
-		return this
-	}
-
-	func getSS as Screen:
-		return this.ss
-
-	func layoutSubviews override:
-		onNativelyResized()
-
-	lang "swift" {{{
-		public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-			if receivePointerEvents {
-				return super.point(inside: point, with: event)
-			}
-			for view in subviews {
-				if !view.isHidden && view.alpha > 0 && view.isUserInteractionEnabled && view.point(inside: convert(point, to: view), with: event) {
-					return true
-				}
-			}
-			return false
-		}
-	}}}
-}
-
 ELSE
 {
 	basetype Widget type extends
@@ -218,10 +212,12 @@ ctor(ctx as cave.GuiApplicationContext)
 			}}}
 		}
 	}
-	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			super.init(frame: CGRect.zero)
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
 	}
 	context = ctx
 	togglePointerEventHandling(false)
@@ -233,16 +229,17 @@ func togglePointerEventHandling(active as bool)
 		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "auto")
 		}
-		ELSE IFDEF "target_iosoc" {
-			lang "objc" {{{
-				[self setUserInteractionEnabled:YES];
-			}}}
-			receivePointerEvents = true
-		}
-		ELSE IFDEF "target_swift" {
-			lang "swift" {{{
-				self.isUserInteractionEnabled = true
-			}}}
+		ELSE IFDEF "target_ios" {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setUserInteractionEnabled:YES];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.isUserInteractionEnabled = true
+				}}}
+			}
 			receivePointerEvents = true
 		}
 		ELSE IFDEF "target_android" {
@@ -259,10 +256,7 @@ func togglePointerEventHandling(active as bool)
 		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "none")
 		}
-		ELSE IFDEF "target_iosoc" {
-			receivePointerEvents = false
-		}
-		ELSE IFDEF "target_swift" {
+		ELSE IFDEF "target_ios" {
 			receivePointerEvents = false
 		}
 		ELSE IFDEF "target_android" {
