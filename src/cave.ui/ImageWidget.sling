@@ -58,12 +58,6 @@ IFDEF "target_android"
 	basetype Widget type isAlso
 }
 
-IFDEF "target_kotlin"
-{
-	basetype !"android.widget.ImageView" type extends
-	basetype Widget type isAlso
-}
-
 IFDEF "target_html"
 {
 	basetype Widget
@@ -94,9 +88,6 @@ ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! GuiApplicationContextForKotlin).getActivityContext())
 	}
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{
@@ -166,41 +157,43 @@ func setWidgetImageScaleMethod(method as int)
 		}
 	}
 	ELSE IFDEF "target_android" {
-		if method == FIT {
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
-			}}}
+		IFDEF "target_java" {
+			if method == FIT {
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+				}}}
+			}
+			else if method == FILL {
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+				}}}
+			}
+			else {
+				if method != STRETCH:
+					Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+				lang "java" {{{
+					setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+				}}}
+			}
 		}
-		else if method == FILL {
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
-			}}}
-		}
-		else {
-			if method != STRETCH:
-				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
-			lang "java" {{{
-				setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
-			}}}
-		}
-	}
-	ELSE IFDEF "target_kotlin" {
-		if method == FIT {
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE)
-			}}}
-		}
-		else if method == FILL {
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP)
-			}}}
-		}
-		else {
-			if method != STRETCH:
-				Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
-			lang "kotlin" {{{
-				setScaleType(android.widget.ImageView.ScaleType.FIT_XY)
-			}}}
+		ELSE IFDEF "target_kotlin" {
+			if method == FIT {
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE)
+				}}}
+			}
+			else if method == FILL {
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP)
+				}}}
+			}
+			else {
+				if method != STRETCH:
+					Log.warning(widgetContext, "Unsupported image scale method: " .. String.forInteger(method))
+				lang "kotlin" {{{
+					setScaleType(android.widget.ImageView.ScaleType.FIT_XY)
+				}}}
+			}
 		}
 	}
 	ELSE {
@@ -210,7 +203,6 @@ func setWidgetImageScaleMethod(method as int)
 
 func setWidgetImage(image as Image)
 {
-	assert image
 	if widgetImageRounded {
 		widgetImage = ImageUtil.createCircularImage(image)
 	}
@@ -224,15 +216,6 @@ func setWidgetImage(image as Image)
 		}
 		else {
 			base.setImageBitmap(ifa.getAndroidBitmap())
-		}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var ifk = widgetImage as ImageForKotlin
-		if !ifk {
-			base.setImageBitmap(null)
-		}
-		else {
-			base.setImageBitmap(ifk.getKotlinBitmap())
 		}
 	}
 	ELSE IFDEF "target_html" {
@@ -260,7 +243,7 @@ func setWidgetImage(image as Image)
 	}
 	ELSE IFDEF "target_swift" {
 		var uiImage as !"UIImage"
-		var img = image as ImageForSwift
+		var img = widgetImage as ImageForSwift
 		if img:
 			uiImage = img.uiImage
 		lang "swift" {{{

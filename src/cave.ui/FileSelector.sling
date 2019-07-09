@@ -29,12 +29,6 @@ IFDEF "target_android"
 	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
 }
 
-ELSE IFDEF "target_kotlin"
-{
-	depend "androidPermission:android.permission.READ_EXTERNAL_STORAGE"
-	depend "androidPermission:android.permission.WRITE_EXTERNAL_STORAGE"
-}
-
 ELSE IFDEF "target_ios"
 {
 	depend "plist: { \"NSPhotoLibraryUsageDescription\" : \"This app requires access to the photo library.\" }"
@@ -162,7 +156,7 @@ ctor(context as GuiApplicationContext)
 func openFileDialog(widget as Widget, type as string, callback as function<void, buffer, string, string, Error>)
 {
 	var cb final #used = callback
-	IFDEF("target_android") {
+	IFDEF "target_android" {
 		var screen = ScreenForWidget.findScreenForWidget(widget)
 		if(screen == null) {
 			if(cb != null) {
@@ -179,9 +173,19 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 				}
 				return
 			}
-			if(resultCode != lang "java" int {{{ android.app.Activity.RESULT_OK }}}) {
+			var ok as int
+			var cancel as int
+			IFDEF "target_java" {
+				ok = lang "java" int {{{ android.app.Activity.RESULT_OK }}}
+				cancel = lang "java" int {{{ android.app.Activity.RESULT_CANCELED }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				ok = lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}}
+				cancel = lang "kotlin" int {{{ android.app.Activity.RESULT_CANCELED }}}
+			}
+			if(resultCode != ok) {
 				assert cb
-				if resultCode == lang "java" int {{{ android.app.Activity.RESULT_CANCELED }}} {
+				if resultCode == cancel {
 					cb(null, null, null, Error.forCode("canceled"))
 				}
 				else {
@@ -189,51 +193,100 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 				}
 				return
 			}
-			lang "java" {{{
-				android.net.Uri uri = data.getData();
-				if("content".equalsIgnoreCase(uri.getScheme())) {
-					android.database.Cursor cursor = null;
-					long fileSize = 0;
-					String fileName = null;
-					String fileType = null;
-					byte[] fileBuffer = null;
-					try {
-						cursor = ctx.getContentResolver().query(uri, null, null, null, null);
-						if(cursor.moveToFirst()) {
-							fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME));
-							fileType = ctx.getContentResolver().getType(uri);
-							fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE));
-							fileBuffer = cape.Buffer.allocate(fileSize);
-							cursor.close();
-						}
-						java.io.InputStream inputStream = ctx.getContentResolver().openInputStream(uri);
-						int v = inputStream.read(fileBuffer);
-						if(cb != null) {
-							if(v == fileSize) {
-								cb.execute(fileBuffer, fileName, fileType, null);
+			IFDEF "target_java" {
+				lang "java" {{{
+					android.net.Uri uri = data.getData();
+					if("content".equalsIgnoreCase(uri.getScheme())) {
+						android.database.Cursor cursor = null;
+						long fileSize = 0;
+						String fileName = null;
+						String fileType = null;
+						byte[] fileBuffer = null;
+						try {
+							cursor = ctx.getContentResolver().query(uri, null, null, null, null);
+							if(cursor.moveToFirst()) {
+								fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME));
+								fileType = ctx.getContentResolver().getType(uri);
+								fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE));
+								fileBuffer = cape.Buffer.allocate(fileSize);
+								cursor.close();
 							}
-							else {
-								cb.execute(null, null, null, cape.Error.forCode("invalidFileData"));
+							java.io.InputStream inputStream = ctx.getContentResolver().openInputStream(uri);
+							int v = inputStream.read(fileBuffer);
+							if(cb != null) {
+								if(v == fileSize) {
+									cb.execute(fileBuffer, fileName, fileType, null);
+								}
+								else {
+									cb.execute(null, null, null, cape.Error.forCode("invalidFileData"));
+								}
+							}
+						}
+						catch (java.lang.Exception e) {
+							e.printStackTrace();
+							if(cb != null) {
+								cb.execute(null, null, null, cape.Error.forCode("noFileData"));
 							}
 						}
 					}
-					catch (java.lang.Exception e) {
-						e.printStackTrace();
-						if(cb != null) {
+					else if("file".equalsIgnoreCase(uri.getScheme())) {
+						cape.File fl = cape.File.forPath(uri.getPath());
+						if(fl == null) {
 							cb.execute(null, null, null, cape.Error.forCode("noFileData"));
 						}
+						else {
+							cb.execute(fl.getContentsBuffer(), fl.getBasename(), capex.util.MimeTypeRegistry.typeForFile(fl), null);
+						}
 					}
-				}
-				else if("file".equalsIgnoreCase(uri.getScheme())) {
-					cape.File fl = cape.File.forPath(uri.getPath());
-					if(fl == null) {
-						cb.execute(null, null, null, cape.Error.forCode("noFileData"));
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					val uri: android.net.Uri = data!!.getData()
+					if ("content".equals(uri!!.getScheme(), ignoreCase = true)) {
+						var cursor: android.database.Cursor? = null
+						var fileSize: Long = 0
+						var fileName: String? = null
+						var fileType: String? = null
+						var fileBuffer: UByteArray? = null
+						try {
+							cursor = ctx!!.getContentResolver().query(uri, null, null, null, null)
+							if (cursor!!.moveToFirst()) {
+								fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME))
+								fileType = ctx.getContentResolver().getType(uri)
+								fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE))
+								fileBuffer = cape.Buffer.allocate(fileSize)
+								cursor.close()
+							}
+							val inputStream: java.io.InputStream = ctx.getContentResolver().openInputStream(uri)
+							val buff = fileBuffer!!.toByteArray()
+							val v : kotlin.Int = inputStream.read(buff)
+							if (cb != null) {
+								if (v.toLong() == fileSize) {
+									cb.invoke(buff.toUByteArray(), fileName, fileType, null)
+								} else {
+									cb.invoke(null, null, null, cape.Error.forCode("invalidFileData"))
+								}
+							}
+						}
+						catch (e: java.lang.Exception) {
+							e.printStackTrace()
+							if (cb != null) {
+								cb.invoke(null, null, null, cape.Error.forCode("noFileData"))
+							}
+						}
 					}
-					else {
-						cb.execute(fl.getContentsBuffer(), fl.getBasename(), capex.util.MimeTypeRegistry.typeForFile(fl), null);
+					else if ("file".equals(uri.getScheme(), ignoreCase = true)) {
+						var fl = cape.File.forPath(uri.getPath())
+						if(fl == null) {
+							cb!!.invoke(null, null, null, cape.Error.forCode("noFileData"))
+						}
+						else {
+							cb!!.invoke(fl.getContentsBuffer(), fl.getBasename(), capex.util.MimeTypeRegistry.typeForFile(fl), null)
+						}
 					}
-				}
-			}}}
+				}}}
+			}
 		})
 		var act = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
 		var activity final = act
@@ -245,107 +298,33 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 			if(status == false) {
 				return
 			}
-			lang "java" {{{
-				android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
-				intent.setType(ty);
-				intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-				try {
-					activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
-				}
-				catch(android.content.ActivityNotFoundException ex) {
-				}
-			}}}
-		})
-	}
-	ELSE IFDEF("target_kotlin") {
-		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if(screen == null) {
-			if(cb != null):
-				cb(null, null, null, Error.forCode("noScreenFound"))
-			return
-		}
-		var ctx = (context as GuiApplicationContextForKotlin).getAndroidActivityContext()
-		screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
-			if(requestCode != 0) {
-				if(cb != null):
-					cb(null, null, null, Error.forCode("invalidRequestCode"))
-				return
-			}
-			if(resultCode != lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}}) {
-				assert cb
-				if resultCode == lang "kotlin" int {{{ android.app.Activity.RESULT_CANCELED }}} {
-					cb(null, null, null, Error.forCode("canceled"))
-				}
-				else {
-					cb(null, null, null, Error.forCode("unknownResult"))
-				}
-				return
-			}
-			lang "kotlin" {{{
-				val uri: android.net.Uri = data!!.getData()
-				if ("content".equals(uri!!.getScheme(), ignoreCase = true)) {
-					var cursor: android.database.Cursor? = null
-					var fileSize: Long = 0
-					var fileName: String? = null
-					var fileType: String? = null
-					var fileBuffer: UByteArray? = null
+			IFDEF "target_java" {
+				lang "java" {{{
+					android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_GET_CONTENT);
+					intent.setType(ty);
+					intent.addCategory(android.content.Intent.CATEGORY_OPENABLE);
 					try {
-						cursor = ctx!!.getContentResolver().query(uri, null, null, null, null)
-						if (cursor!!.moveToFirst()) {
-							fileName = cursor.getString(cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME))
-							fileType = ctx.getContentResolver().getType(uri)
-							fileSize = cursor.getLong(cursor.getColumnIndex(android.provider.OpenableColumns.SIZE))
-							fileBuffer = cape.Buffer.allocate(fileSize)
-							cursor.close()
-						}
-						val inputStream: java.io.InputStream = ctx.getContentResolver().openInputStream(uri)
-						val buff = fileBuffer!!.toByteArray()
-						val v : kotlin.Int = inputStream.read(buff)
-						if (cb != null) {
-							if (v.toLong() == fileSize) {
-								cb.invoke(buff.toUByteArray(), fileName, fileType, null)
-							} else {
-								cb.invoke(null, null, null, cape.Error.forCode("invalidFileData"))
-							}
-						}
+						activity.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0);
 					}
-					catch (e: java.lang.Exception) {
-						e.printStackTrace()
-						if (cb != null) {
-							cb.invoke(null, null, null, cape.Error.forCode("noFileData"))
-						}
+					catch(android.content.ActivityNotFoundException ex) {
 					}
-				}
-				else if ("file".equals(uri.getScheme(), ignoreCase = true)) {
-					var fl = cape.File.forPath(uri.getPath())
-					if(fl == null) {
-						cb!!.invoke(null, null, null, cape.Error.forCode("noFileData"))
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT)
+					intent.setType(type)
+					intent.addCategory(android.content.Intent.CATEGORY_OPENABLE)
+					try	{
+						activity!!.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0)
 					}
-					else {
-						cb!!.invoke(fl.getContentsBuffer(), fl.getBasename(), capex.util.MimeTypeRegistry.typeForFile(fl), null)
+					catch (ex: android.content.ActivityNotFoundException) {
 					}
-				}
-			}}}
-		})
-		var activity = (context as GuiApplicationContextForKotlin).getAndroidActivityContext() as !"android.app.Activity"
-		var perms = new string[] { "android.permission.WRITE_EXTERNAL_STORAGE", "android.permission.READ_EXTERNAL_STORAGE" }
-		var ctxAac = context as KotlinApplicationContext
-		ctxAac.requestPermissions(perms, func(status as bool) {
-			if(status == false):
-				return
-			lang "kotlin" {{{
-				val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT)
-				intent.setType(type)
-				intent.addCategory(android.content.Intent.CATEGORY_OPENABLE)
-				try	{
-					activity!!.startActivityForResult(android.content.Intent.createChooser(intent, "Select a file"), 0)
-				}
-				catch (ex: android.content.ActivityNotFoundException) {
-				}
-			}}}
+				}}}
+			}
 		})
 	}
-	ELSE IFDEF("target_html") {
+	ELSE IFDEF "target_html" {
 		HTMLDOM.setAttribute(inputElement, "accept", type)
 		lang "js" {{{
 			var elm = this.inputElement;
@@ -383,7 +362,7 @@ func openFileDialog(widget as Widget, type as string, callback as function<void,
 			elm.click();
 		}}}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF "target_iosoc" {
 		var screen = ScreenForWidget.findScreenForWidget(widget)
 		if(screen == null) {
 			if(cb != null) {

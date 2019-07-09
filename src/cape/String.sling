@@ -260,6 +260,9 @@ func forUTF8Buffer(data as buffer #used) static as string
 	ELSE IFDEF "target_swift" {
 		return lang "swift" string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.utf8) }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _sushi.convertBufferToString(data) }}}
+	}
 	ELSE {
 		var sb = new StringBuilder()
 		var ci = CharacterIteratorForBuffer.forBuffer(data)
@@ -321,16 +324,14 @@ func forUCS2Buffer(data as buffer #used) static as string
 
 func forCharArray(chars as char[] #used, offset as int #used, count as int #used) static as string
 {
-	if(chars == null) {
-		return(null)
+	assert chars
+	IFDEF "target_cs" {
+		return lang "cs" string {{{ new string(chars, offset, count) }}}
 	}
-	IFDEF("target_cs") {
-		return(lang "cs" string {{{ new string(chars, offset, count) }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" string {{{ new java.lang.String(chars, offset, count) }}}
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" string {{{ new java.lang.String(chars, offset, count) }}})
-	}
-	ELSE IFDEF("target_js") {
+	ELSE IFDEF "target_js" {
 		var str as string #used = null
 		lang "js" string {{{
 			if(offset < chars.length && count <= chars.length && offset < count) {
@@ -340,14 +341,17 @@ func forCharArray(chars as char[] #used, offset as int #used, count as int #used
 				}
 			}
 		}}}
-		return(str)
+		return str
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ kotlin.text.String(chars, offset, count) }}}
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(null)
+		var sb = new StringBuilder()
+		var sz = SIZE chars
+		for(var n=0; n<count && n+offset<sz; n++):
+			sb.append(chars[n+offset])
+		return sb.toString()
 	}
 }
 
@@ -517,7 +521,7 @@ func forIntegerHex(vv as int #used, minlength as int = 0) static as string
 {
 	var v as string
 	IFDEF "target_cs" {
-		v = lang "cs" string {{{ vv.ToString("X") }}}
+		v = lang "cs" string {{{ vv.ToString("x") }}}
 	}
 	ELSE IFDEF "target_objc" {
 		v = lang "objc" string {{{ [NSString stringWithFormat:@"%X", vv] }}}
@@ -533,6 +537,9 @@ func forIntegerHex(vv as int #used, minlength as int = 0) static as string
 	}
 	ELSE IFDEF "target_swift" {
 		v = lang "swift" string {{{ Swift.String(format:"%x", vv) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		v = lang "lua" string {{{ _sushi.createHexStringForInteger(vv) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -570,6 +577,35 @@ func forIntegerOctal(vv as int #used) static as string
 	}
 	ELSE IFDEF "target_swift" {
 		v = lang "swift" string {{{ Swift.String(format:"%o", vv) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		v = lang "lua" string {{{ _sushi.createOctalStringForInteger(vv) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+	return v
+}
+
+**
+** Converts an integer value to a string using the binary notation.
+**
+
+func forIntegerBinary(vv as int #used) static as string
+{
+	var v as string
+	IFDEF "target_cs" {
+		v = lang "cs" string {{{ System.Convert.ToString(vv, 2) }}}
+	}
+	ELSE IFDEF "target_java" {
+		v = lang "java" string {{{ java.lang.Integer.toBinaryString(vv) }}}
+	}
+	ELSE IFDEF "target_js" {
+		v = lang "js" string {{{ (~~vv).toString(2) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		v = lang "kotlin" string {{{ vv.toString(2) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -629,14 +665,17 @@ func forCharacter(vv as char #used) static as string
 			var v2 = 0x80 | (vv & 0x3f)
 			return lang "lua" string {{{ _sushi.createStringForByte(v1) .. _sushi.createStringForByte(v2) }}}
 		}
-		if vv < 0xd800 || vv >= 0xe000 {
+		if vv < 0x10000 {
 			var v1 = 0xe0 | (vv >> 12)
 			var v2 = 0x80 | ((vv >> 6) & 0x3f)
 			var v3 = 0x80 | (vv & 0x3f)
 			return lang "lua" string {{{ _sushi.createStringForByte(v1) .. _sushi.createStringForByte(v2) .. _sushi.createStringForByte(v3) }}}
 		}
-		// FIXME: four byte UTF characters lack an implementation
-		return lang "lua" string {{{ _sushi.createStringForByte(vv) }}}
+		var v1 = 0xf0 | (vv >> 18)
+		var v2 = 0x80 | ((vv >> 12) & 0x3f)
+		var v3 = 0x80 | ((vv >> 6) & 0x3f)
+		var v4 = 0x80 | (vv & 0x3f)
+		return lang "lua" string {{{ _sushi.createStringForByte(v1) .. _sushi.createStringForByte(v2) .. _sushi.createStringForByte(v3) .. _sushi.createStringForByte(v4) }}}
 	}
 	ELSE IFDEF "target_stdlua" {
 		if vv < 0x80 {
@@ -647,14 +686,17 @@ func forCharacter(vv as char #used) static as string
 			var v2 = 0x80 | (vv & 0x3f)
 			return lang "lua" string {{{ string.char(v1) .. string.char(v2) }}}
 		}
-		if vv < 0xd800 || vv >= 0xe000 {
+		if vv < 0x10000 {
 			var v1 = 0xe0 | (vv >> 12)
 			var v2 = 0x80 | ((vv >> 6) & 0x3f)
 			var v3 = 0x80 | (vv & 0x3f)
 			return lang "lua" string {{{ string.char(v1) .. string.char(v2) .. string.char(v3) }}}
 		}
-		// FIXME: four byte UTF characters lack an implementation
-		return lang "lua" string {{{ string.char(vv) }}}
+		var v1 = 0xf0 | (vv >> 18)
+		var v2 = 0x80 | ((vv >> 12) & 0x3f)
+		var v3 = 0x80 | ((vv >> 6) & 0x3f)
+		var v4 = 0x80 | (vv & 0x3f)
+		return lang "lua" string {{{ string.char(v1) .. string.char(v2) .. string.char(v3) .. string.char(v4) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ vv.toString() }}}
@@ -756,8 +798,8 @@ func toUTF8Buffer(str as string) static as buffer:
 
 **
 ** Converts a string to a buffer of bytes, encoded using the specified "charset"
-** as the character set or encoding. Vaid options for "charset" are platform
-** dependent, and would includes values such as UTF8, UTF16, UCS2 and ASCII.
+** as the character set or encoding. Valid options for "charset" are platform
+** dependent, and would include values such as UTF8, UTF16, UCS2 and ASCII.
 ** UTF8 encoding, however, is implemented for all platforms, and is therefore the
 ** recommended character set to use.
 **
@@ -794,16 +836,8 @@ func toBuffer(str as string, charset as string) static as buffer
 		}
 	}
 	ELSE IFDEF "target_sushi" {
-		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset) {
-			var v as buffer
-			lang "lua" {{{
-				v = {}
-				for i=1, #str do
-					v[#v + 1] = _sushi.getByteFromString(str, i-1)
-				end
-			}}}
-			return v
-		}
+		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset):
+			return lang "lua" buffer {{{ _sushi.convertStringToBuffer(str) }}}
 	}
 	var bytes = assert getBytesUnsigned(str, charset)
 	var c = SIZE bytes
@@ -977,9 +1011,6 @@ func getLength(str as string #used) static as int
 	ELSE IFDEF "target_js" {
 		return lang "js" int {{{ str.length }}}
 	}
-	ELSE IFDEF "target_lua" {
-		return lang "lua" int {{{ #str }}}
-	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.length }}}
 	}
@@ -987,8 +1018,15 @@ func getLength(str as string #used) static as int
 		return lang "swift" int {{{ str.count }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return -1
+		var it = iterate(str)
+		var v = 0
+		while it {
+			var c = it.getNextChar()
+			if Character.isEOF(c):
+				break
+			v++
+		}
+		return v
 	}
 }
 
@@ -1021,6 +1059,9 @@ func append(str1 as string #used, str2 as string #used) static as string
 	}
 	ELSE IFDEF "target_swift" {
 		return lang "swift" string {{{ str1! + str2! }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" string {{{ str1 .. str2 }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1174,7 +1215,7 @@ func charAt(str as string, index as int) static as char #deprecated:
 
 func getChar(str as string #used, index as int #used) static as char
 {
-	if str == null:
+	if str == null || index < 0:
 		return 0 as char
 	IFDEF "target_cs" {
 		return lang "cs" char {{{ str == null || index < 0 || index >= str.Length ? (char)0 : str[index] }}}
@@ -1191,14 +1232,20 @@ func getChar(str as string #used, index as int #used) static as char
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" char {{{ if (str == null || index < 0 || index >= str.length) 0.toChar() else str.get(index) }}}
 	}
-	ELSE IFDEF "target_sushi" {
-		return lang "lua" char {{{ _sushi.getByteFromString(str, index) }}}
-	}
 	ELSE IFDEF "target_swift" {
 		return lang "swift" char {{{ str == nil || index < 0 || index >= str.count ? Swift.Character(UnicodeScalar(0)) : str![str.index(str.startIndex, offsetBy: index)] }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		var it = iterate(str)
+		var n = 0
+		while it {
+			var c = it.getNextChar()
+			if Character.isEOF(c):
+				break
+			if n == index:
+				return c
+			n++
+		}
 		return 0 as char
 	}
 }
@@ -1316,7 +1363,24 @@ func compare(str1 as string #used, str2 as string #used) static as int
 		return lang "swift" int {{{ (str1! as NSString).compare(str2!).rawValue }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		var it1 = iterate(str1)
+		var it2 = iterate(str2)
+		if it1 == null || it2 == null:
+			return 0
+		loop {
+			if it1.hasEnded() && it2.hasEnded():
+				break
+			if it1.hasEnded():
+				return -1
+			if it2.hasEnded():
+				return 1
+			var c1 = it1.getNextChar()
+			var c2 = it2.getNextChar()
+			if c1 < c2:
+				return -1
+			if c1 > c2:
+				return 1
+		}
 		return 0
 	}
 }
@@ -1354,7 +1418,24 @@ func compareToIgnoreCase(str1 as string #used, str2 as string #used) static as i
 		return n
 	}
 	ELSE {
-		ERROR "Not implemented"
+		var it1 = iterate(str1)
+		var it2 = iterate(str2)
+		if it1 == null || it2 == null:
+			return 0
+		loop {
+			if it1.hasEnded() && it2.hasEnded():
+				break
+			if it1.hasEnded():
+				return -1
+			if it2.hasEnded():
+				return 1
+			var c1 = Character.toLowercase(it1.getNextChar())
+			var c2 = Character.toLowercase(it2.getNextChar())
+			if c1 < c2:
+				return -1
+			if c1 > c2:
+				return 1
+		}
 		return 0
 	}
 }
@@ -1376,19 +1457,6 @@ func getHashCode(str as string #used) static as int
 	ELSE IFDEF "target_java" {
 		return lang "java" int {{{ str.hashCode() }}}
 	}
-	ELSE IFDEF "target_js" {
-		var hash #used = 0
-		lang "js" {{{
-			if(str != null) {
-				for(var i = 0; i < str.length; i++) {
-					var ch = str.charCodeAt(i);
-					hash = ((hash << 5) - hash) + ch;
-					hash = hash & hash;
-				}
-			}
-		}}}
-		return hash
-	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ str.hashCode() }}}
 	}
@@ -1396,8 +1464,16 @@ func getHashCode(str as string #used) static as int
 		return lang "swift" int {{{ (str! as NSString).hash }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		var hash = 0
+		var it = iterate(str)
+		while it {
+			var ch = it.getNextChar()
+			if Character.isEOF(ch):
+				break
+			hash = ((hash << 5) - hash) + ch
+			hash = hash & hash
+		}
+		return hash
 	}
 }
 
@@ -1449,8 +1525,9 @@ func getIndexOf(str as string #used, c as char #used, start as int #used = 0) st
 	ELSE IFDEF "target_swift" {
 		var v as int #used
 		lang "swift" {{{
-			let range: Range<String.Index> = str.range(of: Swift.String(c))!
-			v = str.distance(from: str.startIndex, to: range.lowerBound)
+			if let range = str.range(of: Swift.String(c)) {
+				v = str.distance(from: str.startIndex, to: range.lowerBound)
+			}
 		}}}
 		return v
 	}
@@ -1475,7 +1552,7 @@ func indexOf(str as string, s as string, start as int = 0) static as int #deprec
 
 func getIndexOf(str as string #used, s as string #used, start as int #used = 0) static as int
 {
-	if str == null:
+	if str == null || s == null:
 		return -1
 	IFDEF "target_cs" {
 		return lang "cs" int {{{ str.IndexOf(s, start) }}}
@@ -1490,15 +1567,12 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 		return lang "js" int {{{ str.indexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		assert s
 		return lang "kotlin" int {{{ str.indexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		assert s
 		return lang "lua" int {{{ _sushi.getIndexOfSubstring(str, s, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		assert s
 		var v as int #used
 		lang "swift" {{{
 			let range: Range<String.Index> = str.range(of: s!)!
@@ -1679,7 +1753,7 @@ func getSubString(str as string #used, start as int #used) static as string
 		return lang "kotlin" string {{{ str.substring(ss) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" int {{{ _sushi.getSubstring(str, ss, #str) }}}
+		return lang "lua" string {{{ _sushi.getSubstring(str, ss, #str) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		var v as string #used
@@ -1711,15 +1785,10 @@ func subString(str as string, start as int, length as int) static as string #dep
 func getSubString(str as string #used, start as int #used, length as int #used) static as string
 {
 	assert str
-	var strl = getLength(str)
-	if start >= strl:
-		return ""
 	var ss = start
 	if ss < 0:
 		ss = 0
-	var ll = length
-	if ll > strl - start:
-		ll = strl - start
+	var ll #used = length
 	IFDEF "target_cs" {
 		return lang "cs" string {{{ str.Substring(ss, ll)  }}}
 	}
@@ -1733,10 +1802,13 @@ func getSubString(str as string #used, start as int #used, length as int #used) 
 		return lang "js" string {{{ str.substring(ss, ss+ll) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" int {{{ str.substring(ss, ss+ll) }}}
+		return lang "kotlin" string {{{ str.substring(ss, ss+ll) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" int {{{ _sushi.getSubstring(str, ss, ss+ll) }}}
+		var v = lang "lua" string {{{ _sushi.getSubstring(str, ss, ss+ll) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_swift" {
 		var v as string #used
@@ -1790,7 +1862,8 @@ func contains(str1 as string, str2 as string) static as bool
 		return lang "swift" bool {{{ (str1! as NSString).contains(str2!) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		if getIndexOf(str1, str2) >= 0:
+			return true
 		return false
 	}
 }
@@ -2087,9 +2160,6 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 	ELSE IFDEF "target_js" {
 		return lang "js" string {{{ str.replace(oldChar, newChar) }}}
 	}
-	ELSE IFDEF "target_objc" {
-		return replace(str, forCharacter(oldChar), forCharacter(newChar))
-	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" string {{{ str.replace(oldChar, newChar) }}}
 	}
@@ -2106,8 +2176,7 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 		return v
 	}
 	ELSE {
-		ERROR "Not Implemented"
-		return null
+		return replace(str, forCharacter(oldChar), forCharacter(newChar))
 	}
 }
 
@@ -2120,39 +2189,51 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 func replace(str as string #used, target as string #used, replacement as string #used) static as string
 {
 	assert str
+	if isEmpty(target):
+		return str
+	var rr = replacement
+	if not rr:
+		rr = ""
 	IFDEF "target_cs" {
-		return lang "cs" string {{{ str.Replace(target, replacement) }}}
+		return lang "cs" string {{{ str.Replace(target, rr) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" string {{{ str.replace(target, replacement) }}}
+		return lang "java" string {{{ str.replace(target, rr) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" string {{{ str.replace(target, replacement) }}}
+		return lang "js" string {{{ str.replace(target, rr) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" string {{{ [str stringByReplacingOccurrencesOfString: target withString: replacement] }}}
+		return lang "objc" string {{{ [str stringByReplacingOccurrencesOfString: target withString: rr] }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		assert target
-		assert replacement
-		return lang "kotlin" string {{{ str.replace(target, replacement, false) }}}
+		return lang "kotlin" string {{{ str!!.replace(target!!, rr, false) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		var v as string #used
 		lang "swift" {{{
 			let oldStrRange: Range<String.Index> = str!.range(of: target!)!
 			let oldStrIdx: Int = str!.distance(from: str!.startIndex, to: oldStrRange.lowerBound)
-
 			let start = str!.index(str!.startIndex, offsetBy: oldStrIdx)
 			let end = str!.index(str!.startIndex, offsetBy:  oldStrIdx + target!.count)
 			v = str
-			v!.replaceSubrange(start..<end, with: replacement!)
+			v!.replaceSubrange(start..<end, with: rr!)
 		}}}
 		return v
 	}
 	ELSE {
-		ERROR "Not Implemented"
-		return null
+		var v = str
+		loop {
+			var p = getIndexOf(v, target)
+			if p < 0:
+				break
+			var sb = new StringBuilder()
+			sb.append(getSubString(v, 0, p))
+			sb.append(rr)
+			sb.append(getSubString(v, p + getLength(target)))
+			v = sb.toString()
+		}
+		return v
 	}
 }
 
@@ -2208,14 +2289,14 @@ func toCharArray(str as string #used) static as char[]
 		return lang "swift" char[] {{{ NSMutableArray(array: Array(str!)) }}}
 	}
 	ELSE IFDEF "target_lua" {
-		var it = CharacterIteratorForString.forString(str)
+		var it = iterate(str)
 		var v as array<char>
 		lang "lua" {{{
 			v = {}
 		}}}
 		while it {
 			var c = it.getNextChar()
-			if c < 1:
+			if Character.isEOF(c):
 				break
 			lang "lua" {{{
 				v[#v + 1] = c
@@ -2291,14 +2372,15 @@ func toInteger(str as string) static as int
 {
 	if isEmpty(str):
 		return 0
+	var iter = assert iterate(str)
 	var v = 0
-	var m = getLength(str)
-	var n as int
+	var first = true
 	var negative = false
-	for(n = 0; n < m; n++) {
-		var c = charAt(str, n)
-		if n == 0 && c == '-' {
+	loop {
+		var c = iter.getNextChar()
+		if first && c == '-' {
 			negative = true
+			first = false
 			continue
 		}
 		if c >= '0' && c <= '9' {
@@ -2308,6 +2390,7 @@ func toInteger(str as string) static as int
 		else {
 			break
 		}
+		first = false
 	}
 	if negative:
 		v *= -1
@@ -2326,14 +2409,15 @@ func toLong(str as string) static as long
 {
 	if isEmpty(str):
 		return 0
+	var iter = assert iterate(str)
 	var v = 0 as long
-	var m = getLength(str)
-	var n as int
+	var first = true
 	var negative = false
-	for(n = 0; n < m; n++) {
-		var c = charAt(str, n)
-		if n == 0 && c == '-' {
+	loop {
+		var c = iter.getNextChar()
+		if first && c == '-' {
 			negative = true
+			first = false
 			continue
 		}
 		if c >= '0' && c <= '9' {
@@ -2343,6 +2427,7 @@ func toLong(str as string) static as long
 		else {
 			break
 		}
+		first = false
 	}
 	if negative:
 		v *= -1
@@ -2358,11 +2443,10 @@ func toIntegerFromHex(str as string) static as int
 {
 	if isEmpty(str):
 		return 0
+	var iter = assert iterate(str)
 	var v = 0
-	var m = getLength(str)
-	var n as int
-	for(n = 0; n < m; n++) {
-		var c = charAt(str, n)
+	loop {
+		var c = iter.getNextChar()
 		if c >= '0' && c <= '9' {
 			v = v * 16
 			v += (c - '0') as int
@@ -2391,13 +2475,36 @@ func toIntegerFromOctal(str as string) static as int
 {
 	if isEmpty(str):
 		return 0
+	var iter = assert iterate(str)
 	var v = 0
-	var m = getLength(str)
-	var n as int
-	for(n = 0; n < m; n++) {
-		var c = charAt(str, n)
+	loop {
+		var c = iter.getNextChar()
 		if c >= '0' && c <= '7' {
 			v = v * 8
+			v += (c - '0') as int
+		}
+		else {
+			break
+		}
+	}
+	return v
+}
+
+**
+** Converts the string to an integer, while treating the string as a binary
+** representation of a number.
+**
+
+func toIntegerFromBinary(str as string) static as int
+{
+	if isEmpty(str):
+		return 0
+	var iter = assert iterate(str)
+	var v = 0
+	loop {
+		var c = iter.getNextChar()
+		if c >= '0' && c <= '1' {
+			v = v * 2
 			v += (c - '0') as int
 		}
 		else {
@@ -2469,7 +2576,15 @@ func toDouble(str as string #used) static as double
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" double {{{ Double(str!)! }}}
+		var v as double #used
+		lang "swift" {{{
+			var d = Swift.Double(str)
+			v = d != nil ? d! : 0.0
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" double {{{ _sushi.toNumber(str) }}}
 	}
 	ELSE {
 		ERROR "Not Implemented"

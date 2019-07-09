@@ -1,0 +1,140 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func createClassInstance(qualifiedName as string) static as object
+{
+	ERROR "Not implemented."
+	// FIXME
+	return null
+}
+
+func callMethod(object as object, methodName as string, arguments as array<dynamic>) static as dynamic
+{
+	ERROR "Not implemented."
+	// FIXME
+	return null
+}
+
+func getDataTypeInfo(variable as dynamic) static as typeinfo
+{
+	IFDEF "target_sushi" {
+		if variable is string {
+			return "string" as! typeinfo
+		}
+		else if variable is function {
+			return "function" as! typeinfo
+		}
+		else if variable is boolean {
+			return "boolean" as! typeinfo
+		}
+		else if variable is int {
+			return "integer" as! typeinfo
+		}
+		else if variable is float {
+			return "float" as! typeinfo
+		}
+		else if variable is double {
+			return "double" as! typeinfo
+		}
+		else if variable is char {
+			return "character" as! typeinfo
+		}
+		else {
+			var qualifiedName as string
+			lang "lua" {{{
+				qualifiedName = variable._qualifiedClassName
+			}}}
+			if String.isNotEmpty(qualifiedName):
+				return "class:" .. qualifiedName as! typeinfo
+		}
+	}
+	ELSE {
+		return TYPEINFO(variable)
+	}
+}
+
+func isSubClassOf(subclass as typeinfo, parentclass as typeinfo) static as bool
+{
+	IFDEF "target_cs" {
+		assert subclass
+		assert parentclass
+		return lang "cs" bool {{{ parentclass.IsAssignableFrom(subclass) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		assert subclass
+		assert parentclass
+		var sc = lang "lua" string {{{ subclass }}}
+		var pc = lang "lua" string {{{ parentclass }}}
+		if String.startsWith(sc, "class:") == false:
+			return false
+		if String.startsWith(pc, "class:") == false:
+			return false
+		sc = String.getSubString(sc, 6)
+		pc = String.getSubString(pc, 6)
+		var o = assert createClassInstance(sc)
+		var v = false
+		lang "lua" {{{
+			if o['_isType.' .. pc] then
+				v = true
+			end
+		}}}
+		return v
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return false
+	}
+}
+
+func isInstanceOf(object as object, type as typeinfo) static as bool
+{
+	assert object
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			if(type == null) {
+				return false;
+			}
+		}}}
+		return lang "cs" bool {{{ type.IsAssignableFrom(@object.GetType()) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		var pc = lang "lua" string {{{ type }}}
+		if String.startsWith(pc, "class:") == false:
+			return false
+		pc = String.getSubString(pc, 6)
+		var v = false
+		lang "lua" {{{
+			if object['_isType.' .. pc] then
+				v = true
+			end
+		}}}
+		return v
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return false
+	}
+}

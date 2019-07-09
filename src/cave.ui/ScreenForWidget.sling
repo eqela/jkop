@@ -320,10 +320,18 @@ IFDEF "target_android"
 		prop callback as function<void, DynamicMap>
 		prop action as string
 
-		func onReceive(context as !"android.content.Context", intent as !"android.content.Intent")
+		func onReceive(context as !"android.content.Context", intent as !"android.content.Intent") override
 		{
 			assert callback
-			var data = assert JSONParser.parse(lang "java" string {{{ intent.getStringExtra("data") }}})
+			var dstr as string
+			IFDEF "target_java" {
+				dstr = lang "java" string {{{ intent.getStringExtra("data") }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				dstr = lang "kotlin" string {{{ intent!!.getStringExtra("data") }}}
+			}
+			var data = assert JSONParser.parse(dstr) as DynamicMap:
+				callback(null)
 			callback(data)
 		}
 	}
@@ -347,177 +355,16 @@ IFDEF "target_android"
 		broadcastReceiver.setAction(action)
 		var intentFilter = new !"android.content.IntentFilter"()
 		intentFilter.addAction(action)
-		lang "java" {{{
-			registerReceiver(broadcastReceiver, intentFilter);
-		}}}
-		return broadcastReceiver
-	}
-
-	func onResume
-	{
-		base.onResume()
-		onStartScreen()
-	}
-
-	func onStop
-	{
-		base.onStop()
-		onStopScreen()
-	}
-
-	func onDestroy
-	{
-		base.onDestroy()
-		onDestroyScreen()
-	}
-
-	func unregisterBroadcastReceiver(o as object) as bool
-	{
-		var broadcastReceiver = assert o as AndroidBroadcastReceiver
-		var action = broadcastReceiver.getAction()
-		assert String.isNotEmpty(action)
-		callbackMap.remove(action)
-		lang "java" {{{
-			unregisterReceiver(broadcastReceiver);
-		}}}
-		return true
-	}
-
-	func onCreate(savedInstance as !"android.os.Bundle")
-	{
-		base.onCreate(savedInstance)
-		lang "java" {{{
-			android.app.ActionBar ab = getActionBar();
-			if(ab != null) {
-				ab.hide();
-			}
-		}}}
-		onPrepareScreen()
-		initialize()
-		var intent as !"android.content.Intent"
-		lang "java" {{{
-			intent = getIntent();
-		}}}
-		if intent {
-			var extras as !"android.os.Bundle"
+		IFDEF "target_java" {
 			lang "java" {{{
-				extras = intent.getExtras();
+				registerReceiver(broadcastReceiver, intentFilter);
 			}}}
-			if extras {
-				var data = new DynamicMap()
-				lang "java" {{{
-					for(java.lang.String key : extras.keySet()) {
-						java.lang.Object value = extras.get(key);
-						data.set(key, value);
-					}
-				}}}
-				onStartScreenWithData(data)
-			}
 		}
-	}
-
-	func setPermissionRequestListener(listener as function<void,bool>)
-	{
-		permissionRequestListener = listener
-	}
-
-	func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>)
-	{
-		var listener = permissionRequestListener
-		if(listener == null) {
-			return
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				registerReceiver(broadcastReceiver, intentFilter)
+			}}}
 		}
-		permissionRequestListener = null
-		if SIZE(grantResults) < 1 {
-			listener(false)
-			return
-		}
-		var status = true
-		var granted as int
-		lang "java" {{{
-			granted = android.content.pm.PackageManager.PERMISSION_GRANTED;
-		}}}
-		foreach(result in grantResults) {
-			if(result != granted) {
-				status = false
-				break
-			}
-		}
-		listener(status)
-	}
-
-	func onBackPressed
-	{
-		onBackKeyPressEvent()
-	}
-
-	func onActivityResult(requestCode as int, resultCode as int, data as !"android.content.Intent")
-	{
-		if(androidActivityResultHandler == null) {
-			return
-		}
-		androidActivityResultHandler(requestCode, resultCode, data)
-		androidActivityResultHandler = null
-	}
-
-	func dispatchTouchEvent(event as !"android.view.MotionEvent") as bool
-	{
-		if(event.getAction() == lang "java" int {{{ android.view.MotionEvent.ACTION_DOWN }}}) {
-			var w = lang "java" !"android.view.View" {{{ getCurrentFocus(); }}}
-			if(w is TextInputWidget || w is TextAreaWidget) {
-				lang "java" {{{
-					android.graphics.Rect rect = new android.graphics.Rect();
-					w.getGlobalVisibleRect(rect);
-					if (!rect.contains((int)event.getRawX(), (int)event.getRawY())) {
-						if(w instanceof TextInputWidget) {
-							((TextInputWidget)w).dismissKeyboard();
-						}
-					}
-				}}}
-			}
-		}
-		return(lang "java" bool {{{ super.dispatchTouchEvent(event) }}})
-	}
-}
-
-IFDEF "target_kotlin"
-{
-	class KotlinBroadcastReceiver extends !"android.content.BroadcastReceiver"
-	{
-		prop callback as function<void, DynamicMap>
-		prop action as string
-
-		func onReceive(context as !"android.content.Context", intent as !"android.content.Intent") override
-		{
-			assert callback
-			var str = lang "kotlin" string {{{ intent!!.getStringExtra("data") }}}
-			var data = assert JSONParser.parse(str) as DynamicMap
-			callback(data)
-		}
-	}
-
-	basetype !"android.app.Activity" type extends
-	basetype cave.Screen type isAlso
-	basetype CompatibleAndroidActivity
-
-	prop androidActivityResultHandler as function<void,int,int,!"android.content.Intent">
-	var permissionRequestListener as function<void,bool>
-	var callbackMap private as DynamicMap
-
-	func registerBroadcastReceiver(action as string, callback as function<void, DynamicMap>) as object
-	{
-		assert String.isNotEmpty(action) && callback
-		if not callbackMap:
-			callbackMap = new DynamicMap()
-		callbackMap.set(action, callback)
-		var broadcastReceiver = new KotlinBroadcastReceiver()
-		broadcastReceiver.setCallback(callback)
-		broadcastReceiver.setAction(action)
-		lang "kotlin" {{{
-			var intentFilter = android.content.IntentFilter()
-			intentFilter.addAction(action)
-			registerReceiver(broadcastReceiver, intentFilter)
-		}}}
 		return broadcastReceiver
 	}
 
@@ -541,54 +388,97 @@ IFDEF "target_kotlin"
 
 	func unregisterBroadcastReceiver(o as object) as bool
 	{
-		var broadcastReceiver = assert o as KotlinBroadcastReceiver
+		var broadcastReceiver = assert o as AndroidBroadcastReceiver
 		var action = broadcastReceiver.getAction()
 		assert String.isNotEmpty(action)
 		callbackMap.remove(action)
-		lang "kotlin" {{{
-			unregisterReceiver(broadcastReceiver)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				unregisterReceiver(broadcastReceiver);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				unregisterReceiver(broadcastReceiver)
+			}}}
+		}
 		return true
 	}
 
 	func onCreate(savedInstance as !"android.os.Bundle") override
 	{
 		base.onCreate(savedInstance)
-		lang "kotlin" {{{
-			var ab : android.app.ActionBar = getActionBar()
-			if(ab != null) {
-				ab.hide()
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.app.ActionBar ab = getActionBar();
+				if(ab != null) {
+					ab.hide();
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var ab : android.app.ActionBar = getActionBar()
+				if(ab != null) {
+					ab.hide()
+				}
+			}}}
+		}
 		onPrepareScreen()
 		initialize()
 		var intent as !"android.content.Intent"
-		lang "kotlin" {{{
-			intent = getIntent()
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				intent = getIntent();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				intent = getIntent()
+			}}}
+		}
 		if intent {
 			var extras as !"android.os.Bundle"
-			lang "kotlin" {{{
-				extras = intent.getExtras()
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					extras = intent.getExtras();
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					extras = intent!!.getExtras()
+				}}}
+			}
 			if extras {
 				var data = new DynamicMap()
-				lang "kotlin" {{{
-					var keys : java.util.Set<java.lang.String> = extras.keySet() as java.util.Set<java.lang.String>
-					var it : java.util.Iterator<java.lang.String> = keys.iterator() as java.util.Iterator<java.lang.String>
-					while(it.hasNext()) {
-						var key : kotlin.String = it.next() as kotlin.String
-						var value : java.lang.Object = extras.get(key) as java.lang.Object
-						data!!.set(key, value)
-					}
-				}}}
+				IFDEF "target_java" {
+					lang "java" {{{
+						for(java.lang.String key : extras.keySet()) {
+							java.lang.Object value = extras.get(key);
+							data.set(key, value);
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						var keys : java.util.Set<java.lang.String> = extras.keySet() as java.util.Set<java.lang.String>
+						var it : java.util.Iterator<java.lang.String> = keys.iterator() as java.util.Iterator<java.lang.String>
+						while(it.hasNext()) {
+							var key : kotlin.String = it.next() as kotlin.String
+							var value : java.lang.Object = extras.get(key) as java.lang.Object
+							data!!.set(key, value)
+						}
+					}}}
+				}
 				onStartScreenWithData(data)
 			}
 		}
 	}
 
-	func setPermissionRequestListener(listener as function<void,bool>):
+	func setPermissionRequestListener(listener as function<void,bool>)
+	{
 		permissionRequestListener = listener
+	}
 
 	func onRequestPermissionsResult(requestCode as int, permissions as array<string>, grantResults as array<int>) override
 	{
@@ -603,9 +493,16 @@ IFDEF "target_kotlin"
 		}
 		var status = true
 		var granted as int
-		lang "kotlin" {{{
-			granted = android.content.pm.PackageManager.PERMISSION_GRANTED
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				granted = android.content.pm.PackageManager.PERMISSION_GRANTED;
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				granted = android.content.pm.PackageManager.PERMISSION_GRANTED
+			}}}
+		}
 		foreach(result in grantResults) {
 			if(result != granted) {
 				status = false
@@ -631,21 +528,54 @@ IFDEF "target_kotlin"
 
 	func dispatchTouchEvent(event as !"android.view.MotionEvent") override as bool
 	{
-		if(event.getAction() == lang "kotlin" int {{{ android.view.MotionEvent.ACTION_DOWN }}}) {
-			var w = lang "kotlin" !"android.view.View" {{{ getCurrentFocus() }}}
+		var actionDown as int
+		IFDEF "target_java" {
+			actionDown = lang "java" int {{{ android.view.MotionEvent.ACTION_DOWN }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			actionDown = lang "kotlin" int {{{ android.view.MotionEvent.ACTION_DOWN }}}
+		}
+		if(event.getAction() == actionDown) {
+			var w as Widget
+			IFDEF "target_java" {
+				w = lang "java" Widget {{{ getCurrentFocus(); }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				w = lang "kotlin" Widget {{{ getCurrentFocus() }}}
+			}
 			if(w is TextInputWidget || w is TextAreaWidget) {
-				lang "kotlin" {{{
-					var rect : android.graphics.Rect = android.graphics.Rect()
-					w.getGlobalVisibleRect(rect)
-					if (!rect.contains(event!!.getRawX().toInt(), event!!.getRawY().toInt())) {
-						if(w is TextInputWidget) {
-							(w as TextInputWidget).dismissKeyboard()
+				IFDEF "target_java" {
+					lang "java" {{{
+						android.graphics.Rect rect = new android.graphics.Rect();
+						w.getGlobalVisibleRect(rect);
+						if (!rect.contains((int)event.getRawX(), (int)event.getRawY())) {
+							if(w instanceof TextInputWidget) {
+								((TextInputWidget)w).dismissKeyboard();
+							}
 						}
-					}
-				}}}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						var rect : android.graphics.Rect = android.graphics.Rect()
+						w.getGlobalVisibleRect(rect)
+						if (!rect.contains(event!!.getRawX().toInt(), event!!.getRawY().toInt())) {
+							if(w is TextInputWidget) {
+								(w as TextInputWidget).dismissKeyboard()
+							}
+						}
+					}}}
+				}
 			}
 		}
-		return(lang "kotlin" bool {{{ super.dispatchTouchEvent(event) }}})
+		var v as bool
+		IFDEF "target_java" {
+			v = lang "java" bool {{{ super.dispatchTouchEvent(event) }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" bool {{{ super.dispatchTouchEvent(event) }}}
+		}
+		return v
 	}
 }
 
@@ -750,21 +680,23 @@ func deliverKeyEventToWidget(event as KeyEvent, widget as Widget)
 
 func unlockOrientation
 {
-	IFDEF("target_android") {
-		lang "java" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
-		}}}
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
+			}}}
+		}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF "target_iosoc" {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskAll }}}
 	}
 	ELSE IFDEF "target_swift" {
 		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.all.rawValue }}}
-	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -773,21 +705,23 @@ func unlockOrientation
 
 func lockToLandscapeOrientation
 {
-	IFDEF("target_android") {
-		lang "java" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
-		}}}
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+			}}}
+		}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF "target_iosoc" {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskLandscapeLeft }}}
 	}
 	ELSE IFDEF "target_swift" {
 		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.landscapeLeft.rawValue }}}
-	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -796,21 +730,23 @@ func lockToLandscapeOrientation
 
 func lockToPortraitOrientation
 {
-	IFDEF("target_android") {
-		lang "java" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
-		}}}
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+			}}}
+		}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF "target_iosoc" {
 		screenOrientation = lang "objc" !"NSUInteger" {{{ UIInterfaceOrientationMaskPortrait }}}
 	}
 	ELSE IFDEF "target_swift" {
 		screenOrientation = lang "swift" !"NSUInteger" {{{ UIInterfaceOrientationMask.portrait.rawValue }}}
-	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -839,17 +775,11 @@ func createContext private as GuiApplicationContext
 	ELSE IFDEF "target_android" {
 		v = GuiApplicationContextForAndroid.forActivityContext(this)
 	}
-	ELSE IFDEF "target_kotlin" {
-		v = GuiApplicationContextForKotlin.forActivityContext(this)
-	}
 	ELSE IFDEF "target_html" {
 		v = new GuiApplicationContextForHTML()
 	}
 	ELSE IFDEF "target_uwp" {
 		v = GuiApplicationContextForUWP.getInstance()
-	}
-	ELSE IFDEF "target_kotlin" {
-		v = GuiApplicationContextForKotlin.forActivityContext(this)
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -936,16 +866,16 @@ func setWidget(widget as ContainerWidget)
 		Widget.onWidgetAddedToParent(widget)
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			setContentView(widget);
-		}}}
-		widget.onWidgetAddingToParent()
-		Widget.onWidgetAddedToParent(widget)
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setContentView(widget)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setContentView(widget);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setContentView(widget)
+			}}}
+		}
 		widget.onWidgetAddingToParent()
 		Widget.onWidgetAddedToParent(widget)
 	}
