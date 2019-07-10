@@ -32,98 +32,92 @@ IFDEF "target_android"
 {
 	depend "gradle:com.google.android.gms:play-services-auth:11.0.0"
 }
-
-ELSE IFDEF "target_iosoc"
+ELSE IFDEF "target_ios"
 {
-	depend "ldflags:-ObjC"
-	depend "objc-header-h:<GoogleSignIn/GoogleSignIn.h>"
-	depend "objc-framework:GoogleSignIn"
-	depend "objc-framework:GoogleAppUtilities"
-	depend "objc-framework:GoogleSignInDependencies"
-	depend "objc-framework:GoogleSymbolUtilities"
-	depend "objc-framework:SystemConfiguration"
-	depend "objc-framework:SafariServices"
-	depend "objc-framework:UIKit"
+	IFDEF "target_objc" {
+		depend "ldflags:-ObjC"
+		depend "objc-header-h:<GoogleSignIn/GoogleSignIn.h>"
+		depend "objc-framework:GoogleSignIn"
+		depend "objc-framework:GoogleAppUtilities"
+		depend "objc-framework:GoogleSignInDependencies"
+		depend "objc-framework:GoogleSymbolUtilities"
+		depend "objc-framework:SystemConfiguration"
+		depend "objc-framework:SafariServices"
+		depend "objc-framework:UIKit"
+	}
+	ELSE IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+		depend "swift-import:GoogleSignIn"
+		depend "swift-import:SafariServices"
+		depend "swift-import:SystemConfiguration"
+	}
 
 	class MyDelegate implements !"GIDSignInDelegate" implements !"GIDSignInUIDelegate"
 	{
-		prop appdelegate as IOSAppDelegate
-		prop parentViewController as !"UIViewController"
-		prop callback as function<void,string,string,cape.Error>
+		IFDEF "target_swift" {
+			basetype !"Foundation.NSObject" type extends
 
-		lang "objc" {{{
-			- (void)signIn:(GIDSignIn *)signIn didSignInForUser:(GIDGoogleUser *)user withError:(NSError *)error
-			{
-				[self onSignInUser:user.profile.email token:user.authentication.idToken];
-				objc_removeAssociatedObjects(signIn);
-			}
-			- (void)signIn:(GIDSignIn *)signIn didDisconnectWithUser:(GIDGoogleUser *)user withError:(NSError *)error
-			{
-
-			}
-			- (void)signInWillDispatch:(GIDSignIn *)signIn error:(NSError *)error
-			{
-			}
-
-			- (void)signIn:(GIDSignIn *)signIn presentViewController:(UIViewController *)viewController
-			{
-				[self->parentViewController presentViewController:viewController animated:YES completion:nil];
-			}
-
-			- (void)signIn:(GIDSignIn *)signIn dismissViewController:(UIViewController *)viewController
-			{
-				[viewController dismissViewControllerAnimated:YES completion:nil];
-			}
-		}}}
-
-		func onSignInUser(email as string, token as string)
-		{
-			appdelegate.setOpenURLhandler(null)
-			if(callback != null) {
-				callback(email, token, null)
-			}
+			ctor override:
+				;
 		}
-	}
-}
 
-ELSE IFDEF "target_swift"
-{
-	depend "swift-import:UIKit"
-	depend "swift-import:GoogleSignIn"
-	depend "swift-import:SafariServices"
-	depend "swift-import:SystemConfiguration"
-
-	class MyDelegate implements !"Foundation.NSObject" implements !"GIDSignInDelegate" implements !"GIDSignInUIDelegate"
-	{
 		prop appdelegate as IOSAppDelegate
 		prop parentViewController as !"UIViewController"
 		prop callback as function<void,string,string,cape.Error>
 
-		lang "swift" {{{
-			public func sign(_ signIn: GIDSignIn!, didSignInFor user: GIDGoogleUser!, withError error: Error?) {
-				if error == nil {
-					onSignInUser(user.profile.email, user.authentication.idToken)
-					objc_removeAssociatedObjects(signIn)
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				- (void)signIn:(GIDSignIn *)signIn didSignInForUser:(GIDGoogleUser *)user withError:(NSError *)error
+				{
+					[self onSignInUser:user.profile.email token:user.authentication.idToken];
+					objc_removeAssociatedObjects(signIn);
 				}
-				else {
-					print(error?.localizedDescription)
+				- (void)signIn:(GIDSignIn *)signIn didDisconnectWithUser:(GIDGoogleUser *)user withError:(NSError *)error
+				{
+
 				}
-			}
+				- (void)signInWillDispatch:(GIDSignIn *)signIn error:(NSError *)error
+				{
+				}
 
-			private func sign(_ signIn: GIDSignIn!, didDisconnectWith user: GIDGoogleUser!, withError error: Error!) {
-			}
+				- (void)signIn:(GIDSignIn *)signIn presentViewController:(UIViewController *)viewController
+				{
+					[self->parentViewController presentViewController:viewController animated:YES completion:nil];
+				}
 
-			private func sign(inWillDispatch signIn: GIDSignIn?, error: Error?) {
-			}
+				- (void)signIn:(GIDSignIn *)signIn dismissViewController:(UIViewController *)viewController
+				{
+					[viewController dismissViewControllerAnimated:YES completion:nil];
+				}
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				public func sign(_ signIn: GIDSignIn!, didSignInFor user: GIDGoogleUser!, withError error: Error?) {
+					if error == nil {
+						onSignInUser(user.profile.email, user.authentication.idToken)
+						objc_removeAssociatedObjects(signIn)
+					}
+					else {
+						print(error?.localizedDescription)
+					}
+				}
 
-			private func sign(_ signIn: GIDSignIn!, present viewController: UIViewController!) {
-				parentViewController!.present(viewController, animated: true, completion: nil)
-			}
+				private func sign(_ signIn: GIDSignIn!, didDisconnectWith user: GIDGoogleUser!, withError error: Error!) {
+				}
 
-			private func sign(_ signIn: GIDSignIn!, dismiss viewController: UIViewController!) {
-				viewController?.dismiss(animated: true)
-			}
-		}}}
+				private func sign(inWillDispatch signIn: GIDSignIn?, error: Error?) {
+				}
+
+				private func sign(_ signIn: GIDSignIn!, present viewController: UIViewController!) {
+					parentViewController!.present(viewController, animated: true, completion: nil)
+				}
+
+				private func sign(_ signIn: GIDSignIn!, dismiss viewController: UIViewController!) {
+					viewController?.dismiss(animated: true)
+				}
+			}}}
+		}
 
 		func onSignInUser(email as string, token as string)
 		{
@@ -290,60 +284,53 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 			}}}
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios" {
 		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if(screen == null) {
-			if(cb != null) {
-				cb(null, null, Error.forCode("no_screen_found"))
-			}
-			return
-		}
-		var appdelegate as IOSAppDelegate
-		lang "objc" {{{
-			appdelegate = (CaveIOSAppDelegate*)[[UIApplication sharedApplication] delegate];
-		}}}
-		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"NSURL", options as !"NSDictionary", sourceApplications as !"NSString", annotation as object) as bool {
-			return(lang "objc" bool {{{ [[GIDSignIn sharedInstance] handleURL:url sourceApplication:options[UIApplicationOpenURLOptionsSourceApplicationKey] annotation:options[UIApplicationOpenURLOptionsAnnotationKey]] }}})
-		})
-		var delegate = new MyDelegate()
-		delegate.setAppdelegate(appdelegate)
-		delegate.setCallback(callback)
-		delegate.setParentViewController(screen)
-		lang "objc" {{{
-			GIDSignIn* signInObject = [GIDSignIn sharedInstance];
-			signInObject.clientID = self->iOSClientId;
-			signInObject.delegate = delegate;
-			signInObject.uiDelegate = delegate;
-			objc_setAssociatedObject(signInObject, "_signInDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[signInObject signIn];
-		}}}
-	}
-	ELSE IFDEF "target_swift" {
-		var screen = ScreenForWidget.findScreenForWidget(widget)
-		if !screen {
+		assert screen {
 			if cb:
 				cb(null, null, Error.forCode("no_screen_found"))
-			return
 		}
 		var appdelegate as IOSAppDelegate
-		lang "swift" {{{
-			appdelegate = UIApplication.shared.delegate as? CaveIOSAppDelegate
-		}}}
-		appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"URL", options as !"[UIApplication.OpenURLOptionsKey : Any]", sourceApplications as !"String", annotation as object) as bool {
-			return lang "swift" bool {{{ GIDSignIn.sharedInstance().handle(url, sourceApplication: sourceApplications, annotation: annotation) }}}
-		})
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				appdelegate = (CaveIOSAppDelegate*)[[UIApplication sharedApplication] delegate];
+			}}}
+			appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"NSURL", options as !"NSDictionary", sourceApplications as !"NSString", annotation as object) as bool {
+				return(lang "objc" bool {{{ [[GIDSignIn sharedInstance] handleURL:url sourceApplication:options[UIApplicationOpenURLOptionsSourceApplicationKey] annotation:options[UIApplicationOpenURLOptionsAnnotationKey]] }}})
+			})
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				appdelegate = UIApplication.shared.delegate as? CaveIOSAppDelegate
+			}}}
+			appdelegate.setOpenURLhandler(func(app as !"UIApplication", url as !"URL", options as !"[UIApplication.OpenURLOptionsKey : Any]", sourceApplications as !"String", annotation as object) as bool {
+				return lang "swift" bool {{{ GIDSignIn.sharedInstance().handle(url, sourceApplication: sourceApplications, annotation: annotation) }}}
+			})
+		}
 		var delegate = new MyDelegate()
 		delegate.setAppdelegate(appdelegate)
 		delegate.setCallback(callback)
 		delegate.setParentViewController(screen)
-		lang "swift" {{{
-			let signInObject = GIDSignIn.sharedInstance()
-			signInObject?.clientID = self.iOSClientId
-			signInObject?.delegate = delegate
-			signInObject?.uiDelegate = delegate
-			objc_setAssociatedObject(signInObject, "_signInDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-			signInObject?.signIn()
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				GIDSignIn* signInObject = [GIDSignIn sharedInstance];
+				signInObject.clientID = self->iOSClientId;
+				signInObject.delegate = delegate;
+				signInObject.uiDelegate = delegate;
+				objc_setAssociatedObject(signInObject, "_signInDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[signInObject signIn];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let signInObject = GIDSignIn.sharedInstance()
+				signInObject?.clientID = self.iOSClientId
+				signInObject?.delegate = delegate
+				signInObject?.uiDelegate = delegate
+				objc_setAssociatedObject(signInObject, "_signInDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				signInObject?.signIn()
+			}}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")
@@ -355,17 +342,19 @@ func execute(widget as Widget, callback as function<void,string,string,cape.Erro
 
 func logout
 {
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			GIDSignIn* signInObject = [GIDSignIn sharedInstance];
-			[signInObject signOut];
-		}}}
-	}
-	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			let signInObject: GIDSignIn = GIDSignIn.sharedInstance()
-			signInObject.signOut()
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				GIDSignIn* signInObject = [GIDSignIn sharedInstance];
+				[signInObject signOut];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let signInObject: GIDSignIn = GIDSignIn.sharedInstance()
+				signInObject.signOut()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_browser" {
 		if sdkLoaded {
