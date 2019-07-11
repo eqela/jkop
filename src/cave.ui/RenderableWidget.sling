@@ -24,8 +24,6 @@
 
 class is ParentAwareWidget is ResizeAwareWidget #widget:
 
-basetype Widget type extends
-
 func forRenderer(ctx as GuiApplicationContext, renderer as Renderer) static as this
 {
 	var v = new this(ctx)
@@ -33,34 +31,55 @@ func forRenderer(ctx as GuiApplicationContext, renderer as Renderer) static as t
 	return v
 }
 
-IFDEF "target_android" {
-
-	func onDraw(canvas as !"android.graphics.Canvas")
-	{
-		lang "java" {{{
-			super.onDraw(canvas);
-		}}}
-		render(RenderingContextForAndroid.forCanvas(context, canvas))
-	}
-}
-
-IFDEF "target_kotlin" {
+IFDEF "target_android"
+{
+	basetype !"android.view.View" type extends
+	basetype Widget type isAlso
 
 	func onDraw(canvas as !"android.graphics.Canvas") override
 	{
-		lang "kotlin" {{{
-			super.onDraw(canvas)
-		}}}
-		render(RenderingContextForKotlin.forCanvas(context, canvas))
+		IFDEF "target_java" {
+			lang "java" {{{
+				super.onDraw(canvas);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				super.onDraw(canvas)
+			}}}
+		}
+		render(RenderingContextForAndroid.forCanvas(context, canvas))
 	}
 }
-
-IFDEF "target_html"
+ELSE IFDEF "target_html"
 {
+	basetype Widget
+
 	var renderContext as RenderingContext
 
 	func createElement override as object:
 		return HTMLDOM.createElement("canvas")
+}
+ELSE IFDEF "target_ios"
+{
+	basetype !"UIView" type extends
+	basetype Widget type isAlso
+
+	IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+		depend "swift-import:CoreGraphics"
+
+		lang "swift" {{{
+			public override func draw(_ rect: CGRect) {
+				super.draw(_:rect)
+				self.render(CaveRenderingContextForSwift.forContext(self.context, UIGraphicsGetCurrentContext()))
+			}
+		}}}
+	}
+}
+ELSE
+{
+	basetype Widget type extends
 }
 
 var context protected as GuiApplicationContext
@@ -71,8 +90,12 @@ ctor(ctx as GuiApplicationContext)
 	IFDEF "target_android" {
 		base((ctx as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((ctx as! cave.GuiApplicationContextForKotlin).getActivityContext())
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
 	}
 	context = ctx
 	IFDEF "target_html" {
@@ -97,14 +120,23 @@ func redraw
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			invalidate();
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				invalidate();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				invalidate()
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			invalidate()
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				setNeedsDisplay()
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"

@@ -38,22 +38,53 @@ IFDEF "target_ios"
 	prop screenForWidget as Screen
 	var receivePointerEvents = false
 
-	func layoutSubviews:
-		onNativelyResized()
+	IFDEF "target_objc" {
+		func layoutSubviews:
+			onNativelyResized()
 
-	lang "objc" {{{
-		- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+		lang "objc" {{{
+			- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+			{
+				if(self->receivePointerEvents) {
+					return([super pointInside:point withEvent:event]);
+				}
+				for (UIView *view in self.subviews) {
+					if(!view.hidden && view.alpha > 0 && view.userInteractionEnabled && [view pointInside:[self convertPoint:point toView:view] withEvent:event])
+						return(YES);
+				}
+				return(NO);
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		func layoutSubviews override:
+			onNativelyResized()
+
+		var ss as Screen
+
+		func setSS(s as Screen) as this
 		{
-			if(self->receivePointerEvents) {
-				return([super pointInside:point withEvent:event]);
-			}
-			for (UIView *view in self.subviews) {
-				if(!view.hidden && view.alpha > 0 && view.userInteractionEnabled && [view pointInside:[self convertPoint:point toView:view] withEvent:event])
-					return(YES);
-			}
-			return(NO);
+			this.ss = s
+			return this
 		}
-	}}}
+
+		func getSS as Screen:
+			return this.ss
+
+		lang "swift" {{{
+			public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+				if receivePointerEvents {
+					return super.point(inside: point, with: event)
+				}
+				for view in subviews {
+					if !view.isHidden && view.alpha > 0 && view.isUserInteractionEnabled && view.point(inside: convert(point, to: view), with: event) {
+						return true
+					}
+				}
+				return false
+			}
+		}}}
+	}
 }
 
 ELSE IFDEF "target_android"
@@ -61,11 +92,18 @@ ELSE IFDEF "target_android"
 	basetype !"android.view.ViewGroup" type extends
 	basetype Widget type isAlso
 
-	func onLayout(changed as bool, left as int, top as int, right as int, bottom as int)
+	func onLayout(changed as bool, left as int, top as int, right as int, bottom as int) override
 	{
-		lang "java" {{{
-			setMeasuredDimension(right - left, bottom - top);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setMeasuredDimension(right - left, bottom - top);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setMeasuredDimension(right - left, bottom - top)
+			}}}
+		}
 		onNativelyResized()
 	}
 
@@ -79,20 +117,6 @@ ELSE IFDEF "target_android"
 		}}}
 	}
 	*/
-}
-
-ELSE IFDEF "target_kotlin"
-{
-	basetype !"android.view.ViewGroup" type extends
-	basetype Widget type isAlso
-
-	func onLayout(changed as bool, left as int, top as int, right as int, bottom as int) override
-	{
-		lang "kotlin" {{{
-			setMeasuredDimension(right - left, bottom - top)
-		}}}
-		onNativelyResized()
-	}
 }
 
 ELSE IFDEF "target_reactjs"
@@ -180,15 +204,23 @@ ctor(ctx as cave.GuiApplicationContext)
 {
 	IFDEF "target_android" {
 		base((ctx as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		lang "java" {{{
-			setLayerType(android.view.View.LAYER_TYPE_NONE, null);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setLayerType(android.view.View.LAYER_TYPE_NONE, null);
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((ctx as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		lang "kotlin" {{{
-			setLayerType(android.view.View.LAYER_TYPE_NONE, null);
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
 	}
 	context = ctx
 	togglePointerEventHandling(false)
@@ -200,10 +232,17 @@ func togglePointerEventHandling(active as bool)
 		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "auto")
 		}
-		ELSE IFDEF "target_iosoc" {
-			lang "objc" {{{
-				[self setUserInteractionEnabled:YES];
-			}}}
+		ELSE IFDEF "target_ios" {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setUserInteractionEnabled:YES];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.isUserInteractionEnabled = true
+				}}}
+			}
 			receivePointerEvents = true
 		}
 		ELSE IFDEF "target_android" {
@@ -220,7 +259,7 @@ func togglePointerEventHandling(active as bool)
 		IFDEF "target_html" {
 			HTMLDOM.setStyle(element, "pointer-events", "none")
 		}
-		ELSE IFDEF "target_iosoc" {
+		ELSE IFDEF "target_ios" {
 			receivePointerEvents = false
 		}
 		ELSE IFDEF "target_android" {
@@ -231,6 +270,26 @@ func togglePointerEventHandling(active as bool)
 		}
 		ELSE {
 			ERROR "Not implemented"
+		}
+	}
+}
+
+macro REMOVE_WIDGETS_FROM_VECTOR(widgets, vector)
+{
+	var ws = Vector.getSize(widgets)
+	if ws > 0 {
+		var vs = Vector.getSize(vector)
+		if ws == vs {
+			Vector.clear(vector)
+		}
+		else {
+			var widget = Vector.get(widgets, 0)
+			foreach child in vector {
+				if child.widget == widget {
+					Vector.removeValue(vector, child)
+					break
+				}
+			}
 		}
 	}
 }
@@ -284,7 +343,7 @@ func addWidget(widget as Widget) virtual as this
 func onChildWidgetAdded(widget as Widget) virtual:
 	Widget.onLayoutChanged(this)
 
-func onChildWidgetRemoved(widget as Widget) virtual:
+func onChildWidgetsRemoved(widgets as vector<Widget>) virtual:
 	Widget.onLayoutChanged(this)
 
 IFDEF("target_html") {

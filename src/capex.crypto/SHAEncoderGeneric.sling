@@ -1,0 +1,399 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is SHAEncoder imports cape:
+
+func encodeAsBuffer(data as buffer, version as int) override as buffer
+{
+	assert data
+	var algorithm as int
+	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
+		algorithm = 128
+	}
+	else if SHAEncoder.SHA256 == version {
+		algorithm = 256
+	}
+	else if SHAEncoder.SHA384 == version {
+		algorithm = 384
+	}
+	else if SHAEncoder.SHA512 == version {
+		algorithm = 512
+	}
+	assert algorithm
+	var sha = new SHA()
+	sha.encode(data, algorithm)
+	return sha.digest()
+}
+
+func encodeAsString(data as buffer, version as int) override as string
+{
+	var digest = assert encodeAsBuffer(data, version)
+	var result = String.forBufferHex(digest)
+	return result
+}
+
+class SHA
+{
+	var sha128 = 160
+	var sha256 = 256
+	var sha384 = 384
+	var sha512 = 512
+	var blockSize512 = 512
+	var blockSize1024 = 1024
+	var block64 = 448
+	var block128 = 896
+	var digestLength as int
+	var blockBitSize as int
+	var k as uint32[]
+	var k2 as uint64[]
+	var hash1 as uint32[]
+	var hash2 as uint64[]
+	var input as buffer
+	var result as buffer
+
+	func encode(buf as buffer, version as int)
+	{
+		assert buf
+		input = buf
+		if version == sha384 || version == sha512 {
+			k2 = [uint64: 0x428a2f98d728ae22, 0x7137449123ef65cd, 0xb5c0fbcfec4d3b2f, 0xe9b5dba58189dbbc, 0x3956c25bf348b538,
+				0x59f111f1b605d019, 0x923f82a4af194f9b, 0xab1c5ed5da6d8118, 0xd807aa98a3030242, 0x12835b0145706fbe,
+				0x243185be4ee4b28c, 0x550c7dc3d5ffb4e2, 0x72be5d74f27b896f, 0x80deb1fe3b1696b1, 0x9bdc06a725c71235,
+				0xc19bf174cf692694, 0xe49b69c19ef14ad2, 0xefbe4786384f25e3, 0x0fc19dc68b8cd5b5, 0x240ca1cc77ac9c65,
+				0x2de92c6f592b0275, 0x4a7484aa6ea6e483, 0x5cb0a9dcbd41fbd4, 0x76f988da831153b5, 0x983e5152ee66dfab,
+				0xa831c66d2db43210, 0xb00327c898fb213f, 0xbf597fc7beef0ee4, 0xc6e00bf33da88fc2, 0xd5a79147930aa725,
+				0x06ca6351e003826f, 0x142929670a0e6e70, 0x27b70a8546d22ffc, 0x2e1b21385c26c926, 0x4d2c6dfc5ac42aed,
+				0x53380d139d95b3df, 0x650a73548baf63de, 0x766a0abb3c77b2a8, 0x81c2c92e47edaee6, 0x92722c851482353b,
+				0xa2bfe8a14cf10364, 0xa81a664bbc423001, 0xc24b8b70d0f89791, 0xc76c51a30654be30, 0xd192e819d6ef5218,
+				0xd69906245565a910, 0xf40e35855771202a, 0x106aa07032bbd1b8, 0x19a4c116b8d2d0c8, 0x1e376c085141ab53,
+				0x2748774cdf8eeb99, 0x34b0bcb5e19b48a8, 0x391c0cb3c5c95a63, 0x4ed8aa4ae3418acb, 0x5b9cca4f7763e373,
+				0x682e6ff3d6b2b8a3, 0x748f82ee5defb2fc, 0x78a5636f43172f60, 0x84c87814a1f0ab72, 0x8cc702081a6439ec,
+				0x90befffa23631e28, 0xa4506cebde82bde9, 0xbef9a3f7b2c67915, 0xc67178f2e372532b, 0xca273eceea26619c,
+				0xd186b8c721c0c207, 0xeada7dd6cde0eb1e, 0xf57d4f7fee6ed178, 0x06f067aa72176fba, 0x0a637dc5a2c898a6,
+				0x113f9804bef90dae, 0x1b710b35131c471b, 0x28db77f523047d84, 0x32caab7b40c72493, 0x3c9ebe0a15c9bebc,
+				0x431d67c49c100d4c, 0x4cc5d4becb3e42b6, 0x597f299cfc657e2a, 0x5fcb6fab3ad6faec, 0x6c44198c4a475817
+			]
+		}
+		if version == 128 {
+			digestLength = sha128
+			blockBitSize = blockSize512
+			hash1 = [uint32: 0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0]
+		}
+		else if version == sha256 {
+			digestLength = sha256
+			blockBitSize = blockSize512
+			hash1 = [uint32: 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+			k = [uint32: 0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+				0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+				0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+				0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+				0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+				0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+				0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+				0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+			]
+		}
+		else if version == sha384 {
+			digestLength = sha384
+			blockBitSize = blockSize1024
+			hash2 = [uint64: 0xcbbb9d5dc1059ed8, 0x629a292a367cd507, 0x9159015a3070dd17, 0x152fecd8f70e5939, 0x67332667ffc00b31, 0x8eb44a8768581511, 0xdb0c2e0d64f98fa7, 0x47b5481dbefa4fa4]
+		}
+		else {
+			digestLength = sha512
+			blockBitSize = blockSize1024
+			hash2 = [uint64: 0x6a09e667f3bcc908, 0xbb67ae8584caa73b, 0x3c6ef372fe94f82b, 0xa54ff53a5f1d36f1, 0x510e527fade682d1, 0x9b05688c2b3e6c1f, 0x1f83d9abfb41bd6b, 0x5be0cd19137e2179]
+		}
+	}
+
+	func digest as buffer
+	{
+		assert input
+		if result:
+			return result
+		var ptr = bitPadding(input)
+		var messageBlocks = blocks(ptr, blockBitSize / 8)
+		foreach block as buffer in messageBlocks {
+			if blockBitSize == blockSize512 {
+				shaProcess32(block)
+			}
+			else {
+				shaProcess64(block)
+			}
+		}
+		var ret = MALLOC(digestLength / 8)
+		if blockBitSize == blockSize512 {
+			var idx = 0
+			foreach(element in hash1) {
+				var pos = idx * 4
+				ret[pos] = (((element >> 24) as uint32) & 0xff) as uint8
+				ret[pos + 1] = (((element >> 16) as uint32) & 0xff) as uint8
+				ret[pos + 2] = (((element >> 8) as uint32) & 0xff) as uint8
+				ret[pos + 3] = ((element as uint32) & 0xff) as uint8
+				idx += 1
+			}
+		}
+		else {
+			var idx = 0
+			foreach(element in hash2) {
+				if digestLength == sha384 && idx == 6:
+					break
+				var pos = idx * 8
+				ret[pos] = (((element >> 56) as uint32) & 0xff) as uint8
+				ret[pos + 1] = (((element >> 48) as uint32) & 0xff) as uint8
+				ret[pos + 2] = (((element >> 40) as uint32) & 0xff) as uint8
+				ret[pos + 3] = (((element >> 32) as uint32) & 0xff) as uint8
+				ret[pos + 4] = (((element >> 24) as uint32) & 0xff) as uint8
+				ret[pos + 5] = (((element >> 16) as uint32) & 0xff) as uint8
+				ret[pos + 6] = (((element >> 8) as uint32) & 0xff) as uint8
+				ret[pos + 7] = ((element as uint32) & 0xff) as uint8
+				idx += 1
+			}
+		}
+		result = ret
+		return ret
+	}
+
+	func shaProcess32(block as buffer)
+	{
+		var kcount as int
+		if digestLength == sha128 {
+			kcount = 80
+		}
+		else {
+			kcount = SIZE k
+		}
+		var output = new uint32[kcount]
+		for(var t = 0; t < SIZE output; t++) {
+			if t <= 15 {
+				var index = t * 4
+				output[t] = ((block[index] as uint32) << 24) as uint32
+				output[t] = output[t] | ((block[index + 1] as uint32) << 16) as uint32
+				output[t] = output[t] | ((block[index + 2] as uint32) << 8) as uint32
+				output[t] = output[t] | (block[index + 3] as uint32) as uint32
+			}
+			else {
+				if digestLength == sha128 {
+					output[t] = rotateLeft(output[t - 3], 1) ^ rotateLeft(output[t - 8], 1) ^ rotateLeft(output[t - 14], 1) ^ rotateLeft(output[t - 16], 1)
+				}
+				else {
+					var s0 = rotateRight(output[t-15] as uint32, 7) ^ rotateRight(output[t-15] as uint32, 18) ^ (((output[t-15] as uint32) >> 3) as uint32)
+					var s1 = rotateRight(output[t-2] as uint32, 17) ^ rotateRight(output[t-2] as uint32, 19) ^ (((output[t-2] as uint32) >> 10) as uint32)
+					output[t] = s1 + output[t-7] + s0 + output[t-16]
+				}
+			}
+		}
+		var a = hash1[0]
+		var b = hash1[1]
+		var c = hash1[2]
+		var d = hash1[3]
+		var e = hash1[4]
+		if digestLength == sha128 {
+			for(var j = 0; j <= 79; j++) {
+				var f = 0 as uint32
+				var k = 0 as uint32
+				if j <= 19 {
+					f = (b & c) | (~ b & d)
+					k = 0x5a827999
+				}
+				else if j <= 39 {
+					f = b ^ c ^ d
+					k = 0x6ed9eba1
+				}
+				else if j <= 59 {
+					f = (b & c) | (b & d) | (c & d)
+					k = 0x8f1bbcdc
+				}
+				else if j <= 79 {
+					f = b ^ c ^ d
+					k = 0xca62c1d6
+				}
+				var temp = rotateLeft(a, 5) + f + e + output[j] + k
+				e = d
+				d = c
+				c = rotateLeft(b, 30)
+				b = a
+				a = temp
+			}
+			hash1[0] = a + hash1[0]
+			hash1[1] = b + hash1[1]
+			hash1[2] = c + hash1[2]
+			hash1[3] = d + hash1[3]
+			hash1[4] = e + hash1[4]
+		}
+		else {
+			var f = hash1[5]
+			var g = hash1[6]
+			var h = hash1[7]
+			for(var t = 0; t < SIZE k; t++) {
+				var e1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25)
+				var ch = (e & f) ^ (~ e & g)
+				var t1 = h + e1 + ch + k[t] + output[t]
+				var e0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22)
+				var maj = (a & b) ^ (a & c) ^ (b & c)
+				var t2 = e0 + maj
+				h = g
+				g = f
+				f = e
+				e = d + t1
+				d = c
+				c = b
+				b = a
+				a = t1 + t2
+			}
+			hash1[0] = a + hash1[0]
+			hash1[1] = b + hash1[1]
+			hash1[2] = c + hash1[2]
+			hash1[3] = d + hash1[3]
+			hash1[4] = e + hash1[4]
+			hash1[5] = f + hash1[5]
+			hash1[6] = g + hash1[6]
+			hash1[7] = h + hash1[7]
+		}
+	}
+
+	func shaProcess64(block as buffer)
+	{
+		assert block
+		var output = new uint64[SIZE k2]
+		for(var t = 0; t < SIZE output; t++) {
+			if t <= 15 {
+				var index = t * 8
+				output[t] =  ((block[index + 0] as uint64) << 56) as uint64
+				output[t] = output[t] | ((block[index + 1] as uint64) << 48) as uint64
+				output[t] = output[t] | ((block[index + 2] as uint64) << 40) as uint64
+				output[t] = output[t] | ((block[index + 3] as uint64) << 32) as uint64
+				output[t] = output[t] | ((block[index + 4] as uint64) << 24) as uint64
+				output[t] = output[t] | ((block[index + 5] as uint64) << 16) as uint64
+				output[t] = output[t] | ((block[index + 6] as uint64) << 8) as uint64
+				output[t] = output[t] | (block[index + 7] as uint64)
+			}
+			else {
+				var s0 = (rotateRight(output[t-15] as uint64 , 1) ^ rotateRight(output[t-15] as uint64, 8) ^ (((output[t-15] as uint64) >> 7) as uint64)) as uint64
+				var s1 = (rotateRight(output[t-2] as uint64, 19) ^ rotateRight(output[t-2] as uint64, 61) ^ (((output[t-2] as uint64) >> 6) as uint64)) as uint64
+				output[t] = s1 + (output[t-7] as uint64) + s0 + (output[t-16] as uint64)
+			}
+		}
+		var a = hash2[0]
+		var b = hash2[1]
+		var c = hash2[2]
+		var d = hash2[3]
+		var e = hash2[4]
+		var f = hash2[5]
+		var g = hash2[6]
+		var h = hash2[7]
+		for(var t = 0; t < SIZE k2; t++) {
+			var e0 = (rotateRight(a, 28) ^ rotateRight(a, 34) ^ rotateRight(a, 39)) as uint64
+			var maj = (a & b) ^ (a & c) ^ (b & c)
+			var t2 = (e0 + maj) as uint64
+			var e1 = (rotateRight(e, 14) ^ rotateRight(e, 18) ^ rotateRight(e, 41)) as uint64
+			var ch = (e & f) ^ (~ e & g)
+			var t1 = (h as uint64) + (e1 as uint64) + (ch as uint64) + (k2[t] as uint64) + (output[t] as uint64)
+			h = g
+			g = f
+			f = e
+			e = d + t1
+			d = c
+			c = b
+			b = a
+			a = t1 + t2
+		}
+		hash2[0] = a + hash2[0]
+		hash2[1] = b + hash2[1]
+		hash2[2] = c + hash2[2]
+		hash2[3] = d + hash2[3]
+		hash2[4] = e + hash2[4]
+		hash2[5] = f + hash2[5]
+		hash2[6] = g + hash2[6]
+		hash2[7] = h + hash2[7]
+	}
+
+	func bitPadding(input as buffer) as buffer
+	{
+		assert input
+		var inputBitLength = Buffer.getSize(input) * 8
+		var len = Buffer.getSize(input) / 32
+		var newBuf = Buffer.resize(input, Buffer.getSize(input) + 1)
+		Buffer.setByte(newBuf, Buffer.getSize(newBuf) - 1, 0x80)
+		var mod = (inputBitLength % blockBitSize) as int
+		var bitsToAppend as int
+		if blockBitSize == blockSize512 {
+			if mod < block64 {
+				bitsToAppend = (block64 - 1 - mod) as int
+			}
+			else {
+				bitsToAppend = (blockBitSize + block64 - mod - 1) as int
+			}
+			var nbuf = MALLOC((bitsToAppend - 7) / 8)
+			newBuf = Buffer.resize(newBuf, Buffer.getSize(nbuf) + Buffer.getSize(newBuf))
+		}
+		else {
+			if mod < block128 {
+				bitsToAppend = (block128 - 1 - mod) as int
+			}
+			else {
+				bitsToAppend = (blockBitSize + block128 - mod - 1) as int
+			}
+			var nbuf = MALLOC(((bitsToAppend - 7) + 64) / 8)
+			newBuf = Buffer.resize(newBuf, Buffer.getSize(nbuf) + Buffer.getSize(newBuf))
+		}
+		var p1 = (inputBitLength & 0xFF00000000000000)
+		var p2 = (inputBitLength & 0x00FF000000000000)
+		var p3 = (inputBitLength & 0x0000FF0000000000)
+		var p4 = (inputBitLength & 0x000000FF00000000)
+		var p5 = (inputBitLength & 0x00000000FF000000)
+		var p6 = (inputBitLength & 0x0000000000FF0000)
+		var p7 = (inputBitLength & 0x000000000000FF00)
+		var p8 = (inputBitLength & 0x00000000000000FF)
+		newBuf = Buffer.resize(newBuf, Buffer.getSize(newBuf) + 8)
+		newBuf[Buffer.getSize(newBuf) - 8] = p1 as uint8
+		newBuf[Buffer.getSize(newBuf) - 7] = p2 as uint8
+		newBuf[Buffer.getSize(newBuf) - 6] = p3 as uint8
+		newBuf[Buffer.getSize(newBuf) - 5] = p4 as uint8
+		newBuf[Buffer.getSize(newBuf) - 4] = p5 as uint8
+		newBuf[Buffer.getSize(newBuf) - 3] = p6 as uint8
+		newBuf[Buffer.getSize(newBuf) - 2] = (p7 + len) as uint8
+		newBuf[Buffer.getSize(newBuf) - 1] = p8 as uint8
+		return newBuf
+	}
+
+	func blocks(buf as buffer, size as int) as vector<buffer>
+	{
+		var msgBlocks = new vector<buffer>
+		for(var i = 0; i < Buffer.getSize(buf); i += size) {
+			var buff = MALLOC(size)
+			buff = Buffer.getSubBuffer(buf, i, size)
+			msgBlocks += buff
+		}
+		return msgBlocks
+	}
+
+	func rotateRight(num as uint32, cnt as int) as uint32:
+		return ((num >> cnt) | (num << (32 - cnt))) as uint32
+
+	func rotateRight(num as uint64, cnt as int) as uint64:
+		return ((num >> cnt) | (num << (64 - cnt))) as uint64
+
+	func rotateLeft(num as uint32, cnt as int) as uint32:
+		return ((num << cnt) | (num >> (32 - cnt))) as uint32
+}

@@ -26,44 +26,39 @@ class:
 
 func terminate(value as int) static
 {
-	IFDEF("target_cs") {
-		IFDEF("target_uwpcs") {
-			lang "cs" {{{
-				Windows.UI.Xaml.Application.Current.Exit();
-			}}}
-		}
-		ELSE IFDEF("target_wpcs") {
-			lang "cs" {{{
-				System.Windows.Application.Current.Terminate();
-			}}}
-		}
-		ELSE {
-			ERROR("Not implemented")
-		}
+	IFDEF "target_uwpcs" {
+		lang "cs" {{{
+			Windows.UI.Xaml.Application.Current.Exit();
+		}}}
 	}
-	ELSE IFDEF("target_kotlin") {
+	ELSE IFDEF "target_wpcs" {
+		lang "cs" {{{
+			System.Windows.Application.Current.Terminate();
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
 		lang "kotlin" {{{
 			kotlin.system.exitProcess(value)
 		}}}
 	}
-	ELSE IFDEF("target_swift") {
-		lang "swift" {{{
-			let process = Process()
-			process.terminate()
+	ELSE IFDEF "target_netcore" {
+		lang "cs" {{{
+			System.Environment.Exit(value);
 		}}}
 	}
 	ELSE {
-		ERROR("Not implemented")
+		ERROR "Not implemented"
 	}
 }
 
-IFDEF("target_darwin") {
+IFDEF "target_darwin"
+{
 	depend "objc-header-m:<mach-o/dyld.h>"
 }
 
 func getExecutableFile static as File
 {
-	IFDEF("target_linux") {
+	IFDEF "target_linux" {
 		var filepath as string
 		lang "c" {{{
 			char file[4096];
@@ -76,21 +71,18 @@ func getExecutableFile static as File
 				filepath = file;
 			}
 		}}}
-		if(filepath == null) {
-			return(null)
-		}
-		return(File.forPath(filepath))
+		assert filepath
+		return File.forPath(filepath)
 	}
-	ELSE IFDEF("target_darwin") {
+	ELSE IFDEF "target_darwin" {
 		var r = -1
 		lang "objc" {{{
 			char buffer[PATH_MAX];
 			uint32_t bs = PATH_MAX;
 			r = _NSGetExecutablePath(buffer, &bs);
 		}}}
-		if(r != 0) {
-			return(null)
-		}
+		if r != 0:
+			return null
 		var filepath as string
 		lang "objc" {{{
 			char rp[PATH_MAX];
@@ -100,12 +92,10 @@ func getExecutableFile static as File
 			}
 			filepath = [[NSString alloc] initWithUTF8String:rpx];
 		}}}
-		if(filepath == null) {
-			return(null)
-		}
-		return(File.forPath(filepath))
+		assert filepath
+		return File.forPath(filepath)
 	}
-	ELSE IFDEF("target_win32") {
+	ELSE IFDEF "target_win32" {
 		var filepath as string = null
 		lang "c" {{{
 			char buffer[1024];
@@ -113,12 +103,10 @@ func getExecutableFile static as File
 				filepath = buffer;
 			}
 		}}}
-		if(filepath == null) {
-			return(null)
-		}
-		return(File.forPath(filepath))
+		assert filepath
+		return File.forPath(filepath)
 	}
-	ELSE IFDEF("target_dotnet4cs") {
+	ELSE IFDEF "target_dotnet4cs" {
 		var fn as string
 		lang "cs" {{{
 			var assembly = System.Reflection.Assembly.GetEntryAssembly();
@@ -129,10 +117,9 @@ func getExecutableFile static as File
 				fn = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
 			}
 		}}}
-		if(String.isEmpty(fn)) {
-			return(null)
-		}
-		return(File.forPath(fn))
+		if String.isEmpty(fn):
+			return null
+		return File.forPath(fn)
 	}
 	ELSE IFDEF "target_netx" {
 		var fn as string
@@ -143,7 +130,13 @@ func getExecutableFile static as File
 			return null
 		return File.forPath(fn)
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let executablePath = Bundle.main.executablePath!
+			return CapeFile.forPath(executablePath)
+		}}}
+	}
 	ELSE {
-		return(null)
+		return null
 	}
 }
