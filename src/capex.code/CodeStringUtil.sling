@@ -242,3 +242,198 @@ func unescapeCharacterLiteralCStyle(literal as string, removeFirstAndLast as boo
 	}
 	return Character.asObject(c)
 }
+
+func forDoubleHex(vv as double #used, minlength as int = 0) static as string
+{
+	var sb = new StringBuilder()
+	var d = Math.abs(vv)
+	var subnormal = (d < -1022)
+	var signifBits = Double.doubleToLongBits(vv)
+	signifBits = (signifBits & 0x000FFFFFFFFFFFFFL) | 0x1000000000000000L
+	sb.append(subnormal ? "0." : "1.")
+	var signif = String.forLongIntegerHex(signifBits)
+	var str = String.getSubString(signif, 3, String.getLength(signif) - 3)
+	if String.equals(str, "0000000000000") {
+		sb.append("0")
+	}
+	else {
+		sb.append(String.getSubString(str, 0, 1))
+		var sstr = String.getSubString(str, 1, 12)
+		sstr = String.replace(sstr, "0", "")
+		sb.append(sstr)
+	}
+	sb.append("p")
+	if d == 0 {
+		sb.append("0")
+	}
+	else {
+		var exponent = (Math.log(d) / Math.log(2)) as int
+		sb.append(subnormal ? -1022 : exponent)
+	}
+	return sb.toString()
+}
+
+func toDoubleFromHex(str as string) static as double
+{
+	var isNegative = String.getChar(str, 0) == '-' ? true : false
+	var isFractionalForm = String.contains(str, ".") ? true : false
+	var iPart as string
+	var fPart as string
+	var ePart as string
+	if isFractionalForm {
+		var cmp = String.split(str, '.')
+		iPart = cmp[0] as string
+		var frac = cmp[1] as string
+		frac = String.toLowerCase(frac)
+		if String.contains(frac, "p") {
+			var efrac = String.split(frac, 'p')
+			fPart = efrac[0]
+			ePart= efrac[1]
+		}
+		else {
+			fPart = frac
+		}
+	}
+	else {
+		if String.contains(str, "p") {
+			var efrac = String.split(str, 'p')
+			iPart = efrac[0]
+			ePart = efrac[1]
+		}
+		else {
+			iPart = str
+		}
+	}
+	var significandString as string
+	var signifLength = 0
+	var exponentAdjust = 0
+	var leftDigits = 0
+	var rightDigits = 0
+	if not isFractionalForm {
+		significandString = String.stripLeadingZeros(iPart)
+		leftDigits = String.getLength(significandString)
+	}
+	else {
+		var iPortion = String.stripLeadingZeros(iPart)
+		leftDigits = String.getLength(iPortion)
+		var fPortion = fPart
+		rightDigits = String.getLength(fPortion)
+		significandString = iPortion .. fPortion
+	}
+	significandString = String.stripLeadingZeros(significandString)
+	signifLength = String.getLength(significandString)
+	if leftDigits >= 1 {
+		exponentAdjust = 4 * (leftDigits - 1)
+	}
+	else {
+		exponentAdjust = -4 * (rightDigits - signifLength + 1)
+	}
+	if signifLength == 0:
+		return isNegative ? -0.0 : 0.0
+	var positiveExponent = not String.contains(ePart, "-")
+	var rawExponent = ((positiveExponent ? 1L : -1L) * String.toInteger(ePart)) as long
+	var exponent = (rawExponent + exponentAdjust) as long
+	var round = false
+	var sticky = false
+	var nextShift = 0
+	var significand = 0L
+	var leadingDigit = Character.getHexDigit(String.getChar(significandString, 0)) as long
+	if leadingDigit == 1 {
+		significand |= leadingDigit << 52
+		nextShift = 52 - 4
+	}
+	else if leadingDigit <= 3 {
+		significand |= leadingDigit << 51
+		nextShift = 52 - 5
+		exponent += 1
+	}
+	else if leadingDigit <= 7 {
+		significand |= leadingDigit << 50
+		nextShift = 52 - 6
+		exponent += 2
+	}
+	else if leadingDigit <= 15 {
+		significand |= leadingDigit << 49
+		nextShift = 52 - 7
+		exponent += 3
+	}
+	else {
+		return 0.0
+	}
+	var i = 0
+	for (i = 1; i < signifLength && nextShift >= 0; i++) {
+		var currentDigit = Character.getHexDigit(String.getChar(significandString, i)) as long
+		significand |= (currentDigit << nextShift)
+		nextShift -= 4
+	}
+	if i < signifLength {
+		var currentDigit = Character.getHexDigit(String.getChar(significandString, i)) as long
+		switch (nextShift) {
+			case -1: {
+				significand |= ((currentDigit & 0xEL) >> 1)
+				round = (currentDigit & 0x1L) != 0L
+				break
+			}
+			case -2: {
+				significand |= ((currentDigit & 0xCL) >> 2)
+				round = (currentDigit & 0x2L) != 0L
+				sticky = (currentDigit & 0x1L) != 0
+				break
+			}
+			case -3: {
+				significand |= ((currentDigit & 0x8L) >> 3)
+				round = (currentDigit & 0x4L) != 0L
+				sticky = (currentDigit & 0x3L) != 0
+				break
+			}
+			case -4: {
+				round = ((currentDigit & 0x8L) != 0)
+				sticky = (currentDigit & 0x7L) != 0
+				break
+			}
+			default: {
+				ERROR "Unexpected shift distance remainder."
+				return 0.0
+			}
+		}
+		i++
+		while (i < signifLength && not sticky) {
+			currentDigit = Character.getHexDigit(String.getChar(significandString, i)) as long
+			sticky = sticky || (currentDigit != 0)
+			i++
+		}
+	}
+	var doubleSignificandWidth = 53
+	var doubleMinSubExp = -1022 - (doubleSignificandWidth - 1)
+	if (exponent > 1023) {
+		return 0.0
+	}
+	else {
+		if (exponent <= 1023 && exponent >= -1022) {
+			significand = (((exponent + 1023) << (doubleSignificandWidth - 1)) & 0x7FF0000000000000L) | (0x000FFFFFFFFFFFFFL & significand)
+		}
+		else {
+			if (exponent < (doubleMinSubExp - 1)) {
+				return 0.0
+			}
+			else {
+				sticky = sticky || round
+				round = false
+				var bitsDiscarded = (53 - ((exponent as int) - doubleMinSubExp + 1)) as int
+				assert bitsDiscarded >= 1 && bitsDiscarded <= 53
+				round = (significand & (1L << (bitsDiscarded - 1))) != 0L
+				if bitsDiscarded > 1 {
+					var mask = (~(0L << (bitsDiscarded - 1))) as long
+					sticky = sticky || ((significand & mask) != 0L)
+				}
+				significand = significand >> bitsDiscarded
+				significand = ((((-1022 - 1) as long) + (1023 as long) << (doubleSignificandWidth - 1)) & 0x7FF0000000000000L) | (0x000FFFFFFFFFFFFFL & significand)
+			}
+		}
+		var leastZero = (significand & 1L) == 0L
+		if ((leastZero && round && sticky) || ((!leastZero) && round)):
+			significand++
+		significand = isNegative? significand | 0x80000000 : significand
+	}
+	return Double.longBitsToDouble(significand)
+}
