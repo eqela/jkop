@@ -38,9 +38,11 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	{
 		var v = -1
 		var handle = this.handle
-		lang "lua" {{{
-			v = _sushi:readFromHandle(handle, buffer)
-		}}}
+		if handle >= 0 {
+			lang "lua" {{{
+				v = _sushi:readFromHandle(handle, buffer)
+			}}}
+		}
 		return v
 	}
 
@@ -48,7 +50,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	{
 		var v = -1
 		var handle = this.handle
-		if handle {
+		if handle >= 0 {
 			lang "lua" {{{
 				v = _sushi:getSizeForHandle(handle)
 			}}}
@@ -94,9 +96,11 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 	{
 		var v = -1
 		var handle = this.handle
-		lang "lua" {{{
-			v = _sushi:writeToHandle(handle, buf, size)
-		}}}
+		if handle >= 0 {
+			lang "lua" {{{
+				v = _sushi:writeToHandle(handle, buf, size)
+			}}}
+		}
 		return v
 	}
 
@@ -148,7 +152,15 @@ func entry(name as string) override as File
 }
 
 func move(dest as File, replace as bool) override stub as bool
-func touch override stub as bool
+
+func touch override as bool
+{
+	var path = this.path
+	var r = lang "lua" int {{{ _sushi:touchFile(path) }}}
+	if r == 1:
+		return true
+	return false
+}
 
 func read override as FileReader
 {
@@ -157,7 +169,7 @@ func read override as FileReader
 	lang "lua" {{{
 		handle = _sushi:openFileForReading(path)
 	}}}
-	assert handle
+	assert handle >= 0
 	var v = new MyFileReader()
 	v.setFile(this)
 	v.handle = handle
@@ -171,7 +183,7 @@ func write override as FileWriter
 	lang "lua" {{{
 		handle = _sushi:openFileForWriting(path)
 	}}}
-	assert handle
+	assert handle >= 0
 	var v = new MyFileWriter()
 	v.setFile(this)
 	v.handle = handle
@@ -185,7 +197,7 @@ func append override as FileWriter
 	lang "lua" {{{
 		handle = _sushi:openFileForAppending(path)
 	}}}
-	assert handle
+	assert handle >= 0
 	var v = new MyFileWriter()
 	v.setFile(this)
 	v.handle = handle
@@ -195,11 +207,16 @@ func append override as FileWriter
 func stat override as FileInfo
 {
 	var path = this.path
-	var mode = 0
 	var valid = true
+	var size as int
+	var ctim as long
+	var atim as long
+	var mtim as long
+	var uid as int
+	var gid as int
+	var mode as int
 	lang "lua" {{{
-		local size, ctim, atim, mtim, uid, gid, mm = _sushi:getFileInfo(path)
-		mode = mm
+		size, ctim, atim, mtim, uid, gid, mode = _sushi:getFileInfo(path)
 		if size == nil then
 			valid = false
 		end
@@ -210,14 +227,12 @@ func stat override as FileInfo
 		v.setType(FileInfo.FILE_TYPE_UNKNOWN)
 		return v
 	}
-	lang "lua" {{{
-		v:setSize(size)
-		v:setCreateTime(ctim)
-		v:setAccessTime(atim)
-		v:setModifyTime(mtim)
-		v:setOwnerUser(uid)
-		v:setOwnerGroup(gid)
-	}}}
+	v.setSize(size)
+	v.setCreateTime(ctim)
+	v.setAccessTime(ctim)
+	v.setModifyTime(mtim)
+	v.setOwnerUser(uid)
+	v.setOwnerGroup(gid)
 	v.setMode(mode & 0x1FF)
 	if mode & 0x8000 {
 		v.setType(FileInfo.FILE_TYPE_FILE)
@@ -363,6 +378,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 			lang "lua" {{{
 				_sushi:closeDirectory(handle)
 			}}}
+			this.handle = null
 		}
 	}
 
@@ -382,7 +398,8 @@ func entries override as Iterator<File>
 {
 	var pp = this.path
 	assert String.isNotEmpty(pp)
-	var handle = assert lang "lua" object {{{ _sushi:openDirectory(pp) }}}
+	var handle = lang "lua" object {{{ _sushi:openDirectory(pp) }}}
+	assert handle
 	var v = new MyDirectoryIterator()
 	v.setParent(this)
 	v.setHandle(handle)

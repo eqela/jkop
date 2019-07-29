@@ -40,6 +40,17 @@ IFDEF "target_java" {
 	}}}
 }
 
+IFDEF "target_sushi" {
+	var random as object
+
+	func getSushiRandom as object
+	{
+		if not random:
+			setSeed(SystemClock.asUTCSeconds())
+		return random
+	}
+}
+
 IFDEF "target_objc" {
 	depend "objc-header-m:<stdlib.h>"
 }
@@ -63,12 +74,12 @@ func getSharedInstance static as this
 
 ctor
 {
-	IFDEF("target_cs") {
+	IFDEF "target_cs" {
 		lang "cs" {{{
 			random = new System.Random();
 		}}}
 	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		lang "java" {{{
 			random = new java.util.Random();
 		}}}
@@ -93,15 +104,18 @@ ctor(seed as int64)
 
 func setSeed(seed as int64)
 {
-	IFDEF("target_cs") {
+	IFDEF "target_cs" {
 		lang "cs" {{{
 			random = new System.Random((System.Int32)seed);
 		}}}
 	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		lang "java" {{{
 			random.setSeed(seed);
 		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		random = lang "lua" object {{{ _sushi:createRandomNumberGenerator(seed) }}}
 	}
 }
 
@@ -146,6 +160,10 @@ func nextInt as int32
 	ELSE IFDEF "target_swift" {
 		return lang "swift" int32 {{{ Int32.random(in : Int32.min ..< Int32.max) }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		var random = getSushiRandom()
+		return lang "lua" int32 {{{ _sushi:createRandomNumber(random) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
@@ -177,8 +195,7 @@ func nextInt(n as int32) as int32
 		return lang "swift" int32 {{{ Int32.random(in : 0 ..< n) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		return nextInt() % n
 	}
 }
 
@@ -207,8 +224,7 @@ func nextInt(s as int32, e as int32) as int32
 		return lang "swift" int32 {{{ Int32.random(in : s ..< e) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		return s + nextInt() % (e - s)
 	}
 }
 

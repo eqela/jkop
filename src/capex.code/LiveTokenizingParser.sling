@@ -888,6 +888,59 @@ func acceptDoubleQuotedStringToken(escapeChar as char, allowNewlines as bool) vi
 	return v
 }
 
+func acceptTripleQuotedMultiLineStringToken as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '"':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != '"' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var c2 = peekNextCharacter()
+	if c2 != '"' {
+		RESTORE_POSITION()
+		return null
+	}
+	acceptToken('\n')
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	sb.append(c2)
+	var qc = 0
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		sb.append(cn)
+		if cn == '"' {
+			qc ++
+			if qc == 3:
+				break
+		}
+		else {
+			qc = 0
+		}
+	}
+	var val = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = val
+	onTokenAccepted(v)
+	return v
+}
+
 func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 {
 	skipSpaces()
@@ -944,7 +997,7 @@ func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 	return v
 }
 
-func acceptOctalNumberLiteralToken(acceptUnderscores as bool) virtual as Token
+func acceptOctalNumberLiteralToken(acceptUnderscores as bool, requirePrefix as bool) virtual as Token
 {
 	skipSpaces()
 	var c0 = peekNextCharacter()
@@ -952,8 +1005,19 @@ func acceptOctalNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 		return null
 	REMEMBER_POSITION()
 	getNextCharacter()
+	var c1 as char
+	if requirePrefix {
+		c1 = peekNextCharacter()
+		if c1 != 'o' && c1 != 'O' {
+			RESTORE_POSITION()
+			return null
+		}
+		getNextCharacter()
+	}
 	var sb = new StringBuilder()
 	sb.append(c0)
+	if requirePrefix:
+		sb.append(c1)
 	loop {
 		var cn = peekNextCharacter()
 		if cn < 1 {
@@ -972,7 +1036,14 @@ func acceptOctalNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 		getNextCharacter()
 	}
 	var ids = sb.toString()
-	if ids == null || String.equals(ids, "0") {
+	var isNotValidOctal as bool
+	if requirePrefix {
+		isNotValidOctal = String.equals(ids, "0o") || String.equals(ids, "0O") 
+	}
+	else {
+		isNotValidOctal = String.equals(ids, "0")
+	}
+	if ids == null || isNotValidOctal {
 		RESTORE_POSITION()
 		return null
 	}
