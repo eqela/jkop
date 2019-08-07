@@ -31,70 +31,67 @@ func forMaxPoolSize(maximumPoolSize as int) static as this
 	return v
 }
 
+ctor
+{
+	queue = new vector<Runnable>
+	activeThreads = new vector<RunningThread>
+}
+
 var maximumPoolSize as int
 var queue as vector<Runnable>
-var threadIsRunning as bool
 var activeThreads as vector<RunningThread>
-var counts as int // FOR TEST LOG ONLY
+var isBusy as bool
 
 func submit(task as Runnable)
 {
-	if not queue:
-		queue = new vector<Runnable>
-	if not activeThreads:
-		activeThreads = new vector<RunningThread>
 	if Vector.getSize(activeThreads) + 1 >= maximumPoolSize {
 		queue += task
 	}
 	else {
-		onExecute(task)
-		onRemovedUnActiveThreads()
+		onStartThreadPool(task)
 	}
 }
 
 func submit(tasks as vector<Runnable>)
 {
-	if not queue:
-		queue = new vector<Runnable>
-	if not activeThreads:
-		activeThreads = new vector<RunningThread>
 	foreach task in tasks:
-		onExecute(task)
-	onRemovedUnActiveThreads()
+		submit(task)
 }
 
 func onExecute(task as Runnable)
 {
-	PRINT "-------- onExecute"
 	assert task
-	if not threadIsRunning:
-		threadIsRunning = true
 	var thread = Thread.start(task)
 	activeThreads += thread
-	PRINT "************ THREAD START : " .. String.asString(Vector.getSize(activeThreads))
-	if Vector.getSize(activeThreads) + 1 < maximumPoolSize:
-		onExecute(onGetRunnableFromQueue())
 }
 
 func onRemovedUnActiveThreads
 {
-	assert Vector.getSize(activeThreads) > 0
-	var cthread = Vector.get(activeThreads, 0)
-	if cthread.isAlive() == false {
-		counts ++
-		PRINT "------------ REMOVE " .. String.asString(counts)
-		Vector.removeFirst(activeThreads)
-		if Vector.getSize(activeThreads) + 1 < maximumPoolSize:
-			onExecute(onGetRunnableFromQueue())
+	assert isBusy == false
+	isBusy = true
+	loop {
+		var cthread = Vector.get(activeThreads, 0)
+		if not cthread:
+			break
+		if cthread.isAlive() == false {
+			Vector.removeFirst(activeThreads)
+			if getActiveThreads() + 1 <= maximumPoolSize:
+				onExecute(onGetRunnableFromQueue())
+		}
 	}
-	onRemovedUnActiveThreads()
+	isBusy = false
 }
 
 func onGetRunnableFromQueue as Runnable
 {
-	assert Vector.getSize(queue) > 0:
-		threadIsRunning = false
+	assert Vector.getSize(queue) > 0
 	return Vector.popFirst(queue) as Runnable
+}
+
+func onStartThreadPool(task as Runnable)
+{
+	onExecute(task)
+	onRemovedUnActiveThreads()
 }
 
 func getActiveThreads as int:

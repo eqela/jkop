@@ -183,6 +183,20 @@ IFDEF "target_swift"
 	}
 }
 
+IFDEF "target_kotlin"
+{
+	class MyThread is RunningThread
+	{
+		prop thread as !"java.lang.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "kotlin" bool {{{ thread.isAlive() }}}
+		}
+	}
+}
+
 func setLocalValue(id as string, value as object) static
 {
 	meta {
@@ -304,6 +318,17 @@ func start(runnable as Runnable) static as RunningThread
 		rt.setThread(thread)
 		return rt
 	}
+	ELSE IFDEF "target_kotlin" {
+		var th as !"java.lang.Thread"
+		lang "kotlin" {{{
+			th = kotlin.concurrent.thread() {
+				runnable!!.run()
+			}
+		}}}
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -332,14 +357,6 @@ func start(runnable as Runnable) static as RunningThread
 		}}}
 		return th
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			th = kotlin.concurrent.thread() {
-				runnable!!.run()
-			}
-		}}}
-		return th
-	}
 	ELSE IFDEF "target_sushi" {
 		var r = lang "lua" int {{{ _sushi:startThread([[
 			function _threadMain(x)
@@ -349,10 +366,6 @@ func start(runnable as Runnable) static as RunningThread
 			end
 		]], _sushi:serializeObject(runnable)) }}}
 		// FIX ME: Don't know where is the thread instance
-		return null
-	}
-	ELSE {
-		ERROR "Not implemented"
 		return null
 	}*/
 }
