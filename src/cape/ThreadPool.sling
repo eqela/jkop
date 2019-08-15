@@ -34,65 +34,89 @@ func forMaxPoolSize(maximumPoolSize as int) static as this
 ctor
 {
 	queue = new vector<Runnable>
-	activeThreads = new vector<RunningThread>
+	mutex = Mutex.create()
 }
 
 var maximumPoolSize as int
 var queue as vector<Runnable>
-var activeThreads as vector<RunningThread>
-var isBusy as bool
+var runningThreadsCount as int
+var mutex as Mutex
 
-func submit(task as Runnable)
-{
-	if Vector.getSize(activeThreads) + 1 >= maximumPoolSize {
-		queue += task
-	}
-	else {
-		onStartThreadPool(task)
-	}
-}
+func submit(task as Runnable):
+	execute(task)
 
 func submit(tasks as vector<Runnable>)
 {
 	foreach task in tasks:
-		submit(task)
+		execute(task)
 }
 
-func onExecute(task as Runnable)
+func execute(task as Runnable)
 {
 	assert task
-	var thread = Thread.start(task)
-	activeThreads += thread
-}
-
-func onRemovedUnActiveThreads
-{
-	assert isBusy == false
-	isBusy = true
-	loop {
-		var cthread = Vector.get(activeThreads, 0)
-		if not cthread:
-			break
-		if cthread.isAlive() == false {
-			Vector.removeFirst(activeThreads)
-			if getActiveThreads() + 1 <= maximumPoolSize:
-				onExecute(onGetRunnableFromQueue())
-		}
+	if runningThreadsCount < maximumPoolSize {
+		addThread(task)
 	}
-	isBusy = false
+	else {
+		queue += task
+	}
 }
 
-func onGetRunnableFromQueue as Runnable
+func addThread(task as Runnable)
 {
-	assert Vector.getSize(queue) > 0
-	return Vector.popFirst(queue) as Runnable
+	mutex.lockMutex()
+	runningThreadsCount ++
+	var runner = new TaskRunner()
+	runner.setRunnable(task)
+	runner.setOnTaskDone(func(taskRunner as TaskRunner) {
+		onTaskDone(taskRunner)
+	})
+	var thread = Thread.start(runner)
+	runner.setThread(thread)
+	mutex.unlockMutex()
 }
 
-func onStartThreadPool(task as Runnable)
+func onTaskDone(taskRunner as TaskRunner)
 {
-	onExecute(task)
-	onRemovedUnActiveThreads()
+	mutex.lockMutex()
+	runningThreadsCount --
+	mutex.unlockMutex()
+	assert getQueueSize() > 0
+	if runningThreadsCount < maximumPoolSize {
+		var task = getTaskFromQueue()
+		taskRunner.setRunnable(task)
+		var thread = assert taskRunner.getThread()
+		thread.start(taskRunner)
+	}
 }
 
-func getActiveThreads as int:
-	return Vector.getSize(activeThreads)
+func getTaskFromQueue as Runnable
+{
+	assert getQueueSize() > 0
+	mutex.lockMutex()
+	var item = Vector.popFirst(queue) as Runnable
+	mutex.unlockMutex()
+	return item
+}
+
+func getQueueSize as int
+{
+	mutex.lockMutex()
+	var size = Vector.getSize(queue)
+	mutex.unlockMutex()
+	return size
+}
+
+class TaskRunner is Runnable public
+{
+	prop runnable as Runnable
+	prop onTaskDone as function<void, this>
+	prop thread as RunningThread
+
+	func run
+	{
+		runnable.run()
+		if onTaskDone:
+			onTaskDone(this)
+	}
+}

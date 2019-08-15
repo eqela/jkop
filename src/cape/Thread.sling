@@ -30,12 +30,20 @@ IFDEF "target_netcore"
 
 	class MyThread is RunningThread
 	{
-		prop thread as !"System.Threading.Thread"
+		var thread as !"System.Threading.Thread"
 
 		func isAlive as bool
 		{
 			assert thread
 			return lang "cs" bool {{{ thread.IsAlive }}}
+		}
+
+		func start(runnable as Runnable)
+		{
+			lang "cs" {{{
+				thread = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
+				thread.Start();
+			}}}
 		}
 	}
 }
@@ -109,12 +117,24 @@ IFDEF "target_java"
 
 	class MyThread is RunningThread
 	{
-		prop thread as !"java.lang.Thread"
+		var thread as !"java.lang.Thread"
 
 		func isAlive as bool
 		{
 			assert thread
 			return lang "java" bool {{{ thread.isAlive() }}}
+		}
+
+		func start(runnable as Runnable)
+		{
+			lang "java" {{{
+				thread = new java.lang.Thread(new ThreadRunnable(runnable));
+				try {
+					thread.start();
+				}
+				catch(Exception e) {
+				}
+			}}}
 		}
 	}
 }
@@ -134,12 +154,21 @@ IFDEF "target_objc"
 
 	class MyRunningThread is RunningThread
 	{
-		prop thread as !"NSThread"
+		var thread as !"NSThread"
 
 		func isAlive as bool
 		{
 			assert thread
 			return lang "objc" bool {{{ [thread isExecuting] }}}
+		}
+
+		func start(runnable as Runnable)
+		{
+			thread = new MyThread()
+			thread.setRunnable(runnable)
+			lang "objc" {{{
+				[thread start];
+			}}}
 		}
 	}
 }
@@ -173,12 +202,21 @@ IFDEF "target_swift"
 
 	class MyRunningThread is RunningThread
 	{
-		prop thread as !"Foundation.Thread"
+		var thread as !"Foundation.Thread"
 
 		func isAlive as bool
 		{
 			assert thread
 			return lang "swift" bool {{{ thread.isExecuting }}}
+		}
+
+		func start(runnable as Runnable)
+		{
+			thread = new MyThread()
+			thread.setRunnable(runnable)
+			lang "swift" {{{
+				thread.start()
+			}}}
 		}
 	}
 }
@@ -187,12 +225,21 @@ IFDEF "target_kotlin"
 {
 	class MyThread is RunningThread
 	{
-		prop thread as !"java.lang.Thread"
+		var thread as !"java.lang.Thread"
 
 		func isAlive as bool
 		{
 			assert thread
 			return lang "kotlin" bool {{{ thread.isAlive() }}}
+		}
+
+		func start(runnable as Runnable)
+		{
+			lang "kotlin" {{{
+				thread = kotlin.concurrent.thread() {
+					runnable!!.run()
+				}
+			}}}
 		}
 	}
 }
@@ -274,59 +321,29 @@ func start(runnable as Runnable) static as RunningThread
 			return false
 		}
 		ELSE {
-			var th as !"System.Threading.Thread"
-			lang "cs" {{{
-				th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
-				th.Start();
-			}}}
 			var thread = new MyThread()
-			thread.setThread(th)
+			thread.start(runnable)
 			return thread
 		}
 	}
 	ELSE IFDEF "target_java" {
-		var th as !"java.lang.Thread"
-		lang "java" {{{
-			th = new java.lang.Thread(new ThreadRunnable(runnable));
-			try {
-				th.start();
-			}
-			catch(Exception e) {
-			}
-		}}}
 		var thread = new MyThread()
-		thread.setThread(th)
+		thread.start(runnable)
 		return thread
 	}
 	ELSE IFDEF "target_objc" {
-		var thread = new MyThread()
-		thread.setRunnable(runnable)
-		lang "objc" {{{
-			[thread start];
-		}}}
 		var rt = new MyRunningThread()
-		rt.setThread(thread)
+		rt.start(runnable)
 		return rt
 	}
 	ELSE IFDEF "target_swift" {
-		var thread = new MyThread()
-		thread.setRunnable(runnable)
-		lang "swift" {{{
-			thread.start()
-		}}}
 		var rt = new MyRunningThread()
-		rt.setThread(thread)
+		rt.start(runnable)
 		return rt
 	}
 	ELSE IFDEF "target_kotlin" {
-		var th as !"java.lang.Thread"
-		lang "kotlin" {{{
-			th = kotlin.concurrent.thread() {
-				runnable!!.run()
-			}
-		}}}
 		var thread = new MyThread()
-		thread.setThread(th)
+		thread.start(runnable)
 		return thread
 	}
 	ELSE {
