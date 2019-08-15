@@ -54,26 +54,22 @@ func submit(tasks as vector<Runnable>)
 func execute(task as Runnable)
 {
 	assert task
-	if runningThreadsCount < maximumPoolSize {
-		addThread(task)
+	if getRunningThreadsCount() < maximumPoolSize {
+		mutex.lockMutex()
+		runningThreadsCount ++
+		mutex.unlockMutex()
+		var runner = new TaskRunner()
+		runner.setRunnable(task)
+		runner.setOnTaskDone(func(taskRunner as TaskRunner) {
+			onTaskDone(taskRunner)
+		})
+		Thread.start(runner)
 	}
 	else {
+		mutex.lockMutex()
 		queue += task
+		mutex.unlockMutex()
 	}
-}
-
-func addThread(task as Runnable)
-{
-	mutex.lockMutex()
-	runningThreadsCount ++
-	var runner = new TaskRunner()
-	runner.setRunnable(task)
-	runner.setOnTaskDone(func(taskRunner as TaskRunner) {
-		onTaskDone(taskRunner)
-	})
-	var thread = Thread.start(runner)
-	runner.setThread(thread)
-	mutex.unlockMutex()
 }
 
 func onTaskDone(taskRunner as TaskRunner)
@@ -82,11 +78,13 @@ func onTaskDone(taskRunner as TaskRunner)
 	runningThreadsCount --
 	mutex.unlockMutex()
 	assert getQueueSize() > 0
-	if runningThreadsCount < maximumPoolSize {
+	if getRunningThreadsCount() < maximumPoolSize {
+		mutex.lockMutex()
+		runningThreadsCount ++
+		mutex.unlockMutex()
 		var task = getTaskFromQueue()
 		taskRunner.setRunnable(task)
-		var thread = assert taskRunner.getThread()
-		thread.start(taskRunner)
+		taskRunner.run()
 	}
 }
 
@@ -97,6 +95,14 @@ func getTaskFromQueue as Runnable
 	var item = Vector.popFirst(queue) as Runnable
 	mutex.unlockMutex()
 	return item
+}
+
+func getRunningThreadsCount as int
+{
+	mutex.lockMutex()
+	var count = runningThreadsCount
+	mutex.unlockMutex()
+	return count
 }
 
 func getQueueSize as int
@@ -111,7 +117,6 @@ class TaskRunner is Runnable public
 {
 	prop runnable as Runnable
 	prop onTaskDone as function<void, this>
-	prop thread as RunningThread
 
 	func run
 	{
