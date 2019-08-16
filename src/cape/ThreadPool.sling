@@ -23,3 +23,75 @@
  */
 
 class:
+
+func forMaxPoolSize(maximumPoolSize as int) static as this
+{
+	var v = new this()
+	v.maximumPoolSize = maximumPoolSize
+	return v
+}
+
+ctor
+{
+	queue = new vector<Runnable>
+	mutex = Mutex.create()
+}
+
+var maximumPoolSize as int
+var queue as vector<Runnable>
+var runningThreadsCount as int
+var mutex as Mutex
+
+func submit(task as Runnable):
+	execute(task)
+
+func submit(tasks as vector<Runnable>)
+{
+	foreach task in tasks:
+		execute(task)
+}
+
+func execute(task as Runnable)
+{
+	assert task
+	mutex.lockMutex()
+	if runningThreadsCount < maximumPoolSize {
+		runningThreadsCount ++
+		mutex.unlockMutex()
+		var runner = new TaskRunner()
+		runner.setMyParent(this)
+		runner.setRunnable(task)
+		Thread.start(runner)
+	}
+	else {
+		queue += task
+		mutex.unlockMutex()
+	}
+}
+
+func getTaskFromQueue as Runnable
+{
+	mutex.lockMutex()
+	var item = Vector.popFirst(queue) as Runnable
+	if not item:
+		runningThreadsCount --
+	mutex.unlockMutex()
+	return item
+}
+
+class TaskRunner is Runnable public
+{
+	prop runnable as Runnable
+	prop myParent as parent
+
+	func run
+	{
+		loop {
+			runnable.run()
+			var next = myParent.getTaskFromQueue()
+			if not next:
+				break
+			runnable = next
+		}
+	}
+}
