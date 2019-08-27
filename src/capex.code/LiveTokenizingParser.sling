@@ -39,7 +39,6 @@ class Position public
 	var line public as int
 	var column public as int
 	var position public as int
-	var allTokensSize public as int
 	var commentQueueSize public as int
 	var previousToken public as Token
 }
@@ -53,7 +52,6 @@ const IMPROPER_COMMENT_WARN_QUEUE = 4
 prop improperCommentPolicy = IMPROPER_COMMENT_NOOP
 prop tokensAreCaseSensitive = true
 prop fileEncoding = "UTF-8"
-prop collectAllTokens = true
 var iterator protected as CharacterIterator
 var currentTokenLine protected as int
 var currentTokenColumn protected as int
@@ -61,10 +59,10 @@ var currentTokenSource protected as TokenSource
 var stagingToken protected as Token
 var acceptedToken protected as Token
 var commentQueue protected as Queue<Token>
-var allTokens protected as vector<Token>
 prop parseMessages as vector<Message>
 var previousToken protected as Token
 prop allowSkipSpaces = true
+var tokenIterator = new CharacterIteratorForString()
 
 func resetParserState virtual
 {
@@ -75,13 +73,9 @@ func resetParserState virtual
 	stagingToken = null
 	acceptedToken = null
 	commentQueue = null
-	allTokens = null
 	parseMessages = null
 	previousToken = null
 }
-
-func getAllTokens as vector<Token>:
-	return allTokens
 
 func consumeParseMessages as vector<Message>
 {
@@ -109,24 +103,24 @@ macro PARSE_ERROR_EXPECT(txt)
 {
 	skipSpaces()
 	updateStagingToken()
-	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), getStagingToken(), new StackTrace().toString())
+	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), getStagingToken(), StackTrace.generate())
 }
 
 macro PARSE_ERROR_EXPECT(txt, src)
 {
-	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), src, new StackTrace().toString())
+	throw ReferenceError.forMessage("Expected: " .. getDisplayText(txt), src, StackTrace.generate())
 }
 
 macro PARSE_ERROR(txt)
 {
 	skipSpaces()
 	updateStagingToken()
-	throw ReferenceError.forMessage(txt, getStagingToken(), new StackTrace().toString())
+	throw ReferenceError.forMessage(txt, getStagingToken(), StackTrace.generate())
 }
 
 macro PARSE_ERROR(txt, src)
 {
-	throw ReferenceError.forMessage(txt, src, new StackTrace().toString())
+	throw ReferenceError.forMessage(txt, src, StackTrace.generate())
 }
 
 macro PARSE_VALIDATE_OBJECT(o)
@@ -337,7 +331,6 @@ func rememberPosition as Position
 	v.line = currentTokenLine
 	v.column = currentTokenColumn
 	v.position = iterator.getCurrentPosition()
-	v.allTokensSize = Vector.getSize(allTokens)
 	if commentQueue {
 		v.commentQueueSize = commentQueue.getSize()
 	}
@@ -354,8 +347,6 @@ func restorePosition(token as Position)
 	currentTokenColumn = token.column
 	currentTokenLine = token.line
 	iterator.setCurrentPosition(token.position)
-	while Vector.getSize(allTokens) > token.allTokensSize:
-		Vector.popLast(allTokens)
 	while commentQueue && commentQueue.getSize() > token.commentQueueSize:
 		commentQueue.pop()
 	previousToken = token.previousToken
@@ -367,7 +358,6 @@ macro REMEMBER_POSITION
 	var ctc = currentTokenColumn
 	var ctl = currentTokenLine
 	var ctp = iterator.getCurrentPosition()
-	var ats = Vector.getSize(allTokens)
 	var cqs = 0
 	if commentQueue:
 		cqs = commentQueue.getSize()
@@ -379,8 +369,6 @@ macro RESTORE_POSITION
 	currentTokenColumn = ctc
 	currentTokenLine = ctl
 	iterator.setCurrentPosition(ctp)
-	while Vector.getSize(allTokens) > ats:
-		Vector.popLast(allTokens)
 	while commentQueue && commentQueue.getSize() > cqs:
 		commentQueue.pop()
 	previousToken = cpt
@@ -458,11 +446,6 @@ func onTokenAccepted(token as Token) virtual
 	assert token
 	previousToken = acceptedToken
 	acceptedToken = token
-	if token.value != null && collectAllTokens {
-		if allTokens == null:
-			allTokens = new vector<Token>
-		allTokens += token
-	}
 }
 
 func acceptEOF virtual as Token
@@ -504,14 +487,20 @@ func isTokenBoundary(c0 as char, c1 as char) virtual as bool
 func acceptString(str as string) as string
 {
 	REMEMBER_POSITION()
-	var it = assert String.iterate(str)
+	var it = tokenIterator
+	it.setString(str)
 	var lc = 0 as char
 	loop {
 		var c = it.getNextChar()
 		if c < 1:
 			break
 		lc = c
-		if preprocessCharacter(c) != preprocessCharacter(getNextCharacter()) {
+		var nn = getNextCharacter()
+		if not tokensAreCaseSensitive {
+			c = Character.toLowercase(c)
+			nn = Character.toLowercase(nn)
+		}
+		if c != nn {
 			RESTORE_POSITION()
 			return null
 		}
@@ -566,14 +555,30 @@ func acceptToken(token as string) as Token
 	assert token
 	skipSpaces()
 	REMEMBER_POSITION()
-	var it = assert String.iterate(token)
+	var it = tokenIterator
+	it.setString(token)
 	var lc = 0 as char
 	loop {
 		var c = it.getNextChar()
 		if c < 1:
 			break
+		if lc == 0 {
+			if tokensAreCaseSensitive {
+				if c != peekNextCharacter():
+					return null
+			}
+			else {
+				if Character.toLowercase(c) != Character.toLowercase(peekNextCharacter()):
+					return null
+			}
+		}
 		lc = c
-		if preprocessCharacter(c) != preprocessCharacter(getNextCharacter()) {
+		var nn = getNextCharacter()
+		if not tokensAreCaseSensitive {
+			c = Character.toLowercase(c)
+			nn = Character.toLowercase(nn)
+		}
+		if c != nn {
 			RESTORE_POSITION()
 			return null
 		}
@@ -883,6 +888,59 @@ func acceptDoubleQuotedStringToken(escapeChar as char, allowNewlines as bool) vi
 	return v
 }
 
+func acceptTripleQuotedMultiLineStringToken as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '"':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 = peekNextCharacter()
+	if c1 != '"' {
+		RESTORE_POSITION()
+		return null
+	}
+	getNextCharacter()
+	var c2 = peekNextCharacter()
+	if c2 != '"' {
+		RESTORE_POSITION()
+		return null
+	}
+	acceptToken('\n')
+	var sb = new StringBuilder()
+	sb.append(c0)
+	sb.append(c1)
+	sb.append(c2)
+	var qc = 0
+	loop {
+		var cn = getNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		sb.append(cn)
+		if cn == '"' {
+			qc ++
+			if qc == 3:
+				break
+		}
+		else {
+			qc = 0
+		}
+	}
+	var val = sb.toString()
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = val
+	onTokenAccepted(v)
+	return v
+}
+
 func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 {
 	skipSpaces()
@@ -925,6 +983,67 @@ func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 	}
 	var ids = sb.toString()
 	if ids == null || String.equals(ids, "0x") || String.equals(ids, "0X") {
+		RESTORE_POSITION()
+		return null
+	}
+	var v = stagingToken
+	stagingToken = null
+	updateStagingToken()
+	v.line = ctl
+	v.column = ctc
+	v.position = ctp
+	v.value = ids
+	onTokenAccepted(v)
+	return v
+}
+
+func acceptOctalNumberLiteralToken(acceptUnderscores as bool, requirePrefix as bool) virtual as Token
+{
+	skipSpaces()
+	var c0 = peekNextCharacter()
+	if c0 != '0':
+		return null
+	REMEMBER_POSITION()
+	getNextCharacter()
+	var c1 as char
+	if requirePrefix {
+		c1 = peekNextCharacter()
+		if c1 != 'o' && c1 != 'O' {
+			RESTORE_POSITION()
+			return null
+		}
+		getNextCharacter()
+	}
+	var sb = new StringBuilder()
+	sb.append(c0)
+	if requirePrefix:
+		sb.append(c1)
+	loop {
+		var cn = peekNextCharacter()
+		if cn < 1 {
+			RESTORE_POSITION()
+			return null
+		}
+		if cn >= '0' && cn <= '7' {
+			sb.append(cn)
+		}
+		else if cn == '_' && acceptUnderscores {
+			;
+		}
+		else {
+			break
+		}
+		getNextCharacter()
+	}
+	var ids = sb.toString()
+	var isNotValidOctal as bool
+	if requirePrefix {
+		isNotValidOctal = String.equals(ids, "0o") || String.equals(ids, "0O") 
+	}
+	else {
+		isNotValidOctal = String.equals(ids, "0")
+	}
+	if ids == null || isNotValidOctal {
 		RESTORE_POSITION()
 		return null
 	}
@@ -1345,7 +1464,8 @@ func isValidIdentifier(t as string) virtual as bool
 	assert t
 	var c = String.getChar(t, 0)
 	assert isValidIdentifierPrefix(c)
-	var it = assert String.iterate(t)
+	var it = tokenIterator
+	it.setString(t)
 	it.getNextChar()
 	loop {
 		var c = it.getNextChar()

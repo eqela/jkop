@@ -27,6 +27,127 @@ class is RenderingContext:
 depend "swift-import:UIKit"
 depend "swift-import:CoreGraphics"
 
+class ColorStop
+{
+	ctor(stop as double, color as Color)
+	{
+		this.stop = stop as float
+		this.color = color
+	}
+
+	var stop public as float
+	var color public as Color
+}
+
+class GradientObject abstract
+{
+	var colorStops protected as vector<ColorStop>
+
+	func addColorStop(stop as double, color as Color)
+	{
+		if not colorStops:
+			colorStops = new vector<ColorStop>
+		colorStops += new ColorStop(stop, color)
+	}
+
+	func getColors protected as Color[]
+	{
+		var size = SIZE colorStops
+		var colors = new Color[size]
+		for(var i = 0; i < size; i++) {
+			var colorStop = colorStops[i]
+			if not colorStop.color {
+				colors[i] = lang "swift" !"CGColor" {{{ CaveColor.black().toUIColor()?.cgColor }}}
+			}
+			else {
+				colors[i] = lang "swift" !"CGColor" {{{ colorStop.color.toUIColor()?.cgColor }}}
+			}
+		}
+		return colors
+	}
+
+	func createGradient abstract
+}
+
+class LinearGradientObject is GradientObject
+{
+	ctor(cgContext as !"CGContext", x0 as double, y0 as double, x1 as double, y1 as double)
+	{
+		this.cgContext = cgContext
+		this.x0 = x0
+		this.y0 = y0
+		this.x1 = x1
+		this.y1 = y1
+	}
+
+	var x0 as double
+	var y0 as double
+	var x1 as double
+	var y1 as double
+	var cgContext as !"CGContext"
+
+	func createGradient override
+	{
+		lang "swift" {{{
+			let start = CGPoint(x: x0, y: y0)
+			let end = CGPoint(x: x1, y: y1)
+			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getColors(), locations: nil)
+			cgContext.drawLinearGradient(gradient!, start: start, end: end, options: CGGradientDrawingOptions.drawsBeforeStartLocation)
+		}}}
+	}
+}
+
+class RadialGradientObject is GradientObject
+{
+	ctor(cgContext as !"CGContext", x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double)
+	{
+		this.cgContext = cgContext
+		this.x0 = x0
+		this.y0 = y0
+		this.r0 = r0
+		this.x1 = x1
+		this.y1 = y1
+		this.r1 = r1
+	}
+
+	var x0 as double
+	var y0 as double
+	var r0 as double
+	var x1 as double
+	var y1 as double
+	var r1 as double
+	var cgContext as !"CGContext"
+
+	func createGradient override
+	{
+		lang "swift" {{{
+			let startCenter = CGPoint(x: x0, y: y0)
+			let endCenter = CGPoint(x: x1, y: y1)
+			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getColors(), locations: nil)
+			cgContext.drawRadialGradient(gradient!, startCenter: startCenter, startRadius: CGFloat(r0), endCenter: endCenter, endRadius: CGFloat(r1), options: CGGradientDrawingOptions.drawsBeforeStartLocation)
+		}}}
+	}
+}
+
+class PatternObject
+{
+	ctor(image as !"UIImage", repeat as int, rectObject as !"CGRect")
+	{
+		this.image = image
+		this.repeat = repeat
+		this.rectObject = rectObject
+	}
+
+	var repeat as int
+	var rectObject as !"CGRect"
+	var image as !"UIImage"
+
+	func createPattern
+	{
+		lang "swift" {{{ image.drawAsPattern(in: rectObject) }}}
+	}
+}
+
 func forContext(context as GuiApplicationContext, cgContext as !"CGContext") static as this
 {
 	var v = new this()
@@ -45,6 +166,9 @@ var lineWidth = 5
 var strokeColor as !"UIColor"
 var fillColor as !"UIColor"
 var textBaseline as int
+var offsetX as double
+var offsetY as double
+var shadowBlur as double
 
 func setFillStyle(style as object) override
 {
@@ -76,17 +200,53 @@ func setStrokeStyle(style as object) override
 	}
 }
 
-func setShadowColor(color as Color) stub override
-func setShadowBlur(blur as double) stub override
-func setShadowOffsetX(offset as double) stub override
-func setShadowOffsetY(offset as double) stub override
-func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) stub override as object
-func createPattern(image as Image, repeat as int) stub override as object
-func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) stub override as object
-func addColorStop(gradient as object, index as double, color as Color) stub override
+func setShadowColor(color as Color) override
+{
+	assert offsetX
+	assert offsetY
+	assert shadowBlur
+	lang "swift" {{{ cgContext.setShadow(offset: CGSize(width: offsetX, height: offsetY), blur: CGFloat(shadowBlur), color: color.toUIColor().cgColor) }}}
+}
+
+func setShadowBlur(blur as double) override:
+	shadowBlur = blur
+
+func setShadowOffsetX(offset as double) override:
+	offsetX = offset
+
+func setShadowOffsetY(offset as double) override:
+	offsetY = offset
+
+func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object
+{
+	assert cgContext
+	return new LinearGradientObject(cgContext, x0, y0, x1, y1)
+}
+
+func createPattern(img as Image, repeat as int) override as object
+{
+	assert rectObject
+	var image = assert img as ImageForIOS
+	var simg = assert image.getBitmap()
+	return new PatternObject(simg, repeat, rectObject)
+}
+
+func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object
+{
+	assert cgContext
+	return new RadialGradientObject(cgContext, x0, y0, r0, x1, y1, r1)
+}
+
+func addColorStop(gradient as object, index as double, color as Color) override
+{
+	var gradientObject = assert gradient as GradientObject
+	assert color
+	gradientObject.addColorStop(index, color)
+}
 
 func setLineCap(cap as int) override
 {
+	assert cgContext
 	lang "swift" {{{
 		var lineCap: CGLineCap! = nil
 		if cap == CaveRenderingContext.LINE_CAP_BUTT {
@@ -104,6 +264,7 @@ func setLineCap(cap as int) override
 
 func setLineJoin(join as int) override
 {
+	assert cgContext
 	lang "swift" {{{
 		var lineJoin: CGLineJoin! = nil
 		if join == CaveRenderingContext.LINE_JOIN_MITER {
@@ -121,17 +282,20 @@ func setLineJoin(join as int) override
 
 func setLineWidth(width as double) override
 {
+	assert cgContext
 	lineWidth = width as float
 	lang "swift" {{{ cgContext.setLineWidth(CGFloat(width)) }}}
 }
 
 func setMiterLimit(limit as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.setMiterLimit(CGFloat(limit)) }}}
 }
 
 func rect(x as double, y as double, width as double, height as double) override
 {
+	assert cgContext
 	var xx = x as int
 	var yy = y as int
 	var ww = xx + width as int
@@ -144,6 +308,7 @@ func rect(x as double, y as double, width as double, height as double) override
 
 func fillRect(x as double, y as double, width as double, height as double) override
 {
+	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.addRect(rect)
@@ -153,6 +318,7 @@ func fillRect(x as double, y as double, width as double, height as double) overr
 
 func strokeRect(x as double, y as double, width as double, height as double) override
 {
+	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.addRect(rect)
@@ -162,6 +328,7 @@ func strokeRect(x as double, y as double, width as double, height as double) ove
 
 func clearRect(x as double, y as double, width as double, height as double) override
 {
+	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.clear(rect)
@@ -169,14 +336,20 @@ func clearRect(x as double, y as double, width as double, height as double) over
 }
 
 func fill override
+{
+	assert cgContext
+	lang "swift" {{{ cgContext.fillPath() }}}
+}
 
 func stroke override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.strokePath() }}}
 }
 
 func beginPath override
 {
+	assert cgContext
 	lang "swift" {{{ 
 		pathObject = UIBezierPath()
 		cgContext.addPath(pathObject.cgPath)
@@ -185,61 +358,79 @@ func beginPath override
 
 func moveTo(x as double, y as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.move(to: CGPoint(x: x, y: y)) }}}
 }
 
 func closePath override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.closePath() }}}
 }
 
 func lineTo(x as double, y as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.addLine(to: CGPoint(x: x, y: y)) }}}
 }
 
 func clip override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.clip() }}}
 }
 
 func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.addQuadCurve(to: CGPoint(x: cpx, y: cpy), control: CGPoint(x: x, y: y)) }}}
 }
 
 func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.addCurve(to: CGPoint(x: x, y: y), control1: CGPoint(x: cp1x, y: cp1y), control2: CGPoint(x: cp2x, y: cp2y)) }}}
 }
 
 func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.addArc(center: CGPoint(x: x, y: y), radius: CGFloat(r), startAngle: CGFloat(sAngle), endAngle: CGFloat(eAngle), clockwise: counterclockwise) }}}
 }
 
-func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double)
+func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x2, y: y2), radius: CGFloat(r)) }}}
+}
+
+func isPointInPath(x as double, y as double) override as bool
+{
+	assert pathObject
+	lang "swift" {{{ return pathObject.contains(CGPoint(x: x, y: y)) }}}
 }
 
 func scale(scalewidth as double, scaleheight as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.scaleBy(x: CGFloat(scalewidth), y: CGFloat(scaleheight)) }}}
 }
 
 func rotate(angle as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.rotate(by: CGFloat(angle)) }}}
 }
 
 func translate(x as double, y as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.translateBy(x: CGFloat(x), y: CGFloat(y)) }}}
 }
 
 func transform(a as double, b as double, c as double, d as double, e as double, f as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.concatenate(_: CGAffineTransform(a: CGFloat(a), b: CGFloat(b), c: CGFloat(c), d: CGFloat(d), tx: CGFloat(e), ty: CGFloat(f))) }}}
 }
 
@@ -259,6 +450,7 @@ func fillText(text as string, x as double, y as double, maxWidth as double) over
 	lang "swift" {{{
 		let text = NSAttributedString(string: text, attributes: [
 			NSAttributedString.Key.font: getFontDescription(CGFloat(maxWidth)),
+			NSAttributedString.Key.paragraphStyle: getTextAlignment(),
 			NSAttributedString.Key.foregroundColor: fillColor
 		])
 		text.draw(at: CGPoint(x: x, y: y))
@@ -270,6 +462,7 @@ func strokeText(text as string, x as double, y as double, maxWidth as double) ov
 	lang "swift" {{{
 		let text = NSAttributedString(string: text, attributes: [
 			NSAttributedString.Key.font: getFontDescription(CGFloat(maxWidth)),
+			NSAttributedString.Key.paragraphStyle: getTextAlignment(),
 			NSAttributedString.Key.strokeColor:strokeColor,
 			NSAttributedString.Key.strokeWidth: lineWidth
 		])
@@ -277,20 +470,37 @@ func strokeText(text as string, x as double, y as double, maxWidth as double) ov
 	}}}
 }
 
-func measureTextHeight(text as string) stub override as double
-func measureTextWidth(text as string) stub override as double
+func measureTextHeight(text as string) override as double
+{
+	lang "swift" {{{
+		let font = UIFont.systemFont(ofSize: UIFont.systemFontSize)
+		let attributes = NSDictionary(object: font, forKey:NSAttributedString.Key.font as NSCopying)
+		let size = text.size(withAttributes: attributes as! [NSAttributedString.Key : Any] as! [NSAttributedString.Key : Any])
+		return Swift.Double(size.height)
+	}}}
+}
+
+func measureTextWidth(text as string) override as double
+{
+	lang "swift" {{{
+		let font = UIFont.systemFont(ofSize: UIFont.systemFontSize)
+		let attributes = NSDictionary(object: font, forKey:NSAttributedString.Key.font as NSCopying)
+		let size = text.size(withAttributes: attributes as! [NSAttributedString.Key : Any] as! [NSAttributedString.Key : Any])
+		return Swift.Double(size.width)
+	}}}
+}
 
 func drawImage(img as Image, x as double, y as double) override
 {
-	var image = assert img as ImageForSwift
-	var simg = assert image.getSwiftBitmap()
+	var image = assert img as ImageForIOS
+	var simg = assert image.getBitmap()
 	lang "swift" {{{ simg.draw(at: CGPoint(x: x, y: y)) }}}
 }
 
 func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
 {
-	var image = assert img as ImageForSwift
-	var simg = assert image.getSwiftBitmap()
+	var image = assert img as ImageForIOS
+	var simg = assert image.getBitmap()
 	lang "swift" {{{ simg.draw(in: CGRect(x: x, y: y, width: width, height: height)) }}}
 }
 
@@ -299,23 +509,26 @@ func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as dou
 	assert img
 	var croped = assert img.crop(sx as int, sy as int, swidth as int, sheight as int)
 	var scaled = assert croped.scaleToSize(width as int, height as int)
-	var aimage = assert scaled as ImageForSwift
-	var image = assert aimage.getSwiftBitmap()
+	var aimage = assert scaled as ImageForIOS
+	var image = assert aimage.getBitmap()
 	lang "swift" {{{ image.draw(at: CGPoint(x: x, y: y)) }}}
 }
 
 func setGlobalAlpha(alpha as double) override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.setAlpha(CGFloat(alpha)) }}}
 }
 
 func save override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.saveGState() }}}
 }
 
 func restore override
 {
+	assert cgContext
 	lang "swift" {{{ cgContext.restoreGState() }}}
 }
 
@@ -338,4 +551,24 @@ func getFontDescription(size as !"CGFloat") private as !"UIFont"
 		lang "swift" {{{ font = UIFont.systemFont(ofSize: size) }}}
 	}
 	return font
+}
+
+func getTextAlignment private as !"NSMutableParagraphStyle"
+{
+	lang "swift" {{{
+		let paragraphStyle = NSMutableParagraphStyle()
+		if textAlign == CaveRenderingContext.ALIGN_START || textAlign == CaveRenderingContext.ALIGN_LEFT {
+			paragraphStyle.alignment = .left
+		}
+		else if textAlign == CaveRenderingContext.ALIGN_END || textAlign == CaveRenderingContext.ALIGN_RIGHT {
+			paragraphStyle.alignment = .right
+		}
+		else if textAlign == CaveRenderingContext.ALIGN_CENTER {
+			paragraphStyle.alignment = .center
+		}
+		else {
+			paragraphStyle.alignment = .left
+		}
+		return paragraphStyle
+	}}}
 }

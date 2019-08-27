@@ -27,6 +27,17 @@ class:
 IFDEF "target_netcore"
 {
 	depend "nuget:System.Threading.Thread@4.3.*"
+
+	class MyThread is RunningThread
+	{
+		prop thread as !"System.Threading.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "cs" bool {{{ thread.IsAlive }}}
+		}
+	}
 }
 
 IFDEF "target_posix"
@@ -95,6 +106,17 @@ IFDEF "target_java"
 			}
 		}
 	}}}
+
+	class MyThread is RunningThread
+	{
+		prop thread as !"java.lang.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "java" bool {{{ thread.isAlive() }}}
+		}
+	}
 }
 
 IFDEF "target_objc"
@@ -107,6 +129,17 @@ IFDEF "target_objc"
 		{
 			if runnable:
 				runnable.run()
+		}
+	}
+
+	class MyRunningThread is RunningThread
+	{
+		prop thread as !"NSThread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "objc" bool {{{ [thread isExecuting] }}}
 		}
 	}
 }
@@ -137,6 +170,31 @@ IFDEF "target_swift"
 			}
 		}
 	}}}
+
+	class MyRunningThread is RunningThread
+	{
+		prop thread as !"Foundation.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "swift" bool {{{ thread.isExecuting }}}
+		}
+	}
+}
+
+IFDEF "target_kotlin"
+{
+	class MyThread is RunningThread
+	{
+		prop thread as !"java.lang.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "kotlin" bool {{{ thread.isAlive() }}}
+		}
+	}
 }
 
 func setLocalValue(id as string, value as object) static
@@ -150,6 +208,11 @@ func setLocalValue(id as string, value as object) static
 	IFDEF "target_cs" {
 		lang "cs" {{{
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), value);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			Thread.current.threadDictionary.setObject(value, forKey: id as! NSCopying)
 		}}}
 	}
 	ELSE {
@@ -167,6 +230,11 @@ func getLocalValue(id as string) static as object
 	}
 	IFDEF "target_cs" {
 		return lang "cs" object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			return Thread.current.threadDictionary.value(forKey: id) as AnyObject
+		}}}
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -187,12 +255,17 @@ func removeLocalValue(id as string) static
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), null);
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			Thread.current.threadDictionary.removeObject(forKey: id)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented."
 	}
 }
 
-func start(runnable as Runnable) static as bool
+func start(runnable as Runnable) static as RunningThread
 {
 	assert runnable
 	IFDEF "target_cs" {
@@ -201,55 +274,35 @@ func start(runnable as Runnable) static as bool
 			return false
 		}
 		ELSE {
+			var th as !"System.Threading.Thread"
 			lang "cs" {{{
-				new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run)).Start();
+				th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
+				try {
+					th.Start();
+				}
+				catch(Exception e) {
+					return null;
+				}
 			}}}
-			return true
+			var thread = new MyThread()
+			thread.setThread(th)
+			return thread
 		}
 	}
 	ELSE IFDEF "target_java" {
-		var v = false
+		var th as !"java.lang.Thread"
 		lang "java" {{{
-			java.lang.Thread t = new java.lang.Thread(new ThreadRunnable(runnable));
+			th = new java.lang.Thread(new ThreadRunnable(runnable));
 			try {
-				t.start();
-				v = true;
+				th.start();
 			}
 			catch(Exception e) {
+				return null;
 			}
 		}}}
-		return v
-	}
-	ELSE IFDEF "target_posix" {
-		var rv as int
-		lang "c" {{{
-			pthread_t t;
-			pthread_attr_t ta;
-			pthread_attr_init(&ta);
-			pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
-			ref_eq_api_Object((void*)runnable);
-			rv = pthread_create(&t, &ta, (void*)
-			eq_os_ThreadImpl_thread_function, (void*)runnable);
-		}}}
-		if rv != 0:
-			return false
-		return true
-	}
-	ELSE IFDEF "target_win32" {
-		var v as bool = false
-		var rv as int = 0
-		lang "c" {{{
-			HANDLE hThread;
-			DWORD dwThreadId;
-			ref_eq_api_Object((void*)r);
-			hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)eq_os_ThreadImp_thread_function, (void*)runnable, 0, &dwThreadId);
-			if(hThread != NULL) {
-				rv = 1;
-			}
-		}}}
-		if rv == 1:
-			v = true
-		return v
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
 	}
 	ELSE IFDEF "target_objc" {
 		var thread = new MyThread()
@@ -257,38 +310,71 @@ func start(runnable as Runnable) static as bool
 		lang "objc" {{{
 			[thread start];
 		}}}
-		return true
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			kotlin.concurrent.thread() {
-				runnable!!.run()
-			}
-		}}}
-		return true
-	}
-	ELSE IFDEF "target_sushi" {
-		var r = lang "lua" int {{{ _sushi.startThread([[
-			function _threadMain(x)
-				local oo = _sushi.unserializeObject(x)
-				_sushi.setMetaTable(oo, _sushi.getGlobal(oo._qualifiedClassName))
-				oo:run()
-			end
-		]], _sushi.serializeObject(runnable)) }}}
-		if r == 0:
-			return false
-		return true
+		var rt = new MyRunningThread()
+		rt.setThread(thread)
+		return rt
 	}
 	ELSE IFDEF "target_swift" {
+		var thread = new MyThread()
+		thread.setRunnable(runnable)
 		lang "swift" {{{
-			let thread: MyThread! = MyThread()
-			thread.setRunnable(runnable)
 			thread.start()
 		}}}
-		return true
+		var rt = new MyRunningThread()
+		rt.setThread(thread)
+		return rt
+	}
+	ELSE IFDEF "target_kotlin" {
+		var th as !"java.lang.Thread"
+		lang "kotlin" {{{
+			try {
+				th = kotlin.concurrent.thread() {
+				runnable!!.run()
+			}
+			catch(Exception e) {
+				return null;
+			}
+		}}}
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
 	}
 	ELSE {
 		ERROR "Not implemented"
-		return false
+		return null
 	}
+	/*ELSE IFDEF "target_posix" {
+		lang "c" {{{
+			pthread_t t;
+			pthread_attr_t ta;
+			pthread_attr_init(&ta);
+			pthread_attr_setdetachstate(&ta, PTHREAD_CREATE_DETACHED);
+			ref_eq_api_Object((void*)runnable);
+			pthread_create(&t, &ta, (void*)
+			th = t;
+			eq_os_ThreadImpl_thread_function, (void*)runnable);
+
+		}}}
+		return th
+	}
+	ELSE IFDEF "target_win32" {
+		lang "c" {{{
+			HANDLE hThread;
+			DWORD dwThreadId;
+			ref_eq_api_Object((void*)r);
+			hThread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)eq_os_ThreadImp_thread_function, (void*)runnable, 0, &dwThreadId);
+			th = hThread;
+		}}}
+		return th
+	}
+	ELSE IFDEF "target_sushi" {
+		var r = lang "lua" int {{{ _os:start_thread([[
+			function _threadMain(x)
+				local oo = _vm:unserialize_object(x)
+				_vm:set_metatable(oo, _vm:get_global(oo._qualifiedClassName))
+				oo:run()
+			end
+		]], _vm:serialize_object(runnable)) }}}
+		return null
+	}*/
 }

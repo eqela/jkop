@@ -72,15 +72,21 @@ ELSE IFDEF "target_android"
 	basetype Widget type isAlso
 }
 
-ELSE IFDEF "target_iosoc"
+ELSE IFDEF "target_ios"
 {
-	basetype HorizontalBoxWidget
-	var uiSwitch as Widget
-	var labelWidget as LabelWidget
-}
+	IFDEF "target_swift" {
+		class MyWidgetClickForwarder
+		{
+			prop handler as function
 
-ELSE IFDEF "target_swift"
-{
+			lang "swift" {{{
+				@objc func execute() {
+					handler!()
+				}
+			}}}
+		}
+	}
+
 	basetype HorizontalBoxWidget type extends
 	var uiSwitch as Widget
 	var labelWidget as LabelWidget
@@ -141,12 +147,24 @@ ctor(context as GuiApplicationContext)
 			}}}
 		}
 	}
-	ELSE IFDEF("target_iosoc") {
-		lang "objc" {{{
-			UISwitch *uswitch = [[UISwitch alloc] init];
-			[uswitch addTarget:self action:@selector(onCheckChangeListener) forControlEvents:UIControlEventValueChanged];
-			uiSwitch = uswitch;
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				UISwitch *uswitch = [[UISwitch alloc] init];
+				[uswitch addTarget:self action:@selector(onCheckChangeListener) forControlEvents:UIControlEventValueChanged];
+				uiSwitch = uswitch;
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			var forwarder = new MyWidgetClickForwarder()
+			forwarder.setHandler(onCheckChangeListener)
+			lang "swift" {{{
+				let uswitch : UISwitch = UISwitch()
+				objc_setAssociatedObject(uswitch, "_clickHandler", forwarder, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				uswitch.addTarget(forwarder, action: #selector(forwarder.execute), for: .touchUpInside)
+				uiSwitch = uswitch
+			}}}
+		}
 		setWidgetSpacing(context.getWidthValue("1mm"))
 		addWidget(uiSwitch)
 		addWidget(labelWidget = new LabelWidget(context), 1.0)
@@ -172,7 +190,7 @@ func setWidgetText(text as string)
 			}}}
 		}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF("target_ios") {
 		if labelWidget:
 			labelWidget.setWidgetText(text)
 	}
@@ -244,7 +262,7 @@ func updateWidgetFont private
 			}}}
 		}
 	}
-	ELSE IFDEF("target_iosoc") {
+	ELSE IFDEF("target_ios") {
 		if labelWidget {
 			labelWidget.setWidgetTextColor(widgetTextColor)
 			labelWidget.setWidgetFontFamily(widgetFontFamily)
@@ -270,8 +288,13 @@ func getWidgetChecked as bool
 		}
 		return v
 	}
-	ELSE IFDEF "target_iosoc" {
-		return lang "objc" bool {{{ ((UISwitch*)uiSwitch).on }}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			return lang "objc" bool {{{ ((UISwitch*)uiSwitch).on }}}
+		}
+		ELSE IFDEF "target_swift" {
+			return lang "swift" bool {{{ (uiSwitch as! UISwitch).isOn }}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented.")
@@ -297,10 +320,17 @@ func setWidgetChecked(x as bool)
 	ELSE IFDEF("target_android") {
 		base.setChecked(x)
 	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[(UISwitch*)uiSwitch setOn:x animated:NO];
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[(UISwitch*)uiSwitch setOn:x animated:NO];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				(uiSwitch as! UISwitch).setOn(x, animated: false)
+			}}}
+		}
 	}
 	ELSE {
 		ERROR("Not implemented")

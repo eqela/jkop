@@ -168,6 +168,9 @@ func getInt8(buffer as buffer #used, offset as long #used) static as uint8
 	ELSE IFDEF "target_js" {
 		return lang "js" uint8 {{{ new Uint8Array(buffer)[offset] }}}
 	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" uint8 {{{ buffer[offset+1] }}}
+	}
 	ELSE IFDEF "target_lua" {
 		return lang "lua" uint8 {{{ buffer[offset+1] }}}
 	}
@@ -258,6 +261,11 @@ func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, 
 			array.replaceBytes(in: NSMakeRange(Int(doffset), Int(size)), withBytes: src.bytes + Int(soffset), length: Int(size))
 		}}}
 	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_util:copy_buffer_bytes(src, array, soffset, doffset, size)
+		}}}
+	}
 	ELSE {
 		for(var n=0; n<size; n++):
 			array[doffset+n] = src[soffset+n]
@@ -309,7 +317,7 @@ func getInt16LE(buffer as buffer, offset as long) static as uint16
 	ELSE IFDEF "target_sushi" {
 		var b1 = buffer[offset] as uint8
 		var b2 = buffer[offset+1] as uint8
-		return lang "lua" uint16 {{{ _sushi.networkBytesToHost16(b2, b1) }}}
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b2, b1) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -362,7 +370,7 @@ func getInt16BE(buffer as buffer, offset as long) static as uint16
 	ELSE IFDEF "target_sushi" {
 		var b1 = buffer[offset] as uint8
 		var b2 = buffer[offset+1] as uint8
-		return lang "lua" uint16 {{{ _sushi.networkBytesToHost16(b1, b2) }}}
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b1, b2) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -415,7 +423,7 @@ func getInt32LE(buffer as buffer, offset as long) static as uint32
 		var b2 = buffer[offset+1] as uint8
 		var b3 = buffer[offset+2] as uint8
 		var b4 = buffer[offset+3] as uint8
-		return lang "lua" uint16 {{{ _sushi.networkBytesToHost32(b4, b3, b2, b1) }}}
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host32(b4, b3, b2, b1) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -468,11 +476,33 @@ func getInt32BE(buffer as buffer, offset as long) static as uint32
 		var b2 = buffer[offset+1] as uint8
 		var b3 = buffer[offset+2] as uint8
 		var b4 = buffer[offset+3] as uint8
-		return lang "lua" uint16 {{{ _sushi.networkBytesToHost32(b1, b2, b3, b4) }}}
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host32(b1, b2, b3, b4) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
+	}
+}
+
+func forInt32BE(number as uint32) static as buffer
+{
+	IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _util:number_to_buffer32be(number) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func forInt32LE(number as uint32) static as buffer
+{
+	IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _util:number_to_buffer32le(number) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
 	}
 }
 
@@ -493,7 +523,7 @@ func getSize(buffer as buffer #used) static as long
 		return lang "js" int {{{ buffer.byteLength }}}
 	}
 	ELSE IFDEF "target_lua" {
-		return lang "lua" int {{{ #buffer }}}
+		return lang "lua" long {{{ #buffer }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" long {{{ (buffer.size).toLong() }}}

@@ -22,9 +22,15 @@
  * SOFTWARE.
  */
 
-class is GuiApplicationContext imports cape:
+class is GuiApplicationContext:
 
-depend "swift-import:UIKit"
+IFDEF "target_swift" {
+	depend "swift-import:UIKit"
+}
+ELSE IFDEF "target_objc" {
+	depend "objc-header-m:<UIKit/UIKit.h>"
+	depend "objc-header-m:<sys/utsname.h>"
+}
 
 func getApplicationDataDirectory override as File
 {
@@ -42,20 +48,26 @@ func getResourceImage(id as string) override as Image
 	if f.isFile() == false:
 		f = bundleDir.entry(id .. ".jpg")
 	assert f.isFile()
-	return ImageForSwift.forFile(f)
+	return ImageForIOS.forFile(f)
 }
 
 func getImageForBuffer(buffer as buffer, mimeType as string) override as Image:
-	return ImageForSwift.forBuffer(buffer)
+	return ImageForIOS.forBuffer(buffer)
 
 func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void, Image>) override
 {
 	assert callback
-	callback(ImageForSwift.forBuffer(buffer))
+	callback(ImageForIOS.forBuffer(buffer))
 }
 
 class MyAlertDelegate implements !"UIAlertViewDelegate"
 {
+	IFDEF "target_swift" {
+		basetype !"NSObject" type extends
+
+		ctor override:
+			;
+	}
 	prop callback as function
 	prop okCallback as function
 	prop cancelCallback as function
@@ -75,22 +87,31 @@ class MyAlertDelegate implements !"UIAlertViewDelegate"
 		}
 	}
 
-	lang "swift" {{{
-		func alertView(_ alertView: UIAlertView, didDismissWithButtonIndex buttonIndex: Int)
-		{
-			self.onDismissed(buttonIndex)
-		}
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			- (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex
+			{
+				[self onDismissed:buttonIndex];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			func alertView(_ alertView: UIAlertView, didDismissWithButtonIndex buttonIndex: Int)
+			{
+				self.onDismissed(buttonIndex)
+			}
+		}}}
+	}
 }
 
 var myDelegate as MyAlertDelegate
 
 func getMyAlertDelegate private as MyAlertDelegate
 {
-	if(myDelegate == null) {
+	if not myDelegate:
 		myDelegate = new MyAlertDelegate()
-	}
-	return(myDelegate)
+	return myDelegate
 }
 
 func showMessageDialog(title as string, message as string) override:
@@ -103,10 +124,22 @@ func showMessageDialog(title as string, message as string, callback as function)
 		dg = getMyAlertDelegate()
 		dg.setCallback(callback)
 	}
-	lang "swift" {{{
-		let alert = UIAlertView(title: title!, message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
-		alert.show()
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:title
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: title!, message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+			alert.show()
+		}}}
+	}
 }
 
 func showConfirmDialog(title as string, message as string, okcallback as function, cancelcallback as function) override
@@ -117,10 +150,22 @@ func showConfirmDialog(title as string, message as string, okcallback as functio
 		dg.setOkCallback(okcallback)
 		dg.setCancelCallback(cancelcallback)
 	}
-	lang "swift" {{{
-		let alert = UIAlertView(title: title!, message: message!, delegate:dg, cancelButtonTitle: nil, otherButtonTitles:"No", "Yes")
-		alert.show()
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:title
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"No", @"Yes", nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: title!, message: message!, delegate:dg, cancelButtonTitle: nil, otherButtonTitles:"No", "Yes")
+			alert.show()
+		}}}
+	}
 }
 
 func showErrorDialog(message as string) override:
@@ -133,20 +178,40 @@ func showErrorDialog(message as string, callback as function) override
 		dg = getMyAlertDelegate()
 		dg.setCallback(callback)
 	}
-	lang "swift" {{{
-		let alert = UIAlertView(title: "ERROR", message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
-		alert.show()
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:@"ERROR"
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: "ERROR", message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+			alert.show()
+		}}}
+	}
 }
 
 func getScreenTopMargin override as int
 {
 	var v as int
-	lang "swift" {{{
-		let statusBarSize = UIApplication.shared.statusBarFrame.size
-		v = Int(min(statusBarSize.width, statusBarSize.height))
-	}}}
-	return(v)
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			CGSize statusBarSize = [[UIApplication sharedApplication] statusBarFrame].size;
+			v = MIN(statusBarSize.width, statusBarSize.height);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let statusBarSize = UIApplication.shared.statusBarFrame.size
+			v = Int(min(statusBarSize.width, statusBarSize.height))
+		}}}
+	}
+	return v
 }
 
 func getScreenWidth override as int:
@@ -158,13 +223,23 @@ func getScreenHeight override as int:
 func getMachineName as string
 {
 	var v as string
-	lang "swift" {{{
-		var si = utsname()
-		if(uname(&si) >= 0) {
-			v = NSString(bytes: &si.machine, length: Int(_SYS_NAMELEN), encoding: String.Encoding.utf8.rawValue) as? String
-		}
-	}}}
-	return(v)
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			struct utsname si;
+			if(uname(&si) >= 0) {
+				v = [NSString stringWithCString:si.machine encoding:NSUTF8StringEncoding];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			var si = utsname()
+			if(uname(&si) >= 0) {
+				v = NSString(bytes: &si.machine, length: Int(_SYS_NAMELEN), encoding: String.Encoding.utf8.rawValue) as? String
+			}
+		}}}
+	}
+	return v
 }
 
 func detectDeviceInfo private as IOSDeviceInfo
@@ -333,11 +408,20 @@ func getDeviceInfo as IOSDeviceInfo
 		var width as int
 		var height as int
 		var scale as double
-		lang "swift" {{{
-			width = Int(UIScreen.main.bounds.size.width)
-			height = Int(UIScreen.main.bounds.size.height)
-			scale = Double(UIScreen.main.nativeScale)
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				width = [[UIScreen mainScreen] bounds].size.width;
+				height = [[UIScreen mainScreen] bounds].size.height;
+				scale = [[UIScreen mainScreen] nativeScale];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				width = Int(UIScreen.main.bounds.size.width)
+				height = Int(UIScreen.main.bounds.size.height)
+				scale = Double(UIScreen.main.nativeScale)
+			}}}
+		}
 		deviceInfo.setScreenWidth(width)
 		deviceInfo.setScreenHeight(height)
 		deviceInfo.setScale(scale)
@@ -367,10 +451,20 @@ func getWidthValue(spec as string) override as int:
 
 func startTimer(timeout as long, callback as function) override
 {
-	lang "swift" {{{
-		let dtt = DispatchTime.now() +  DispatchTimeInterval.milliseconds(Int(timeout * 1000))
-		DispatchQueue.main.asyncAfter(deadline: dtt) {
-			callback!()
-		}
-	}}}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			dispatch_time_t dtt = dispatch_time(DISPATCH_TIME_NOW, timeout * 1000000);
+			dispatch_after(dtt, dispatch_get_main_queue(), ^(void) {
+				callback();
+			});
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let dtt = DispatchTime.now() +  DispatchTimeInterval.milliseconds(Int(timeout * 1000))
+			DispatchQueue.main.asyncAfter(deadline: dtt) {
+				callback!()
+			}
+		}}}
+	}
 }

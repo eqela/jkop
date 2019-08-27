@@ -61,6 +61,15 @@ func toVectorOfObject <T> (collection as vector<T>) static as vector
 	return nvec
 }
 
+func dupObjectVector(vector as vector) static as vector
+{
+	assert vector
+	var v = new vector
+	foreach o in vector:
+		v += o
+	return v
+}
+
 /*
 // FIXME: Must have compiler support for expanding runtime generics for Java
 func toArray<T> (vector as vector<T>) static as array<T>
@@ -125,7 +134,9 @@ func append <T> (vector as vector<T> #used, object as T #used) static
 	}
 	ELSE IFDEF "target_lua" {
 		lang "lua" {{{
-			vector[#vector + 1] = object
+			local sz = vector["n"] or 0
+			vector[sz + 1] = object
+			vector["n"] = sz + 1
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
@@ -170,7 +181,11 @@ func insert <T> (vector as vector<T> #used, object as T #used, index as int #use
 		lang "swift" {{{ vector.insert(object, at: index) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		lang "lua" {{{ _sushi.insertToIndexedTable(vector, index + 1, object) }}}
+		lang "lua" {{{
+			local sz = vector["n"] or 0
+			_vm:insert_to_indexed_table(vector, index + 1, object)
+			vector["n"] = sz + 1
+		}}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -204,7 +219,7 @@ func getSize <T> (vector as vector<T> #used) static as int
 		return lang "js" int {{{ vector.length }}}
 	}
 	ELSE IFDEF "target_lua" {
-		return lang "lua" int {{{ #vector }}}
+		return lang "lua" int {{{ vector["n"] or 0 }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ vector.count() }}}
@@ -300,28 +315,28 @@ func set <T> (vector as vector<T> #used, index as int #used, val as T #used) sta
 
 func remove <T> (vector as vector<T>, index as int) static as T
 {
-	if(index < 0 || index >= getSize(vector)) {
-		return(DEFAULT(T))
-	}
-	IFDEF("target_cs") {
+	var sz = getSize(vector)
+	if index < 0 || index >= sz:
+		return DEFAULT(T)
+	IFDEF "target_cs" {
 		var t = lang "cs" T {{{ vector[index] }}}
 		lang "cs" {{{
 			vector.RemoveAt(index);
 		}}}
-		return(t)
+		return t
 	}
-	ELSE IFDEF("target_java") {
-		return(lang "java" T {{{ vector.remove(index) }}})
+	ELSE IFDEF "target_java" {
+		return lang "java" T {{{ vector.remove(index) }}}
 	}
-	ELSE IFDEF("target_objc") {
+	ELSE IFDEF "target_objc" {
 		var t = vector[index]
 		lang "objc" {{{
 			[vector removeObjectAtIndex:index];
 		}}}
-		return(t)
+		return t
 	}
-	ELSE IFDEF("target_js") {
-		return(lang "js" T {{{ vector.splice(index, 1) }}})
+	ELSE IFDEF "target_js" {
+		return lang "js" T {{{ vector.splice(index, 1) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		var t = get(vector, index)
@@ -333,11 +348,13 @@ func remove <T> (vector as vector<T>, index as int) static as T
 	ELSE IFDEF "target_stdlua" {
 		lang "lua" {{{
 			table.remove(vector, index)
+			vector["n"] = sz - 1
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
 		lang "lua" {{{
-			_sushi.removeFromIndexedTable(vector, index+1)
+			_vm:remove_from_indexed_table(vector, index+1)
+			vector["n"] = sz - 1
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
@@ -346,48 +363,44 @@ func remove <T> (vector as vector<T>, index as int) static as T
 		return v
 	}
 	ELSE {
-		ERROR("Not implemented")
-		return(DEFAULT(T))
+		ERROR "Not implemented"
+		return DEFAULT(T)
 	}
 }
 
 func popFirst <T> (vector as vector<T>) static as T
 {
-	if(vector == null || getSize(vector) < 1) {
-		return(DEFAULT(T))
-	}
+	if vector == null || getSize(vector) < 1:
+		return DEFAULT(T)
 	var v = get(vector, 0)
 	removeFirst(vector)
-	return(v)
+	return v
 }
 
 func removeFirst <T> (vector as vector<T>) static
 {
-	if(vector == null || getSize(vector) < 1) {
+	if vector == null || getSize(vector) < 1:
 		return
-	}
 	remove(vector, 0)
 }
 
 func popLast <T> (vector as vector<T>) static as T
 {
-	if(vector == null || getSize(vector) < 1) {
-		return(DEFAULT(T))
-	}
-	var v = get(vector, getSize(vector)-1)
+	var sz = getSize(vector)
+	if vector == null || sz < 1:
+		return DEFAULT(T)
+	var v = get(vector, sz-1)
 	removeLast(vector)
-	return(v)
+	return v
 }
 
 func removeLast <T> (vector as vector<T>) static
 {
-	if(vector == null) {
+	if vector == null:
 		return
-	}
 	var sz = getSize(vector)
-	if(sz < 1) {
+	if sz < 1:
 		return
-	}
 	remove(vector, sz - 1)
 }
 
@@ -431,22 +444,22 @@ func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
 
 func clear <T> (vector as vector<T> #used) static
 {
-	IFDEF("target_cs") {
+	IFDEF "target_cs" {
 		lang "cs" {{{
 			vector.Clear();
 		}}}
 	}
-	ELSE IFDEF("target_java") {
+	ELSE IFDEF "target_java" {
 		lang "java" {{{
 			vector.clear();
 		}}}
 	}
-	ELSE IFDEF("target_js") {
+	ELSE IFDEF "target_js" {
 		lang "js" {{{
 			vector.splice(0, vector.length);
 		}}}
 	}
-	ELSE IFDEF("target_objc") {
+	ELSE IFDEF "target_objc" {
 		lang "objc" {{{
 			[vector removeAllObjects];
 		}}}
@@ -460,7 +473,7 @@ func clear <T> (vector as vector<T> #used) static
 		lang "swift" {{{ vector.removeAllObjects() }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		lang "lua" {{{ _sushi.clearTable(vector) }}}
+		lang "lua" {{{ _vm:clear_table(vector) vector["n"] = 0 }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -469,30 +482,26 @@ func clear <T> (vector as vector<T> #used) static
 
 func isEmpty <T> (vector as vector<T> #used) static as bool
 {
-	IFDEF "target_cs" {
-		return vector == null || lang "cs" bool {{{ vector.Count < 1 }}}
-	}
-	ELSE IFDEF "target_java" {
+	IFDEF "target_java" {
 		return vector == null || lang "java" bool {{{ vector.isEmpty() }}}
-	}
-	ELSE IFDEF "target_objc" {
-		return vector == null || lang "objc" bool {{{ [vector count] < 1 }}}
-	}
-	ELSE IFDEF "target_js" {
-		return vector == null || lang "js" bool {{{ vector.length < 1 }}}
-	}
-	ELSE IFDEF "target_lua" {
-		return vector == null || lang "lua" bool {{{ #vector == 0 }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		return vector == null || lang "kotlin" bool {{{ vector!!.isEmpty() }}}
 	}
-	ELSE IFDEF "target_swift" {
-		return vector == null || lang "swift" bool {{{ vector.count < 1 }}}
+	ELSE IFDEF "target_sushi" {
+		if vector == null:
+			return true
+		var v = false
+		lang "lua" {{{
+			local sz = vector["n"]
+			if sz == nil or sz < 1 then
+				v = true
+			end
+		}}}
+		return v
 	}
 	ELSE {
-		ERROR "not implemented!"
-		return false
+		return getSize(vector) < 1
 	}
 }
 
@@ -626,7 +635,7 @@ func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
 	}
 	ELSE IFDEF "target_sushi" {
 		lang "lua" {{{
-			_sushi.sortTable(vector, comparer)
+			_vm:sort_table(vector, comparer)
 		}}}
 	}
 	ELSE {
