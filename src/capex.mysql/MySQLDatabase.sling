@@ -133,38 +133,47 @@ func columnToCreateString(cc as SQLTableColumnInfo) private as string
 	sb.append(columnName)
 	sb.append(' ')
 	var tt = cc.getType()
+	sb.append(prepareTypeAsString(tt, columnName))
+	return sb.toString()
+}
+
+func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as bool = false) as string
+{
 	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
-		sb.append("INTEGER AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")")
+		if forDataTypeChecking:
+			return "INTEGER"
+		return "INTEGER AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
-		sb.append("INTEGER")
+		return "INTEGER"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
-		sb.append("BIGINT AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")")
+		if forDataTypeChecking:
+			return "BIGINT"
+		return "BIGINT AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_LONG {
-		sb.append("BIGINT")
+		return "BIGINT"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_STRING {
-		sb.append("VARCHAR(255)")
+		return "VARCHAR(255)"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
-		sb.append("VARCHAR(255), PRIMARY KEY (" .. columnName .. ")")
+		if forDataTypeChecking:
+			return "VARCHAR(255)"
+		return "VARCHAR(255), PRIMARY KEY (" .. columnName .. ")"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_TEXT {
-		sb.append("LONGTEXT")
+		return "LONGTEXT"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_BLOB {
-		sb.append("LONGBLOB")
+		return "LONGBLOB"
 	}
 	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
-		sb.append("REAL")
+		return "REAL"
 	}
-	else {
-		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
-		sb.append("UNKNOWN")
-	}
-	return sb.toString()
+	Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+	return "UNKNOWN"
 }
 
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
@@ -206,6 +215,20 @@ func prepareCreateIndexStatement(table as string, column as string, unique as bo
 	return prepare(sql)
 }
 
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) override as SQLStatement
+{
+	assert String.isNotEmpty(table) && column
+	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName())
+	return prepare(sql)
+}
+
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) override as SQLStatement
+{
+	assert String.isNotEmpty(table) && column
+	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.getName() .. " " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName(), true)
+	return prepare(sql)
+}
+
 func getLastInsertId(table as string) override as long
 {
 	// FIXME: Parameter table is ignored.
@@ -223,4 +246,26 @@ func getIdentityColumnName(table as string) override as string
 {
 	var v = assert querySingleRow(prepare("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
 	return v.getString("COLUMN_NAME")
+}
+
+func columnExists(table as string, column as string) override as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && String.isNotEmpty(column)
+	var stmt = assert prepare("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	stmt.addParamString(column)
+	var sr = assert querySingleRow(stmt)
+	return String.equalsIgnoreCase(column, sr.getString("COLUMN_NAME"))
+}
+
+func isColumnTypeSame(table as string, column as SQLTableColumnInfo) override as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && column
+	var stmt = assert prepare("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	stmt.addParamString(column.getName())
+	var sr = assert querySingleRow(stmt)
+	return String.equalsIgnoreCase(prepareTypeAsString(column.getType(), column.getName(), true), sr.getString("COLUMN_TYPE"))
 }
