@@ -32,9 +32,13 @@ func getDatabaseTypeId abstract as string
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
 func prepareDeleteTableStatement(table as string) abstract as SQLStatement
 func prepareCreateIndexStatement(table as string, column as string, unique as bool) abstract as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
 func getLastInsertId(table as string) abstract as long
 func getIdentityColumnName(table as string) abstract as string
 func getPrimaryKeyColumnName(table as string) abstract as string
+func columnExists(table as string, name as string) abstract as bool
+func isColumnTypeSame(table as string, column as SQLTableColumnInfo) abstract as bool
 
 // Asynchronous API
 func close(callback as function) abstract
@@ -59,13 +63,31 @@ func queryAllTableNames abstract as vector
 ** Returns false if something went wrong.
 **
 
+func ensureColumnsExists(tableName as string, columns as vector<SQLTableColumnInfo>) as bool
+{
+	foreach column as SQLTableColumnInfo in columns {
+		if columnExists(tableName, column.getName()) {
+			if not isColumnTypeSame(tableName, column):
+				assert execute(prepareUpdateColumnTypeStatement(tableName, column))
+		}
+		else {
+			assert execute(prepareCreateColumnStatement(tableName, column))
+		}
+	}
+	return true
+}
+
 func ensureTableExists(table as SQLTableInfo) virtual as bool
 {
 	assert table
 	var name = table.getName()
 	assert String.isNotEmpty(name)
-	if tableExists(name):
-		return true
+	if tableExists(name) {
+		var v = ensureColumnsExists(name, table.getColumns())
+		if v:
+			return true
+		return false
+	}
 	assert execute(prepareCreateTableStatement(name, table.getColumns()))
 	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
 		if not execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())):
