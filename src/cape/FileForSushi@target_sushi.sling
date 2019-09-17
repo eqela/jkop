@@ -40,7 +40,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
-				v = _sushi:readFromHandle(handle, buffer)
+				v = _io:read_from_handle(handle, buffer)
 			}}}
 		}
 		return v
@@ -52,7 +52,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
-				v = _sushi:getSizeForHandle(handle)
+				v = _io:get_size_for_handle(handle)
 			}}}
 		}
 		return v
@@ -63,7 +63,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
-				_sushi:closeHandle(handle)
+				_io:close_handle(handle)
 			}}}
 			this.handle = -1
 		}
@@ -71,14 +71,20 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		ERROR "Not implemented"
-		return false
+		var handle = this.handle
+		if handle < 0:
+			return false
+		if lang "lua" int {{{ _io:set_current_position(handle, n) }}} < 0:
+			return false
+		return true
 	}
 
 	func getCurrentPosition as int64
 	{
-		ERROR "Not implemented"
-		return 0
+		var handle = this.handle
+		if handle < 0:
+			return 0
+		return lang "lua" int64 {{{ _io:get_current_position(handle) }}}
 	}
 }
 
@@ -98,7 +104,7 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
-				v = _sushi:writeToHandle(handle, buf, size)
+				v = _io:write_to_handle(handle, buf, size)
 			}}}
 		}
 		return v
@@ -109,7 +115,7 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
-				_sushi:closeHandle(handle)
+				_io:close_handle(handle)
 			}}}
 			this.handle = -1
 		}
@@ -117,14 +123,20 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		ERROR "Not implemented"
-		return false
+		var handle = this.handle
+		if handle < 0:
+			return false
+		if lang "lua" int {{{ _io:set_current_position(handle, n) }}} < 0:
+			return false
+		return true
 	}
 
 	func getCurrentPosition as int64
 	{
-		ERROR "Not implemented"
-		return 0
+		var handle = this.handle
+		if handle < 0:
+			return 0
+		return lang "lua" int64 {{{ _io:get_current_position(handle) }}}
 	}
 }
 
@@ -156,7 +168,7 @@ func move(dest as File, replace as bool) override stub as bool
 func touch override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _sushi:touchFile(path) }}}
+	var r = lang "lua" int {{{ _io:touch_file(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -167,7 +179,7 @@ func read override as FileReader
 	var handle as object
 	var path = this.path
 	lang "lua" {{{
-		handle = _sushi:openFileForReading(path)
+		handle = _io:open_file_for_reading(path)
 	}}}
 	assert handle >= 0
 	var v = new MyFileReader()
@@ -181,7 +193,7 @@ func write override as FileWriter
 	var handle as object
 	var path = this.path
 	lang "lua" {{{
-		handle = _sushi:openFileForWriting(path)
+		handle = _io:open_file_for_writing(path)
 	}}}
 	assert handle >= 0
 	var v = new MyFileWriter()
@@ -195,7 +207,7 @@ func append override as FileWriter
 	var handle as object
 	var path = this.path
 	lang "lua" {{{
-		handle = _sushi:openFileForAppending(path)
+		handle = _io:open_file_for_appending(path)
 	}}}
 	assert handle >= 0
 	var v = new MyFileWriter()
@@ -216,7 +228,7 @@ func stat override as FileInfo
 	var gid as int
 	var mode as int
 	lang "lua" {{{
-		size, ctim, atim, mtim, uid, gid, mode = _sushi:getFileInfo(path)
+		size, ctim, atim, mtim, uid, gid, mode = _io:get_file_info(path)
 		if size == nil then
 			valid = false
 		end
@@ -253,7 +265,7 @@ func stat override as FileInfo
 func createDirectory override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _sushi:createDirectory(path) }}}
+	var r = lang "lua" int {{{ _io:create_directory(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -272,7 +284,7 @@ func createDirectoryRecursive override as bool
 func removeDirectory override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _sushi:removeDirectory(path) }}}
+	var r = lang "lua" int {{{ _io:remove_directory(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -337,7 +349,7 @@ func setPath(v as string)
 	}
 	var realpath as string
 	lang "lua" {{{
-		realpath = _sushi:getRealPath(v)
+		realpath = _io:get_real_path(v)
 	}}}
 	if String.isNotEmpty(realpath) {
 		path = realpath
@@ -354,12 +366,17 @@ func getPath override as string:
 func remove override as bool
 {
 	var path = this.path
-	if lang "lua" int {{{ _sushi:removeFile(path) }}} == 1:
+	if lang "lua" int {{{ _io:remove_file(path) }}} == 1:
 		return true
 	return false
 }
 
-func makeExecutable override stub as bool
+func makeExecutable override as bool
+{
+	var path = this.path
+	var mode = 1 | 4 | 8 | 32 | 64 | 128 | 256
+	return lang "lua" bool {{{ _io:set_file_mode(path, mode ) }}}
+}
 
 class MyDirectoryIterator is Iterator<File> is Closable
 {
@@ -376,7 +393,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 		var handle = this.handle
 		if handle {
 			lang "lua" {{{
-				_sushi:closeDirectory(handle)
+				_io:close_directory(handle)
 			}}}
 			this.handle = null
 		}
@@ -385,7 +402,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 	func next as File
 	{
 		var handle = assert this.handle
-		var name = lang "lua" string {{{ _sushi:readDirectory(handle) }}}
+		var name = lang "lua" string {{{ _io:read_directory(handle) }}}
 		if not name {
 			close()
 			return null
@@ -398,7 +415,7 @@ func entries override as Iterator<File>
 {
 	var pp = this.path
 	assert String.isNotEmpty(pp)
-	var handle = lang "lua" object {{{ _sushi:openDirectory(pp) }}}
+	var handle = lang "lua" object {{{ _io:open_directory(pp) }}}
 	assert handle
 	var v = new MyDirectoryIterator()
 	v.setParent(this)

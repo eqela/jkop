@@ -55,10 +55,8 @@ var ddata as buffer
 
 func getSize as int
 {
-	if(reader != null) {
-		return(reader.getSize())
-	}
-	return(0)
+	assert reader
+	return reader.getSize()
 }
 
 func setCurrentPosition(n as int64) as bool
@@ -69,75 +67,64 @@ func setCurrentPosition(n as int64) as bool
 	cindex = 0
 	nsize = 0
 	var v = false
-	if(reader != null && reader is SeekableReader) {
+	if reader && reader is SeekableReader:
 		v = (reader as! SeekableReader).setCurrentPosition(ss)
-	}
-	if(v && rem > 0) {
+	if v && rem > 0 {
 		var bb = Buffer.allocate(rem)
-		if(read(bb) != rem) {
+		if read(bb) != rem:
 			v = false
-		}
 	}
-	return(v)
+	return v
 }
 
 func getCurrentPosition as int64
 {
-	if(reader != null && reader is SeekableReader) {
-		return((reader as! SeekableReader).getCurrentPosition())
-	}
-	return(-1)
+	if reader != null && reader is SeekableReader:
+		return (reader as! SeekableReader).getCurrentPosition()
+	return -1
 }
 
 func read(buf as buffer) as int
 {
-	if(buf == null || Buffer.getSize(buf) < 1) {
-		return(0)
-	}
+	if buf == null || Buffer.getSize(buf) < 1:
+		return 0
 	var ptr = buf
-	if(ptr == null) {
-		return(0)
-	}
+	assert ptr
 	var v = 0
 	var bs = cipher.getBlockSize()
 	while(v < Buffer.getSize(buf)) {
 		var x = bs
-		if(v + x > Buffer.getSize(buf)) {
+		if v + x > Buffer.getSize(buf):
 			x = Buffer.getSize(buf) - v
-		}
 		var r = readBlock(ptr, v, x)
-		if(r < 1) {
+		if r < 1:
 			break
-		}
 		v += r
 	}
-	return(v)
+	return v
 }
 
 func readAndDecrypt(buf as buffer) as int
 {
 	var v = reader.read(ddata)
-	if(v == cipher.getBlockSize()) {
+	if v == cipher.getBlockSize() {
 		cipher.decryptBlock(ddata, buf)
 	}
 	else {
 		Buffer.copyFrom(ddata, buf, 0, 0, v)
 	}
-	return(v)
+	return v
 }
 
 func readBlock(ptr as buffer, offset as int, size as int) as int
 {
-	if(cindex >= csize) {
+	if cindex >= csize:
 		csize = 0
-	}
-	if(nsize < 1) {
+	if nsize < 1:
 		nsize = readAndDecrypt(bnext)
-	}
-	if(csize < 1) {
-		if(nsize < cipher.getBlockSize()) {
+	if csize < 1 {
+		if(nsize < cipher.getBlockSize()):
 			return(0)
-		}
 		var nn = bcurrent
 		bcurrent = bnext
 		csize = nsize
@@ -145,24 +132,30 @@ func readBlock(ptr as buffer, offset as int, size as int) as int
 		bnext = nn
 		nsize = readAndDecrypt(bnext)
 	}
+	var dsize as int
 	var data = cipher.getBlockSize()
-	if(nsize < cipher.getBlockSize()) {
-		var ptr2 = bnext
-		if(ptr2 != null) {
+	if nsize < data {
+		var ptr2 = bcurrent
+		if ptr2 {
 			data -= Buffer.getByte(ptr2, 0)
+			var newSize = Buffer.getSize(bcurrent)
+			var padding = Buffer.getByte(bcurrent, (newSize - 1))
+			var finalLength = newSize - padding
+			var fbuf as buffer
+			if finalLength < 0 {
+				fbuf = bcurrent
+			}
+			else if padding >= 1 {
+				fbuf = Buffer.resize(bcurrent, finalLength)
+			}
+			dsize = Buffer.getSize(fbuf)
+			Buffer.copyFrom(ptr, fbuf, 0, offset, finalLength)
 		}
 	}
-	data -= cindex
-	if(data < 1) {
-		csize = 0
-		return(readBlock(ptr, offset, size))
+	else {
+		dsize = Buffer.getSize(bcurrent)
 	}
-	if(data < size) {
-		Buffer.copyFrom(bcurrent, ptr, cindex, offset, data)
-		cindex += data
-		return(data)
-	}
-	Buffer.copyFrom(bcurrent, ptr, cindex, offset, size)
+	Buffer.copyFrom(ptr, bcurrent, cindex, offset, size)
 	cindex += size
-	return(size)
+	return dsize
 }
