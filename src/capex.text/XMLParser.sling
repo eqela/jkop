@@ -118,12 +118,12 @@ var cdata as StringBuilder = null
 var comment as StringBuilder = null
 prop ignoreWhiteSpace = false
 var currentPosition = 0
-var firstTag = true
 
 func forFile(file as File) static as this
 {
 	assert file
-	var reader = assert file.read()
+	var f = skipAndIgnoreBom(file)
+	var reader = assert f.read()
 	var v = new this()
 	v.it = new CharacterIteratorForReader(reader)
 	return v
@@ -132,8 +132,9 @@ func forFile(file as File) static as this
 func forString(string as string) static as this
 {
 	assert string
+	var s = skipAndIgnoreBom(string)
 	var v = new this()
-	v.it = CharacterIteratorForString.forString(string)
+	v.it = CharacterIteratorForString.forString(s)
 	return v
 }
 
@@ -246,12 +247,44 @@ func isOnlyWhiteSpace(str as string) private as bool
 	return true
 }
 
-func skipAndIgnoreBom private
+func skipAndIgnoreBom(str as string) private static as string
 {
-	assert it
-	var v = getNextChar()
-	if v == '\uFEFF':
-		; // skipping BOM
+	var s = checkForBom(String.toUTF8Buffer(str))
+	if not s:
+		s = str
+	return s
+}
+
+func skipAndIgnoreBom(file as File) private static as File
+{
+	var f = checkForBom(file.getContentsBuffer())
+	if f:
+		file.setContentsUTF8(f)
+	return file
+}
+
+func getStringWithoutBom(buf as buffer) private static as string
+{
+	assert buf
+	var result as string
+	lang "cs" {{{
+		byte[] bom = System.Text.Encoding.UTF8.GetPreamble();
+		bool foundBom = false;
+		if (bom != null) {
+			for(int i=0; i < bom.Length; i++) {
+				if (bom[i] != buf[i]) {
+					foundBom = false;
+				}
+				else {
+					foundBom = true;
+				}
+			}
+		}
+		if (foundBom == true) {
+			result = System.Text.Encoding.UTF8.GetString(buf, bom.Length, buf.Length - bom.Length);
+		}
+	}}}
+	return result
 }
 
 func getNextChar private as char
@@ -288,10 +321,6 @@ func next as Value
 		return v
 	}
 	var pos = currentPosition
-	if firstTag {
-		skipAndIgnoreBom()
-		firstTag = false
-	}
 	while it.hasEnded() == false {
 		var cbp = currentPosition
 		var nxb = getNextChar()
