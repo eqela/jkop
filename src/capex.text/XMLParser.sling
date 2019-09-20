@@ -122,19 +122,25 @@ var currentPosition = 0
 func forFile(file as File) static as this
 {
 	assert file
-	var f = skipAndIgnoreBom(file)
-	var reader = assert f.read()
+	var bom = containsBom(file.getContentsBuffer())
+	var reader = assert file.read()
 	var v = new this()
-	v.it = new CharacterIteratorForReader(reader)
+	var itr = new CharacterIteratorForReader(reader)
+	if bom:
+		itr.getNextChar()
+	v.it = itr
 	return v
 }
 
 func forString(string as string) static as this
 {
 	assert string
-	var s = skipAndIgnoreBom(string)
 	var v = new this()
-	v.it = CharacterIteratorForString.forString(s)
+	var bom = containsBom(String.toUTF8Buffer(string))
+	var itr = CharacterIteratorForString.forString(string)
+	if bom:
+		itr.getNextChar()
+	v.it = itr
 	return v
 }
 
@@ -247,29 +253,12 @@ func isOnlyWhiteSpace(str as string) private as bool
 	return true
 }
 
-func skipAndIgnoreBom(str as string) private static as string
-{
-	var s = checkForBom(String.toUTF8Buffer(str))
-	if s:
-		str = s
-	return str
-}
-
-func skipAndIgnoreBom(file as File) private static as File
-{
-	var f = checkForBom(file.getContentsBuffer())
-	if f:
-		file.setContentsUTF8(f)
-	return file
-}
-
-func checkForBom(buf as buffer) private static as string
+func containsBom(buf as buffer) private static as bool
 {
 	assert buf
-	var result as string
+	var foundBom = false
 	lang "cs" {{{
 		byte[] bom = System.Text.Encoding.UTF8.GetPreamble();
-		bool foundBom = false;
 		if (bom != null) {
 			for(int i=0; i < bom.Length; i++) {
 				if (bom[i] != buf[i]) {
@@ -280,11 +269,8 @@ func checkForBom(buf as buffer) private static as string
 				}
 			}
 		}
-		if (foundBom == true) {
-			result = System.Text.Encoding.UTF8.GetString(buf, bom.Length, buf.Length - bom.Length);
-		}
 	}}}
-	return result
+	return foundBom
 }
 
 func getNextChar private as char
