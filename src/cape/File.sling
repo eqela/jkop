@@ -951,7 +951,13 @@ func getContentsString(encoding as string) virtual as string
 {
 	if String.isEmpty(encoding):
 		return null
-	return String.forBuffer(getContentsBuffer(), encoding)
+	var b = getContentsBuffer()
+	if not b {
+		if isFile() && getSize() == 0:
+			return ""
+		return null
+	}
+	return String.forBuffer(b, encoding)
 }
 
 **
@@ -959,17 +965,26 @@ func getContentsString(encoding as string) virtual as string
 ** The file contents are decoded using the UTF-8 character encoding.
 **
 
-func getContentsUTF8 virtual as string:
-	return String.forUTF8Buffer(getContentsBuffer())
+func getContentsUTF8 virtual as string
+{
+	var b = getContentsBuffer()
+	if not b {
+		if isFile() && getSize() == 0:
+			return ""
+		return null
+	}
+	return String.forUTF8Buffer(b)
+}
 
 **
-** Reads the entire contents of the file with Byte Order Mark (BOM).
-** Determines the charset of the file and return them as a string object.
+** Reads the entire contents of a file, taking into account the possible presence of
+** a Byte Order Mark (BOM). Determines the charset of the file based on the BOM and
+** returns the contents as a string object.
 **
 
 func getContentsWithBOM virtual as string
 {
-	var buf = getContentsBuffer()
+	var buf = assert getContentsBuffer()
 	if Buffer.getByte(buf, 0) == 0xEF && Buffer.getByte(buf, 1) == 0xBB && Buffer.getByte(buf, 2) == 0xBF {
 		return String.forUTF8Buffer(Buffer.getSubBuffer(buf, 3, Buffer.getSize(buf) - 3))
 	}
@@ -1001,6 +1016,8 @@ func getContentsBuffer virtual as buffer
 	onError(null)
 	var reader = assert read()
 	var sz = reader.getSize()
+	if sz < 1:
+		return null
 	var b = MALLOC sz
 	var rsz = reader.read(b)
 	reader.close()
