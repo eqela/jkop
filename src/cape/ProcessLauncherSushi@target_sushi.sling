@@ -137,7 +137,7 @@ class MyProcess is Process is ProcessWithIO
 			var alive = 0
 			var pid = this.pid
 			lang "lua" {{{
-				alive = _os:check_process(pid)
+				alive = _os:is_process_alive(pid)
 			}}}
 			if alive == 0:
 				waitForExit()
@@ -199,14 +199,16 @@ class MyProcess is Process is ProcessWithIO
 
 	func waitForExit as int
 	{
-		var v = 0
+		var v = status
 		var pid = this.pid
-		lang "lua" {{{
-			v = _os:wait_for_process(pid)
-		}}}
-		close()
-		status = v
-		pid = -1
+		if pid >= 0 {
+			lang "lua" {{{
+				v = _os:wait_for_process(pid)
+			}}}
+			close()
+			this.status = v
+			this.pid = -1
+		}
 		return v
 	}
 }
@@ -217,13 +219,18 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 	var file = assert launcher.getFile()
 	var filepath = file.getPath()
 	var params = launcher.getParams()
-	var env as vector<string>
+	var env = new vector<string>
+	var cenv = Environment.getVariables()
+	if cenv {
+		var keys as vector<string> #force = Map.getKeys(cenv)
+		foreach key in keys:
+			env += key .. "=" .. cenv[key]
+	}
 	var emap = launcher.getEnv()
 	if emap {
-		env = new vector<string>
 		var keys as vector<string> #force = Map.getKeys(emap)
 		foreach key in keys:
-			emap += key .. "=" .. emap[key]
+			env += key .. "=" .. emap[key]
 	}
 	var cwd = launcher.getCwd()
 	var cwdpath as string
@@ -257,7 +264,24 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 	v.setOutReader(FDReader.forFd(fdout))
 	v.setErrReader(FDReader.forFd(fderr))
 	if wait {
-		// FIXME
+		if pipeHandler {
+			var or = v.getOutReader()
+			var buffer = MALLOC 4096
+			loop {
+				var r = or.read(buffer)
+				if r < 1:
+					break
+				pipeHandler.onBufferData(buffer, r)
+			}
+			var er = v.getErrReader()
+			loop {
+				var r = er.read(buffer)
+				if r < 1:
+					break
+				pipeHandler.onBufferData(buffer, r)
+			}
+		}
+		v.waitForExit()
 	}
 	return v
 }
