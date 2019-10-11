@@ -27,8 +27,8 @@ class is Iterateable<int>:
 func forIntegerValues(lowerBound as int, upperBound as int, exclusionType as int = TYPE_NONE) static as this
 {
 	var v = new this()
-	v.setLowerBound(Integer.asObject(lowerBound))
-	v.setUpperBound(Integer.asObject(upperBound))
+	v.setLowerBound(lowerBound as! double)
+	v.setUpperBound(upperBound as! double)
 	v.setExclusionType(exclusionType)
 	return v
 }
@@ -36,8 +36,8 @@ func forIntegerValues(lowerBound as int, upperBound as int, exclusionType as int
 func forDoubleValues(lowerBound as double, upperBound as double, exclusionType as int = TYPE_NONE) static as this
 {
 	var v = new this()
-	v.setLowerBound(Double.asObject(lowerBound))
-	v.setUpperBound(Double.asObject(upperBound))
+	v.setLowerBound(lowerBound)
+	v.setUpperBound(upperBound)
 	v.setExclusionType(exclusionType)
 	return v
 }
@@ -47,119 +47,110 @@ const TYPE_EXCLUDE_UPPER_BOUND = 1
 const TYPE_EXCLUDE_LOWER_BOUND = 2
 const TYPE_EXCLUDE_BOTH_BOUNDS = 3
 
-var lowerBound as object
-var upperBound as object
+var lowerBound as double
+var upperBound as double
 var exclusionType as int
 
 ctor private:
 	;
 
-func setLowerBound(lowerBound as object) private:
+func setLowerBound(lowerBound as double) private:
 	this.lowerBound = lowerBound
 
-func setUpperBound(upperBound as object) private:
+func setUpperBound(upperBound as double) private:
 	this.upperBound = upperBound
 
 func setExclusionType(exclusionType as int) private:
 	this.exclusionType = exclusionType
 
 func getLowerBoundAsInteger as int:
-	return Integer.asInteger(lowerBound)
+	return lowerBound as! int
 
 func getLowerBoundAsDouble as double:
-	return Double.asDouble(lowerBound)
+	return lowerBound
 
 func getUpperBoundAsInteger as int:
-	return Integer.asInteger(upperBound)
+	return upperBound as! int
 
 func getUpperBoundAsDouble as double:
-	return Double.asDouble(upperBound)
+	return upperBound
 
 func containsIntegerValue(value as int) as bool:
 	return containsDoubleValue(value as! double)
 
 func containsDoubleValue(value as double) as bool
 {
-	var lv = getLowerBoundAsDouble()
-	var uv = getUpperBoundAsDouble()
 	if exclusionType == TYPE_NONE {
-		return value >= lv && value <= uv
+		return value >= lowerBound && value <= upperBound
 	}
 	else if exclusionType == TYPE_EXCLUDE_UPPER_BOUND {
-		return value >= lv && value < uv
+		return value >= lowerBound && value < upperBound
 	}
 	else if exclusionType == TYPE_EXCLUDE_LOWER_BOUND {
-		return value > lv && value <= uv
+		return value > lowerBound && value <= upperBound
 	}
 	else if exclusionType == TYPE_EXCLUDE_BOTH_BOUNDS {
-		return value > lv && value < uv
+		return value > lowerBound && value < upperBound
 	}
 	return false
 }
 
 class RangeIterator is Iterator<int>
 {
-	var range as array<int>
-	var index as int
-
-	ctor(range as array<int>)
+	ctor(lowerBound as int, upperBound as int)
 	{
-		this.range = range
-		index = 0
+		this.lowerBound = lowerBound
+		this.upperBound = upperBound
+		if lowerBound <= upperBound {
+			increment = 1
+		}
+		else {
+			increment = -1
+		}
 	}
+
+	var lowerBound as int
+	var upperBound as int
+	var increment as int
+	var current as Integer
 
 	func next as int
 	{
-		if range == null:
-			return 0
-		if index < 0 || index >= SIZE range:
-			return 0
-		var v = range[index]
-		index ++
-		return v
+		if not current {
+			current = Integer.forValue(lowerBound)
+		}
+		else {
+			current.add(increment)
+		}
+		return current.getValue()
 	}
 
 	func hasNext as bool
 	{
-		assert range
-		assert index < (SIZE range) - 1
-		return true
+		if not current:
+			return true
+		if increment > 0:
+			return current.getValue() < upperBound
+		return current.getValue() > upperBound
 	}
 }
 
 func iterate as Iterator<int>
 {
-	var lv = getLowerBoundAsInteger()
-	var uv = getUpperBoundAsInteger()
-	var sz as int
-	var st as int
-	if lv <= uv {
-		sz = uv - lv
-		st = 1
-	}
-	else {
-		sz = lv - uv
-		st = -1
-	}
+	var lv = lowerBound as! int
+	var uv = upperBound as! int
 	if exclusionType == TYPE_NONE {
-		sz = sz + 1
+		;
 	}
-	else if exclusionType == TYPE_EXCLUDE_UPPER_BOUND {
+	if exclusionType == TYPE_EXCLUDE_UPPER_BOUND {
 		uv = uv - 1
 	}
 	else if exclusionType == TYPE_EXCLUDE_LOWER_BOUND {
 		lv = lv + 1
 	}
 	else if exclusionType == TYPE_EXCLUDE_BOTH_BOUNDS {
-		sz = sz - 1
 		uv = uv - 1
 		lv = lv + 1
 	}
-	var vv = new int[sz]
-	var iv = lv
-	for(var ii = 0; ii <= sz; ii++) {
-		vv[ii] = iv
-		iv = iv + st
-	}
-	return new RangeIterator(vv)
+	return new RangeIterator(lv, uv)
 }
