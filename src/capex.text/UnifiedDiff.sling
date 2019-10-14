@@ -1,0 +1,172 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func backtrack(lcs as array<int>, olines as vector<string>, nlines as vector<string>, i as int, j as int) static private as vector<string>
+{
+	if i == 0 || j == 0:
+		return new vector<string>
+	var ocount = Vector.getSize(olines)
+	if olines[i-1] == nlines[j-1] {
+		var v = backtrack(lcs, olines, nlines, i-1, j-1)
+		v += olines[i-1]
+		return v
+	}
+	if lcs[i + (j-1)*(ocount+1)] > lcs[i-1 + j*(ocount+1)]:
+		return backtrack(lcs, olines, nlines, i, j-1)
+	return backtrack(lcs, olines, nlines, i-1, j)
+}
+
+macro FINISH_BLOCK
+{
+	if blocksb {
+		if hdr {
+			msb.append(hdr)
+			hdr = null
+		}
+		msb.append("@@ -" .. String.forInteger(blockopc) .. "," .. String.forInteger(blockolines) .. " +" .. String.forInteger(blocknpc) .. "," .. String.forInteger(blockolines + blocknlines) .. " @@\n")
+		msb.append(blocksb.toString())
+		blocksb = null
+	}
+}
+
+func execute(fileName as string, original as string, modified as string) static as string
+{
+	assert original
+	assert modified
+	var olines = String.split(original, '\n')
+	var nlines = String.split(modified, '\n')
+	var ocount = Vector.getSize(olines)
+	var ncount = Vector.getSize(nlines)
+	var lcs = new int[(ocount + 1) * (ncount + 1)]
+	for(var n=0; n<ocount+1; n++):
+		lcs[n] = 0
+	for(var n=0; n<ncount+1; n++):
+		lcs[n * (ocount+1)] = 0
+	for(var i=1; i<ocount+1; i++) {
+		for(var j=1; j<ncount+1; j++) {
+			if olines[i-1] == nlines[j-1] {
+				lcs[i + j * (ocount+1)] = lcs[i-1 + (j-1)*(ocount+1)] + 1
+			}
+			else {
+				if lcs[i + (j-1)*(ocount+1)] > lcs[i-1 + j*(ocount+1)] {
+					lcs[i + j*(ocount+1)] = lcs[i + (j-1)*(ocount+1)]
+				}
+				else {
+					lcs[i + j*(ocount+1)] = lcs[i-1 + j*(ocount+1)]
+				}
+			}
+		}
+	}
+	var lcsLines = backtrack(lcs, olines, nlines, ocount, ncount)
+	var op = 0
+	var np = 0
+	var sameCounter = 0
+	var blocksb as StringBuilder
+	var blockopc as int
+	var blocknpc as int
+	var blockolines as int
+	var blocknlines as int
+	var msb = new StringBuilder()
+	msb.append("diff -u a/" .. fileName .. " b/" .. fileName .. "\n")
+	var timeNow = DateTime.forNow()
+	var timeString = timeNow.toStringDateTime() .. ".000000000 +0000"
+	msb.append("--- a/" .. fileName .. " " .. timeString .. "\n")
+	msb.append("+++ b/" .. fileName .. " " .. timeString .. "\n")
+	var hdr = msb.toString()
+	msb = new StringBuilder()
+	var lp = 0
+	var lcsLinesCount = Vector.getSize(lcsLines)
+	loop {
+		var line as string
+		if lp < lcsLinesCount {
+			line = lcsLines[lp]
+		}
+		else {
+			line = null
+		}
+		lp ++
+		if line == null && op >= ocount && np >= ncount:
+			break
+		var changes as vector<string>
+		var oop = op
+		var onp = np
+		while op < ocount && olines[op] != line {
+			if not changes:
+				changes = new vector<string>
+			changes += "-" .. olines[op]
+			op ++
+		}
+		while np < ncount && nlines[np] != line {
+			if not changes:
+				changes = new vector<string>
+			changes += "+" .. nlines[np]
+			np ++
+		}
+		if changes {
+			sameCounter = 0
+			if not blocksb {
+				var opc = oop - 3
+				if opc < 0:
+					opc = 0
+				var npc = onp - 3
+				if npc < 0:
+					npc = 0
+				blocksb = new StringBuilder()
+				blockopc = opc+1
+				blocknpc = npc+1
+				blockolines = 0
+				blocknlines = 0
+				for(var n=opc; n<oop; n++) {
+					blocksb.append(" " .. olines[n] .. "\n")
+					blockolines ++
+				}
+			}
+			foreach change in changes {
+				blocksb.append(change)
+				blocksb.append('\n')
+				if String.startsWith(change, "+") {
+					blocknlines ++
+				}
+				else if String.startsWith(change, "-") {
+					blocknlines --
+					blockolines ++
+				}
+			}
+			changes = null
+		}
+		sameCounter ++
+		if sameCounter > 3:
+			FINISH_BLOCK()
+		if blocksb && op < ocount {
+			blocksb.append(" " .. olines[op] .. "\n")
+			blockolines ++
+		}
+		op ++
+		np ++
+	}
+	FINISH_BLOCK()
+	return msb.toString()
+}
