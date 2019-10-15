@@ -282,7 +282,7 @@ func rename(newname as string, replace as bool) virtual as bool:
 
 **
 ** Writes to the current file, getting the contents from the given reader object.
-** This will read from the reader until EOF (until read() returns < 1), and writes
+** This will read from the reader until EOF (until read() returns less than 1), and writes
 ** all contents to the current file. If doAppend is not true, the contents of the
 ** current file will be truncated prior to writing.
 **
@@ -423,6 +423,12 @@ class ReadLineIterator is Iterator<string>
 		}
 		return v
 	}
+
+	func hasNext as bool
+	{
+		assert reader
+		return not reader.hasEnded()
+	}
 }
 
 var lastErrorDescription as string
@@ -461,7 +467,7 @@ func onError(v as string) protected
 
 **
 ** Reads the complete file contents, treats the contents as a UTF-8 encoded file,
-** and returns the complete conents as an Iterator that returns a series of strings,
+** and returns the complete contents as an Iterator that returns a series of strings,
 ** each string representing one line of text in the file. The line delimiter character
 ** '\n' determines where the lines are separated.
 **
@@ -804,6 +810,8 @@ func getBasename virtual as string
 {
 	var path = assert getPath()
 	var delim = Environment.getPathSeparator()
+	if String.endsWith(path, String.asString(delim)):
+		path = String.getSubString(path, 0, String.getLength(path) - 1)
 	var dp = String.lastIndexOf(path, delim)
 	if dp < 0:
 		return path
@@ -949,7 +957,13 @@ func getContentsString(encoding as string) virtual as string
 {
 	if String.isEmpty(encoding):
 		return null
-	return String.forBuffer(getContentsBuffer(), encoding)
+	var b = getContentsBuffer()
+	if not b {
+		if isFile() && getSize() == 0:
+			return ""
+		return null
+	}
+	return String.forBuffer(b, encoding)
 }
 
 **
@@ -957,8 +971,47 @@ func getContentsString(encoding as string) virtual as string
 ** The file contents are decoded using the UTF-8 character encoding.
 **
 
-func getContentsUTF8 virtual as string:
-	return String.forUTF8Buffer(getContentsBuffer())
+func getContentsUTF8 virtual as string
+{
+	var b = getContentsBuffer()
+	if not b {
+		if isFile() && getSize() == 0:
+			return ""
+		return null
+	}
+	return String.forUTF8Buffer(b)
+}
+
+**
+** Reads the entire contents of a file, taking into account the possible presence of
+** a Byte Order Mark (BOM). Determines the charset of the file based on the BOM and
+** returns the contents as a string object.
+**
+
+func getContentsWithBOM virtual as string
+{
+	var buf = assert getContentsBuffer()
+	if Buffer.getByte(buf, 0) == 0xEF && Buffer.getByte(buf, 1) == 0xBB && Buffer.getByte(buf, 2) == 0xBF {
+		return String.forUTF8Buffer(Buffer.getSubBuffer(buf, 3, Buffer.getSize(buf) - 3))
+	}
+	else if Buffer.getByte(buf, 0) == 0xFF && Buffer.getByte(buf, 1) == 0xFE {
+		onError("Not supported encoding, UTF-16 little endian")
+		return null
+	}
+	else if Buffer.getByte(buf, 0) == 0xFE && Buffer.getByte(buf, 1) == 0xFF {
+		onError("Not supported encoding, UTF-16 big-endian")
+		return null
+	}
+	else if Buffer.getByte(buf, 0) == 0xFF && Buffer.getByte(buf, 1) == 0xFE && Buffer.getByte(buf, 2) == 0x00 && Buffer.getByte(buf, 3) == 0x00 {
+		onError("Not supported encoding, UTF-32 little endian")
+		return null
+	}
+	else if Buffer.getByte(buf, 0) == 0x00 && Buffer.getByte(buf, 1) == 0x00 && Buffer.getByte(buf, 2) == 0xFE && Buffer.getByte(buf, 3) == 0xFF {
+		onError("Not supported encoding, UTF-32 big endian")
+		return null
+	}
+	return String.forUTF8Buffer(buf)
+}
 
 **
 ** Reads the entire contents of the file and returns them as a buffer object.
@@ -969,6 +1022,8 @@ func getContentsBuffer virtual as buffer
 	onError(null)
 	var reader = assert read()
 	var sz = reader.getSize()
+	if sz < 1:
+		return null
 	var b = MALLOC sz
 	var rsz = reader.read(b)
 	reader.close()

@@ -52,6 +52,7 @@ const IMPROPER_COMMENT_WARN_QUEUE = 4
 prop improperCommentPolicy = IMPROPER_COMMENT_NOOP
 prop tokensAreCaseSensitive = true
 prop fileEncoding = "UTF-8"
+var ctx protected as LoggingContext
 var iterator protected as CharacterIterator
 var currentTokenLine protected as int
 var currentTokenColumn protected as int
@@ -162,9 +163,14 @@ macro PARSE_DEBUG(txt, src)
 func onParseMessage(message as Message)
 {
 	assert message
-	if parseMessages == null:
-		parseMessages = new vector<Message>
-	parseMessages += message
+	if ctx {
+		RefLog.message(ctx, message)
+	}
+	else {
+		if parseMessages == null:
+			parseMessages = new vector<Message>
+		parseMessages += message
+	}
 }
 
 func initializeForTokenSource(source as TokenSource)
@@ -174,11 +180,13 @@ func initializeForTokenSource(source as TokenSource)
 	var str = source.getContent()
 	if not str:
 		PARSE_ERROR("No content from source")
-	str = preprocessContent(str)
-	if not str:
-		PARSE_ERROR("Preprocessing failed")
 	resetParserState()
 	this.currentTokenSource = source
+	str = preprocessContent(str)
+	if not str {
+		this.currentTokenSource = null
+		PARSE_ERROR("Preprocessing failed")
+	}
 	iterator = String.iterate(str)
 	iterator.moveToNextChar()
 	currentTokenLine = 0
@@ -223,6 +231,15 @@ func isSpaceCharacter(n as char) virtual as bool
 		return true
 	return false
 }
+
+func setCtx(ctx as LoggingContext) as this
+{
+	this.ctx = ctx
+	return this
+}
+
+func getCtx as LoggingContext:
+	return ctx
 
 func getCurrentTokenSource virtual as TokenSource:
 	return currentTokenSource
@@ -492,7 +509,7 @@ func acceptString(str as string) as string
 	var lc = 0 as char
 	loop {
 		var c = it.getNextChar()
-		if c < 1:
+		if Character.isEOF(c):
 			break
 		lc = c
 		var nn = getNextCharacter()
@@ -560,7 +577,7 @@ func acceptToken(token as string) as Token
 	var lc = 0 as char
 	loop {
 		var c = it.getNextChar()
-		if c < 1:
+		if Character.isEOF(c):
 			break
 		if lc == 0 {
 			if tokensAreCaseSensitive {
@@ -723,7 +740,7 @@ func acceptIdentifierToken virtual as Token
 {
 	skipSpaces()
 	var c0 = peekNextCharacter()
-	if c0 < 1 || isValidIdentifierPrefix(c0) == false:
+	if Character.isEOF(c0) || isValidIdentifierPrefix(c0) == false:
 		return null
 	REMEMBER_POSITION()
 	getNextCharacter()
@@ -731,7 +748,7 @@ func acceptIdentifierToken virtual as Token
 	sb.append(c0)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 || isValidIdentifierCharacter(cn) == false:
+		if Character.isEOF(cn) || isValidIdentifierCharacter(cn) == false:
 			break
 		getNextCharacter()
 		sb.append(cn)
@@ -765,7 +782,7 @@ func acceptBacktickQuotedStringToken virtual as Token
 	var slash = false
 	loop {
 		var cn = getNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -809,7 +826,7 @@ func acceptSingleQuotedStringToken virtual as Token
 	var slash = false
 	loop {
 		var cn = getNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -853,7 +870,7 @@ func acceptDoubleQuotedStringToken(escapeChar as char, allowNewlines as bool) vi
 	var escape = false
 	loop {
 		var cn = getNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -915,7 +932,7 @@ func acceptTripleQuotedMultiLineStringToken as Token
 	var qc = 0
 	loop {
 		var cn = getNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -960,10 +977,8 @@ func acceptHexNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 	sb.append(c1)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
-			RESTORE_POSITION()
-			return null
-		}
+		if Character.isEOF(cn):
+			break
 		if Character.isDigit(cn) {
 			sb.append(cn)
 		}
@@ -1020,10 +1035,8 @@ func acceptOctalNumberLiteralToken(acceptUnderscores as bool, requirePrefix as b
 		sb.append(c1)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
-			RESTORE_POSITION()
-			return null
-		}
+		if Character.isEOF(cn):
+			break
 		if cn >= '0' && cn <= '7' {
 			sb.append(cn)
 		}
@@ -1077,10 +1090,8 @@ func acceptBinaryNumberLiteralToken(acceptUnderscores as bool) virtual as Token
 	sb.append(c1)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
-			RESTORE_POSITION()
-			return null
-		}
+		if Character.isEOF(cn):
+			break
 		if cn == '0' || cn == '1' {
 			sb.append(cn)
 		}
@@ -1120,7 +1131,7 @@ func acceptIntegerLiteralToken(acceptUnderscores as bool) as Token
 	sb.append(c0)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -1170,10 +1181,8 @@ func acceptDecimalNumberLiteralToken(acceptUnderscores as bool, allowStartWithDe
 	sb.append(c0)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
-			RESTORE_POSITION()
-			return null
-		}
+		if Character.isEOF(cn):
+			break
 		if Character.isDigit(cn) {
 			sb.append(cn)
 			getNextCharacter()
@@ -1300,7 +1309,7 @@ func acceptImmediateSlashSlashCommentToken virtual as Token
 	sb.append(c1)
 	loop {
 		var cn = peekNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -1344,7 +1353,7 @@ func acceptImmediateSlashAsteriskCommentToken virtual as Token
 	var pc = 0 as char
 	loop {
 		var cn = getNextCharacter()
-		if cn < 1 {
+		if Character.isEOF(cn) {
 			RESTORE_POSITION()
 			return null
 		}
@@ -1469,7 +1478,7 @@ func isValidIdentifier(t as string) virtual as bool
 	it.getNextChar()
 	loop {
 		var c = it.getNextChar()
-		if c < 1:
+		if Character.isEOF(c):
 			break
 		if isValidIdentifierCharacter(c) == false:
 			return false
