@@ -31,9 +31,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 
 	func close
 	{
-		if(handle == null) {
-			return
-		}
+		assert handle
 		lang "objc" {{{
 			[handle closeFile];
 		}}}
@@ -42,9 +40,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		if(handle == null) {
-			return(false)
-		}
+		assert handle
 		var v = true
 		lang "objc" {{{
 			@try {
@@ -54,14 +50,12 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 				v = false;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getCurrentPosition as int64
 	{
-		if(handle == null) {
-			return(0)
-		}
+		assert handle
 		var v as int64 = 0
 		lang "objc" {{{
 			@try {
@@ -71,48 +65,39 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 				v = 0;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func read(buf as buffer) as int
 	{
-		if(buf == null || handle == null) {
-			return(0)
-		}
+		if buf == null || handle == null:
+			return 0
 		var data as buffer
 		var mx #used = lang "objc" int {{{ [buf length] }}}
 		lang "objc" {{{
 			data = [handle readDataOfLength:mx];
 		}}}
-		if(data == null) {
-			return(0)
-		}
+		assert data
 		var dlen = lang "objc" int {{{ [data length] }}}
-		if(dlen < 1) {
-			return(0)
-		}
+		assert dlen > 0
 		lang "objc" {{{
 			[buf setData:data];
 		}}}
-		return(dlen)
+		return dlen
 	}
 
-	func readAll as buffer
-	{
-		return(lang "objc" buffer {{{ [handle readDataToEndOfFile] }}})
-	}
+	func readAll as buffer:
+		return lang "objc" buffer {{{ [handle readDataToEndOfFile] }}}
 }
 
 class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 {
 	prop handle as !"NSFileHandle*"
 
-	func write(buffer as buffer, size as int) as int
+	func write(buff as buffer, size as int) as int
 	{
-		if(buffer == null) {
-			return(0)
-		}
-		var ptr #used = buffer
+		assert buff
+		var ptr #used = buff
 		if(size >= 0 && size != cape.Buffer.getSize(ptr)) {
 			ptr = Buffer.getSubBuffer(ptr, 0, size)
 		}
@@ -125,14 +110,12 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 				v = -1;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		if(handle == null) {
-			return(false)
-		}
+		assert handle
 		var v = true
 		lang "objc" {{{
 			@try {
@@ -142,14 +125,12 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 				v = false;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func getCurrentPosition as int64
 	{
-		if(handle == null) {
-			return(0)
-		}
+		assert handle
 		var v as int64 = 0
 		lang "objc" {{{
 			@try {
@@ -159,14 +140,12 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 				v = 0;
 			}
 		}}}
-		return(v)
+		return v
 	}
 
 	func close
 	{
-		if(handle == null) {
-			return
-		}
+		assert handle
 		lang "objc" {{{
 			[handle closeFile];
 		}}}
@@ -176,7 +155,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 
 func forPath(path as string) static as File
 {
-	return(new this(path))
+	return new this(path)
 }
 
 var path as string
@@ -190,20 +169,14 @@ ctor(path as string)
 	}}}
 }
 
-func entry(name as string) override as File
-{
-	return(new this(path .. "/" .. name))
-}
+func entry(name as string) override as File:
+	return new this(path .. "/" .. name)
 
-func write override as FileWriter
-{
-	return(getMyWriter(true))
-}
+func write override as FileWriter:
+	return getMyWriter(true)
 
-func append override as FileWriter
-{
-	return(getMyWriter(false))
-}
+func append override as FileWriter:
+	return getMyWriter(false)
 
 func entries override as Iterator<File>
 {
@@ -218,7 +191,7 @@ func entries override as Iterator<File>
 		Vector.append(v, new this(this.path .. "/" .. p))
 	}
 	var entries as Iterator<File> #force = Vector.iterate(v)
-	return(entries)
+	return entries
 }
 
 func move(dest as File, replace as bool) override stub as bool
@@ -249,13 +222,13 @@ func stat override as FileInfo
 			[v setLink:YES];
 		}
 	}}}
-	if(isFile()) {
+	if isFile() {
 		v.setType(FileInfo.FILE_TYPE_FILE)
 	}
-	else if(isDirectory()) {
+	else if isDirectory() {
 		v.setType(FileInfo.FILE_TYPE_DIR)
 	}
-	return(v)
+	return v
 }
 
 func getMyReader private as MyReader
@@ -264,18 +237,16 @@ func getMyReader private as MyReader
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForReadingAtPath:path];
 	}}}
-	if(handle == null) {
-		return(null)
-	}
+	assert handle
 	var v = new MyReader()
 	v.setSize(getSize())
 	v.setHandle(handle)
-	return(v)
+	return v
 }
 
 func getMyWriter(truncate as bool) private as MyWriter
 {
-	if(exists() == false) {
+	if exists() == false {
 		lang "objc" {{{
 			[manager createFileAtPath:path contents:nil attributes:nil];
 		}}}
@@ -284,23 +255,19 @@ func getMyWriter(truncate as bool) private as MyWriter
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForWritingAtPath:path];
 	}}}
-	if(handle == null) {
-		return(null)
-	}
-	if(truncate) {
+	assert handle
+	if truncate {
 		lang "objc" {{{
 			[handle truncateFileAtOffset:0];
 		}}}
 	}
 	var v = new MyWriter()
 	v.setHandle(handle)
-	return(v)
+	return v
 }
 
-func read override as FileReader
-{
+func read override as FileReader:
 	return(getMyReader())
-}
 
 func exists override as bool:
 	return lang "objc" bool {{{ [manager fileExistsAtPath:path] }}}
@@ -315,10 +282,8 @@ func isFile override as bool
 	lang "objc" {{{
 		v = [manager fileExistsAtPath:path isDirectory:&isdir];
 	}}}
-	if(v == false) {
-		return(false)
-	}
-	return(!isdir)
+	assert v
+	return !isdir
 }
 
 func isDirectory override as bool
@@ -328,52 +293,36 @@ func isDirectory override as bool
 	lang "objc" {{{
 		v = [manager fileExistsAtPath:path isDirectory:&isdir];
 	}}}
-	if(v == false) {
-		return(false)
-	}
-	return(isdir)
+	assert v
+	return isdir
 }
 
-func createDirectory override as bool
-{
+func createDirectory override as bool:
 	return lang "objc" bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
-}
 
 func isLink override stub as bool
 func createDirectoryRecursive override stub as bool
 func removeDirectory override stub as bool
 
-func getPath override as string
-{
-	return(path)
-}
+func getPath override as string:
+	return path
 
-func remove override as bool
-{
+func remove override as bool:
 	return lang "objc" bool {{{ [manager removeItemAtPath:path error:nil] }}}
-}
 
-func getBasename override as string
-{
+func getBasename override as string:
 	return lang "objc" string {{{ [manager displayNameAtPath:path] }}}
-}
 
 func getContentsBuffer override as buffer
 {
-	var rr = getMyReader()
-	if(rr == null) {
-		return(null)
-	}
-	return(rr.readAll())
+	var rr = assert getMyReader()
+	return rr.readAll()
 }
 
 func getContentsString(encoding as string) override as string
 {
-	var b = getContentsBuffer()
-	if(b == null) {
-		return(null)
-	}
-	return(String.forBuffer(b, encoding))
+	var b = assert getContentsBuffer()
+	return String.forBuffer(b, encoding)
 }
 
 // FIXME func lines override stub as Iterator
