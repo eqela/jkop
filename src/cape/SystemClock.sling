@@ -49,7 +49,7 @@ func getTimezoneOffsetAsSeconds static as long
 	IFDEF "target_js" {
 		var v as long
 		lang "js" {{{
-			v = new Date().getTimezoneOffset();
+			v = -(new Date().getTimezoneOffset());
 		}}}
 		return v * 60
 	}
@@ -71,7 +71,10 @@ func getTimezoneOffsetAsSeconds static as long
 		return lang "objc" long {{{ (long)([[NSTimeZone systemTimeZone] secondsFromGMT]) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" long {{{ _sushi.getSystemTimezoneSeconds() }}}
+		return lang "lua" long {{{ _os:get_system_timezone_seconds() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" long {{{ Swift.Int64(TimeZone.current.secondsFromGMT()) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -156,7 +159,10 @@ func asSeconds static as long
 		return lang "kotlin" long {{{ (java.lang.System.currentTimeMillis() / 1000) as kotlin.Long }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" long {{{ _sushi.getSystemTimeSeconds() }}}
+		return lang "lua" long {{{ _os:get_system_time_seconds() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" long {{{ Swift.Int64(NSDate().timeIntervalSince1970) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -257,6 +263,23 @@ func update(v as TimeValue) static
 		}}}
 		v.setSeconds(sec)
 		v.setMicroSeconds(usec)
+	}
+	ELSE IFDEF "target_swift" {
+		var sec as int
+		var usec as int
+		lang "swift" {{{
+			sec = Int(NSDate().timeIntervalSince1970)
+			usec = sec % 1000;
+		}}}
+		v.setSeconds(sec)
+		v.setMicroSeconds(usec)
+	}
+	ELSE IFDEF "target_sushi" {
+		var millis = lang "lua" long {{{ _os:get_system_time_milliseconds() }}}
+		var secs = millis / 1000L
+		var micros = (millis - secs * 1000L) * 1000L
+		v.setSeconds(secs)
+		v.setMicroSeconds(micros)
 	}
 	ELSE {
 		ERROR "Not implemented"

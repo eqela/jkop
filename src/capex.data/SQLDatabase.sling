@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class abstract imports cape:
+class abstract:
 
 prop logger as cape.LoggingContext = null
 
@@ -32,9 +32,13 @@ func getDatabaseTypeId abstract as string
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
 func prepareDeleteTableStatement(table as string) abstract as SQLStatement
 func prepareCreateIndexStatement(table as string, column as string, unique as bool) abstract as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
 func getLastInsertId(table as string) abstract as long
 func getIdentityColumnName(table as string) abstract as string
 func getPrimaryKeyColumnName(table as string) abstract as string
+func columnExists(table as string, name as string) abstract as bool
+func isColumnTypeSame(table as string, column as SQLTableColumnInfo) abstract as bool
 
 // Asynchronous API
 func close(callback as function) abstract
@@ -59,13 +63,31 @@ func queryAllTableNames abstract as vector
 ** Returns false if something went wrong.
 **
 
+func ensureColumnsExists(tableName as string, columns as vector<SQLTableColumnInfo>) as bool
+{
+	foreach column as SQLTableColumnInfo in columns {
+		if columnExists(tableName, column.getName()) {
+			if not isColumnTypeSame(tableName, column):
+				assert execute(prepareUpdateColumnTypeStatement(tableName, column))
+		}
+		else {
+			assert execute(prepareCreateColumnStatement(tableName, column))
+		}
+	}
+	return true
+}
+
 func ensureTableExists(table as SQLTableInfo) virtual as bool
 {
 	assert table
 	var name = table.getName()
 	assert String.isNotEmpty(name)
-	if tableExists(name):
-		return true
+	if tableExists(name) {
+		var v = ensureColumnsExists(name, table.getColumns())
+		if v:
+			return true
+		return false
+	}
 	assert execute(prepareCreateTableStatement(name, table.getColumns()))
 	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
 		if not execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())):
@@ -183,7 +205,10 @@ func prepareQueryAllStatement(table as string, columns as array, order as array)
 ** with the specified database table name and a map of criteria.
 **
 
-func prepareCountRecordsStatement(table as string, criteria as map) virtual as SQLStatement
+func prepareCountRecordsStatement(table as string, criteria as map) virtual as SQLStatement:
+	return prepareCountRecordsStatement(table, criteria, false)
+
+func prepareCountRecordsStatement(table as string, criteria as map, likeOperator as bool) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.append("SELECT COUNT(*) AS count FROM ")
@@ -201,14 +226,26 @@ func prepareCountRecordsStatement(table as string, criteria as map) virtual as S
 				sb.append(" AND ")
 			}
 			sb.append(key)
-			sb.append(" = ?")
+			if likeOperator {
+				sb.append(" LIKE ?")
+			}
+			else {
+				sb.append(" = ?")
+			}
 		}
 	}
 	sb.append(';')
 	var stmt = assert prepare(sb.toString())
 	if keys {
-		foreach key as string in keys:
-			stmt.addParamString(String.asString(Map.get(criteria, key)))
+		foreach key as string in keys {
+			var val = String.asString(Map.get(criteria, key))
+			if likeOperator {
+				stmt.addParamString("%" .. val .. "%")
+			}
+			else {
+				stmt.addParamString(val)
+			}
+		}
 	}
 	return stmt
 }
@@ -219,7 +256,7 @@ func prepareCountRecordsStatement(table as string, criteria as map) virtual as S
 **
 
 func prepareQueryWithCriteriaStatement(table as string, criteria as map) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null)
+	return prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null, false)
 
 **
 ** Creates an instance of SQLStatement for select all statement
@@ -227,7 +264,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map) virtual
 **
 
 func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null)
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null, false)
 
 **
 ** Creates an instance of SQLStatement for select all statement
@@ -236,7 +273,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 **
 
 func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null)
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null, false)
 
 **
 ** Creates an instance of SQLStatement for select statement
@@ -245,7 +282,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 **
 
 func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null)
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null, false)
 
 **
 ** Creates an instance of SQLStatement for select statement
@@ -254,7 +291,18 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 ** name(s) or instance(s) of SQLOrderingRule for order by clause.
 **
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array) virtual as SQLStatement
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, order, false)
+
+**
+** Creates an instance of SQLStatement for select statement
+** with the specified database table name, a map of criteria,
+** limit, offset, an array of column name(s), an array of column
+** name(s) or instance(s) of SQLOrderingRule for order by clause
+** and a flag to use LIKE operator.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array, likeOperator as bool) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.append("SELECT ")
@@ -274,7 +322,12 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 				sb.append(" AND ")
 			}
 			sb.append(key)
-			sb.append(" = ?")
+			if likeOperator {
+				sb.append(" LIKE ?")
+			}
+			else {
+				sb.append(" = ?")
+			}
 		}
 	}
 	sb.append(createOrderByString(order))
@@ -294,7 +347,12 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 	if keys {
 		foreach key as string in keys {
 			var val = String.asString(Map.get(criteria, key))
-			stmt.addParamString(val)
+			if likeOperator {
+				stmt.addParamString("%" .. val .. "%")
+			}
+			else {
+				stmt.addParamString(val)
+			}
 		}
 	}
 	return stmt

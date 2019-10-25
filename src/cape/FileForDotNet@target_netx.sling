@@ -185,13 +185,10 @@ class MyIterator is Iterator<File>
 {
 	prop completePath as string
 	prop file as parent
+	var current as File
+	var it public as !"System.Collections.IEnumerator"
 
-	lang "cs"
-	{{{
-		public System.Collections.IEnumerator it;
-	}}}
-
-	func next as File
+	func doNext as File
 	{
 		var str as string
 		lang "cs"
@@ -217,6 +214,28 @@ class MyIterator is Iterator<File>
 		var v = new parent()
 		v.setCompletePathRaw(str)
 		return v
+	}
+
+	func next as File
+	{
+		if current {
+			var vv = current
+			current = null
+			return vv
+		}
+		return doNext()
+	}
+
+	func hasNext as bool
+	{
+		if current:
+			return true
+		var v = doNext()
+		if v {
+			current = v
+			return true
+		}
+		return false
 	}
 }
 
@@ -514,9 +533,9 @@ func stat override as FileInfo
 				try {
 					var dnfi = new System.IO.FileInfo(completePath);
 					v.setSize((int)dnfi.Length);
-					v.setCreateTime((int)dnfi.CreationTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
-					v.setAccessTime((int)dnfi.LastAccessTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
-					v.setModifyTime((int)dnfi.LastWriteTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
+					v.setCreateTime((long)dnfi.CreationTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
+					v.setAccessTime((long)dnfi.LastAccessTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
+					v.setModifyTime((long)dnfi.LastWriteTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds);
 				}
 				catch(System.Exception e) {
 					onError(e.ToString());
@@ -622,7 +641,10 @@ func getBasename override as string
 {
 	onError(null)
 	var path = assert completePath
-	var rs = String.lastIndexOf(path, lang "cs" char {{{ System.IO.Path.DirectorySeparatorChar }}})
+	var delim = lang "cs" char {{{ System.IO.Path.DirectorySeparatorChar }}}
+	if String.endsWith(path, String.asString(delim)):
+		path = String.getSubString(path, 0, String.getLength(path) - 1)
+	var rs = String.lastIndexOf(path, delim)
 	if rs < 0:
 		return path
 	return String.subString(path, rs+1)
@@ -632,7 +654,16 @@ func getContentsBuffer override as buffer
 {
 	onError(null)
 	assert completePath
-	return lang "cs" buffer {{{ System.IO.File.ReadAllBytes(completePath) }}}
+	var buffer as buffer
+	try {
+		buffer = lang "cs" buffer {{{ System.IO.File.ReadAllBytes(completePath) }}}
+	}
+	catch e as exception {
+		lang "cs" {{{
+			onError(e.ToString());
+		}}}
+	}
+	return buffer
 }
 
 func getContentsString(encoding as string) override as string

@@ -77,6 +77,9 @@ func getValue <K,V> (map as map<K,V> #used, key as K #used) static as V
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" V {{{ map.get(key) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" V {{{ map![key!] }}}
+	}
 	ELSE {
 		return map[key]
 	}
@@ -108,6 +111,12 @@ func set <K,V> (data as map<K,V> #used, key as K #used, val as V #used) static a
 		var v = val
 		lang "kotlin" {{{
 			data.put(key, v)
+		}}}
+		return true
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			data!.setObject(val!, forKey: key as! NSCopying)
 		}}}
 		return true
 	}
@@ -149,6 +158,16 @@ func remove <K,V> (data as map<K,V> #used, key as K #used) static
 			data.remove(key)
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			data.removeObject(forKey: key!)
+		}}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{
+			data[key] = nil
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -173,9 +192,11 @@ func count <K,V> (data as map<K,V> #used) static as int
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" int {{{ data.count() }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ data.count }}}
+	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		return Vector.getSize(getKeys(data))
 	}
 }
 
@@ -198,8 +219,20 @@ func containsKey <K,V> (data as map<K,V> #used, key as K #used) static as bool
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" bool {{{ data.containsKey(key) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		var v = false
+		lang "swift" bool {{{ 
+			if(data![key!] != nil) {
+				v = true
+			}
+		}}}
+		return v
+	}
 	ELSE {
-		ERROR "Not implemented"
+		foreach kk in getKeys(data) {
+			if key == kk:
+				return true
+		}
 		return false
 	}
 }
@@ -230,8 +263,21 @@ func containsValue <K,V> (data as map<K,V>, val as V #used) static as bool
 		var v = val
 		return lang "kotlin" bool {{{ data.containsValue(v) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		var v = false
+		lang "swift" bool {{{
+			let keys = data.allKeys(for: val!)
+			if(keys != nil && keys.count > 0) {
+				v = true
+			}
+		}}}
+		return v
+	}
 	ELSE {
-		ERROR "Not implemented"
+		foreach vv in getValues(data) {
+			if val == vv:
+				return true
+		}
 		return false
 	}
 }
@@ -264,6 +310,16 @@ func clear <K,V> (data as map<K, V> #used) static
 			data.clear()
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			data.removeAllObjects()
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_vm:clear_table(data)
+		}}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -283,6 +339,14 @@ func dup <K,V> (data as map<K, V> #used) static as map<K,V>
 	}
 	ELSE IFDEF "target_kotlin" {
 		return lang "kotlin" map<K, V> {{{ kotlin.collections.HashMap(data) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var map as map<K,V>
+		lang "swift" {{{
+			let m = (NSDictionary.init(dictionary: data as! [AnyHashable : Any]))
+			map = m.mutableCopy() as? NSMutableDictionary
+		}}}
+		return map
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -335,7 +399,15 @@ func getKeys <K,V> (data as map<K,V> #used) static as vector<K>
 	ELSE IFDEF "target_sushi" {
 		var v as vector<K>
 		lang "lua" {{{
-			v = _sushi.getTableKeys(data)
+			v = _vm:get_table_keys(data)
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as vector<K>
+		lang "swift" {{{
+			let arr = NSArray(array: data.allKeys)
+			v = arr.mutableCopy() as? NSMutableArray
 		}}}
 		return v
 	}
@@ -390,7 +462,15 @@ func getValues <K,V> (data as map<K,V> #used) static as vector<V>
 	ELSE IFDEF "target_sushi" {
 		var v as vector<K>
 		lang "lua" {{{
-			v = _sushi.getTableValues(data)
+			v = _vm:get_table_values(data)
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as vector<K>
+		lang "swift" {{{
+			let arr = NSArray(array: data.allValues)
+			v = arr.mutableCopy() as? NSMutableArray
 		}}}
 		return v
 	}
@@ -406,8 +486,9 @@ IFDEF "target_cs" {
 		lang "cs" {{{
 			public System.Collections.Generic.IEnumerator<K> enumerator;
 		}}}
+		var current as K
 
-		func next as K
+		func doNext as K
 		{
 			var v as K = DEFAULT K
 			lang "cs" {{{
@@ -421,6 +502,28 @@ IFDEF "target_cs" {
 				}
 			}}}
 			return v
+		}
+
+		func next as K
+		{
+			if current {
+				var vv = current
+				current = DEFAULT K
+				return vv
+			}
+			return doNext()
+		}
+
+		func hasNext as bool
+		{
+			if current:
+				return true
+			var v = doNext()
+			if v {
+				current = v
+				return true
+			}
+			return false
 		}
 	}
 }

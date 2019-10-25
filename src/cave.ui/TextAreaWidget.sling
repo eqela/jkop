@@ -38,13 +38,7 @@ IFDEF "target_android"
 	basetype Widget type isAlso
 }
 
-ELSE IFDEF "target_kotlin"
-{
-	basetype !"android.widget.EditText" type extends
-	basetype Widget type isAlso
-}
-
-ELSE IFDEF "target_iosoc"
+ELSE IFDEF "target_ios_objc"
 {
 	basetype !"UITextView" type extends
 	basetype !"UITextViewDelegate" type implements
@@ -55,6 +49,14 @@ ELSE IFDEF "target_iosoc"
 	lang "objc" {{{
 		- (void)textViewDidChange:(UITextView*)textView {
 			[self onChangeListener];
+		}
+
+		- (void)textViewDidBeginEditing:(UITextView *)textView {
+			[self onFocusListener];
+		}
+
+		- (void)textViewDidEndEditing:(UITextView *)textView {
+			[self onLoseFocusListener];
 		}
 
 		- (CGRect)textRectForBounds:(CGRect)bounds {
@@ -124,6 +126,91 @@ ELSE IFDEF "target_iosoc"
 	}
 }
 
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextView" type extends
+	basetype !"UITextViewDelegate" type implements
+	basetype Widget type isAlso
+	basetype WidgetWithLayout
+	var maxLength as int
+
+	lang "swift" {{{
+		public func textViewDidChange(_ textView: UITextView) {
+			self.onChangeListener()
+		}
+
+		func textRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		func editingRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		public func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+			var rt : Bool = false
+			if (self.text.count < self.maxLength || text.count == 0 || self.maxLength == 0) {
+				rt = true
+			}
+			return rt
+		}
+
+		func textViewDidBeginEditing(_ textView: UITextView) {
+			self.onFocusListener()
+		}
+		func textViewDidEndEditing(_ textView: UITextView) {
+			self.onLoseFocusListener()
+		}
+
+	}}}
+
+	func setWidgetLayoutChanged
+	{
+	}
+
+	func hasWidgetLayoutChanged as bool:
+		return false
+
+	func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
+	{
+		var text #used = lang "swift" string {{{ self.text }}}
+		var rr = widgetRows
+		if rr < 1:
+			rr = 1
+		var sb = new StringBuilder()
+		for(var n = 1; n<rr; n++):
+			sb.append('\n')
+		var tmpStr #used = sb.toString()
+		lang "swift" {{{
+			self.text = tmpStr
+		}}}
+		var srw as int
+		var srh as int
+		var cw = widthConstraint
+		var ch #used = 0
+		if cw < 0:
+			cw = 0
+		lang "swift" {{{
+			let nsz : CGSize = self.sizeThatFits(CGSize(width: cw, height: ch))
+			srw = Int(nsz.width)
+			if (Int(nsz.width) - srw) > 0 {
+				srw += 1
+			}
+			srh = Int(nsz.height)
+			if (Int(nsz.height) - srh) > 0 {
+				srh += 1
+			}
+		}}}
+		if widthConstraint >= 0 && srw != widthConstraint:
+			srw = widthConstraint
+		Widget.setLayoutSize(this, srw, srh)
+		lang "swift" {{{
+			self.text = text
+		}}}
+		return true
+	}
+}
+
 ELSE IFDEF "target_macosoc"
 {
 	// FIXME
@@ -154,6 +241,7 @@ ELSE IFDEF "target_html"
 	func prepareElement(element as object) override
 	{
 		base.prepareElement(element)
+		HTMLDOM.setStyle(element, "box-sizing", "border-box")
 		HTMLDOM.setStyle(element, "resize", "none")
 		HTMLDOM.setStyle(element, "border", "none")
 		HTMLDOM.removeStyle(element, "overflow")
@@ -209,47 +297,74 @@ ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		lang "java" {{{
-			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
-			setBackgroundColor(cave.Color.forRGB(255,255,255).toARGBInt32());
-			setTextColor(cave.Color.forRGB(0,0,0).toARGBInt32());
-			setGravity(android.view.Gravity.TOP);
-			addTextChangedListener(new android.text.TextWatcher() {
-				public void onTextChanged(java.lang.CharSequence s, int start, int before, int count) {
-					onChangeListener();
-				}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+				setBackgroundColor(cave.Color.forRGB(255,255,255).toARGBInt32());
+				setTextColor(cave.Color.forRGB(0,0,0).toARGBInt32());
+				setGravity(android.view.Gravity.TOP);
+				addTextChangedListener(new android.text.TextWatcher() {
+					public void onTextChanged(java.lang.CharSequence s, int start, int before, int count) {
+						onChangeListener();
+					}
 
-				public void beforeTextChanged(java.lang.CharSequence s, int start, int count, int after) {
-				}
+					public void beforeTextChanged(java.lang.CharSequence s, int start, int count, int after) {
+					}
 
-				public void afterTextChanged(android.text.Editable s) {
-				}
-			});
-		}}}
+					public void afterTextChanged(android.text.Editable s) {
+					}
+				});
+				setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
+					public void onFocusChange(android.view.View view, boolean hasFocus) {
+						if(hasFocus) {
+							onFocusListener();
+						}
+						else {
+							onLoseFocusListener();
+						}
+					}
+				});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setHintTextColor(cave.Color.forRGB(154,154,154)!!.toARGBInt32())
+				setBackgroundColor(cave.Color.forRGB(255,255,255)!!.toARGBInt32())
+				setTextColor(cave.Color.forRGB(0,0,0)!!.toARGBInt32())
+				setGravity(android.view.Gravity.TOP)
+				addTextChangedListener(object : android.text.TextWatcher {
+					override fun onTextChanged(s : kotlin.CharSequence, start : kotlin.Int, before : kotlin.Int, count : kotlin.Int) {
+						onChangeListener()
+					}
+
+					override fun beforeTextChanged(s : kotlin.CharSequence, start : kotlin.Int, count : kotlin.Int, after : kotlin.Int) {
+					}
+
+					override fun afterTextChanged(s : android.text.Editable) {
+					}
+				})
+				setOnFocusChangeListener(object : android.view.View.OnFocusChangeListener {
+					override fun onFocusChange(view : android.view.View, hasFocus : kotlin.Boolean) {
+						if(hasFocus) {
+							onFocusListener();
+						}
+						else {
+							onLoseFocusListener();
+						}
+					}
+				})
+			}}}
+		}
 	}
-	IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		lang "kotlin" {{{
-			setHintTextColor(cave.Color.forRGB(154,154,154)!!.toARGBInt32())
-			setBackgroundColor(cave.Color.forRGB(255,255,255)!!.toARGBInt32())
-			setTextColor(cave.Color.forRGB(0,0,0)!!.toARGBInt32())
-			setGravity(android.view.Gravity.TOP)
-			addTextChangedListener(object : android.text.TextWatcher {
-				override fun onTextChanged(s : kotlin.CharSequence, start : kotlin.Int, before : kotlin.Int, count : kotlin.Int) {
-					onChangeListener()
-				}
-
-				override fun beforeTextChanged(s : kotlin.CharSequence, start : kotlin.Int, count : kotlin.Int, after : kotlin.Int) {
-				}
-
-				override fun afterTextChanged(s : android.text.Editable) {
-				}
-			})
-		}}}
-	}
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			self.delegate = self;
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero, textContainer: nil)
+			self.delegate = self
 		}}}
 	}
 	IFDEF "target_html" {
@@ -295,18 +410,32 @@ func updateWidgetColors private
 		}
 	}
 	IFDEF "target_android" {
-		lang "java" {{{
-			setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
-			if(widgetBackgroundColor != null) {
-				setBackgroundColor(widgetBackgroundColor.toARGBInt32());
-			}
-			else {
-				setBackgroundColor(0);
-			}
-			setTextColor(textColor.toARGBInt32());
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setHintTextColor(cave.Color.forRGB(154,154,154).toARGBInt32());
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+				}
+				else {
+					setBackgroundColor(0);
+				}
+				setTextColor(textColor.toARGBInt32());
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setHintTextColor(cave.Color.forRGB(154,154,154)!!.toARGBInt32())
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
+				}
+				else {
+					setBackgroundColor(0)
+				}
+				setTextColor(textColor!!.toARGBInt32())
+			}}}
+		}
 	}
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		var bgc #used = widgetBackgroundColor
 		lang "objc" {{{
 			if(bgc != nil) {
@@ -318,6 +447,18 @@ func updateWidgetColors private
 			self.textColor = [textColor toUIColor];
 		}}}
 	}
+	IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil
+			}
+			self.textColor = textColor.toUIColor()
+		}}}
+	}
 	IFDEF "target_html" {
 		if not widgetBackgroundColor {
 			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
@@ -327,18 +468,6 @@ func updateWidgetColors private
 		}
 		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(textColor))
 	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setHintTextColor(cave.Color.forRGB(154,154,154)!!.toARGBInt32())
-			if(widgetBackgroundColor != null) {
-				setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
-			}
-			else {
-				setBackgroundColor(0)
-			}
-			setTextColor(textColor!!.toARGBInt32())
-		}}}
-	}
 }
 
 func updateWidgetFont private
@@ -347,7 +476,7 @@ func updateWidgetFont private
 		HTMLDOM.setFontFamily(element, widgetFontFamily)
 		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		var ff = widgetFontFamily
 		if String.isEmpty(ff):
 			ff = "Arial"
@@ -359,29 +488,43 @@ func updateWidgetFont private
 			[self setFont:font];
 		}}}
 	}
-	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
-			if(widgetFontResource != null) {
-				android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
-				setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
+	ELSE IFDEF "target_swift" {
+		var ff = widgetFontFamily
+		if String.isEmpty(ff):
+			ff = "Arial"
+		lang "swift" {{{
+			var font : UIFont = UIFont(name: ff!, size: CGFloat(widgetFontSize))!
+			if(font == nil) {
+				font = UIFont(name: "Arial", size: CGFloat(widgetFontSize))!
 			}
-			else {
-				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
-			}
+			self.font = font
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, widgetFontSize.toFloat())
-			if(widgetFontResource != null) {
-				var ctx = (widgetContext as GuiApplicationContextForKotlin).getActivityContext()
-				setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL)
-			}
-			else {
-				setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL))
-			}
-		}}}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+				if(widgetFontResource != null) {
+					android.content.Context ctx = ((cave.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL));
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, widgetFontSize.toFloat())
+				if(widgetFontResource != null) {
+					var ctx = (widgetContext as GuiApplicationContextForAndroid).getActivityContext()
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL)
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, android.graphics.Typeface.NORMAL))
+				}
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -390,9 +533,14 @@ func updateWidgetFont private
 
 func focus
 {
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			[self becomeFirstResponder];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.becomeFirstResponder()
 		}}}
 	}
 	ELSE {
@@ -453,10 +601,7 @@ func setWidgetRows(row as int) as this
 	ELSE IFDEF "target_android" {
 		base.setLines(row)
 	}
-	ELSE IFDEF "target_kotlin" {
-		base.setLines(row)
-	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		// iOS implementation simply uses the layoutWidget defined above to do this.
 	}
 	ELSE {
@@ -469,23 +614,30 @@ func setWidgetRows(row as int) as this
 func setWidgetText(text as string) as this
 {
 	IFDEF "target_android" {
-		lang "java" {{{
-			setText(text);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setText(text);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setText(text)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
 			this.element.value = text;
 		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			[self setText:text];
 		}}}
 	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setText(text)
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.text = text
 		}}}
 	}
 	ELSE {
@@ -505,19 +657,21 @@ func setWidgetPlaceholder(placeholder as string) as this
 {
 	widgetPlaceholder = placeholder
 	IFDEF "target_android" {
-		lang "java" {{{
-			setHint(placeholder);
-		}}}
-	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setHint(placeholder)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setHint(placeholder);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setHint(placeholder)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.setAttribute(element, "placeholder", placeholder)
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		// FIXME: We could implement with one of these funky workarounds:
 		// http://stackoverflow.com/questions/7038876/how-to-insert-placeholder-in-uitextview
 		ERROR "Not implemented"
@@ -552,14 +706,16 @@ func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notL
 func updateWidgetPadding private
 {
 	IFDEF "target_android" {
-		lang "java" {{{
-			setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
-		}}}
-	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.setStyle(element, "padding", String.forInteger(widgetPaddingTop) .. "px" ..
@@ -567,7 +723,7 @@ func updateWidgetPadding private
 			String.forInteger(widgetPaddingBottom) .. "px" .. " " ..
 			String.forInteger(widgetPaddingLeft) .. "px")
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		// iOS implementation simply uses the values set above. No further action required.
 	}
 	ELSE {
@@ -581,13 +737,20 @@ func getWidgetText as string
 		return lang "js" string {{{ this.element.value }}}
 	}
 	ELSE IFDEF "target_android" {
-		return lang "java" string {{{ getText().toString() }}}
+		var v as string
+		IFDEF "target_java" {
+			v = lang "java" string {{{ getText().toString() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" string {{{ getText().toString() }}}
+		}
+		return v
 	}
-	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" string {{{ getText().toString() }}}
-	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		return lang "objc" string {{{ [self text] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ self.text }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -628,17 +791,19 @@ func setWidgetMaxLength(v as int) as this
 		HTMLDOM.setAttribute(element, "maxlength", String.forInteger(v))
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(v)});
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(v)});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setFilters(arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(v)))
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		maxLength = v
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setFilters(arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(v)))
-		}}}
 	}
 	ELSE {
 		ERROR "Not implemented"

@@ -116,15 +116,18 @@ class MyContainerWidget is LayerWidget #widget
 {
 	prop widgetParent as parent
 
-	func onChildWidgetRemoved(widget as Widget) override
+	func onChildWidgetsRemoved(widgets as vector<Widget>) override
 	{
 		Widget.onLayoutChanged(this)
-		var w = widget as TabContentWidget
-		if w && widgetParent {
-			var title = w.getTabContentTitle()
-			var tab = widgetParent.getTabObject(title)
-			Widget.removeFromParent(tab.item)
-			widgetParent.removeTabObject(title)
+		assert widgetParent
+		foreach widget in widgets {
+			var w = widget as TabContentWidget
+			if w {
+				var title = w.getTabContentTitle()
+				var tab = widgetParent.getTabObject(title)
+				Widget.removeFromParent(tab.item)
+				widgetParent.removeTabObject(title)
+			}
 		}
 	}
 }
@@ -172,14 +175,23 @@ class TabTitleContainerWidget is ContainerWidget #widget
 		return this
 	}
 
-	func onChildWidgetAdded(widget as Widget) override:
-		base.onChildWidgetRemoved(widget)
-
-	func onChildWidgetRemoved(widget as Widget) override
+	func onChildWidgetAdded(widget as Widget) override
 	{
-		if Vector.removeValue(children, widget) > -1:
+		var v = new vector<Widget>
+		v += widget
+		base.onChildWidgetsRemoved(v)
+	}
+
+	func onChildWidgetsRemoved(widgets as vector<Widget>) override
+	{
+		var update = false
+		foreach widget in widgets {
+			if Vector.removeValue(children, widget) > -1:
+				update = true
+		}
+		if update:
 			updateIndexes()
-		base.onChildWidgetRemoved(widget)
+		base.onChildWidgetsRemoved(widgets)
 	}
 
 	func updateIndexes
@@ -311,6 +323,8 @@ func updateSelectedTab(tab as TabObject, newTab as bool) private
 	else {
 		Widget.setVisible(currentTab.content, true)
 	}
+	if currentTab.content is DisplayAwareWidget:
+		(currentTab.content as! DisplayAwareWidget).onWidgetDisplayed()
 	if tabSwitchEventHandler:
 		tabSwitchEventHandler(oldTab.index)
 }
@@ -382,6 +396,8 @@ func setTabVisible(index as int, v as bool)
 	}
 	if currentTab == tabObject {
 		Widget.setVisible(tabObject.content, v)
+		if v && tabObject.content is DisplayAwareWidget:
+			(tabObject.content as! DisplayAwareWidget).onWidgetDisplayed()
 		if not v:
 			setActiveTab(0)
 	}

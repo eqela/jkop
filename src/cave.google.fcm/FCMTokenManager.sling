@@ -22,13 +22,13 @@
  * SOFTWARE.
  */
 
-class:
-
 import cave.ui
+
+class:
 
 var token private static as string
 
-IFDEF "target_iosoc"
+IFDEF "target_ios_objc"
 {
 	depend "objc-header-h:<FirebaseCore/FirebaseCore.h>"
 	depend "objc-header-h:<FirebaseAnalytics/FirebaseAnalytics.h>"
@@ -46,7 +46,6 @@ IFDEF "target_iosoc"
 	func setToken(newToken as string) static:
 		token = newToken
 }
-
 IFDEF "target_android"
 {
 	var action private static = "SLING_FCM"
@@ -60,21 +59,19 @@ IFDEF "target_android"
 	func getAction static as string:
 		return action
 }
-ELSE IFDEF "target_kotlin"
+ELSE IFDEF "target_html"
 {
-	var action private static = "SLING_FCM"
-
-	func setAction(v as string) static
-	{
-		assert String.isNotEmpty(v)
-		action = v
-	}
-
-	func getAction static as string:
-		return action
-}
-ELSE IFDEF "target_html" {
 	func onNewFCMToken(newToken as string) static:
+		token = newToken
+}
+ELSE IFDEF "target_swift"
+{
+	depend "swift-import:FirebaseAnalytics"
+	depend "swift-import:FirebaseCore"
+	depend "swift-import:FirebaseInstanceID"
+	depend "swift-import:FirebaseMessaging"
+
+	func setToken(newToken as string) static:
 		token = newToken
 }
 
@@ -86,17 +83,23 @@ ELSE IFDEF "target_html" {
 func checkForToken static as string
 {
 	IFDEF "target_android" {
-		var newToken = lang "java" string {{{ com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken() }}}
+		var newToken as string
+		IFDEF "target_java" {
+			newToken = lang "java" string {{{ com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			newToken = lang "kotlin" string {{{ com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken() }}}
+		}
 		if not String.equals(token, newToken):
 			token = newToken
 	}
-	ELSE IFDEF "target_kotlin" {
-		var newToken = lang "kotlin" string {{{ com.google.firebase.iid.FirebaseInstanceId.getInstance().getToken() }}}
-		if not String.equals(token, newToken):
-			token = newToken
-	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		var newToken = lang "objc" string {{{ [FIRMessaging messaging].FCMToken }}}
+		if not String.equals(token, newToken):
+			token = newToken
+	}
+	ELSE IFDEF "target_swift" {
+		var newToken = lang "swift" string {{{ Messaging.messaging().fcmToken }}}
 		if not String.equals(token, newToken):
 			token = newToken
 	}

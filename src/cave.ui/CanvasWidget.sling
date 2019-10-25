@@ -31,19 +31,13 @@ func forColor(context as GuiApplicationContext, color as Color) static as this
 	return(v)
 }
 
-IFDEF "target_iosoc"
+IFDEF "target_ios"
 {
 	basetype !"UIView" type extends
 	basetype Widget type isAlso
 }
 
 IFDEF "target_android"
-{
-	basetype !"android.view.View" type extends
-	basetype Widget type isAlso
-}
-
-IFDEF "target_kotlin"
 {
 	basetype !"android.view.View" type extends
 	basetype Widget type isAlso
@@ -82,8 +76,12 @@ ctor(context as GuiApplicationContext)
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
 	}
 	widgetContext = context
 	widgetColor = Color.black()
@@ -115,29 +113,58 @@ func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 func setWidgetColor(color as Color)
 {
 	widgetColor = color
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		if not widgetColor {
-			lang "objc" {{{
-				self.backgroundColor = nil;
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					self.backgroundColor = nil;
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = nil
+				}}}
+			}
 		}
 		else {
-			lang "objc" {{{
-				self.backgroundColor = [color toUIColor];
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					self.backgroundColor = [color toUIColor];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = color.toUIColor()
+				}}}
+			}
 		}
 	}
 	ELSE IFDEF "target_android" {
-		if not widgetColor {
-			lang "java" {{{
-				setBackgroundColor(0);
-			}}}
+		IFDEF "target_java" {
+			if not widgetColor {
+				lang "java" {{{
+					setBackgroundColor(0);
+				}}}
+			}
+			else {
+				lang "java" {{{
+					setBackgroundColor(widgetColor.toARGBInt32());
+				}}}
+				updateCanvasRoundingRadius()
+			}
 		}
-		else {
-			lang "java" {{{
-				setBackgroundColor(widgetColor.toARGBInt32());
-			}}}
-			updateCanvasRoundingRadius()
+		ELSE IFDEF "target_kotlin" {
+			if not widgetColor {
+				lang "kotlin" {{{
+					setBackgroundColor(0);
+				}}}
+			}
+			else {
+				lang "kotlin" {{{
+					setBackgroundColor(widgetColor!!.toARGBInt32());
+				}}}
+				updateCanvasRoundingRadius()
+			}
 		}
 	}
 	ELSE IFDEF "target_html" {
@@ -152,19 +179,6 @@ func setWidgetColor(color as Color)
 		lang "cs" {{{
 			rectangle.Fill = color.toBrush();
 		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		if not widgetColor {
-			lang "kotlin" {{{
-				setBackgroundColor(0);
-			}}}
-		}
-		else {
-			lang "kotlin" {{{
-				setBackgroundColor(widgetColor!!.toARGBInt32());
-			}}}
-			updateCanvasRoundingRadius()
-		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -235,33 +249,36 @@ func updateCanvasRoundingRadius private
 		var r4 = widgetBottomLeftRadius as float
 		var rr = new !"android.graphics.drawable.shapes.RoundRectShape"(new float[] { r1, r1, r2, r2, r3, r3, r4, r4 }, null, null)
 		var shape = new !"android.graphics.drawable.ShapeDrawable"(rr)
-		lang "java" {{{
-			if(widgetColor != null) {
-				shape.getPaint().setColor(widgetColor.toARGBInt32());
-			}
-			setBackgroundDrawable(shape);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widgetColor != null) {
+					shape.getPaint().setColor(widgetColor.toARGBInt32());
+				}
+				setBackgroundDrawable(shape);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widgetColor != null) {
+					shape!!.getPaint().setColor(widgetColor!!.toARGBInt32())
+				}
+				setBackgroundDrawable(shape)
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[self.layer setCornerRadius:widgetTopLeftRadius];
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self.layer setCornerRadius:widgetTopLeftRadius];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.layer.cornerRadius = CGFloat(widgetTopLeftRadius)
+			}}}
+		}
 		if widgetTopLeftRadius != widgetTopRightRadius || widgetTopLeftRadius != widgetBottomRightRadius || widgetTopLeftRadius != widgetBottomLeftRadius:
 			ERROR "Rounded corners with different radiuses per corner are not implemented" // FIXME
-	}
-	ELSE IFDEF "target_kotlin" {
-		var r1 = widgetTopLeftRadius as float
-		var r2 = widgetTopRightRadius as float
-		var r3 = widgetBottomRightRadius as float
-		var r4 = widgetBottomLeftRadius as float
-		var rr = new !"android.graphics.drawable.shapes.RoundRectShape"(new float[] { r1, r1, r2, r2, r3, r3, r4, r4 }, null, null)
-		var shape = new !"android.graphics.drawable.ShapeDrawable"(rr)
-		lang "kotlin" {{{
-			if(widgetColor != null) {
-				shape!!.getPaint().setColor(widgetColor!!.toARGBInt32())
-			}
-			setBackgroundDrawable(shape)
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")

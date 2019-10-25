@@ -32,7 +32,7 @@ func forText(context as GuiApplicationContext, text as string, handler as functi
 	return v
 }
 
-IFDEF "target_iosoc"
+IFDEF "target_ios"
 {
 	basetype !"UIButton" type extends
 	basetype Widget type isAlso
@@ -45,12 +45,6 @@ IFDEF "target_macosoc"
 }
 
 IFDEF "target_android"
-{
-	basetype !"android.widget.Button" type extends
-	basetype Widget type isAlso
-}
-
-IFDEF "target_kotlin"
 {
 	basetype !"android.widget.Button" type extends
 	basetype Widget type isAlso
@@ -93,8 +87,12 @@ ctor(context as GuiApplicationContext)
 	IFDEF "target_android" {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
 	}
 	widgetContext = context
 }
@@ -102,27 +100,41 @@ ctor(context as GuiApplicationContext)
 func setWidgetText(text as string)
 {
 	widgetText = text
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[self setTitle:text forState:UIControlStateNormal];
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self setTitle:text forState:UIControlStateNormal];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.setTitle(text, for: .normal)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			setText(text);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setText(text);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setText(text)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
-		HTMLDOM.setInnerHTML(element, text)
+		HTMLDOM.setTextContent(element, text)
 	}
 	ELSE IFDEF "target_uwp" {
 		lang "cs" {{{
 			this.Content = text;
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			setText(text)
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.setTitle(text, for: .normal)
 		}}}
 	}
 	ELSE {
@@ -130,38 +142,62 @@ func setWidgetText(text as string)
 	}
 }
 
-func getWidgetText as string
-{
-	return(widgetText)
-}
+func getWidgetText as string:
+	return widgetText
 
 func setWidgetTextColor(color as Color)
 {
 	widgetTextColor = color
-	IFDEF("target_iosoc") {
-		if(color != null) {
+	IFDEF("target_ios") {
+		if color {
 			var highlightColor = color.dup()
 			highlightColor.setAlpha(0.5)
-			lang "objc" {{{
-				[self setTitleColor:[color toUIColor] forState:UIControlStateNormal];
-				[self setTitleColor:[highlightColor toUIColor] forState:UIControlStateHighlighted];
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setTitleColor:[color toUIColor] forState:UIControlStateNormal];
+					[self setTitleColor:[highlightColor toUIColor] forState:UIControlStateHighlighted];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.setTitleColor(color.toUIColor(), for: UIControl.State.normal)
+				}}}
+			}
 		}
 		else {
-			lang "objc" {{{
-				[self setTitleColor:nil forState:UIControlStateNormal];
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setTitleColor:nil forState:UIControlStateNormal];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.setTitleColor(nil, for: UIControl.State.normal)
+				}}}
+			}
 		}
 	}
 	ELSE IFDEF("target_android") {
-		lang "java" {{{
-			if(color != null) {
-				setTextColor(color.toARGBInt32());
-			}
-			else {
-				setTextColor(0xff000000);
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(color != null) {
+					setTextColor(color.toARGBInt32());
+				}
+				else {
+					setTextColor(0xff000000);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(color != null) {
+					setTextColor(color.toARGBInt32())
+				}
+				else {
+					setTextColor(0xff000000.toInt())
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF("target_html") {
 		if(color == null) {
@@ -171,51 +207,67 @@ func setWidgetTextColor(color as Color)
 			HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(color))
 		}
 	}
-	ELSE IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			if(color != null) {
-				setTextColor(color.toARGBInt32())
-			}
-			else {
-				setTextColor(0xff000000.toInt())
-			}
-		}}}
-	}
 	ELSE {
 		ERROR("Not implemented")
 	}
 }
 
-func getWidgetTextColor as Color
-{
-	return(widgetTextColor)
-}
+func getWidgetTextColor as Color:
+	return widgetTextColor
 
 func setWidgetBackgroundColor(color as Color)
 {
 	widgetBackgroundColor = color
-	IFDEF("target_iosoc") {
-		if(color != null) {
-			lang "objc" {{{
-				[self setBackgroundColor:[color toUIColor]];
-			}}}
+	IFDEF("target_ios") {
+		if color {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setBackgroundColor:[color toUIColor]];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = color.toUIColor()
+				}}}
+			}
 		}
 		else {
-			lang "objc" {{{
-				[self setBackgroundColor:nil];
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setBackgroundColor:nil];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = nil;
+				}}}
+			}
 		}
 	}
 	ELSE IFDEF("target_android") {
-		if(color == null) {
-			lang "java" {{{
-				setBackgroundColor(0);
-			}}}
+		IFDEF "target_java" {
+			if(color == null) {
+				lang "java" {{{
+					setBackgroundColor(0);
+				}}}
+			}
+			else {
+				lang "java" {{{
+					setBackgroundColor(color.toARGBInt32());
+				}}}
+			}
 		}
-		else {
-			lang "java" {{{
-				setBackgroundColor(color.toARGBInt32());
-			}}}
+		ELSE IFDEF "target_kotlin" {
+			if(color == null) {
+				lang "kotlin" {{{
+					setBackgroundColor(0)
+				}}}
+			}
+			else {
+				lang "kotlin" {{{
+					setBackgroundColor(color.toARGBInt32())
+				}}}
+			}
 		}
 	}
 	ELSE IFDEF("target_html") {
@@ -226,57 +278,58 @@ func setWidgetBackgroundColor(color as Color)
 			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(color))
 		}
 	}
-	ELSE IFDEF("target_kotlin") {
-		if(color == null) {
-			lang "kotlin" {{{
-				setBackgroundColor(0)
-			}}}
-		}
-		else {
-			lang "kotlin" {{{
-				setBackgroundColor(color.toARGBInt32())
-			}}}
-		}
-	}
 	ELSE {
 		ERROR("Not implemented")
 	}
 }
 
-func getWidgetBackgroundColor as Color
-{
-	return(widgetBackgroundColor)
-}
+func getWidgetBackgroundColor as Color:
+	return widgetBackgroundColor
 
 func onWidgetClicked
 {
-	if(widgetClickHandler != null) {
+	if widgetClickHandler:
 		widgetClickHandler()
-	}
 }
 
 func setWidgetClickHandler(handler as function)
 {
 	widgetClickHandler = handler
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[self addTarget:self action:@selector(onWidgetClicked) forControlEvents:UIControlEventTouchUpInside];
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self addTarget:self action:@selector(onWidgetClicked) forControlEvents:UIControlEventTouchUpInside];
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
 		var hf final #used = handler
-		lang "java" {{{
-			if(handler == null) {
-				setOnClickListener(null);
-			}
-			else {
-				setOnClickListener(new OnClickListener() {
-					public void onClick(android.view.View view) {
-						hf.execute();
-					}
-				});
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					setOnClickListener(null);
+				}
+				else {
+					setOnClickListener(new OnClickListener() {
+						public void onClick(android.view.View view) {
+							hf.execute();
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					setOnClickListener(null)
+				}
+				else {
+					setOnClickListener({ view ->
+						hf!!.invoke()
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -290,17 +343,9 @@ func setWidgetClickHandler(handler as function)
 			};
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		var hf final #used = handler
-		lang "kotlin" {{{
-			if(handler == null) {
-				setOnClickListener(null)
-			}
-			else {
-				setOnClickListener({ view ->
-					hf!!.invoke()
-				})
-			}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.addTarget(self, action: #selector(onWidgetClicked), for: .touchUpInside)
 		}}}
 	}
 	ELSE {
@@ -311,7 +356,7 @@ func setWidgetClickHandler(handler as function)
 func setWidgetIcon(icon as Image)
 {
 	widgetIcon = icon
-	IFDEF("target_iosoc") {
+	IFDEF("target_ios") {
 		ERROR("Not implemented")
 	}
 	ELSE IFDEF("target_android") {
@@ -325,10 +370,8 @@ func setWidgetIcon(icon as Image)
 	}
 }
 
-func getWidgetIcon as Image
-{
-	return(widgetIcon)
-}
+func getWidgetIcon as Image:
+	return widgetIcon
 
 func setWidgetFont(font as string)
 {
@@ -345,17 +388,19 @@ func setWidgetFontSize(fontSize as double #notLiteral)
 {
 	widgetFontSize = fontSize
 	IFDEF("target_android") {
-		lang "java" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)fontSize);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)fontSize);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSize.toFloat())
+			}}}
+		}
 	}
 	ELSE IFDEF("target_html") {
 		HTMLDOM.setStyle(element, "font-size", String.forDouble(fontSize) .. "px")
-	}
-	IFDEF("target_kotlin") {
-		lang "kotlin" {{{
-			setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSize.toFloat())
-		}}}
 	}
 	ELSE {
 		ERROR("Not implemented")

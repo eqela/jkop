@@ -33,7 +33,7 @@ IFDEF "target_android" {
 
 	var barcodeDetector as !"com.google.android.gms.vision.barcode.BarcodeDetector"
 	var cameraSource as !"com.google.android.gms.vision.CameraSource"
-	var holder as !"android.view.SurfaceHolder"
+	var surfaceHolder as !"android.view.SurfaceHolder"
 	var cameraPermissionGranted as bool
 	var cameraShown as bool
 
@@ -45,9 +45,16 @@ IFDEF "target_android" {
 
 	func surfaceDestroyed(holder as !"android.view.SurfaceHolder")
 	{
-		lang "java" {{{
-			cameraSource.stop();
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				cameraSource.stop();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				cameraSource!!.stop()
+			}}}
+		}
 	}
 
 	func onRequestPermission(granted as bool)
@@ -69,7 +76,7 @@ IFDEF "target_android" {
 		aap.requestPermissions(perms, onRequestPermission)
 	}
 }
-ELSE IFDEF "target_iosoc" {
+ELSE IFDEF "target_ios_objc" {
 	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
 	depend "objc-framework:AVFoundation"
 	depend "objc-header-h:<AVFoundation/AVFoundation.h>"
@@ -130,50 +137,71 @@ ELSE IFDEF "target_iosoc" {
 		}
 	}}}
 }
-ELSE IFDEF "target_kotlin" {
-	depend "androidPermission:android.permission.CAMERA"
-	depend "gradle:com.google.android.gms:play-services-vision:11.0.0"
-	basetype !"android.view.SurfaceView" type extends
-	basetype !"android.view.SurfaceHolder.Callback" type implements
+ELSE IFDEF "target_swift" {
+	depend "plist: { \"NSCameraUsageDescription\" : \"This app requires access to the camera.\" }"
+	depend "swift-import:AVFoundation"
+	depend "swift-import:UIKit"
+	basetype !"UIView" type extends
+	basetype !"AVCaptureMetadataOutputObjectsDelegate" type implements
+	basetype ResizeAwareWidget type implements
 	basetype Widget type isAlso
+	var session as !"AVCaptureSession"
+	var preview as !"AVCaptureVideoPreviewLayer"
+	var supportedFormat as !"NSArray"
+	var sessionRunning as bool
 
-	var barcodeDetector as !"com.google.android.gms.vision.barcode.BarcodeDetector"
-	var cameraSource as !"com.google.android.gms.vision.CameraSource"
-	var surfaceHolder as !"android.view.SurfaceHolder"
-	var cameraPermissionGranted as bool
-	var cameraShown as bool
-
-	func surfaceChanged(holder as !"android.view.SurfaceHolder", format as int, width as int, height as int) override:
-		;
-
-	func surfaceCreated(holder as !"android.view.SurfaceHolder") override:
+	func onWidgetResized
+	{
+		assert Widget.getHeight(this) > 0
+		assert Widget.getWidth(this) > 0
+		assert not sessionRunning
 		tryCameraPreview()
-
-	func surfaceDestroyed(holder as !"android.view.SurfaceHolder") override
-	{
-		lang "kotlin" {{{
-			cameraSource!!.stop()
-		}}}
 	}
 
-	func onRequestPermission(granted as bool)
-	{
-		if not granted {
-			if widgetContext:
-				requestPermission(widgetContext as! KotlinApplicationContext)
+	lang "swift" {{{
+		public func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+			if metadataObjects.count != 0 {
+				for barcodeMetadata in metadataObjects as? [AVMetadataObject] ?? [] {
+					for supportedBarcode in supportedFormat {
+						if (supportedBarcode as! String == barcodeMetadata.type.rawValue) {
+							let barcodeObject = preview.transformedMetadataObject(for: barcodeMetadata) as? AVMetadataMachineReadableCodeObject
+							DispatchQueue.main.sync(execute: {
+								let obj = CavePhotoBarcodeObject()
+								obj.setRawValue(barcodeObject?.stringValue)
+								obj.setDisplayValue(barcodeObject?.stringValue)
+								let sb = (supportedBarcode as? Swift.String) as? Swift.Int
+								obj.setFormat(sb ?? 0)
+								self.onReceiveDetection(obj)
+							})
+							return
+						}
+					}
+				}
+			}
 		}
-		else {
-			cameraPermissionGranted = true
-			tryCameraPreview()
-		}
-	}
 
-	func requestPermission(kap as KotlinApplicationContext)
-	{
-		assert kap
-		var perms = new string[] { "android.permission.CAMERA" }
-		kap.requestPermissions(perms, onRequestPermission)
-	}
+		func captureDeviceInput(for desiredPosition: AVCaptureDevice.Position) -> AVCaptureDeviceInput?
+		{
+			for device in AVCaptureDevice.devices(for: .video) {
+				if device.position == desiredPosition {
+					var error: Error? = nil
+					var input: AVCaptureDeviceInput? = nil
+					do {
+						input = try AVCaptureDeviceInput(device: device)
+					} catch {
+					}
+					if error != nil {
+						print("Could not initialize for AVMediaTypeVideo for device \(device)")
+					} else if let input = input {
+						if session.canAddInput(input) {
+							return input
+						}
+					}
+				}
+			}
+			return nil
+		}
+	}}}
 }
 ELSE {
 	basetype Widget type extends
@@ -196,23 +224,30 @@ ctor(ctx as GuiApplicationContext)
 	IFDEF "target_android" {
 		base((ctx as! cave.GuiApplicationContextForAndroid).getActivityContext())
 		requestPermission(ctx as! AndroidApplicationContext)
-		lang "java" {{{
-			holder = getHolder();
-			holder.addCallback(this);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				surfaceHolder = getHolder();
+				surfaceHolder.addCallback(this);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				surfaceHolder = getHolder()
+				surfaceHolder!!.addCallback(this)
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			self->session = [[AVCaptureSession alloc] init];
 			self->session.sessionPreset = AVCaptureSessionPresetMedium;
 		}}}
 	}
-	IFDEF "target_kotlin" {
-		base((ctx as! cave.GuiApplicationContextForKotlin).getActivityContext())
-		requestPermission(ctx as! KotlinApplicationContext)
-		lang "kotlin" {{{
-			surfaceHolder = getHolder()
-			surfaceHolder!!.addCallback(this)
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+			session = AVCaptureSession()
+			session.sessionPreset = .medium
 		}}}
 	}
 	widgetContext = ctx
@@ -227,28 +262,30 @@ IFDEF "target_supports_destructor"
 func cleanUp
 {
 	IFDEF "target_android" {
-		lang "java" {{{
-			if(cameraSource != null) {
-				cameraSource.release();
-			}
-			if(barcodeDetector != null) {
-				barcodeDetector.release();
-			}
-			cameraSource = null;
-			barcodeDetector = null;
-		}}}
-	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(cameraSource != null) {
-				cameraSource!!.release()
-			}
-			if(barcodeDetector != null) {
-				barcodeDetector!!.release()
-			}
-			cameraSource = null
-			barcodeDetector = null
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(cameraSource != null) {
+					cameraSource.release();
+				}
+				if(barcodeDetector != null) {
+					barcodeDetector.release();
+				}
+				cameraSource = null;
+				barcodeDetector = null;
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(cameraSource != null) {
+					cameraSource!!.release()
+				}
+				if(barcodeDetector != null) {
+					barcodeDetector!!.release()
+				}
+				cameraSource = null
+				barcodeDetector = null
+			}}}
+		}
 	}
 }
 
@@ -257,58 +294,111 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 	IFDEF "target_android" {
 		var context = (widgetContext as! cave.GuiApplicationContextForAndroid).getActivityContext()
 		var thisWidget final #used = this
-		lang "java" {{{
-			com.google.android.gms.vision.barcode.BarcodeDetector.Builder bdb = new com.google.android.gms.vision.barcode.BarcodeDetector.Builder(context);
-			if(widgetFormat == FORMAT_ALL) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.ALL_FORMATS);
-			}
-			else if(widgetFormat == FORMAT_QRCODE) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE);
-			}
-			else if(widgetFormat == FORMAT_EAN13) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13);
-			}
-			else if(widgetFormat == FORMAT_UPCA) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A);
-			}
-			barcodeDetector = bdb.build();
-			int cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK;
-			if(widgetPrimaryCamera == CAMERA_FRONT) {
-				cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT;
-			}
-			cameraSource = new com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
-				.setFacing(cameraFacing)
-				.setAutoFocusEnabled(true)
-				.build();
-			barcodeDetector.setProcessor(new com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode>() {
-
-				@Override
-				public void release() {
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.vision.barcode.BarcodeDetector.Builder bdb = new com.google.android.gms.vision.barcode.BarcodeDetector.Builder(context);
+				if(widgetFormat == FORMAT_ALL) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.ALL_FORMATS);
 				}
+				else if(widgetFormat == FORMAT_QRCODE) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE);
+				}
+				else if(widgetFormat == FORMAT_EAN13) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13);
+				}
+				else if(widgetFormat == FORMAT_UPCA) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A);
+				}
+				barcodeDetector = bdb.build();
+				int cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK;
+				if(widgetPrimaryCamera == CAMERA_FRONT) {
+					cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT;
+				}
+				cameraSource = new com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
+					.setFacing(cameraFacing)
+					.setAutoFocusEnabled(true)
+					.build();
+				barcodeDetector.setProcessor(new com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode>() {
 
-				@Override
-				public void receiveDetections(com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode> detections) {
-					android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> barcodes = detections.getDetectedItems();
-					if(barcodes.size() > 0) {
-						for(int i = 0; i < barcodes.size(); i ++) {
-							com.google.android.gms.vision.barcode.Barcode bc = barcodes.valueAt(i);
-							final BarcodeObject obj = new BarcodeObject();
-							obj.setRawValue(bc.rawValue);
-							obj.setDisplayValue(bc.displayValue);
-							obj.setFormat(bc.format);
-							obj.setValueFormat(bc.valueFormat);
-							thisWidget.post(new java.lang.Runnable() {
-								public void run() {
-									thisWidget.onReceiveDetection(obj);
-								}
-							});
+					@Override
+					public void release() {
+					}
+
+					@Override
+					public void receiveDetections(com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode> detections) {
+						android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> barcodes = detections.getDetectedItems();
+						if(barcodes.size() > 0) {
+							for(int i = 0; i < barcodes.size(); i ++) {
+								com.google.android.gms.vision.barcode.Barcode bc = barcodes.valueAt(i);
+								final BarcodeObject obj = new BarcodeObject();
+								obj.setRawValue(bc.rawValue);
+								obj.setDisplayValue(bc.displayValue);
+								obj.setFormat(bc.format);
+								obj.setValueFormat(bc.valueFormat);
+								thisWidget.post(new java.lang.Runnable() {
+									public void run() {
+										thisWidget.onReceiveDetection(obj);
+									}
+								});
+							}
 						}
 					}
+				});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val bdb = com.google.android.gms.vision.barcode.BarcodeDetector.Builder(context)
+				if(widgetFormat == FORMAT_ALL) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.ALL_FORMATS)
 				}
-			});
-		}}}
+				else if(widgetFormat == FORMAT_QRCODE) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE)
+				}
+				else if(widgetFormat == FORMAT_EAN13) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13)
+				}
+				else if(widgetFormat == FORMAT_UPCA) {
+					bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A)
+				}
+				barcodeDetector = bdb!!.build()
+				var cameraFacing: Int = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK
+				if(widgetPrimaryCamera == CAMERA_FRONT) {
+					cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT
+				}
+				cameraSource = com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
+					.setFacing(cameraFacing)
+					.setAutoFocusEnabled(true)
+					.build()
+				val bcd = barcodeDetector
+				bcd!!.setProcessor(object : com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode> {
+
+					public override fun release() {
+					}
+
+					public override fun receiveDetections(detections: com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode>) {
+						val barcodes: android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> = detections.getDetectedItems()
+						if(barcodes.size() > 0) {
+							for (i in 0 until barcodes.size()) {
+								val bc: com.google.android.gms.vision.barcode.Barcode = barcodes!!.valueAt(i)
+								val obj: BarcodeObject = BarcodeObject()
+								obj.setRawValue(bc.rawValue)
+								obj.setDisplayValue(bc.displayValue)
+								obj.setFormat(bc.format)
+								obj.setValueFormat(bc.valueFormat)
+								thisWidget!!.post(object : java.lang.Runnable {
+									override fun run() {
+										thisWidget!!.onReceiveDetection(obj)
+									}
+								})
+							}
+						}
+					}
+				})
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			if(self->widgetFormat == CavePhotoBarcodeScannerWidgetFORMAT_ALL)
 			{
@@ -360,57 +450,52 @@ func onWidgetAddedToScreen(screen as ScreenForWidget)
 			[captureMetadataOutput setMetadataObjectTypes:[captureMetadataOutput availableMetadataObjectTypes]];
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		var context = (widgetContext as! cave.GuiApplicationContextForKotlin).getActivityContext()
-		var thisWidget final #used = this
-		lang "kotlin" {{{
-			val bdb = com.google.android.gms.vision.barcode.BarcodeDetector.Builder(context)
-			if(widgetFormat == FORMAT_ALL) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.ALL_FORMATS)
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_ALL) {
+				supportedFormat = [AVMetadataObject.ObjectType.upce,
+					AVMetadataObject.ObjectType.code39,
+					AVMetadataObject.ObjectType.code39Mod43,
+					AVMetadataObject.ObjectType.ean13,
+					AVMetadataObject.ObjectType.ean8,
+					AVMetadataObject.ObjectType.code93,
+					AVMetadataObject.ObjectType.code128,
+					AVMetadataObject.ObjectType.pdf417,
+					AVMetadataObject.ObjectType.qr,
+					AVMetadataObject.ObjectType.aztec]
 			}
-			else if(widgetFormat == FORMAT_QRCODE) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.QR_CODE)
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_QRCODE)
+			{
+				supportedFormat = [AVMetadataObject.ObjectType.qr]
 			}
-			else if(widgetFormat == FORMAT_EAN13) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.EAN_13)
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_EAN13)
+			{
+				supportedFormat = [AVMetadataObject.ObjectType.ean13]
 			}
-			else if(widgetFormat == FORMAT_UPCA) {
-				bdb.setBarcodeFormats(com.google.android.gms.vision.barcode.Barcode.UPC_A)
+			else if(self.widgetFormat == CavePhotoBarcodeScannerWidget.FORMAT_UPCA)
+			{
+				supportedFormat = [AVMetadataObject.ObjectType.upce]
 			}
-			barcodeDetector = bdb!!.build()
-			var cameraFacing: Int = com.google.android.gms.vision.CameraSource.CAMERA_FACING_BACK
-			if(widgetPrimaryCamera == CAMERA_FRONT) {
-				cameraFacing = com.google.android.gms.vision.CameraSource.CAMERA_FACING_FRONT
+			session.beginConfiguration()
+			var input: AVCaptureDeviceInput? = nil
+			if widgetPrimaryCamera == CavePhotoBarcodeScannerWidget.CAMERA_BACK {
+				input = captureDeviceInput(for: AVCaptureDevice.Position.back)
+			} else {
+				input = captureDeviceInput(for: AVCaptureDevice.Position.front)
 			}
-			cameraSource = com.google.android.gms.vision.CameraSource.Builder(context, barcodeDetector)
-				.setFacing(cameraFacing)
-				.setAutoFocusEnabled(true)
-				.build()
-			val bcd = barcodeDetector
-			bcd!!.setProcessor(object : com.google.android.gms.vision.Detector.Processor<com.google.android.gms.vision.barcode.Barcode> {
+			if !(input != nil) {
+				print("Error Getting Camera Input")
+				return
+			}
+			session.addInput(input!)
+			session.commitConfiguration()
+			let captureMetadataOutput = AVCaptureMetadataOutput()
+			session.addOutput(captureMetadataOutput)
+			var dispatchQueue: DispatchQueue
+			dispatchQueue = DispatchQueue(label: "scanQueue")
+			captureMetadataOutput.setMetadataObjectsDelegate(self, queue: dispatchQueue)
+			captureMetadataOutput.metadataObjectTypes = captureMetadataOutput.availableMetadataObjectTypes
 
-				public override fun release() {
-				}
-
-				public override fun receiveDetections(detections: com.google.android.gms.vision.Detector.Detections<com.google.android.gms.vision.barcode.Barcode>) {
-					val barcodes: android.util.SparseArray<com.google.android.gms.vision.barcode.Barcode> = detections.getDetectedItems()
-					if(barcodes.size() > 0) {
-						for (i in 0 until barcodes.size()) {
-							val bc: com.google.android.gms.vision.barcode.Barcode = barcodes!!.valueAt(i)
-							val obj: BarcodeObject = BarcodeObject()
-							obj.setRawValue(bc.rawValue)
-							obj.setDisplayValue(bc.displayValue)
-							obj.setFormat(bc.format)
-							obj.setValueFormat(bc.valueFormat)
-							thisWidget!!.post(object : java.lang.Runnable {
-								override fun run() {
-									thisWidget!!.onReceiveDetection(obj)
-								}
-							})
-						}
-					}
-				}
-			})
 		}}}
 	}
 	ELSE {
@@ -425,17 +510,29 @@ func tryCameraPreview private
 {
 	IFDEF "target_android" {
 		if cameraPermissionGranted && not cameraShown {
-			lang "java" {{{
-				try {
-					cameraShown = cameraSource.start(holder) != null;
-				}
-				catch(java.lang.Exception e) {
-					System.out.println(e.getMessage());
-				}
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					try {
+						cameraShown = cameraSource.start(surfaceHolder) != null;
+					}
+					catch(java.lang.Exception e) {
+						System.out.println(e.getMessage());
+					}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						cameraShown = cameraSource?.start(surfaceHolder) != null
+					}
+					catch (e: Exception) {
+						e.printStackTrace()
+					}
+				}}}
+			}
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			self->preview = [AVCaptureVideoPreviewLayer layerWithSession:self->session];
 			[self->preview setVideoGravity:AVLayerVideoGravityResizeAspect];
@@ -447,17 +544,17 @@ func tryCameraPreview private
 			self->sessionRunning = YES;
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		if cameraPermissionGranted && not cameraShown {
-			lang "kotlin" {{{
-				try {
-					cameraShown = cameraSource?.start(surfaceHolder) != null
-				}
-				catch (e: Exception) {
-					e.printStackTrace()
-				}
-			}}}
-		}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.preview = AVCaptureVideoPreviewLayer(session: self.session)
+			self.preview.videoGravity = .resizeAspect
+			let rootLayer: CALayer? = layer
+			rootLayer?.masksToBounds = true
+			self.preview.frame = (rootLayer?.bounds)!
+			rootLayer?.addSublayer(preview)
+			self.session.startRunning()
+			self.sessionRunning = true
+		}}}
 	}
 }
 
@@ -470,7 +567,7 @@ func onReceiveDetection(bcobj as BarcodeObject) private
 
 func isBarcodeScanningAllowed as bool
 {
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			NSString *mediaType = AVMediaTypeVideo;
 			AVAuthorizationStatus authStatus = [AVCaptureDevice authorizationStatusForMediaType:mediaType];
@@ -479,6 +576,17 @@ func isBarcodeScanningAllowed as bool
 			}
 			else {
 				return false;
+			}
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			let mediaType = AVMediaType.video
+			let authStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: mediaType)
+			if authStatus != .denied {
+				return true
+			} else {
+				return false
 			}
 		}}}
 	}

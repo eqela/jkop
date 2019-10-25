@@ -24,26 +24,51 @@
 
 class:
 
-func createCircularImage(image as Image) static as Image
+IFDEF "target_ios" {
+	IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+		depend "swift-import:CoreGraphics"
+		depend "swift-import:ImageIO"
+	}
+}
+
+func createCircularImage(m as Image) static as Image
 {
-	assert image
+	assert m
+	var image = m
 	var minSize = Math.min(image.getPixelWidth(), image.getPixelHeight()) as int
 	image = image.crop(0, 0, minSize, minSize)
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		var outputImage as !"UIImage"
 		var bytesData #used = image.toPNGData()
-		lang "objc" {{{
-			NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
-			UIImage *uiImage = [UIImage imageWithData:imageData];
-			CGRect rect = CGRectMake(0, 0, [image getPixelWidth], [image getPixelHeight]);
-			UIGraphicsBeginImageContextWithOptions(rect.size, NO, uiImage.scale); {
-				UIBezierPath *interior = [UIBezierPath bezierPathWithOvalInRect:rect];
-				[interior addClip];
-				[uiImage drawInRect:rect];
-			}
-			outputImage = UIGraphicsGetImageFromCurrentImageContext();
-			UIGraphicsEndImageContext();
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
+				UIImage *uiImage = [UIImage imageWithData:imageData];
+				CGRect rect = CGRectMake(0, 0, [image getPixelWidth], [image getPixelHeight]);
+				UIGraphicsBeginImageContextWithOptions(rect.size, NO, uiImage.scale); {
+					UIBezierPath *interior = [UIBezierPath bezierPathWithOvalInRect:rect];
+					[interior addClip];
+					[uiImage drawInRect:rect];
+				}
+				outputImage = UIGraphicsGetImageFromCurrentImageContext();
+				UIGraphicsEndImageContext();
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let uiImage = UIImage(data: bytesData as! Data)
+				let rect = CGRect(x: 0, y: 0, width: image.getPixelWidth(), height: image.getPixelHeight())
+				UIGraphicsBeginImageContextWithOptions(rect.size, _: false, _: uiImage!.scale)
+				do {
+					let interior = UIBezierPath(ovalIn: rect)
+					interior.addClip()
+					uiImage?.draw(in: rect)
+				}
+				outputImage = UIGraphicsGetImageFromCurrentImageContext()
+				UIGraphicsEndImageContext()
+			}}}
+		}
 		return ImageForIOS.forUIImage(outputImage)
 	}
 	ELSE IFDEF "target_android" {
@@ -51,38 +76,35 @@ func createCircularImage(image as Image) static as Image
 		var h #used = image.getPixelHeight()
 		var img = assert (image as ImageForAndroid).getAndroidBitmap()
 		var output as !"android.graphics.Bitmap"
-		lang "java" {{{
-			output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
-			android.graphics.Canvas canvas = new android.graphics.Canvas(output);
-			android.graphics.Paint paint = new android.graphics.Paint();
-			android.graphics.Rect rect = new android.graphics.Rect(0, 0, w, h);
-			android.graphics.RectF rectf = new android.graphics.RectF(rect);
-			paint.setAntiAlias(true);
-			canvas.drawARGB(0, 0, 0, 0);
-			canvas.drawOval(rectf, paint);
-			paint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
-			canvas.drawBitmap(img, rect, rect, paint);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
+				android.graphics.Canvas canvas = new android.graphics.Canvas(output);
+				android.graphics.Paint paint = new android.graphics.Paint();
+				android.graphics.Rect rect = new android.graphics.Rect(0, 0, w, h);
+				android.graphics.RectF rectf = new android.graphics.RectF(rect);
+				paint.setAntiAlias(true);
+				canvas.drawARGB(0, 0, 0, 0);
+				canvas.drawOval(rectf, paint);
+				paint.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN));
+				canvas.drawBitmap(img, rect, rect, paint);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+				var canvas = android.graphics.Canvas(output)
+				var paint = android.graphics.Paint()
+				var rect = android.graphics.Rect(0, 0, w, h)
+				var rectf = android.graphics.RectF(rect)
+				paint.setAntiAlias(true)
+				canvas.drawARGB(0, 0, 0, 0)
+				canvas.drawOval(rectf, paint)
+				paint.setXfermode(android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN))
+				canvas.drawBitmap(img, rect, rect, paint)
+			}}}
+		}
 		return ImageForAndroid.forAndroidBitmap(output)
-	}
-	ELSE IFDEF "target_kotlin" {
-		var w #used = image.getPixelWidth()
-		var h #used = image.getPixelHeight()
-		var img = assert (image as ImageForKotlin).getKotlinBitmap()
-		var output as !"android.graphics.Bitmap"
-		lang "kotlin" {{{
-			output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-			var canvas = android.graphics.Canvas(output)
-			var paint = android.graphics.Paint()
-			var rect = android.graphics.Rect(0, 0, w, h)
-			var rectf = android.graphics.RectF(rect)
-			paint.setAntiAlias(true)
-			canvas.drawARGB(0, 0, 0, 0)
-			canvas.drawOval(rectf, paint)
-			paint.setXfermode(android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN))
-			canvas.drawBitmap(img, rect, rect, paint)
-		}}}
-		return ImageForKotlin.forKotlinBitmap(output)
 	}
 	ELSE {
 		ERROR "Not implemented"

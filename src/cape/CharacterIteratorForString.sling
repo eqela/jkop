@@ -24,29 +24,82 @@
 
 class:
 
-IFDEF "target_lua" {
-	func forString(str as string) static as CharacterIterator:
-		return CharacterIteratorForBuffer.forBuffer(String.toUTF8Buffer(str))
+func forString(string as string) static as this
+{
+	var v = new this()
+	v.setString(string)
+	return v
+}
+
+IFDEF "target_sushi" {
+	basetype CharacterDecoder
+	basetype Duplicateable
+
+	var string as string
+	var stringSize as long
+	var currentPosition = -1
+
+	func moveToPreviousByte override as bool
+	{
+		if currentPosition < 1:
+			return false
+		currentPosition --
+		return true
+	}
+
+	func moveToNextByte override as bool
+	{
+		var n = currentPosition+1
+		if n >= stringSize:
+			return false
+		currentPosition = n
+		return true
+	}
+
+	func getCurrentByte override as int:
+		return lang "lua" int {{{ _util:get_byte_from_string(self.string, self.currentPosition) }}}
+
+	func getCurrentPosition override as int:
+		return currentPosition
+
+	func setCurrentPosition(position as int) override
+	{
+		if position < 0 {
+			current = 0 as char
+			currentPosition = -1
+		}
+		else {
+			currentPosition = position + 1
+			doMoveToPreviousChar()
+		}
+	}
+
+	func duplicate as object
+	{
+		var v = new this()
+		base.copyTo(v)
+		v.string = string
+		v.stringSize = stringSize
+		v.currentPosition = currentPosition
+		return v
+	}
+}
+
+ELSE IFDEF "target_stdlua" {
+	basetype CharacterIteratorForBuffer
 }
 
 ELSE {
 	basetype CharacterIterator
 	basetype Duplicateable
 
-	func forString(str as string) static as CharacterIterator
-	{
-		var v = new this()
-		v.setCharacters(String.toCharArray(str))
-		return v
-	}
-
-	prop characters as array<char>
+	var characters as array<char>
 	var currentIndex = -1
 
 	func duplicate as object
 	{
 		var v = new this()
-		v.setCharacters(characters)
+		v.characters = characters
 		v.currentIndex = currentIndex
 		return v
 	}
@@ -94,4 +147,21 @@ ELSE {
 
 	func setCurrentPosition(position as int):
 		currentIndex = position
+}
+
+func setString(string as string)
+{
+	IFDEF "target_sushi" {
+		resetDecoder()
+		this.string = string
+		this.stringSize = lang "lua" long {{{ _util:get_string_length(string) }}}
+		this.currentPosition = -1
+	}
+	ELSE IFDEF "target_stdlua" {
+		setBuffer(String.toUTF8Buffer(string))
+	}
+	ELSE {
+		characters = String.toCharArray(string)
+		currentIndex = -1
+	}
 }

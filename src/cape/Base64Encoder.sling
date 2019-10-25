@@ -22,7 +22,16 @@
  * SOFTWARE.
  */
 
-class imports cape:
+class:
+
+func toUrlSafeFormat(str as string) static as string
+{
+	var v = assert str
+	v = String.replace(v, "=", "")
+	v = String.replace(v, '+', '-')
+	v = String.replace(v, '/', '_')
+	return v
+}
 
 func encodeString(str as string) static as string
 {
@@ -33,45 +42,56 @@ func encodeString(str as string) static as string
 func encode(buffer as buffer) static as string
 {
 	assert buffer
-	IFDEF "target_android" {
+	IFDEF "target_android_java" {
 		return lang "java" string {{{ android.util.Base64.encodeToString(buffer, android.util.Base64.NO_WRAP) }}}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_objc" {
 		return lang "objc" string {{{ [buffer base64EncodedStringWithOptions:0] }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ (buffer! as Foundation.Data).base64EncodedString() }}}
+	}
 	ELSE {
-		var sb = new StringBuilder()
-		var i as long = 0
-		var b64i as int
-		var size = Buffer.getSize(buffer)
-		while i < size {
-			b64i = Buffer.getByte(buffer, i) >> 2 as int
-			sb.append(toASCIIChar(b64i))
-			b64i = (Buffer.getByte(buffer, i) & 0x03) << 4 as int
-			if ((i + 1) < size) {
-				b64i += Buffer.getByte(buffer, i+1) >> 4 as int
-				sb.append(toASCIIChar(b64i))
-				b64i = (Buffer.getByte(buffer, i+1) & 0x0F) << 2 as int
-				if ((i + 2) < size) {
-					b64i += (Buffer.getByte(buffer, i+2) >> 6) as int
-					sb.append(toASCIIChar(b64i))
-					b64i = Buffer.getByte(buffer, i+2) & 0x3F as int
-					sb.append(toASCIIChar(b64i))
+		var length = Buffer.getSize(buffer)
+		var dst = Buffer.allocate((length+2)/3 * 4 + length/72)
+		var x = 0
+		var dstIndex = 0
+		var state = 0
+		var old = 0
+		var len = 0
+		for (var srcIndex = 0; srcIndex < length; srcIndex++) {
+			x = buffer[srcIndex]
+			switch (++state) {
+				case 1: {
+					dst[dstIndex++] = toASCIIChar((x>>2) & 0x3f) as int
 				}
-				else {
-					sb.append(toASCIIChar(b64i))
-					sb.append("=")
+				case 2: {
+					dst[dstIndex++] = toASCIIChar(((old<<4)&0x30) | ((x>>4)&0xf)) as int
+				}
+				case 3: {
+					dst[dstIndex++] = toASCIIChar(((old<<2)&0x3C) | ((x>>6)&0x3)) as int
+					dst[dstIndex++] = toASCIIChar(x&0x3F) as int
+					state = 0
 				}
 			}
-			else {
-				sb.append(toASCIIChar(b64i))
-				sb.append("==")
+			old = x
+			if (++len >= 72) {
+				dst[dstIndex++] = '\n' as int
+				len = 0
 			}
-			i += 3
 		}
-		if sb != null:
-			return(sb.toString())
-		return null
+		switch state {
+			case 1: {
+				dst[dstIndex++] = toASCIIChar((old<<4) & 0x30) as int
+				dst[dstIndex++] = '=' as int
+				dst[dstIndex++] = '=' as int
+			}
+			case 2: {
+				dst[dstIndex++] = toASCIIChar((old<<2) & 0x3c) as int
+				dst[dstIndex++] = '=' as int
+			}
+		}
+		return String.forBuffer(dst, "ASCII")
 	}
 }
 

@@ -30,7 +30,7 @@ func getApplicationData(ctx as GuiApplicationContext) static as File
 	IFDEF "target_android" {
 		return ctx.getApplicationDataDirectory()
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		var documentDirectory as string
 		lang "objc" {{{
 			documentDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
@@ -43,8 +43,18 @@ func getApplicationData(ctx as GuiApplicationContext) static as File
 		Log.debug(ctx, "iOS document directory: `" .. dd.getPath() .. "'")
 		return dd
 	}
-	ELSE IFDEF "target_kotlin" {
-		return ctx.getApplicationDataDirectory()
+	ELSE IFDEF "target_swift" {
+		var documentDirectory as string
+		lang "swift" {{{
+			documentDirectory = NSSearchPathForDirectoriesInDomains(FileManager.SearchPathDirectory.documentDirectory, FileManager.SearchPathDomainMask.userDomainMask, true)[0]
+		}}}
+		assert documentDirectory:
+			Log.error(ctx, "No document directory received from iOS API")
+		var dd = File.forPath(documentDirectory)
+		if not dd.isDirectory():
+			dd.createDirectoryRecursive()
+		Log.debug(ctx, "iOS document directory: `" .. dd.getPath() .. "'")
+		return dd
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -62,17 +72,13 @@ func retrieveFile(ctx as GuiApplicationContext, filename as string) static as Fi
 		}
 		return ff
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		var dir = assert getApplicationData(ctx)
 		return dir.entry(filename)
 	}
-	ELSE IFDEF "target_kotlin" {
-		var ff = getApplicationData(ctx).entry(filename)
-		if not ff.exists() {
-			if not ff.touch():
-				return null
-		}
-		return ff
+	ELSE IFDEF "target_swift" {
+		var dir = assert getApplicationData(ctx)
+		return dir.entry(filename)
 	}
 	ELSE {
 		ERROR "Not implemented."

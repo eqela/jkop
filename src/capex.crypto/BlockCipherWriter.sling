@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class is Writer is SeekableWriter imports cape:
+class is Writer is SeekableWriter:
 
 func create(writer as Writer, cipher as BlockCipher) static as this
 {
@@ -58,16 +58,12 @@ func close
 	if writer && bdata {
 		var bb = Buffer.allocate(1)
 		var bbptr = bb
-		if bcurr > 0 {
-			var n as int
-			for(n = bcurr; n<bsize; n++):
-				Buffer.setByte(bdata, n, 0)
-			writeCompleteBlock(bdata)
+		var n as int
+		for(n = bcurr; n<bsize; n++):
+			Buffer.setByte(bdata, n, bsize - bcurr)
+		var wcb = writeCompleteBlock(bdata)
+		if not wcb {
 			Buffer.setByte(bbptr, 0, bsize - bcurr)
-			writer.write(bb, -1)
-		}
-		else {
-			Buffer.setByte(bbptr, 0, 0)
 			writer.write(bb, -1)
 		}
 	}
@@ -104,14 +100,14 @@ func writeBlock(buf as buffer) as int
 	var size = Buffer.getSize(buf)
 	if bcurr + size < bsize {
 		var bufptr = buf
-		Buffer.copyFrom(bufptr, bdata, 0, bcurr, size)
+		Buffer.copyFrom(bdata, bufptr, 0, bcurr, size)
 		bcurr += size
 		return size
 	}
 	if bcurr > 0 {
 		var bufptr = buf
 		var x = bsize - bcurr
-		Buffer.copyFrom(bufptr, bdata, 0, bcurr, x)
+		Buffer.copyFrom(bdata, bufptr, 0, bcurr, x)
 		if writeCompleteBlock(bdata) == false:
 			return 0
 		bcurr = 0

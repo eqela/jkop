@@ -29,7 +29,11 @@ prop socket as TCPSocket
 prop serverAddress as string
 var acceptInvalidCertificate as bool
 var requireClientCertificate = false
-var sslSocket private as !"javax.net.ssl.SSLSocket"
+var blocking as bool = true
+
+var sslSocket as !"javax.net.ssl.SSLSocket"
+var jvcSocket as !"java.net.Socket"
+var sslEngine as !"javax.net.ssl.SSLEngine"
 
 func setAcceptInvalidCertificate(v as bool) override:
 	acceptInvalidCertificate = v
@@ -46,60 +50,255 @@ func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File =
 		address = socket.getRemoteAddress()
 	assert String.isNotEmpty(address)
 	var port = socket.getRemotePort()
-	var scSocket = (socket as! TCPSocketForKotlin).getJavaClientSocket()
-	if isServer {
-		lang "kotlin" {{{
-			try {
+	jvcSocket = (socket as! TCPSocketForKotlin).getJavaClientSocket()
+	lang "kotlin" {{{
+		try {
+			var trustAllCerts = kotlin.arrayOf(object : javax.net.ssl.X509TrustManager {
+				override fun getAcceptedIssuers() : kotlin.Array<java.security.cert.X509Certificate> {
+					return kotlin.emptyArray<java.security.cert.X509Certificate>()
+				}
+				override fun checkClientTrusted(certs : kotlin.Array<java.security.cert.X509Certificate>, authType : kotlin.String) {
+				}
+				override fun checkServerTrusted(certs : kotlin.Array<java.security.cert.X509Certificate>, authType : kotlin.String) {
+				}
+			})
+			var sslContext = javax.net.ssl.SSLContext.getInstance("TLSv1.2")
+			if (isServer) {
 				var file = java.io.FileInputStream(certFile!!.getPath())
 				var keyStore = java.security.KeyStore.getInstance("JKS")
 				keyStore.load(file, passphrase!!.toCharArray())
 
-				var keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance("SunX509")
+				var keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
 				keyManagerFactory.init(keyStore, passphrase!!.toCharArray())
 				
 				var trustManagerFactory = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
 				trustManagerFactory.init(keyStore)
-
-				var sslContext = javax.net.ssl.SSLContext.getInstance("TLS")
-				if(acceptInvalidCertificate) {
-					sslContext.init(keyManagerFactory.getKeyManagers(), null, java.security.SecureRandom())
+				if (acceptInvalidCertificate) {
+					sslContext.init(keyManagerFactory.getKeyManagers(), trustAllCerts, java.security.SecureRandom())
 				}
-				else{
+				else {
 					sslContext.init(keyManagerFactory.getKeyManagers(), trustManagerFactory.getTrustManagers(), java.security.SecureRandom())
 				}
-				var factory = sslContext.getSocketFactory() as javax.net.ssl.SSLSocketFactory
-				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
-				sslSocket?.setUseClientMode(false)
-				sslSocket?.setWantClientAuth(requireClientCertificate)
 			}
-			catch(e : kotlin.Exception) {
-				e.printStackTrace()
-				v = false
+			else {
+				sslContext.init(null, trustAllCerts, java.security.SecureRandom())
 			}
-			catch(e : kotlin.Exception) {
-				e.printStackTrace()
-				v = false
+			socket!!.setBlocking(false)
+			sslEngine = sslContext.createSSLEngine()
+			sslEngine?.getSession()?.invalidate()
+			sslEngine?.setEnabledProtocols(kotlin.arrayOf<kotlin.String>("TLSv1.2"))
+			if (isServer) {
+				sslEngine?.setWantClientAuth(requireClientCertificate)
 			}
-		}}}
-	}
-	else {
-		lang "kotlin" {{{
-			try {
-				var factory = javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory
-				sslSocket = factory.createSocket(scSocket, address, port, true) as javax.net.ssl.SSLSocket
-				sslSocket?.setUseClientMode(true)
+			sslEngine?.setUseClientMode(!isServer)
+			sslEngine?.beginHandshake()
+			if(handleHandshake() == false) {
+				return false
 			}
-			catch(e : kotlin.Exception) {
-				e.printStackTrace()
-				v = false
-			}
-		}}}
-	}	
+			socket!!.setBlocking(true)
+		}
+		catch(e : kotlin.Exception) {
+			e.printStackTrace()
+			v = false
+		}
+	}}}
 	return v
 }
 
-func read(buffer as buffer) override as int:
-	return readWithTimeout(buffer, -1)
+func handleHandshake as bool
+{
+	var asize as int = sslEngine.getSession().getApplicationBufferSize()
+	var psize as int = sslEngine.getSession().getPacketBufferSize()
+	var mdsrc = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(asize) }}}
+	var mndst = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(psize) }}}
+	var pdsrc = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(asize) }}}
+	var pndst = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(psize) }}}
+	var executor = lang "kotlin" !"java.util.concurrent.ExecutorService" {{{ java.util.concurrent.Executors.newSingleThreadExecutor() }}}
+	var result as !"javax.net.ssl.SSLEngineResult"
+	var status as !"javax.net.ssl.SSLEngineResult.HandshakeStatus" = sslEngine.getHandshakeStatus()
+	lang "kotlin" {{{
+		while (status != javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED && status != javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
+			switch@ when (status) {
+				javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_UNWRAP -> {
+					if (readJvcSocket(pndst) < 0) {
+						if (sslEngine!!.isInboundDone() && sslEngine!!.isOutboundDone()) {
+							return false
+						}
+						try {
+							sslEngine!!.closeInbound()
+						}
+						catch (e : kotlin.Exception) {
+							e.printStackTrace()
+						}
+						sslEngine!!.closeOutbound()
+						return@switch
+					}
+					pndst!!.flip()
+					try {
+						result = sslEngine!!.unwrap(pndst, pdsrc)
+						pndst!!.compact()
+						status = result!!.getHandshakeStatus()
+					}
+					catch (e : kotlin.Exception) {
+						e.printStackTrace()
+						sslEngine!!.closeOutbound()
+						status = sslEngine!!.getHandshakeStatus()
+						return@switch
+					}
+					when (result!!.getStatus()) {
+						javax.net.ssl.SSLEngineResult.Status.OK -> {
+						}
+						javax.net.ssl.SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+							pdsrc = enlargeApplicationBuffer(pdsrc)
+						}
+						javax.net.ssl.SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+							pndst = shrinkBuffer(pndst)
+						}
+						javax.net.ssl.SSLEngineResult.Status.CLOSED -> {
+							if(sslEngine!!.isOutboundDone()) {
+								return false
+							}
+							else {
+								sslEngine!!.closeOutbound()
+								status = sslEngine!!.getHandshakeStatus()
+							}
+						}
+					}
+				}
+				javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_WRAP -> {
+					mndst!!.clear()
+					try {
+						result = sslEngine!!.wrap(mdsrc, mndst)
+						status = result!!.getHandshakeStatus()
+					}
+					catch (e : kotlin.Exception) {
+						sslEngine!!.closeOutbound()
+						status = sslEngine!!.getHandshakeStatus()
+						return@switch
+					}
+					when (result!!.getStatus()) {
+						javax.net.ssl.SSLEngineResult.Status.OK -> {
+							mndst!!.flip()
+							while (mndst!!.hasRemaining()) {
+								writeJvcSocket(mndst)
+							}
+						}
+						javax.net.ssl.SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+							mndst = enlargePacketBuffer(mndst)
+						}
+						javax.net.ssl.SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+						}
+						javax.net.ssl.SSLEngineResult.Status.CLOSED -> {
+							try {
+								mndst!!.flip()
+								while (mndst!!.hasRemaining()) {
+									writeJvcSocket(mndst)
+								}
+								pndst!!.clear()
+							}
+							catch (e : kotlin.Exception) {
+								status = sslEngine!!.getHandshakeStatus()
+							}
+						}
+					}
+				}
+				javax.net.ssl.SSLEngineResult.HandshakeStatus.NEED_TASK -> {
+					while (true) {
+						var task = sslEngine!!.getDelegatedTask()
+						if (task == null) {
+							break
+						}
+						executor!!.execute(task)
+					}
+					status = sslEngine!!.getHandshakeStatus()
+				}
+			}
+		}
+		if (status == javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED || status == javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
+			Log.debug(ctx, "Handshake completed with status : " +  status)
+		}
+	}}}
+	return true
+}
+
+func shrinkBuffer(buff as !"java.nio.ByteBuffer") as !"java.nio.ByteBuffer"
+{
+	var v = lang "kotlin" int {{{ sslEngine!!.getSession()?.getPacketBufferSize()!! }}}
+	if v < buff.limit() {
+		return buff
+	}
+	var newBuff = enlargePacketBuffer(buff)
+	buff.flip()
+	newBuff.put(buff)
+	return newBuff
+}
+
+func enlargeApplicationBuffer(buff as !"java.nio.ByteBuffer") private as !"java.nio.ByteBuffer":
+	return enlargeBuffer(buff, lang "kotlin" int {{{ sslEngine!!.getSession()?.getApplicationBufferSize()!! }}})
+
+func enlargePacketBuffer(buff as !"java.nio.ByteBuffer") private as !"java.nio.ByteBuffer":
+	return enlargeBuffer(buff, lang "kotlin" int {{{ sslEngine!!.getSession()?.getPacketBufferSize()!! }}})
+
+func enlargeBuffer(buff as !"java.nio.ByteBuffer", size as int) private as !"java.nio.ByteBuffer"
+{
+	if size > buff.capacity() {
+		buff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(size) }}}
+	}
+	else {
+		buff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(buff!!.capacity() * 2) }}}
+	}
+	return buff
+}
+
+func readJvcSocket(buff as !"java.nio.ByteBuffer") private as int
+{
+	assert jvcSocket
+	var channel = jvcSocket.getChannel()
+	var v = 0
+	try {
+		if channel {
+			v = channel.read(buff)
+		}
+		else {
+			var ins = jvcSocket.getInputStream()
+			if(blocking == false && ins.available() < 1) {
+				return 0
+			}
+			else {
+				var b = buff.array()
+				v = ins.read(b)
+			}
+		}
+	}
+	catch e as exception {
+		lang "kotlin" {{{
+			e.printStackTrace()
+		}}}
+		v = -1
+	}
+	return v
+}
+
+func writeJvcSocket(buff as !"java.nio.ByteBuffer") private
+{
+	assert jvcSocket
+	var channel = jvcSocket.getChannel()
+	try {
+		if channel {
+			channel.write(buff)
+		}
+		else {
+			var os = jvcSocket.getOutputStream()
+			os.write(buff.array())
+			os.flush()
+		}
+	}
+	catch e as exception {
+		lang "kotlin" {{{
+			e.printStackTrace()
+		}}}
+	}
+}
 
 func close override
 {
@@ -120,56 +319,103 @@ func close override
 	}
 }
 
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
+
 func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
-	assert sslSocket
 	if not buffer:
 		return -1
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getApplicationBufferSize()!!) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	var exitLoop = false
 	var v = 0
-	lang "kotlin" {{{
-		try {
-			var channel = sslSocket?.getChannel()
-			var ba = buffer!!.toByteArray()
-			v = channel!!.read(java.nio.ByteBuffer.wrap(ba))
-			var uba = ba.toUByteArray()
-			uba.copyInto(buffer)
+	var r = 0
+	while exitLoop == false {
+		v = readJvcSocket(netBuff)
+		if v > 0 {
+			netBuff.flip()
+			while netBuff.remaining() > 0 {
+				try {
+					appBuff.clear()
+					lang "kotlin" {{{
+						var result = sslEngine!!.unwrap(netBuff, appBuff)
+						r += result.bytesProduced()
+						when (result!!.getStatus()) {
+							javax.net.ssl.SSLEngineResult.Status.OK -> {
+								appBuff.flip()
+								exitLoop = true
+							}
+							javax.net.ssl.SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+								appBuff = enlargeApplicationBuffer(appBuff)
+							}
+							javax.net.ssl.SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+								netBuff = shrinkBuffer(netBuff)
+							}
+							javax.net.ssl.SSLEngineResult.Status.CLOSED -> {
+								close()
+								return -1
+							}
+						}
+					}}}
+				}
+				catch e as exception {
+					close()
+					return -1
+				}
+			}
 		}
-		catch(e : kotlin.Exception) {
-			e.printStackTrace()
-			v = -1
+		else if v < 0 {
+			close()
+			return -1
 		}
-	}}}
-	if v < 1 {
-		close()
-		v = -1
 	}
-	return v
+	var farray = appBuff.array()
+	farray.toUByteArray().copyInto(buffer, 0, 0, appBuff.limit())
+	return r
 }
 
 func write(buffer as buffer, size as int) override as int
 {
-	assert sslSocket
 	if not buffer:
 		return -1
-	var v = 0
-	lang "kotlin" {{{
+	var appBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size) }}}
+	var netBuff = lang "kotlin" !"java.nio.ByteBuffer" {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	while appBuff.remaining() > 0 {
+		netBuff.clear()
 		try {
-			var channel = sslSocket?.getChannel()
-			channel!!.write(java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size))
-			v = size
+			lang "kotlin" {{{
+				var result = sslEngine!!.wrap(appBuff, netBuff)
+				when (result!!.getStatus()) {
+					javax.net.ssl.SSLEngineResult.Status.OK -> {
+						netBuff.flip()
+						while(netBuff.remaining() > 0) {
+							writeJvcSocket(netBuff)
+						}
+					}
+					javax.net.ssl.SSLEngineResult.Status.BUFFER_OVERFLOW -> {
+						netBuff = enlargePacketBuffer(netBuff)
+					}
+					javax.net.ssl.SSLEngineResult.Status.BUFFER_UNDERFLOW -> {
+						Log.error(ctx, "Buffer underflow.")
+					}
+					javax.net.ssl.SSLEngineResult.Status.CLOSED -> {
+						close()
+						return -1
+					}
+				}
+			}}}
 		}
-		catch(e : kotlin.Exception)
-		{
-			e.printStackTrace()
-			v = -1
+		catch e as exception {
+			close()
+			return -1
 		}
-	}}}
-	if v < 1 {
-		close()
-		v = -1
 	}
-	return v
+	return size
 }
 
 func getSocket override as ConnectedSocket:
 	return socket
+
+func getJavaClientSocket as !"java.net.Socket":
+	return jvcSocket

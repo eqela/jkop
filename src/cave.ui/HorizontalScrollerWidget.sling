@@ -24,7 +24,7 @@
 
 class is WidgetWithLayout #widget:
 
-IFDEF "target_iosoc"
+IFDEF "target_ios_objc"
 {
 	basetype !"UIScrollView" type extends
 	basetype !"UIScrollViewDelegate" type implements
@@ -53,13 +53,36 @@ IFDEF "target_iosoc"
 	}
 }
 
-IFDEF "target_android"
+IFDEF "target_swift"
 {
-	basetype !"android.widget.HorizontalScrollView" type extends
+	basetype !"UIScrollView" type extends
+	basetype !"UIScrollViewDelegate" type implements
 	basetype Widget type isAlso
+
+	lang "swift" {{{
+		func scrollViewDidScroll(_ scrollView: UIScrollView) {
+			if(scrollView.panGestureRecognizer.translation(in: scrollView).x > 0) {
+				self.onScroll(1)
+			}
+			else {
+				self.onScroll(0)
+			}
+		}
+
+		func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+			self.endEditing(true)
+			super.touchesBegan(touches, with: event)
+		}
+	}}}
+
+	func onScroll(direction as int)
+	{
+		if onScrolledHandler:
+			onScrolledHandler(direction)
+	}
 }
 
-IFDEF "target_kotlin"
+IFDEF "target_android"
 {
 	basetype !"android.widget.HorizontalScrollView" type extends
 	basetype Widget type isAlso
@@ -103,7 +126,7 @@ IFDEF "target_html"
 				className .. ":hover { overflow-x: auto; }"
 		}
 		if style {
-			HTMLDOM.setInnerHTML(styleElement, style)
+			HTMLDOM.setTextContent(styleElement, style)
 			HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), styleElement)
 		}
 		noScrollBarStyleCreated = true
@@ -131,16 +154,19 @@ ctor(context as GuiApplicationContext)
 {
 	IFDEF("target_android") {
 		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
-		var xx = (context as! cave.GuiApplicationContextForAndroid).getActivityContext()
-		lang "java" {{{
-			setFillViewport(true);
-			setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
-			setFocusable(true);
-			setFocusableInTouchMode(true);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setFillViewport(true);
+				setDescendantFocusability(android.view.ViewGroup.FOCUS_BEFORE_DESCENDANTS);
+				setFocusable(true);
+				setFocusableInTouchMode(true);
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext())
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+		}}}
 	}
 }
 
@@ -174,9 +200,14 @@ func layoutWidget(widthConstraint as int #notLiteral, force as bool) as bool
 	else {
 		Widget.setLayoutSize(this, widthConstraint, mh)
 	}
-	IFDEF("target_iosoc") {
+	IFDEF("target_ios_objc") {
 		lang "objc" {{{
 			self.contentSize = CGSizeMake(mw, mh);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.contentSize = CGSize(width: mw, height: mh)
 		}}}
 	}
 	return(true)

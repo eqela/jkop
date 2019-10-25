@@ -24,13 +24,19 @@
 
 class:
 
-IFDEF "target_iosoc"
+IFDEF "target_ios"
 {
 	modifier #typedef
 	basetype !"UIView" type extends
-	depend "objc-header-h:<UIKit/UIKit.h>"
-	depend "objc-header-m:<objc/runtime.h>"
-	depend "objc-header-m:<UIKit/UIGestureRecognizerSubclass.h>"
+	IFDEF "target_objc" {
+		depend "objc-header-h:<UIKit/UIKit.h>"
+		depend "objc-header-m:<objc/runtime.h>"
+		depend "objc-header-m:<UIKit/UIGestureRecognizerSubclass.h>"
+	}
+	ELSE IFDEF "target_swift" {
+		depend "swift-import:UIKit"
+		depend "swift-import-class:UIKit.UIGestureRecognizerSubclass"
+	}
 }
 
 IFDEF "target_macosoc"
@@ -41,12 +47,6 @@ IFDEF "target_macosoc"
 }
 
 IFDEF "target_android"
-{
-	modifier #typedef
-	basetype !"android.view.View" type extends
-}
-
-IFDEF "target_kotlin"
 {
 	modifier #typedef
 	basetype !"android.view.View" type extends
@@ -184,22 +184,30 @@ func addChild(parent as this, child as this) static
 	assert child
 	if child is ParentAwareWidget:
 		(child as! ParentAwareWidget).onWidgetAddingToParent()
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[parent addSubview:child];
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[parent addSubview:child];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				parent.addSubview(child!)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
 		var vg = assert parent as !"android.view.ViewGroup"
-		lang "java" {{{
-			vg.addView(child);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var vg = assert parent as !"android.view.ViewGroup"
-		lang "kotlin" {{{
-			vg!!.addView(child)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				vg.addView(child);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				vg!!.addView(child)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.appendChild(parent.element, child.element)
@@ -241,24 +249,22 @@ func removeFromParent(child as this) static as this
 	assert child
 	var parentWidget = assert getParent(child)
 	var pp = parentWidget as ContainerWidget
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[child removeFromSuperview];
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[child removeFromSuperview];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				child.removeFromSuperview()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			if(parentWidget != null && parentWidget instanceof android.view.ViewGroup) {
-				((android.view.ViewGroup)parentWidget).removeView(child);
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(parentWidget != null && parentWidget is android.view.ViewGroup) {
-				(parentWidget as? android.view.ViewGroup)!!.removeView(child)
-			}
-		}}}
+		if parentWidget != null && parentWidget is !"android.view.ViewGroup" {
+			(parentWidget as! !"android.view.ViewGroup").removeView(child)
+		}
 	}
 	ELSE IFDEF "target_html" {
 		HTMLDOM.remove(child.element)
@@ -266,8 +272,11 @@ func removeFromParent(child as this) static as this
 	ELSE {
 		ERROR("Not implemented.")
 	}
-	if pp:
-		pp.onChildWidgetRemoved(child)
+	if pp {
+		var v = new vector<this>
+		v += child
+		pp.onChildWidgetsRemoved(v)
+	}
 	var screen = ScreenForWidget.findScreenForWidget(parentWidget)
 	if screen:
 		notifyOnRemovedFromScreen(child, screen)
@@ -299,32 +308,36 @@ func hasParent(widget as this) static as bool
 func getParent(widget as this) static as this
 {
 	assert widget
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		if widget is ContainerWidget && (widget as! ContainerWidget).getScreenForWidget():
 			return null
-		return lang "objc" this {{{ [widget superview] }}}
+		IFDEF "target_objc" {
+			return lang "objc" this {{{ [widget superview] }}}
+		}
+		ELSE IFDEF "target_swift" {
+			return lang "swift" this {{{ widget.superview }}}
+		}
 	}
 	ELSE IFDEF "target_android" {
 		var v as this = null
-		lang "java" {{{
-			android.view.ViewParent vp = widget.getParent();
-			if(vp != null && vp instanceof android.view.ViewGroup) {
-				v = (android.view.ViewGroup)vp;
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.view.ViewParent vp = widget.getParent();
+				if(vp != null && vp instanceof android.view.ViewGroup) {
+					v = (android.view.ViewGroup)vp;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var vp : android.view.ViewParent? = widget!!.getParent()
+				if(vp != null && vp is android.view.ViewGroup) {
+					v = (vp as? android.view.ViewGroup)
+				}
+			}}}
+		}
 		return(v)
 	}
-	ELSE IFDEF "target_kotlin" {
-		var v as this = null
-		lang "kotlin" {{{
-			var vp : android.view.ViewParent? = widget!!.getParent()
-			if(vp != null && vp is android.view.ViewGroup) {
-				v = (vp as? android.view.ViewGroup)
-			}
-		}}}
-		return v
-	}
-
 	ELSE IFDEF "target_html" {
 		var pe = assert HTMLDOM.getParentElement(widget.element)
 		return domElementAsWidget(pe)
@@ -345,42 +358,51 @@ func getParent(widget as this) static as this
 
 func getChildren(widget as this) static as vector<this>
 {
-	IFDEF "target_iosoc" {
+	assert widget
+	IFDEF "target_ios" {
 		var v = new vector<this>
-		lang "objc" {{{
-			for(UIView* subview in widget.subviews) {
-				[v addObject:subview];
-			}
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				for(UIView* subview in widget.subviews) {
+					[v addObject:subview];
+				}
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				for subview in widget.subviews {
+					v.add(subview)
+				}
+			}}}
+		}
 		return v
 	}
 	ELSE IFDEF "target_android" {
 		var v = new vector<this>
-		lang "java" {{{
-			if(widget instanceof android.view.ViewGroup) {
-				android.view.ViewGroup vg = (android.view.ViewGroup)widget;
-				int n;
-				for(n=0; n<vg.getChildCount(); n++) {
-					v.add(vg.getChildAt(n));
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widget instanceof android.view.ViewGroup) {
+					android.view.ViewGroup vg = (android.view.ViewGroup)widget;
+					int n;
+					for(n=0; n<vg.getChildCount(); n++) {
+						v.add(vg.getChildAt(n));
+					}
 				}
-			}
-		}}}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widget is android.view.ViewGroup) {
+					var vg : android.view.ViewGroup? = widget as? android.view.ViewGroup
+					var n = 0
+					for(n in 0..vg!!.getChildCount()) {
+						v!!.add(vg!!.getChildAt(n))
+					}
+				}
+			}}}
+		}
 		return v
 	}
-	ELSE IFDEF "target_kotlin" {
-		var v = new vector<this>
-		lang "kotlin" {{{
-			if(widget is android.view.ViewGroup) {
-				var vg : android.view.ViewGroup? = widget as? android.view.ViewGroup
-				var n = 0
-				for(n in 0..vg!!.getChildCount()) {
-					v!!.add(vg!!.getChildAt(n))
-				}
-			}
-		}}}
-		return v
-	}
-
 	ELSE IFDEF "target_html" {
 		var v = new vector<this>
 		var dome #used = widget.element
@@ -410,20 +432,29 @@ func getX(widget as this) static as int
 	if not widget:
 		return 0
 	var v = 0
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			v = widget.frame.origin.x;
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				v = widget.frame.origin.x;
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				v = Int(widget.frame.origin.x)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = (int)widget.getX();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getX().toInt()
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				v = (int)widget.getX();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v = widget!!.getX().toInt()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -444,20 +475,29 @@ func getY(widget as this) static as int
 	if not widget:
 		return 0
 	var v = 0
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			v = widget.frame.origin.y;
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				v = widget.frame.origin.y;
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				v = Int(widget.frame.origin.y)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = (int)widget.getY();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getY().toInt()
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				v = (int)widget.getY();
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v = widget!!.getY().toInt()
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -483,24 +523,34 @@ func getAbsoluteX(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int[] location = new int[2];
-			widget.getLocationOnScreen(location);
-			v = location[0];
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int[] location = new int[2];
+				widget.getLocationOnScreen(location);
+				v = location[0];
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var location = IntArray(2)
+				widget!!.getLocationOnScreen(location)
+				v = location[0]
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var location = IntArray(2)
-			widget!!.getLocationOnScreen(location)
-			v = location[0]
-		}}}
-	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
-			v = (NSInteger)(location.x);
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+				v = (NSInteger)(location.x);
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let location : CGPoint = widget.superview!.convert(widget.frame.origin, to:nil)
+				v = Int(location.x)
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -518,24 +568,34 @@ func getAbsoluteY(widget as this) static as int
 		}}}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int[] location = new int[2];
-			widget.getLocationOnScreen(location);
-			v = location[1];
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int[] location = new int[2];
+				widget.getLocationOnScreen(location);
+				v = location[1];
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var location = IntArray(2)
+				widget!!.getLocationOnScreen(location)
+				v = location[1]
+			}}}
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var location = IntArray(2)
-			widget!!.getLocationOnScreen(location)
-			v = location[1]
-		}}}
-	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
-			v = (NSInteger)(location.y);
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				CGPoint location = [widget.superview convertPoint:widget.frame.origin toView:nil];
+				v = (NSInteger)(location.y);
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				let location : CGPoint = widget.superview!.convert(widget.frame.origin, to:nil)
+				v = Int(location.y)
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -548,29 +608,31 @@ func getWidth(widget as this) static as int
 	if not widget:
 		return 0
 	var v = 0
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			v = widget.frame.size.width;
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				v = widget.frame.size.width;
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				v = Int(widget.frame.size.width)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = widget.getWidth();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getWidth()
-		}}}
+		IFDEF "target_java" {
+			v = lang "java" int {{{ widget.getWidth(); }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" int {{{ widget.getWidth() }}}
+		}
 	}
 	ELSE IFDEF "target_html" {
-		if isRootWidget(widget):
-			widget.cachedWidth = 0
-		if widget.cachedWidth < 1 {
+		if isRootWidget(widget) {
 			lang "js" {{{
 				v = widget.element.getBoundingClientRect().width;
 			}}}
-			widget.cachedWidth = v
 		}
 		else {
 			v = widget.cachedWidth
@@ -590,29 +652,31 @@ func getHeight(widget as this) static as int
 	if not widget:
 		return 0
 	var v = 0
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			v = widget.frame.size.height;
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				v = widget.frame.size.height;
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				v = Int(widget.frame.size.height)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			v = widget.getHeight();
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			v = widget!!.getHeight()
-		}}}
+		IFDEF "target_java" {
+			v = lang "java" int {{{ widget.getHeight(); }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" int {{{ widget.getHeight() }}}
+		}
 	}
 	ELSE IFDEF "target_html" {
-		if isRootWidget(widget):
-			widget.cachedHeight = 0
-		if widget.cachedHeight < 1 {
+		if isRootWidget(widget) {
 			lang "js" {{{
 				v = widget.element.getBoundingClientRect().height;
 			}}}
-			widget.cachedHeight = v
 		}
 		else {
 			v = widget.cachedHeight
@@ -636,20 +700,29 @@ func getGeometryString(widget as this) static as string
 
 func move(widget as this, x as int #notLiteral, y as int #notLiteral) static
 {
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			widget.frame = CGRectMake(x, y, widget.frame.size.width, widget.frame.size.height);
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				widget.frame = CGRectMake(x, y, widget.frame.size.width, widget.frame.size.height);
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.frame = CGRect(x: CGFloat(x), y: CGFloat(y), width: widget.frame.size.width, height: widget.frame.size.height)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.layout(x, y, x+widget!!.getWidth(), y+widget!!.getHeight())
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.layout(x, y, x+widget.getWidth(), y+widget.getHeight());
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.layout(x, y, x+widget!!.getWidth(), y+widget!!.getHeight())
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -683,7 +756,7 @@ func isRootWidget(widget as this) static as bool
 
 func findScreen(widget as this) static as Screen
 {
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		var pp = widget
 		while pp {
 			if pp is ContainerWidget {
@@ -698,29 +771,28 @@ func findScreen(widget as this) static as Screen
 	ELSE IFDEF "target_android" {
 		var view #used = widget
 		var scr as !"android.app.Activity"
-		lang "java" {{{
-			if(view == null) {
-				return(null);
-			}
-			android.content.Context ctx = view.getContext();
-			if(ctx != null && ctx instanceof android.app.Activity) {
-				scr = (android.app.Activity)ctx;
-			}
-		}}}
-		return scr as Screen
-	}
-	ELSE IFDEF "target_kotlin" {
-		var view #used = widget
-		var scr as !"android.app.Activity"
-		lang "kotlin" {{{
-			if(view == null) {
-				return(null)
-			}
-			var ctx : android.content.Context = view.getContext()
-			if(ctx != null && ctx is android.app.Activity) {
-				scr = ctx as? android.app.Activity
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(view == null) {
+					return(null);
+				}
+				android.content.Context ctx = view.getContext();
+				if(ctx != null && ctx instanceof android.app.Activity) {
+					scr = (android.app.Activity)ctx;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(view == null) {
+					return(null)
+				}
+				var ctx : android.content.Context = view.getContext()
+				if(ctx != null && ctx is android.app.Activity) {
+					scr = ctx as? android.app.Activity
+				}
+			}}}
+		}
 		return scr as Screen
 	}
 	ELSE IFDEF "target_html" {
@@ -781,24 +853,33 @@ func setLayoutSize(widget as this, widthValue as int #notLiteral, heightValue as
 		height = 0
 	if getWidth(widget) == width && getHeight(widget) == height:
 		return false
-	IFDEF "target_iosoc" {
-		lang "objc" {{{
-			widget.frame = CGRectMake(widget.frame.origin.x, widget.frame.origin.y, width, height);
-		}}}
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				widget.frame = CGRectMake(widget.frame.origin.x, widget.frame.origin.y, width, height);
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.frame = CGRect(x: widget.frame.origin.x, y: widget.frame.origin.y, width: CGFloat(width), height: CGFloat(height))
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			int x = (int)widget.getX();
-			int y = (int)widget.getY();
-			widget.layout(x, y, x+width, y+height);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			var x = widget!!.getX().toInt()
-			var y = widget!!.getY().toInt()
-			widget!!.layout(x, y, x+width, y+height)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				int x = (int)widget.getX();
+				int y = (int)widget.getY();
+				widget.layout(x, y, x+width, y+height);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var x = widget!!.getX().toInt()
+				var y = widget!!.getY().toInt()
+				widget!!.layout(x, y, x+width, y+height)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -843,24 +924,42 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 	if widget is WidgetWithLayout:
 		done = (widget as! WidgetWithLayout).layoutWidget(widthConstraint, force)
 	if not done {
-		IFDEF "target_iosoc" {
+		IFDEF "target_ios" {
 			var srw as int
 			var srh as int
 			var cw = widthConstraint
 			var ch #used = 0
 			if cw < 0:
 				cw = 0
-			lang "objc" {{{
-				CGSize nsz = [widget sizeThatFits:CGSizeMake(cw, ch)];
-				srw = nsz.width;
-				if(nsz.width - srw > 0) {
-					srw ++;
-				}
-				srh = nsz.height;
-				if(nsz.height - srh > 0) {
-					srh ++;
-				}
-			}}}
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					CGSize nsz = [widget sizeThatFits:CGSizeMake(cw, ch)];
+					srw = nsz.width;
+					if(nsz.width - srw > 0) {
+						srw ++;
+					}
+					srh = nsz.height;
+					if(nsz.height - srh > 0) {
+						srh ++;
+					}
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					let nsz : CGSize = widget.sizeThatFits(CGSize(width: Double(cw), height: Double(ch)))
+					srw = Int(nsz.width)
+					if (Int(nsz.width) - srw) > 0 {
+						srw += 1
+					}
+					srh = Int(nsz.height)
+					if (Int(nsz.height) - srh) > 0 {
+						srh += 1
+					}
+					if widthConstraint >= 0 && srw != widthConstraint {
+						srw = widthConstraint
+					}
+				}}}
+			}
 			if widthConstraint >= 0 && srw != widthConstraint:
 				srw = widthConstraint
 			setLayoutSize(widget, srw, srh)
@@ -868,54 +967,57 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 		ELSE IFDEF "target_android" {
 			var srw as int
 			var srh as int
-			lang "java" {{{
-				int msw = android.view.View.MeasureSpec.UNSPECIFIED;
-				int msh = android.view.View.MeasureSpec.UNSPECIFIED;
-				if(widthConstraint >= 0) {
-					msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY);
-				}
-				widget.measure(msw, msh);
-				srw = widget.getMeasuredWidth();
-				srh = widget.getMeasuredHeight();
-			}}}
-			if widthConstraint >= 0 && srw < widthConstraint:
-				srw = widthConstraint
-			setLayoutSize(widget, srw, srh)
-		}
-		ELSE IFDEF "target_kotlin" {
-			var srw = 0
-			var srh = 0
-			lang "kotlin" {{{
-				var msw = android.view.View.MeasureSpec.UNSPECIFIED
-				var msh = android.view.View.MeasureSpec.UNSPECIFIED
-				if(widthConstraint >= 0) {
-					msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY)
-				}
-				widget!!.measure(msw, msh)
-				srw = widget!!.getMeasuredWidth()
-				srh = widget!!.getMeasuredHeight()
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+					int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+					if(widthConstraint >= 0) {
+						msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY);
+					}
+					widget.measure(msw, msh);
+					srw = widget.getMeasuredWidth();
+					srh = widget.getMeasuredHeight();
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					var msw = android.view.View.MeasureSpec.UNSPECIFIED
+					var msh = android.view.View.MeasureSpec.UNSPECIFIED
+					if(widthConstraint >= 0) {
+						msw = android.view.View.MeasureSpec.makeMeasureSpec(widthConstraint, android.view.View.MeasureSpec.EXACTLY)
+					}
+					widget!!.measure(msw, msh)
+					srw = widget!!.getMeasuredWidth()
+					srh = widget!!.getMeasuredHeight()
+				}}}
+			}
 			if widthConstraint >= 0 && srw < widthConstraint:
 				srw = widthConstraint
 			setLayoutSize(widget, srw, srh)
 		}
 		ELSE IFDEF "target_html" {
+			var ww = 0
+			var hh = 0
 			if widthConstraint >= 0 {
-				HTMLDOM.setStyle(widget.element, "white-space", "normal")
-				HTMLDOM.setStyle(widget.element, "width", String.forInteger(widthConstraint) .. "px")
+				var wws #used = String.forInteger(widthConstraint) .. "px"
+				lang "js" {{{
+					widget.element.style["white-space"] = "normal";
+					widget.element.style["width"] = wws;
+					hh = widget.element.offsetHeight;
+				}}}
 				widget.cachedWidth = widthConstraint
+				ww = widthConstraint
 			}
 			else {
-				HTMLDOM.setStyle(widget.element, "white-space", "nowrap")
-				HTMLDOM.setStyle(widget.element, "width", "auto")
-				var ww = getWidth(widget)
-				HTMLDOM.setStyle(widget.element, "width", String.forInteger(ww + 1) .. "px")
-				widget.cachedWidth = ww + 1
+				lang "js" {{{
+					widget.element.style["white-space"] = "nowrap";
+					widget.element.style["width"] = "auto";
+					ww = widget.element.getBoundingClientRect().width;
+					hh = widget.element.offsetHeight;
+				}}}
+				ww ++
 			}
-			HTMLDOM.setStyle(widget.element, "height", "auto")
-			lang "js" {{{
-				widget.cachedHeight = widget.element.offsetHeight;
-			}}}
+			setLayoutSize(widget, ww, hh)
 			if widget is ResizeAwareWidget:
 				(widget as! ResizeAwareWidget).onWidgetResized()
 		}
@@ -946,19 +1048,30 @@ func layout(widget as this, widthConstraint as int #notLiteral, force as bool = 
 	}
 }
 
-IFDEF "target_iosoc"
+IFDEF "target_ios"
 {
 	class WidgetClickForwarder
 	{
 		prop handler as function
 		prop widget as Widget
 
-		func execute
-		{
-			lang "objc" {{{
-				[[widget.window.subviews objectAtIndex:0] endEditing:YES];
+		IFDEF "target_objc" {
+			func execute
+			{
+				lang "objc" {{{
+					[[widget.window.subviews objectAtIndex:0] endEditing:YES];
+				}}}
+				if handler:
+					handler()
+			}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				@objc func execute() {
+					widget.window!.subviews[0].endEditing(true)
+					handler!()
+				}
 			}}}
-			handler()
 		}
 	}
 
@@ -969,20 +1082,40 @@ IFDEF "target_iosoc"
 		prop onEndHandler as function<void, double, double>
 		prop widget as Widget
 
-		func execute(gesture as !"UIGestureRecognizer")
-		{
-			lang "objc" {{{
-				CGPoint tappedPoint = [gesture locationInView:widget];
-				CGFloat x = tappedPoint.x;
-				CGFloat y = tappedPoint.y;
-				if (gesture.state == UIGestureRecognizerStateBegan && onStartHandler) {
-					onStartHandler((double)x, (double)y);
-				}
-				else if (gesture.state == UIGestureRecognizerStateChanged && onTouchHandler) {
-					onTouchHandler((double)x, (double)y);
-				}
-				else if (gesture.state == UIGestureRecognizerStateEnded && onEndHandler) {
-					onEndHandler((double)x, (double)y);
+		IFDEF "target_objc" {
+			func execute(gesture as !"UIGestureRecognizer")
+			{
+				lang "objc" {{{
+					CGPoint tappedPoint = [gesture locationInView:widget];
+					CGFloat x = tappedPoint.x;
+					CGFloat y = tappedPoint.y;
+					if (gesture.state == UIGestureRecognizerStateBegan && onStartHandler) {
+						onStartHandler((double)x, (double)y);
+					}
+					else if (gesture.state == UIGestureRecognizerStateChanged && onTouchHandler) {
+						onTouchHandler((double)x, (double)y);
+					}
+					else if (gesture.state == UIGestureRecognizerStateEnded && onEndHandler) {
+						onEndHandler((double)x, (double)y);
+					}
+				}}}
+			}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				@objc func execute(_ gesture: UIGestureRecognizer) {
+					let tappedPoint : CGPoint = gesture.location(in: widget)
+					let x : CGFloat = tappedPoint.x
+					let y : CGFloat = tappedPoint.y
+					if (gesture.state == UIGestureRecognizer.State.began && (onStartHandler != nil)) {
+						onStartHandler!(Double(x), Double(y))
+					}
+					else if (gesture.state == UIGestureRecognizer.State.changed && (onTouchHandler != nil)) {
+						onTouchHandler!(Double(x), Double(y))
+					}
+					else if (gesture.state == UIGestureRecognizer.State.ended && (onEndHandler != nil)) {
+						onEndHandler!(Double(x), Double(y))
+					}
 				}
 			}}}
 		}
@@ -990,58 +1123,97 @@ IFDEF "target_iosoc"
 
 	class MyGestureRecognizer extends !"UIGestureRecognizer"
 	{
-		lang "objc" {{{
-			- (id) initWithTarget:(id)target action:(SEL)action
+		IFDEF "target_objc" {
+
+			lang "objc" {{{
+				- (id) initWithTarget:(id)target action:(SEL)action
+				{
+					if ([super initWithTarget:target action:action] == nil) {
+						return(nil);
+					}
+					return(self);
+				}
+			}}}
+
+			func touchesBegan(touches as !"NSSet *", withEvent as !"UIEvent *")
 			{
-				if ([super initWithTarget:target action:action] == nil) {
-					return(nil);
-				}
-				return(self);
+				lang "objc" {{{
+					[super touchesBegan:touches withEvent:withEvent];
+					if (self.state != UIGestureRecognizerStatePossible && touches.count > 1) {
+						return;
+					}
+					self.state = UIGestureRecognizerStateBegan;
+				}}}
 			}
-		}}}
 
-		func touchesBegan(touches as !"NSSet *", withEvent as !"UIEvent *")
-		{
-			lang "objc" {{{
-				[super touchesBegan:touches withEvent:withEvent];
-				if (self.state != UIGestureRecognizerStatePossible && touches.count > 1) {
-					return;
+			func touchesEnded(touches as !"NSSet *", withEvent as !"UIEvent *")
+			{
+				lang "objc" {{{
+					[super touchesEnded:touches withEvent:withEvent];
+					self.state = UIGestureRecognizerStateEnded;
+				}}}
+			}
+
+			func touchesMoved(touches as !"NSSet *", withEvent as !"UIEvent *")
+			{
+				lang "objc" {{{
+					[super touchesMoved:touches withEvent:withEvent];
+					if (self.state == UIGestureRecognizerStateFailed || self.state == UIGestureRecognizerStateRecognized) {
+						return;
+					}
+					self.state = UIGestureRecognizerStateChanged;
+				}}}
+			}
+
+			func touchesCancelled(touches as !"NSSet *", withEvent as !"UIEvent *")
+			{
+				lang "objc" {{{
+					[super touchesCancelled:touches withEvent:withEvent];
+					self.state = UIGestureRecognizerStateCancelled;
+				}}}
+			}
+
+			func reset
+			{
+				lang "objc" {{{
+					[super reset];
+				}}}
+			}
+		}
+		ELSE IFDEF "target_swift" {
+			ctor(target pname target as !"Any", action pname action as !"Selector") #override
+			{
+				lang "swift" {{{
+					super.init(target: target, action: action)
+				}}}
+			}
+
+			lang "swift" {{{
+				override public func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+					super.touchesBegan(touches, with: event)
+					if (self.state != UIGestureRecognizer.State.possible && touches.count > 1) {
+						return
+					}
+					self.state = UIGestureRecognizer.State.began
 				}
-				self.state = UIGestureRecognizerStateBegan;
-			}}}
-		}
 
-		func touchesEnded(touches as !"NSSet *", withEvent as !"UIEvent *")
-		{
-			lang "objc" {{{
-				[super touchesEnded:touches withEvent:withEvent];
-				self.state = UIGestureRecognizerStateEnded;
-			}}}
-		}
-
-		func touchesMoved(touches as !"NSSet *", withEvent as !"UIEvent *")
-		{
-			lang "objc" {{{
-				[super touchesMoved:touches withEvent:withEvent];
-				if (self.state == UIGestureRecognizerStateFailed || self.state == UIGestureRecognizerStateRecognized) {
-					return;
+				override public func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+					super.touchesEnded(touches, with:event)
+					self.state = UIGestureRecognizer.State.ended
 				}
-				self.state = UIGestureRecognizerStateChanged;
-			}}}
-		}
 
-		func touchesCancelled(touches as !"NSSet *", withEvent as !"UIEvent *")
-		{
-			lang "objc" {{{
-				[super touchesCancelled:touches withEvent:withEvent];
-				self.state = UIGestureRecognizerStateCancelled;
-			}}}
-		}
+				override public func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+					super.touchesMoved(touches, with:event!)
+					if (self.state == UIGestureRecognizer.State.failed || self.state == UIGestureRecognizer.State.recognized) {
+						return
+					}
+					self.state = UIGestureRecognizer.State.changed
+				}
 
-		func reset
-		{
-			lang "objc" {{{
-				[super reset];
+				override public func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+					super.touchesCancelled(touches, with: event!)
+					self.state = UIGestureRecognizer.State.cancelled
+				}
 			}}}
 		}
 	}
@@ -1051,11 +1223,22 @@ IFDEF "target_iosoc"
 		prop handler as function
 		prop widget as Widget
 
-		func execute(gesture as !"UIGestureRecognizer")
-		{
-			lang "objc" {{{
-				if (gesture.state == UIGestureRecognizerStateBegan) {
-					handler();
+		IFDEF "target_objc" {
+			func execute(gesture as !"UIGestureRecognizer")
+			{
+				lang "objc" {{{
+					if (gesture.state == UIGestureRecognizerStateBegan) {
+						handler();
+					}
+				}}}
+			}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				@objc func execute(_ gesture : UIGestureRecognizer) {
+					if (gesture.state == UIGestureRecognizer.State.began) {
+						handler!()
+					}
 				}
 			}}}
 		}
@@ -1082,43 +1265,53 @@ func setWidgetClickHandler(widget as this, handler as function) static
 	else {
 		togglePointerEventHandling(widget, false)
 	}
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		var forwarder = new WidgetClickForwarder()
 		forwarder.setWidget(widget)
 		forwarder.setHandler(handler)
-		lang "objc" {{{
-			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[widget setUserInteractionEnabled:YES];
-			[widget addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute)]];
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[widget setUserInteractionEnabled:YES];
+				[widget addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute)]];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				widget.isUserInteractionEnabled = true
+				widget.addGestureRecognizer(UITapGestureRecognizer(target: forwarder, action: #selector(forwarder.execute)))
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
 		var hf final #used = handler
-		lang "java" {{{
-			if(handler == null) {
-				widget.setOnClickListener(null);
-			}
-			else {
-				widget.setOnClickListener(new android.view.View.OnClickListener() {
-					public void onClick(android.view.View view) {
-						hf.execute();
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var hf final #used = handler
-		lang "kotlin" {{{
-			if(handler == null) {
-				widget!!.setOnClickListener(null)
-			}
-			else {
-				widget!!.setOnClickListener({ view ->
-					hf!!.invoke()
-				})
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					widget.setOnClickListener(null);
+				}
+				else {
+					widget.setOnClickListener(new android.view.View.OnClickListener() {
+						public void onClick(android.view.View view) {
+							hf.execute();
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					widget!!.setOnClickListener(null)
+				}
+				else {
+					widget!!.setOnClickListener({ view ->
+						hf!!.invoke()
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1195,47 +1388,57 @@ func setWidgetLongClickHandler(widget as this, handler as function) static
 	else {
 		togglePointerEventHandling(widget, false)
 	}
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios" {
 		var forwarder = new WidgetLongPressForwarder()
 		forwarder.setWidget(widget)
 		forwarder.setHandler(handler)
-		lang "objc" {{{
-			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[widget setUserInteractionEnabled:YES];
-			[widget addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[widget setUserInteractionEnabled:YES];
+				[widget addGestureRecognizer:[[UILongPressGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				widget.isUserInteractionEnabled = true
+				widget.addGestureRecognizer(UILongPressGestureRecognizer(target: forwarder, action: #selector(forwarder.execute(_ :))))
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
 		var hf final #used = handler
-		lang "java" {{{
-			if(handler == null) {
-				widget.setOnLongClickListener(null);
-			}
-			else {
-				widget.setOnLongClickListener(new android.view.View.OnLongClickListener() {
-					public boolean onLongClick(android.view.View view) {
-						hf.execute();
-						return true;
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var hf final #used = handler
-		lang "kotlin" {{{
-			if(handler == null) {
-				widget!!.setOnLongClickListener(null)
-			}
-			else {
-				widget!!.setOnLongClickListener(object : android.view.View.OnLongClickListener {
-					override fun onLongClick(view : android.view.View?) : Boolean {
-						hf!!.invoke()
-						return true
-					}
-				})
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					widget.setOnLongClickListener(null);
+				}
+				else {
+					widget.setOnLongClickListener(new android.view.View.OnLongClickListener() {
+						public boolean onLongClick(android.view.View view) {
+							hf.execute();
+							return true;
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					widget!!.setOnLongClickListener(null)
+				}
+				else {
+					widget!!.setOnLongClickListener(object : android.view.View.OnLongClickListener {
+						override fun onLongClick(view : android.view.View?) : Boolean {
+							hf!!.invoke()
+							return true
+						}
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1266,55 +1469,54 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 		var othf final #used = onTouchHandler
 		var oshf final #used = onStartHandler
 		var oehf final #used = onEndHandler
-		lang "java" {{{
-			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
-				widget.setOnTouchListener(null);
-			}
-			else {
-				widget.setOnTouchListener(new android.view.View.OnTouchListener() {
-					public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
-						int action = event.getAction();
-						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
-							oshf.execute((double)event.getX(), (double)event.getY());
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+					widget.setOnTouchListener(null);
+				}
+				else {
+					widget.setOnTouchListener(new android.view.View.OnTouchListener() {
+						public boolean onTouch(android.view.View view, android.view.MotionEvent event) {
+							int action = event.getAction();
+							if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+								oshf.execute((double)event.getX(), (double)event.getY());
+							}
+							else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+								othf.execute((double)event.getX(), (double)event.getY());
+							}
+							else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
+								oehf.execute((double)event.getX(), (double)event.getY());
+							}
+							return true;
 						}
-						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
-							othf.execute((double)event.getX(), (double)event.getY());
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
+					widget!!.setOnTouchListener(null)
+				}
+				else {
+					widget!!.setOnTouchListener(object : android.view.View.OnTouchListener {
+						override fun onTouch(view : android.view.View?, event : android.view.MotionEvent?) : Boolean {
+							var action = event!!.getAction()
+							if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
+								oshf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
+								othf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
+								oehf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
+							}
+							return true
 						}
-						else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
-							oehf.execute((double)event.getX(), (double)event.getY());
-						}
-						return true;
-					}
-				});
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		var othf final #used = onTouchHandler
-		var oshf final #used = onStartHandler
-		var oehf final #used = onEndHandler
-		lang "kotlin" {{{
-			if(onStartHandler == null && onTouchHandler == null && onEndHandler == null) {
-				widget!!.setOnTouchListener(null)
-			}
-			else {
-				widget!!.setOnTouchListener(object : android.view.View.OnTouchListener {
-					override fun onTouch(view : android.view.View?, event : android.view.MotionEvent?) : Boolean {
-						var action = event!!.getAction()
-						if(action == android.view.MotionEvent.ACTION_DOWN && oshf != null) {
-							oshf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						else if(action == android.view.MotionEvent.ACTION_MOVE && othf != null) {
-							othf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						else if((action == android.view.MotionEvent.ACTION_UP || action == android.view.MotionEvent.ACTION_CANCEL) && oehf != null) {
-							oehf!!.invoke(event!!.getX().toDouble(), event!!.getY().toDouble())
-						}
-						return true
-					}
-				})
-			}
-		}}}
+					})
+				}
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		lang "js" {{{
@@ -1353,17 +1555,26 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 			}
 		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios" {
 		var forwarder = new WidgetTouchForwarder()
 		forwarder.setWidget(widget)
 		forwarder.setOnStartHandler(onStartHandler)
 		forwarder.setOnTouchHandler(onTouchHandler)
 		forwarder.setOnEndHandler(onEndHandler)
-		lang "objc" {{{
-			objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-			[widget setUserInteractionEnabled:YES];
-			[widget addGestureRecognizer:[[CaveUIWidgetMyGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+				[widget setUserInteractionEnabled:YES];
+				[widget addGestureRecognizer:[[CaveUIWidgetMyGestureRecognizer alloc] initWithTarget:forwarder action:@selector(execute:)]];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				objc_setAssociatedObject(widget, "_gestureHandler", forwarder, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				widget.isUserInteractionEnabled = true
+				widget.addGestureRecognizer(CaveUiWidgetMyGestureRecognizer(target: forwarder, action: #selector(forwarder.execute(_ :))))
+			}}}
+		}
 	}
 	ELSE IFDEF "target_uwp" {
 		if onStartHandler {
@@ -1385,9 +1596,26 @@ func setWidgetPointerHandlers(widget as this, onStartHandler as function<void, d
 
 func removeChildrenOf(widget as this) static
 {
+	assert widget
 	var children = getChildren(widget)
-	foreach child in children:
-		removeFromParent(child)
+	IFDEF "target_html" {
+		lang "js" {{{
+			widget.element.textContent = "";
+		}}}
+		var screen = ScreenForWidget.findScreenForWidget(widget)
+		var pp = widget as ContainerWidget
+		foreach child in children {
+			if screen:
+				notifyOnRemovedFromScreen(child, screen)
+			onWidgetRemovedFromParent(child)
+		}
+		if pp:
+			pp.onChildWidgetsRemoved(children)
+	}
+	ELSE {
+		foreach child in children:
+			removeFromParent(child)
+	}
 }
 
 func onLayoutChanged(widget as this) static
@@ -1420,22 +1648,31 @@ func setAlpha(widget as this, alpha as double) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setAlpha((float)alpha);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.setAlpha(alpha.toFloat())
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setAlpha((float)alpha);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.setAlpha(alpha.toFloat())
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html5" {
 		HTMLDOM.setStyle(widget.element, "opacity", String.forDouble(alpha))
 	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			[widget setAlpha:(CGFloat)alpha];
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[widget setAlpha:(CGFloat)alpha];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.alpha = CGFloat(alpha)
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1446,15 +1683,29 @@ func setRotation(widget as this, degrees as double) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setRotation((float)degrees);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setRotation((float)degrees);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlins" {{{
+				widget!!.setRotation(degrees.toFloat())
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
-		degrees = -degrees
-		lang "objc" {{{
-			[widget setTransform:CGAffineTransformMakeRotation((CGFloat)degrees)];
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			degrees = -degrees
+			lang "objc" {{{
+				[widget setTransform:CGAffineTransformMakeRotation((CGFloat)degrees)];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.transform = CGAffineTransform(rotationAngle: CGFloat(degrees))
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html" {
 		var element = widget.element
@@ -1475,14 +1726,16 @@ func setEnabled(widget as this, enabled as bool) static
 {
 	assert widget
 	IFDEF "target_android" {
-		lang "java" {{{
-			widget.setEnabled(enabled);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			widget!!.setEnabled(enabled)
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				widget.setEnabled(enabled);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				widget!!.setEnabled(enabled)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_html5" {
 		var elem #used = widget.element
@@ -1490,15 +1743,27 @@ func setEnabled(widget as this, enabled as bool) static
 			elem.disabled = !enabled;
 		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
-		lang "objc" {{{
-			if(enabled) {
-				widget.userInteractionEnabled = YES;
-			}
-			else {
-				widget.userInteractionEnabled = NO;
-			}
-		}}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				if(enabled) {
+					widget.userInteractionEnabled = YES;
+				}
+				else {
+					widget.userInteractionEnabled = NO;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				if(enabled) {
+					widget.isUserInteractionEnabled = true
+				}
+				else {
+					widget.isUserInteractionEnabled = false
+				}
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1521,37 +1786,46 @@ func setVisible(widget as this, visible as bool) static
 	assert widget
 	IFDEF "target_html" {
 		if visible {
-			HTMLDOM.setStyle(widget.element, "visibility", "visible")
+			HTMLDOM.setStyle(widget.element, "visibility", "inherit")
 		}
 		else {
 			HTMLDOM.setStyle(widget.element, "visibility", "hidden")
 		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios" {
 		var hidden #used = not visible
-		lang "objc" {{{
-			[widget setHidden:hidden];
-		}}}
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[widget setHidden:hidden];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				widget.isHidden = hidden
+			}}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		lang "java" {{{
-			if(visible) {
-				widget.setVisibility(android.view.View.VISIBLE);
-			}
-			else {
-				widget.setVisibility(android.view.View.INVISIBLE);
-			}
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(visible) {
-				widget!!.setVisibility(android.view.View.VISIBLE)
-			}
-			else {
-				widget!!.setVisibility(android.view.View.INVISIBLE)
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(visible) {
+					widget.setVisibility(android.view.View.VISIBLE);
+				}
+				else {
+					widget.setVisibility(android.view.View.INVISIBLE);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(visible) {
+					widget!!.setVisibility(android.view.View.VISIBLE)
+				}
+				else {
+					widget!!.setVisibility(android.view.View.INVISIBLE)
+				}
+			}}}
+		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1563,18 +1837,28 @@ func getVisible(widget as this) static as bool
 	assert widget
 	IFDEF "target_html" {
 		var visible = false
-		if String.equals(HTMLDOM.getStyle(widget.element, "visibility"), "visible"):
+		var visibility = HTMLDOM.getStyle(widget.element, "visibility")
+		if String.equals(visibility, "visible") || String.equals(visibility, "inherit"):
 			visible = true
 		return visible
 	}
-	ELSE IFDEF "target_iosoc" {
-		return lang "objc" bool {{{ !widget.hidden }}}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			return lang "objc" bool {{{ !widget.hidden }}}
+		}
+		ELSE IFDEF "target_swift" {
+			return lang "swift" bool {{{ widget.isHidden }}}
+		}
 	}
 	ELSE IFDEF "target_android" {
-		return lang "java" bool {{{ widget.getVisibility() == android.view.View.VISIBLE }}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" bool {{{ widget!!.getVisibility() == android.view.View.VISIBLE }}}
+		var v as bool
+		IFDEF "target_java" {
+			v = lang "java" bool {{{ widget.getVisibility() == android.view.View.VISIBLE }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" bool {{{ widget!!.getVisibility() == android.view.View.VISIBLE }}}
+		}
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1593,16 +1877,25 @@ func setWidgetId(widget as this, idValue as object) static
 			HTMLDOM.setAttribute(widget.element, "id", String.asString(idValue))
 		}
 		IFDEF "target_android" {
-			lang "java" {{{
-				if(idValue instanceof java.lang.Integer) {
-					widget.setId(((java.lang.Integer)idValue).intValue());
-				}
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					if(idValue instanceof java.lang.Integer) {
+						widget.setId(((java.lang.Integer)idValue).intValue());
+					}
+				}}}
+			}
 		}
-		IFDEF "target_iosoc" {
-			lang "objc" {{{
-				[widget setAccessibilityIdentifier:idValue];
-			}}}
+		IFDEF "target_ios" {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[widget setAccessibilityIdentifier:idValue];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					widget.accessibilityIdentifier = idValue as? String
+				}}}
+			}
 		}
 		ELSE {
 			ERROR "Not yet implemented"

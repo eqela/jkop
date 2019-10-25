@@ -1,0 +1,165 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Iterateable<int>:
+
+func forIntegerValues(lowerBound as int, upperBound as int, exclusionType as int = TYPE_NONE) static as this
+{
+	var v = new this()
+	v.setLowerBound(lowerBound as! double)
+	v.setUpperBound(upperBound as! double)
+	v.setExclusionType(exclusionType)
+	return v
+}
+
+func forDoubleValues(lowerBound as double, upperBound as double, exclusionType as int = TYPE_NONE) static as this
+{
+	var v = new this()
+	v.setLowerBound(lowerBound)
+	v.setUpperBound(upperBound)
+	v.setExclusionType(exclusionType)
+	return v
+}
+
+func forValues(lowerBound as dynamic, upperBound as dynamic, exclusionType as int = TYPE_NONE) static as this
+{
+	if lowerBound is double && upperBound is double:
+		return forDoubleValues(lowerBound as! double, upperBound as! double, exclusionType)
+	if lowerBound is int && upperBound is int:
+		return forIntegerValues(lowerBound as! int, upperBound as! int, exclusionType)
+	return null
+}
+
+const TYPE_NONE = 0
+const TYPE_EXCLUDE_UPPER_BOUND = 1
+const TYPE_EXCLUDE_LOWER_BOUND = 2
+const TYPE_EXCLUDE_BOTH_BOUNDS = 3
+
+var lowerBound as double
+var upperBound as double
+var exclusionType as int
+
+ctor private:
+	;
+
+func setLowerBound(lowerBound as double) private:
+	this.lowerBound = lowerBound
+
+func setUpperBound(upperBound as double) private:
+	this.upperBound = upperBound
+
+func setExclusionType(exclusionType as int) private:
+	this.exclusionType = exclusionType
+
+func getLowerBoundAsInteger as int:
+	return lowerBound as! int
+
+func getLowerBoundAsDouble as double:
+	return lowerBound
+
+func getUpperBoundAsInteger as int:
+	return upperBound as! int
+
+func getUpperBoundAsDouble as double:
+	return upperBound
+
+func containsIntegerValue(value as int) as bool:
+	return containsDoubleValue(value as! double)
+
+func containsDoubleValue(value as double) as bool
+{
+	if exclusionType == TYPE_NONE {
+		return value >= lowerBound && value <= upperBound
+	}
+	else if exclusionType == TYPE_EXCLUDE_UPPER_BOUND {
+		return value >= lowerBound && value < upperBound
+	}
+	else if exclusionType == TYPE_EXCLUDE_LOWER_BOUND {
+		return value > lowerBound && value <= upperBound
+	}
+	else if exclusionType == TYPE_EXCLUDE_BOTH_BOUNDS {
+		return value > lowerBound && value < upperBound
+	}
+	return false
+}
+
+class RangeIterator is Iterator<int>
+{
+	ctor(lowerBound as int, upperBound as int)
+	{
+		this.lowerBound = lowerBound
+		this.upperBound = upperBound
+		if lowerBound <= upperBound {
+			increment = 1
+		}
+		else {
+			increment = -1
+		}
+	}
+
+	var lowerBound as int
+	var upperBound as int
+	var increment as int
+	var current as Integer
+
+	func next as int
+	{
+		if not current {
+			current = Integer.forValue(lowerBound)
+		}
+		else {
+			current.add(increment)
+		}
+		return current.getValue()
+	}
+
+	func hasNext as bool
+	{
+		if not current:
+			return true
+		if increment > 0:
+			return current.getValue() < upperBound
+		return current.getValue() > upperBound
+	}
+}
+
+func iterate as Iterator<int>
+{
+	var lv = lowerBound as! int
+	var uv = upperBound as! int
+	if exclusionType == TYPE_NONE {
+		;
+	}
+	if exclusionType == TYPE_EXCLUDE_UPPER_BOUND {
+		uv = uv - 1
+	}
+	else if exclusionType == TYPE_EXCLUDE_LOWER_BOUND {
+		lv = lv + 1
+	}
+	else if exclusionType == TYPE_EXCLUDE_BOTH_BOUNDS {
+		uv = uv - 1
+		lv = lv + 1
+	}
+	return new RangeIterator(lv, uv)
+}

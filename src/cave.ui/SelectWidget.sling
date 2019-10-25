@@ -74,141 +74,12 @@ IFDEF "target_android"
 
 	var ignoreInitialSelectEvent private = true
 	var selectedWidgetIndex = -1
-	var adapter as !"android.widget.ArrayAdapter<java.lang.String>"
-
-	func requestLayout
-	{
-		Widget.onLayoutChanged(this)
-		base.requestLayout()
+	IFDEF "target_java" {
+		var adapter as !"android.widget.ArrayAdapter<java.lang.String>"
 	}
-
-	class MyAdapter is !"android.widget.ArrayAdapter<java.lang.String>"
-	{
-		ctor(ctx as !"android.content.Context", resId as int, obj as !"java.util.List<java.lang.String>")
-		{
-			base(ctx, resId, obj)
-			widgetContext = ctx
-		}
-
-		var widgetContext as !"android.content.Context"
-		var tv as !"android.widget.TextView"
-		var queueSize as double
-		var queueFontFamily as string
-		var queueFontResource as string
-		var queueTextColor as Color
-		var queuePadding as int
-
-		func getView(pos as int, view as !"android.view.View", viewGroup as !"android.view.ViewGroup") as !"android.view.View"
-		{
-			lang "java" {{{
-				tv = (android.widget.TextView)super.getView(pos, view, viewGroup);
-			}}}
-			tv.setPadding(0, 0, 0, 0)
-			updateFont()
-			updateColor()
-			updatePadding()
-			return tv
-		}
-
-		func setWidgetFontSize(sz as double)
-		{
-			queueSize = sz
-			updateFont()
-		}
-
-		func setWidgetFontFamily(ff as string)
-		{
-			queueFontFamily = ff
-			updateFont()
-		}
-
-		func setWidgetFontResource(res as string)
-		{
-			queueFontResource = res
-			updateFont()
-		}
-
-		func setWidgetTextColor(color as Color)
-		{
-			queueTextColor = color
-			updateColor()
-		}
-
-		func setWidgetPadding(padding as int)
-		{
-			queuePadding = padding
-			updatePadding()
-		}
-
-		func updateFont
-		{
-			if tv {
-				lang "java" {{{
-					tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)queueSize);
-					if(queueFontResource != null) {
-						tv.setTypeface(android.graphics.Typeface.createFromAsset(widgetContext.getAssets(), queueFontResource), android.graphics.Typeface.NORMAL);
-					}
-					else {
-						tv.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL));
-					}
-				}}}
-			}
-		}
-
-		func updateColor
-		{
-			if tv {
-				lang "java" {{{
-					if(queueTextColor != null) {
-						tv.setTextColor(queueTextColor.toARGBInt32());
-					}
-				}}}
-			}
-		}
-
-		func updatePadding
-		{
-			if tv {
-				lang "java" {{{
-					tv.setPadding(queuePadding, queuePadding, queuePadding, queuePadding);
-				}}}
-			}
-		}
+	ELSE IFDEF "target_kotlin" {
+		var adapter as !"android.widget.ArrayAdapter<kotlin.String>"
 	}
-
-	lang "java" {{{
-		public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
-			selectedWidgetIndex = position;
-			android.widget.TextView sview = (android.widget.TextView)parent.getChildAt(0);
-			if(sview != null) {
-				cave.Color textColor = getActualWidgetTextColor();
-				sview.setTextColor(textColor.toARGBInt32());
-				sview.setEllipsize(android.text.TextUtils.TruncateAt.END);
-				sview.setSingleLine();
-			}
-			if(ignoreInitialSelectEvent) {
-				ignoreInitialSelectEvent = false;
-				return;
-			}
-			onWidgetSelectionChanged();
-		}
-
-		public void onNothingSelected(android.widget.AdapterView<?> parent) {
-			selectedWidgetIndex = -1;
-			onWidgetSelectionChanged();
-		}
-	}}}
-}
-
-ELSE IFDEF "target_kotlin"
-{
-	basetype !"android.widget.Spinner" type extends
-	basetype !"android.widget.AdapterView.OnItemSelectedListener" type implements
-	basetype Widget type isAlso
-
-	var ignoreInitialSelectEvent private = true
-	var selectedWidgetIndex = -1
-	var adapter as !"android.widget.ArrayAdapter<kotlin.String>"
 
 	func requestLayout override
 	{
@@ -216,12 +87,25 @@ ELSE IFDEF "target_kotlin"
 		base.requestLayout()
 	}
 
-	class MyAdapter is !"android.widget.ArrayAdapter<kotlin.String> "
+	class MyAdapter
 	{
-		ctor(ctx as !"android.content.Context", resId as int, obj as !"kotlin.collections.List<kotlin.String>")
-		{
-			base(ctx, resId, obj)
-			widgetContext = ctx
+		IFDEF "target_java" {
+			basetype !"android.widget.ArrayAdapter<java.lang.String>" type extends
+
+			ctor(ctx as !"android.content.Context", resId as int, obj as !"java.util.List<java.lang.String>")
+			{
+				base(ctx, resId, obj)
+				widgetContext = ctx
+			}
+		}
+		ELSE IFDEF "target_kotlin" {
+			basetype !"android.widget.ArrayAdapter<kotlin.String>" type extends
+
+			ctor(ctx as !"android.content.Context", resId as int, obj as !"kotlin.collections.ArrayList<kotlin.String?>")
+			{
+				base(ctx, resId, obj)
+				widgetContext = ctx
+			}
 		}
 
 		var widgetContext as !"android.content.Context"
@@ -234,9 +118,16 @@ ELSE IFDEF "target_kotlin"
 
 		func getView(pos as int, view as !"android.view.View", viewGroup as !"android.view.ViewGroup") override as !"android.view.View"
 		{
-			lang "kotlin" {{{
-				tv = super.getView(pos, view, viewGroup) as android.widget.TextView
-			}}}
+			IFDEF "target_java" {
+				lang "java" {{{
+					tv = (android.widget.TextView)super.getView(pos, view, viewGroup);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					tv = super.getView(pos, view, viewGroup) as android.widget.TextView
+				}}}
+			}
 			tv.setPadding(0, 0, 0, 0)
 			updateFont()
 			updateColor()
@@ -277,64 +168,119 @@ ELSE IFDEF "target_kotlin"
 		func updateFont
 		{
 			if tv {
-				lang "kotlin" {{{
-					tv!!.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, queueSize.toFloat())
-					if(queueFontResource != null) {
-						tv!!.setTypeface(android.graphics.Typeface.createFromAsset(widgetContext!!.getAssets(), queueFontResource), android.graphics.Typeface.NORMAL)
-					}
-					else {
-						tv!!.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL))
-					}
-				}}}
+				IFDEF "target_java" {
+					lang "java" {{{
+						tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)queueSize);
+						if(queueFontResource != null) {
+							tv.setTypeface(android.graphics.Typeface.createFromAsset(widgetContext.getAssets(), queueFontResource), android.graphics.Typeface.NORMAL);
+						}
+						else {
+							tv.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL));
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						tv!!.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, queueSize.toFloat())
+						if(queueFontResource != null) {
+							tv!!.setTypeface(android.graphics.Typeface.createFromAsset(widgetContext!!.getAssets(), queueFontResource), android.graphics.Typeface.NORMAL)
+						}
+						else {
+							tv!!.setTypeface(android.graphics.Typeface.create(queueFontFamily, android.graphics.Typeface.NORMAL))
+						}
+					}}}
+				}
 			}
 		}
 
 		func updateColor
 		{
 			if tv {
-				lang "kotlin" {{{
-					if(queueTextColor != null) {
-						tv!!.setTextColor(queueTextColor!!.toARGBInt32())
-					}
-				}}}
+				IFDEF "target_java" {
+					lang "java" {{{
+						if(queueTextColor != null) {
+							tv.setTextColor(queueTextColor.toARGBInt32());
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						if(queueTextColor != null) {
+							tv!!.setTextColor(queueTextColor!!.toARGBInt32())
+						}
+					}}}
+				}
 			}
 		}
 
 		func updatePadding
 		{
 			if tv {
-				lang "kotlin" {{{
-					tv!!.setPadding(queuePadding, queuePadding, queuePadding, queuePadding)
-				}}}
+				IFDEF "target_java" {
+					lang "java" {{{
+						tv.setPadding(queuePadding, queuePadding, queuePadding, queuePadding);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						tv!!.setPadding(queuePadding, queuePadding, queuePadding, queuePadding)
+					}}}
+				}
 			}
 		}
 	}
 
-	lang "kotlin" {{{
-		public override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View, position: kotlin.Int, id: kotlin.Long) {
-			selectedWidgetIndex = position
-			var sview: android.widget.TextView = parent!!.getChildAt(0) as android.widget.TextView
-			if(sview != null) {
-				var textColor: cave.Color? = getActualWidgetTextColor()
-				sview.setTextColor(textColor!!.toARGBInt32())
-				sview.setEllipsize(android.text.TextUtils.TruncateAt.END)
-				sview.setSingleLine()
+	IFDEF "target_java" {
+		lang "java" {{{
+			public void onItemSelected(android.widget.AdapterView<?> parent, android.view.View view, int position, long id) {
+				selectedWidgetIndex = position;
+				android.widget.TextView sview = (android.widget.TextView)parent.getChildAt(0);
+				if(sview != null) {
+					cave.Color textColor = getActualWidgetTextColor();
+					sview.setTextColor(textColor.toARGBInt32());
+					sview.setEllipsize(android.text.TextUtils.TruncateAt.END);
+					sview.setSingleLine();
+				}
+				if(ignoreInitialSelectEvent) {
+					ignoreInitialSelectEvent = false;
+					return;
+				}
+				onWidgetSelectionChanged();
 			}
-			if(ignoreInitialSelectEvent) {
-				ignoreInitialSelectEvent = false
-				return
-			}
-			onWidgetSelectionChanged()
-		}
 
-		public override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
-			selectedWidgetIndex = -1
-			onWidgetSelectionChanged()
-		}
-	}}}
+			public void onNothingSelected(android.widget.AdapterView<?> parent) {
+				selectedWidgetIndex = -1;
+				onWidgetSelectionChanged();
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			public override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: android.view.View, position: kotlin.Int, id: kotlin.Long) {
+				selectedWidgetIndex = position
+				var sview: android.widget.TextView = parent!!.getChildAt(0) as android.widget.TextView
+				if(sview != null) {
+					var textColor: cave.Color? = getActualWidgetTextColor()
+					sview.setTextColor(textColor!!.toARGBInt32())
+					sview.setEllipsize(android.text.TextUtils.TruncateAt.END)
+					sview.setSingleLine()
+				}
+				if(ignoreInitialSelectEvent) {
+					ignoreInitialSelectEvent = false
+					return
+				}
+				onWidgetSelectionChanged()
+			}
+
+			public override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
+				selectedWidgetIndex = -1
+				onWidgetSelectionChanged()
+			}
+		}}}
+	}
 }
 
-ELSE IFDEF "target_iosoc"
+ELSE IFDEF "target_ios_objc"
 {
 	basetype !"UITextField" type extends
 	basetype !"UIPickerViewDelegate" type implements
@@ -369,6 +315,45 @@ ELSE IFDEF "target_iosoc"
 
 		- (CGRect)editingRectForBounds:(CGRect)bounds {
 			return CGRectInset(bounds, widgetPadding, widgetPadding);
+		}
+	}}}
+}
+
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextField" type extends
+	basetype !"UIPickerViewDelegate" type implements
+	basetype !"UIPickerViewDataSource" type implements
+	basetype Widget type isAlso
+
+	var pickerView as !"UIPickerView"
+
+	lang "swift" {{{
+		public func numberOfComponents(in pickerView: UIPickerView) -> Int {
+			return 1
+		}
+
+		public func pickerView(_ pickerView: UIPickerView, numberOfRowsInComponent component: Int) -> Int {
+			return Int(self.getWidgetItemCount())
+		}
+
+		public func pickerView(_ pickerView: UIPickerView, titleForRow row: Int, forComponent component: Int) -> String? {
+			return self.getWidgetTextForIndex(row)
+		}
+		public func pickerView(_ pickerView: UIPickerView, didSelectRow row: Int, inComponent component: Int) {
+			self.onWidgetSelectionChanged()
+		}
+
+		override public func caretRect(for position: UITextPosition) -> CGRect {
+			return CGRect.zero
+		}
+
+		override public func textRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPadding), dy: CGFloat(widgetPadding))
+		}
+
+		override public func editingRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPadding), dy: CGFloat(widgetPadding))
 		}
 	}}}
 }
@@ -504,19 +489,47 @@ var widgetIsEnabled = true
 ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
-		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext(), lang "java" int {{{ android.widget.Spinner.MODE_DROPDOWN }}})
+		IFDEF "target_java" {
+			base((context as! cave.GuiApplicationContextForAndroid).getActivityContext(), lang "java" int {{{ android.widget.Spinner.MODE_DROPDOWN }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			base((context as! cave.GuiApplicationContextForAndroid).getActivityContext(), lang "kotlin" int {{{ android.widget.Spinner.MODE_DROPDOWN }}})
+		}
 	}
-	ELSE IFDEF "target_kotlin" {
-		base((context as! cave.GuiApplicationContextForKotlin).getActivityContext(), lang "kotlin" int {{{ android.widget.Spinner.MODE_DROPDOWN }}})
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+			let picker = UIPickerView()
+			picker.delegate = self
+			picker.dataSource = self
+			picker.showsSelectionIndicator = true
+			self.inputView = picker
+			self.placeholder = "(select)"
+			let toolBar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+			toolBar.barStyle = UIBarStyle.default
+			let flexButton = UIBarButtonItem(barButtonSystemItem: UIBarButtonItem.SystemItem.flexibleSpace, target: self, action: nil)
+			let barButtonDone = UIBarButtonItem(title: "Done", style: UIBarButtonItem.Style.bordered, target:self, action: #selector(onPickerDone))
+			toolBar.items = [flexButton, barButtonDone]
+			toolBar.isUserInteractionEnabled = true
+			self.inputAccessoryView = toolBar
+			pickerView = picker
+		}}}
 	}
 	widgetContext = context
 	setWidgetStyle(VALUE "__THIS__")
 	IFDEF "target_android" {
-		lang "java" {{{
-			setOnItemSelectedListener(this);
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				setOnItemSelectedListener(this);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setOnItemSelectedListener(this)
+			}}}
+		}
 	}
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			UIPickerView *picker = [[UIPickerView alloc] init];
 			picker.delegate = self;
@@ -613,9 +626,14 @@ func updateWidgetFont private
 		if widgetFontUnderline:
 			HTMLDOM.setStyle(element, "text-decoration", "underline")
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			[self setMinimumFontSize:widgetFontSize];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.minimumFontSize = CGFloat(widgetFontSize)
 		}}}
 	}
 	ELSE IFDEF "target_android" {
@@ -631,15 +649,6 @@ func updateWidgetFont private
 		lang "js" {{{
 			this.forceUpdate();
 		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		if adapter {
-			(adapter as MyAdapter).setWidgetFontSize(widgetFontSize)
-			(adapter as MyAdapter).setWidgetFontFamily(widgetFontFamily)
-			(adapter as MyAdapter).setWidgetFontResource(widgetFontResource)
-			(adapter as MyAdapter).setWidgetTextColor(widgetTextColor)
-			(adapter as MyAdapter).setWidgetPadding(widgetPadding)
-		}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -699,16 +708,28 @@ func updateWidgetAppearance(layoutChanged as bool) private
 {
 	var textColor #used = getActualWidgetTextColor()
 	IFDEF "target_android" {
-		lang "java" {{{
-			if(widgetBackgroundColor != null) {
-				setBackgroundColor(widgetBackgroundColor.toARGBInt32());
-			}
-			else {
-				setBackgroundColor(0);
-			}
-		}}}
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+				}
+				else {
+					setBackgroundColor(0);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
+				}
+				else {
+					setBackgroundColor(0)
+				}
+			}}}
+		}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		var bgc #used = widgetBackgroundColor
 		lang "objc" {{{
 			if(bgc != nil) {
@@ -719,6 +740,18 @@ func updateWidgetAppearance(layoutChanged as bool) private
 			}
 			self.textColor = [textColor toUIColor];
 			// Padding is used automatically: See above
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil
+			}
+			self.textColor = textColor.toUIColor()
 		}}}
 	}
 	ELSE IFDEF "target_html" {
@@ -752,16 +785,6 @@ func updateWidgetAppearance(layoutChanged as bool) private
 			this.forceUpdate();
 		}}}
 	}
-	IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			if(widgetBackgroundColor != null) {
-				setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
-			}
-			else {
-				setBackgroundColor(0)
-			}
-		}}}
-	}
 	ELSE {
 		ERROR "Not implemented"
 	}
@@ -769,7 +792,7 @@ func updateWidgetAppearance(layoutChanged as bool) private
 		Widget.onLayoutChanged(this)
 }
 
-IFDEF "target_iosoc"
+IFDEF "target_ios_objc"
 {
 	func onPickerDone
 	{
@@ -780,6 +803,17 @@ IFDEF "target_iosoc"
 			[self resignFirstResponder];
 		}}}
 	}
+}
+
+IFDEF "target_swift"
+{
+	lang "swift" {{{
+		@objc public func onPickerDone() {
+			let index: Swift.Int = self.getSelectedWidgetIndex()
+			self.text = self.getWidgetTextForIndex(index)
+			self.resignFirstResponder()
+		}
+	}}}
 }
 
 func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
@@ -797,14 +831,20 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 				list += item.value
 			}
 		}
-		adapter = new MyAdapter((widgetContext as! cave.GuiApplicationContextForAndroid).getAndroidActivityContext(), lang "java" int {{{ android.R.layout.simple_spinner_item }}}, list)
-		adapter.setDropDownViewResource(lang "java" int {{{ android.R.layout.simple_spinner_dropdown_item }}})
+		IFDEF "target_java" {
+			adapter = new MyAdapter((widgetContext as! cave.GuiApplicationContextForAndroid).getAndroidActivityContext(), lang "java" int {{{ android.R.layout.simple_spinner_item }}}, list)
+			adapter.setDropDownViewResource(lang "java" int {{{ android.R.layout.simple_spinner_dropdown_item }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			adapter = new MyAdapter((widgetContext as! cave.GuiApplicationContextForAndroid).getAndroidActivityContext(), lang "kotlin" int {{{ android.R.layout.simple_spinner_item }}}, list)
+			adapter.setDropDownViewResource(lang "kotlin" int {{{ android.R.layout.simple_spinner_dropdown_item }}})
+		}
 		ignoreInitialSelectEvent = true
 		base.setAdapter(adapter)
 		updateWidgetFont()
 	}
 	ELSE IFDEF "target_html" {
-		HTMLDOM.setInnerHTML(element, "")
+		HTMLDOM.setTextContent(element, "")
 		if widgetItems {
 			var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
 			while it {
@@ -812,7 +852,7 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 				if item == null:
 					break
 				var option = HTMLDOM.createElement("option")
-				HTMLDOM.setInnerHTML(option, item.value)
+				HTMLDOM.setTextContent(option, item.value)
 				HTMLDOM.setAttribute(option, "value", item.key)
 				HTMLDOM.appendChild(element, option)
 			}
@@ -823,27 +863,15 @@ func setWidgetItemsAsKeyValueList(items as KeyValueList<string, string>)
 			this.forceUpdate();
 		}}}
 	}
-	ELSE IFDEF "target_iosoc" {
+	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			[pickerView reloadAllComponents];
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		var list = new vector<string>
-		if widgetItems {
-			var it as Iterator<KeyValuePair<string, string>> #force = widgetItems.iterate()
-			while it {
-				var item = it.next()
-				if item == null:
-					break
-				list += item.value
-			}
-		}
-		adapter = new MyAdapter((widgetContext as! cave.GuiApplicationContextForKotlin).getAndroidActivityContext(), lang "kotlin" int {{{ android.R.layout.simple_spinner_item }}}, list as !"kotlin.collections.ArrayList<kotlin.String>?")
-		adapter.setDropDownViewResource(lang "kotlin" int {{{ android.R.layout.simple_spinner_dropdown_item }}})
-		ignoreInitialSelectEvent = true
-		base.setAdapter(adapter)
-		updateWidgetFont()
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			pickerView.reloadAllComponents()
+		}}}
 	}
 	ELSE {
 		ERROR "Not implemented."
@@ -982,8 +1010,11 @@ func getWidgetTextForIndex(index as int) private as string
 
 func getSelectedWidgetIndex as int
 {
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		return lang "objc" int {{{ [pickerView selectedRowInComponent:0] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ Int(pickerView.selectedRow(inComponent: 0)) }}}
 	}
 	ELSE IFDEF "target_android" {
 		return selectedWidgetIndex
@@ -994,9 +1025,6 @@ func getSelectedWidgetIndex as int
 	ELSE IFDEF "target_reactjs" {
 		return lang "js" int {{{ this.selectElement.selectedIndex }}}
 	}
-	ELSE IFDEF "target_kotlin" {
-		return selectedWidgetIndex
-	}
 	ELSE {
 		ERROR "Not implemented"
 		return -1
@@ -1006,7 +1034,7 @@ func getSelectedWidgetIndex as int
 func setSelectedWidgetIndex(index as int)
 {
 	var v #used = adjustSelectedWidgetItemIndex(index)
-	IFDEF "target_iosoc" {
+	IFDEF "target_ios_objc" {
 		var txt = getWidgetTextForIndex(v)
 		if txt == null:
 			txt = ""
@@ -1016,6 +1044,19 @@ func setSelectedWidgetIndex(index as int)
 		if index >= 0 && index < getWidgetItemCount() {
 			lang "objc" {{{
 				[pickerView selectRow:index inComponent:0 animated:NO];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		var txt = getWidgetTextForIndex(v)
+		if txt == null:
+			txt = ""
+		lang "swift" {{{
+			self.text = txt
+		}}}
+		if index >= 0 && index < getWidgetItemCount() {
+			lang "swift" {{{
+				pickerView.selectRow(Int(index), inComponent: 0, animated: false)
 			}}}
 		}
 	}
@@ -1032,10 +1073,6 @@ func setSelectedWidgetIndex(index as int)
 		lang "js" {{{
 			this.selectElement.selectedIndex = v;
 		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		selectedWidgetIndex = v
-		base.setSelection(v)
 	}
 	ELSE {
 		ERROR "Not implemented"
