@@ -277,6 +277,7 @@ func executeUpdateDelete(stmt as SQLStatement) override as int
 class ResultSet is SQLResultSetIterator
 {
 	var reader public as !"Mono.Data.Sqlite.SqliteDataReader"
+	var onNextRecord as bool
 
 	dtor:
 		close()
@@ -292,7 +293,7 @@ class ResultSet is SQLResultSetIterator
 	func nextValues(values as vector<object>) override as bool
 	{
 		assert values
-		assert step()
+		assert hasNext()
 		cape.Vector.clear(values)
 		var cols = getColumnCount()
 		var n as int
@@ -302,6 +303,7 @@ class ResultSet is SQLResultSetIterator
 				o = ""
 			values += o
 		}
+		onNextRecord = false
 		return true
 	}
 
@@ -419,7 +421,7 @@ class ResultSet is SQLResultSetIterator
 
 	func next override as cape.DynamicMap
 	{
-		assert step()
+		assert hasNext()
 		var names = getColumnNames()
 		if names == null || cape.Vector.getSize(names) < 1:
 			return null
@@ -427,13 +429,20 @@ class ResultSet is SQLResultSetIterator
 		var n as int
 		for(n = 0; n < cape.Vector.getSize(names); n++):
 			v.set(cape.Vector.get(names, n), getColumnObject(n))
+		onNextRecord = false
 		return v
 	}
 
 	func hasNext override as bool
 	{
-		// FIXME
-		return true
+		if onNextRecord:
+			return true
+		var v = step()
+		if v {
+			onNextRecord = true
+			return true
+		}
+		return false
 	}
 }
 

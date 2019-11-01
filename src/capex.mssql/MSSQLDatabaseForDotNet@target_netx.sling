@@ -186,6 +186,7 @@ class ResultSet is SQLResultSetIterator
 	var connection public as !"System.Data.SqlClient.SqlConnection"
 	var columnCount = -1
 	var columnNames as vector<string>
+	var onNextRecord as bool
 
 	func close override
 	{
@@ -202,7 +203,7 @@ class ResultSet is SQLResultSetIterator
 	func nextValues(values as vector<object>) override as bool
 	{
 		assert values
-		assert step()
+		assert hasNext()
 		Vector.clear(values)
 		var cols = getColumnCount()
 		for(var n = 0; n < cols; n++) {
@@ -211,6 +212,7 @@ class ResultSet is SQLResultSetIterator
 				o = ""
 			values += o
 		}
+		onNextRecord = false
 		return true
 	}
 
@@ -349,7 +351,7 @@ class ResultSet is SQLResultSetIterator
 
 	func next override as DynamicMap
 	{
-		assert step()
+		assert hasNext()
 		var names = getColumnNames()
 		if not names || SIZE(names) < 1:
 			return null
@@ -357,13 +359,20 @@ class ResultSet is SQLResultSetIterator
 		var sz = SIZE names
 		for(var n = 0; n < sz; n++):
 			v.set(names[n], getColumnObject(n))
+		onNextRecord = false
 		return v
 	}
 
 	func hasNext override as bool
 	{
-		// FIXME
-		return true
+		if onNextRecord:
+			return true
+		var v = step()
+		if v {
+			onNextRecord = true
+			return true
+		}
+		return false
 	}
 }
 
