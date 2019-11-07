@@ -66,21 +66,19 @@ func isAbsolutePath(path as string) static as bool
 	ELSE IFDEF "target_browser" {
 		return String.startsWith(path, "/")
 	}
-	ELSE IFDEF "target_windows" {
-		var c0 = String.getChar(path, 0)
-		if c0 == '\\':
-			return true
-		if Character.isAlpha(c0) && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\':
-			return true
-		return false
-	}
 	ELSE {
-		var sep = getPathSeparator()
 		var c0 = String.getChar(path, 0)
-		if c0 == sep:
+		if c0 == '/':
 			return true
-		if Character.isAlpha(c0) && OS.isWindows() && String.getChar(path, 1) == ':' && String.getChar(path, 2) == '\\':
-			return true
+		if OS.isWindows() {
+			if c0 == '\\':
+				return true
+			if Character.isAlpha(c0) && String.getChar(path, 1) == ':' {
+				var d = String.getChar(path, 2)
+				if d == '\\' || d == '/':
+					return true
+			}
+		}
 		return false
 	}
 }
@@ -203,13 +201,24 @@ func unsetVariable(key as string) static
 
 func setCurrentDirectory(dir as File) static
 {
-	ERROR "Not implemented"
+	assert dir
+	IFDEF "target_sushi" {
+		lang "lua" {{{
+			_io:set_current_directory(dir:getPath())
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
 }
 
 func getCurrentDirectory static as File
 {
 	IFDEF "target_cs" {
 		return File.forPath(lang "cs" string {{{ System.IO.Directory.GetCurrentDirectory() }}})
+	}
+	ELSE IFDEF "target_sushi" {
+		return File.forPath(lang "lua" string {{{ _io:get_current_directory() }}})
 	}
 	ELSE {
 		ERROR "Not implemented"
