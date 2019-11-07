@@ -24,6 +24,60 @@
 
 class:
 
+func parseAsVectorObject(xml as string, ignoreWhiteSpace as bool = true) static as DynamicVector
+{
+	var root as DynamicVector
+	var stack = new Stack<DynamicMap>()
+	var pp = forString(xml)
+	pp.setIgnoreWhiteSpace(ignoreWhiteSpace)
+	loop {
+		var o = pp.next()
+		if o == null:
+			break
+		if o is StartElement {
+			var name = (o as! StartElement).getName()
+			if name == "?xml":
+				continue
+			var nn = new DynamicMap()
+			nn.set("name", name)
+			nn.set("attributes", (o as! StartElement).getParams())
+			if stack.isEmpty() {
+				stack.push(nn)
+			}
+			else {
+				var current = stack.peek()
+				var children = current.getDynamicVector("children")
+				if children == null {
+					children = new DynamicVector()
+					current.set("children", children)
+				}
+				children.append(nn)
+				stack.push(nn)
+			}
+		}
+		else if o is EndElement {
+			var e = stack.pop()
+			if stack.isEmpty() {
+				if root == null:
+					root = new DynamicVector()
+				root.append(e)
+			}
+		}
+		else if o is CharacterData {
+			var current = stack.peek()
+			if current {
+				var children = current.getDynamicVector("children")
+				if children == null {
+					children = new DynamicVector()
+					current.set("children", children)
+				}
+				children.append((o as! CharacterData).getData())
+			}
+		}
+	}
+	return root
+}
+
 func parseAsTreeObject(xml as string, ignoreWhiteSpace as bool = true) static as DynamicMap
 {
 	var root as DynamicMap
@@ -278,19 +332,29 @@ func next as Value
 		nextQueue = null
 		return v
 	}
+	var prv as char
 	var pos = currentPosition
+	var qot = false
 	while it.hasEnded() == false {
 		var cbp = currentPosition
 		var nxb = getNextChar()
 		if nxb < 1:
 			continue
 		if tag {
-			if nxb == '>' {
+			if nxb == '>' && not qot {
 				var ts = tag.toString()
 				tag = null
 				return onTagString(ts, pos)
 			}
 			tag.append(nxb)
+			if nxb == '"' && prv != '\\'{
+				if qot {
+					qot = false
+				}
+				else {
+					qot = true
+				}
+			}
 			if nxb == '[' && tag.count() == String.getLength(cdataStart) && String.equals(cdataStart, tag.toString()) {
 				tag = null
 				cdata = new StringBuilder()
@@ -299,6 +363,7 @@ func next as Value
 				tag = null
 				comment = new StringBuilder()
 			}
+			prv = nxb
 		}
 		else if cdata {
 			var c0 = nxb
