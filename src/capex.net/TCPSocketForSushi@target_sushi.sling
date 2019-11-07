@@ -25,6 +25,7 @@
 class is TCPSocket is FileDescriptor:
 
 prop fd as int = -1
+var isBlocking = true
 
 dtor
 {
@@ -51,7 +52,7 @@ func close override
 	lang "lua" {{{
 		_net:close_tcp_socket(fd)
 	}}}
-	fd = -1
+	this.fd = -1
 }
 
 func getRemoteAddress override as string
@@ -118,15 +119,27 @@ func accept override as TCPSocket
 
 func setBlocking(blocking as bool) override as bool
 {
-	ERROR "Not implemented"
-	return fail
+	assert fd >= 0
+	var r = 0
+	var fd = this.fd
+	if blocking {
+		lang "lua" {{{
+			r = _net:set_socket_blocking(fd)
+		}}}
+	}
+	else {
+		lang "lua" {{{
+			r = _net:set_socket_non_blocking(fd)
+		}}}
+	}
+	if r != 0:
+		return false
+	isBlocking = blocking
+	return true
 }
 
-func getBlocking override as bool
-{
-	ERROR "Not implemented"
-	return fail
-}
+func getBlocking override as bool:
+	return isBlocking
 
 func read(buffer as buffer) override as int:
 	return readWithTimeout(buffer, -1)

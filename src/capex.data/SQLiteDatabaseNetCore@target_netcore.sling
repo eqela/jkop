@@ -282,6 +282,7 @@ func executeUpdateDelete(stmt as SQLStatement) override as int
 class ResultSet is SQLResultSetIterator
 {
 	var reader public as !"Microsoft.Data.Sqlite.SqliteDataReader"
+	var hasNextRecord as bool
 
 	dtor:
 		close()
@@ -312,10 +313,12 @@ class ResultSet is SQLResultSetIterator
 
 	func step override as bool
 	{
+		assert reader
+		if hasNextRecord {
+			hasNextRecord = false
+			return true
+		}
 		lang "cs" {{{
-			if(reader == null) {
-				return(false);
-			}
 			if(reader.Read() == false) {
 				reader.Close();
 				reader = null;
@@ -442,6 +445,18 @@ class ResultSet is SQLResultSetIterator
 		for(n = 0; n < cape.Vector.getSize(names); n++):
 			v.set(cape.Vector.get(names, n), getColumnObject(n))
 		return v
+	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		var v = step()
+		if v {
+			hasNextRecord = true
+			return true
+		}
+		return false
 	}
 }
 

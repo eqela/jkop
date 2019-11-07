@@ -30,10 +30,15 @@ import sympathy.db
 import capex.data
 
 var dbstring as string
+var dbConfig as DynamicMap
 prop db as SQLDatabase
 
 func configure(key as string, value as string, relativeTo as File, error as Error) override as bool
 {
+	if key == "dbConfig" {
+		dbConfig = JSONParser.parse(value) as DynamicMap
+		return true
+	}
 	if key == "db" {
 		dbstring = value
 		return true
@@ -53,12 +58,23 @@ func ensureTableExists(table as SQLTableInfo) as bool
 func initializeServer(server as HTTPServer) override as bool
 {
 	assert base.initializeServer(server)
-	assert String.isNotEmpty(dbstring):
-		Log.error(ctx, "No database configured. Use -Odb=... to configure.")
-	assert db = initializeSQLDatabase(dbstring):
-		Log.error(ctx, "Unable to connect to database: `" .. dbstring .. "'")
+	if String.isNotEmpty(dbstring) {
+		assert db = initializeSQLDatabase(dbstring):
+			Log.error(ctx, "Unable to connect to database: `" .. dbstring .. "'")
+	}
+	else if dbConfig {
+		assert db = initializeSQLDatabase(dbConfig):
+			Log.error(ctx, "Unable to connect to database: `" .. String.asString(dbConfig) .. "'")
+	}
+	else {
+		Log.error(ctx, "No database configured.")
+		return false
+	}
 	return true
 }
 
 func initializeSQLDatabase(dbstring as string) virtual as SQLDatabase:
 	return SQLDatabaseProvider.getDatabase(ctx, dbstring)
+
+func initializeSQLDatabase(config as DynamicMap) virtual as SQLDatabase:
+	return SQLDatabaseProvider.getDatabase(ctx, config)
