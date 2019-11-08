@@ -22,13 +22,21 @@
  * SOFTWARE.
  */
 
-class:
+class is MarkupLanguageParser:
 
-func parseAsTreeObject(xml as string, ignoreWhiteSpace as bool = true) static as XMLDOMNode
+func forString(string as string) static as this
 {
-	var root as XMLDOMNode
-	var stack = new Stack<XMLDOMNode>()
-	var pp = XMLParser.forString(xml)
+	assert string
+	var v = new this()
+	v.it = CharacterIteratorForString.forString(string)
+	return v
+}
+
+func parseAsVectorObject(xml as string, ignoreWhiteSpace as bool = true) static as DynamicVector
+{
+	var root as DynamicVector
+	var stack = new Stack<DynamicMap>()
+	var pp = HTMLParser.forString(xml)
 	pp.setIgnoreWhiteSpace(ignoreWhiteSpace)
 	loop {
 		var o = pp.next()
@@ -36,49 +44,43 @@ func parseAsTreeObject(xml as string, ignoreWhiteSpace as bool = true) static as
 			break
 		if o is MarkupLanguageParser.StartElement {
 			var name = (o as! MarkupLanguageParser.StartElement).getName()
-			if root == null && name == "?xml":
+			if name == "?xml":
 				continue
-			var dn = new XMLDOMNode()
-			dn.name = name
-			dn.attributes = (o as! MarkupLanguageParser.StartElement).getParams()
-			if root == null {
-				root = dn
-				stack.push(dn)
+			var nn = new DynamicMap()
+			nn.set("name", name)
+			nn.set("attributes", (o as! MarkupLanguageParser.StartElement).getParams())
+			if stack.isEmpty() {
+				stack.push(nn)
 			}
 			else {
 				var current = stack.peek()
-				if current == null:
-					current = root
-				var children = current.children
+				var children = current.getDynamicVector("children")
 				if children == null {
-					children = new vector<XMLDOMNode>
-					current.children = children
+					children = new DynamicVector()
+					current.set("children", children)
 				}
-				children += dn
-				stack.push(dn)
+				children.append(nn)
+				stack.push(nn)
 			}
 		}
 		else if o is MarkupLanguageParser.EndElement {
-			stack.pop()
+			var e = stack.pop()
+			if stack.isEmpty() {
+				if root == null:
+					root = new DynamicVector()
+				root.append(e)
+			}
 		}
 		else if o is MarkupLanguageParser.CharacterData {
 			var current = stack.peek()
 			if current {
-				var children = current.children
+				var children = current.getDynamicVector("children")
 				if children == null {
-					children = new vector<XMLDOMNode>
-					current.children = children
+					children = new DynamicVector()
+					current.set("children", children)
 				}
-				var dn = new XMLDOMNode()
-				dn.name = "cdata"
-				dn.data = (o as! MarkupLanguageParser.CharacterData).getData()
-				children += dn
+				children.append((o as! MarkupLanguageParser.CharacterData).getData())
 			}
-		}
-		else if o is MarkupLanguageParser.TextData {
-			var current = stack.peek()
-			if current:
-				current.data = (o as! MarkupLanguageParser.TextData).getData()
 		}
 	}
 	return root
