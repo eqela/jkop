@@ -183,6 +183,7 @@ class ResultSet is SQLResultSetIterator
 {
 	var ctx public as LoggingContext
 	var reader public as !"MySql.Data.MySqlClient.MySqlDataReader"
+	var hasNextRecord as bool
 
 	dtor:
 		close()
@@ -214,6 +215,10 @@ class ResultSet is SQLResultSetIterator
 	func step override as bool
 	{
 		assert reader
+		if hasNextRecord {
+			hasNextRecord = false
+			return true
+		}
 		var v = false
 		var error as string = null
 		lang "cs" {{{
@@ -351,14 +356,26 @@ class ResultSet is SQLResultSetIterator
 			v.set(cape.Vector.get(names, n), getColumnObject(n))
 		return v
 	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		var v = step()
+		if v {
+			hasNextRecord = true
+			return true
+		}
+		return false
+	}
 }
 
 var connectionString as string
 
-func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string) override as bool
+func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string) override as bool
 {
 	setDatabaseName(database)
-	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Password=" .. password .. ";SslMode=" .. sslMode .. ";"
+	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Protocol=" .. protocol .. ";Password=" .. password .. ";SslMode=" .. sslMode .. ";"
 	if getEnableUTF8():
 		connectionString = connectionString .. "charset=utf8mb4;"
 	Log.debug(getLogger(), "MySQL connection string: `" .. connectionString .. "'")

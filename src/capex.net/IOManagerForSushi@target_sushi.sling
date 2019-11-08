@@ -46,6 +46,16 @@ class MyEntry is IOManagerEntry
 		wrl()
 	}
 
+	func onReadWriteReady
+	{
+		var rrl = this.rrl
+		var wrl = this.wrl
+		if rrl:
+			rrl()
+		if wrl:
+			wrl()
+	}
+
 	func setListeners(rrl as function, wrl as function)
 	{
 		this.rrl = rrl
@@ -67,11 +77,9 @@ class MyEntry is IOManagerEntry
 
 	func update
 	{
-		remove()
 		var epollfd = this.epollfd
 		var fd = this.fd
 		var myself = this
-		var objref = 0
 		var mode = -1
 		if rrl && wrl {
 			mode = 2
@@ -82,11 +90,24 @@ class MyEntry is IOManagerEntry
 		else if rrl {
 			mode = 0
 		}
-		assert mode >= 0
-		lang "lua" {{{
-			objref = _net:register_io_listener(epollfd, fd, mode, myself)
-		}}}
-		this.objref = objref
+		if mode < 0 {
+			remove()
+		}
+		else {
+			if objref > 0 {
+				var objref = this.objref
+				lang "lua" {{{
+					_net:update_io_listener(epollfd, fd, mode, objref)
+				}}}
+			}
+			else {
+				var objref = 0
+				lang "lua" {{{
+					objref = _net:register_io_listener(epollfd, fd, mode, myself)
+				}}}
+				this.objref = objref
+			}
+		}
 	}
 
 	func remove

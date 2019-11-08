@@ -32,6 +32,11 @@ const SSL_MODE_REQUIRED = "Required"
 const SSL_MODE_VERIFYCA = "VerifyCA"
 const SSL_MODE_VERIFYFULL = "VerifyFull"
 
+const PROTOCOL_SOCKET = "socket"
+const PROTOCOL_UNIX = "unix"
+const PROTOCOL_PIPE = "pipe"
+const PROCOL_MEMORY = "memory"
+
 prop databaseName as string
 prop enableUTF8 = false
 
@@ -60,14 +65,35 @@ func connect(serverAddress as string, username as string, password as string, da
 	var v = assert instance()
 	v.setLogger(logger)
 	v.setEnableUTF8(enableUTF8)
-	assert v.initialize(serverAddress, username, password, database, sslMode)
+	assert v.initialize(serverAddress, username, password, database, sslMode, PROTOCOL_SOCKET)
+	return v
+}
+
+func forConfig(logContext as LoggingContext, config as DynamicMap) static as this
+{
+	assert config
+	var serverAddress = assert config.getString("serverAddress")
+	var username = assert config.getString("username")
+	var password = assert config.getString("password")
+	var database = assert config.getString("database")
+	var enableUTF8 = config.getBoolean("enableUTF8", false)
+	var sslMode = config.getString("sslMode")
+	if String.isEmpty(sslMode):
+		sslMode = SSL_MODE_NONE
+	var protocol = config.getString("protocol")
+	if String.isEmpty(protocol):
+		protocol = PROTOCOL_SOCKET
+	var v = assert instance()
+	v.setLogger(logContext)
+	v.setEnableUTF8(enableUTF8)
+	assert v.initialize(serverAddress, username, password, database, sslMode, protocol)
 	return v
 }
 
 func getDatabaseTypeId override as string:
 	return "mysql"
 
-func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string) virtual as bool:
+func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string) virtual as bool:
 	return true
 
 func querySingleRow(stmt as SQLStatement) override as cape.DynamicMap
@@ -99,8 +125,7 @@ func queryAllTableNames(callback as function<void, vector>) override
 			callback(null)
 		}
 		var v = new vector
-		loop
-		{
+		loop {
 			var vv = it.next()
 			if not vv:
 				break

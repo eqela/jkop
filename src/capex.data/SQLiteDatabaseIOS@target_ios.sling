@@ -339,6 +339,7 @@ class ResultSet is SQLResultSetIterator
 		var compiledStmt as !"OpaquePointer"
 	}
 	var columnNames as vector<string>
+	var hasNextRecord as bool
 
 	func create(stmt as Statement) static as this
 	{
@@ -352,15 +353,14 @@ class ResultSet is SQLResultSetIterator
 		assert compiledStmt
 		var n as DynamicMap
 		var columnNames as vector<string>
-		if step() {
-			n = new DynamicMap()
-			columnNames = getColumnNames()
-			var cnCount = Vector.getSize(columnNames)
-			for(var i = 0; i < cnCount; i++) {
-				var s = getColumnObject(i)
-				var cn = Vector.get(columnNames, i)
-				n.set(cn, s)
-			}
+		assert step()
+		n = new DynamicMap()
+		columnNames = getColumnNames()
+		var cnCount = Vector.getSize(columnNames)
+		for(var i = 0; i < cnCount; i++) {
+			var s = getColumnObject(i)
+			var cn = Vector.get(columnNames, i)
+			n.set(cn, s)
 		}
 		return n
 	}
@@ -369,8 +369,7 @@ class ResultSet is SQLResultSetIterator
 	{
 		assert values
 		assert compiledStmt
-		if not step():
-			return false
+		assert step()
 		Vector.clear(values)
 		var cols = getColumnCount()
 		for(var i = 0; i < cols; i++) {
@@ -398,6 +397,10 @@ class ResultSet is SQLResultSetIterator
 
 	func step override as bool
 	{
+		if hasNextRecord {
+			hasNextRecord = false
+			return true
+		}
 		var b as bool
 		IFDEF "target_objc" {
 			lang "objc" {{{
@@ -581,6 +584,18 @@ class ResultSet is SQLResultSetIterator
 	func close override
 	{
 		compiledStmt = null
+	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		var v = step()
+		if v {
+			hasNextRecord = true
+			return true
+		}
+		return false
 	}
 }
 

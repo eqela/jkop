@@ -29,6 +29,7 @@ class is NetworkConnectionManager abstract:
 prop port as int
 var socket as TCPSocket
 var esocket as IOManagerEntry
+var acceptBatchSize as int
 
 func initialize override as bool
 {
@@ -36,6 +37,12 @@ func initialize override as bool
 	assert socket = TCPSocket.createAndListen(port) {
 		Log.error(logContext, "Failed to listen on TCP port " .. String.forInteger(port))
 		cleanup()
+	}
+	if socket.setBlocking(false) == true {
+		acceptBatchSize = 1024
+	}
+	else {
+		acceptBatchSize = 1
 	}
 	assert esocket = ioManager.addWithReadListener(socket, onIncomingConnection) {
 		Log.error(logContext, "Failed to register with event loop")
@@ -60,7 +67,14 @@ func cleanup override
 
 func onIncomingConnection private
 {
-	var nn = assert socket.accept():
-		Log.error(logContext, "Failed to accept an incoming client.")
-	onNewSocket(nn)
+	var n = 0
+	loop {
+		if n >= acceptBatchSize:
+			break
+		var nn = socket.accept()
+		if not nn:
+			break
+		onNewSocket(nn)
+		n ++
+	}
 }
