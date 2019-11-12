@@ -39,7 +39,7 @@ class Position public
 
 prop fileName as string
 prop xmlString as string
-var values as vector<XMLParser.Value>
+var values as vector<MarkupLanguageParser.Value>
 var lines as vector<string>
 prop currentPosition = 0
 prop autoSkipTextAndComments = true
@@ -99,7 +99,7 @@ func executeForString(ctx as LoggingContext, text as string, fileName as string 
 
 func initialize(parser as XMLParser) private
 {
-	values = new vector<XMLParser.Value>
+	values = new vector<MarkupLanguageParser.Value>
 	if parser {
 		var first = true
 		loop {
@@ -107,10 +107,10 @@ func initialize(parser as XMLParser) private
 			if not vv:
 				break
 			if first {
-				if vv is XMLParser.CharacterData || vv is XMLParser.Comment {
+				if vv is MarkupLanguageParser.CharacterData || vv is MarkupLanguageParser.Comment || vv is MarkupLanguageParser.TextData {
 					; // do nothing
 				}
-				else if vv is XMLParser.StartElement && (vv as! XMLParser.StartElement).getName() == "?xml" {
+				else if vv is MarkupLanguageParser.StartElement && (vv as! MarkupLanguageParser.StartElement).getName() == "?xml" {
 					first = false
 					continue
 				}
@@ -127,7 +127,7 @@ func initialize(parser as XMLParser) private
 func expect(text as string):
 	error("Expecting: " .. text)
 
-func unsupported(element as XMLParser.StartElement)
+func unsupported(element as MarkupLanguageParser.StartElement)
 {
 	if element {
 		error("Unsupported element inside `" .. element.getName() .. "'")
@@ -144,17 +144,20 @@ func error(message as string)
 	if value {
 		var name = getFileName()
 		var token as string
-		if value is XMLParser.StartElement {
-			token = (value as! XMLParser.StartElement).getName()
+		if value is MarkupLanguageParser.StartElement {
+			token = (value as! MarkupLanguageParser.StartElement).getName()
 		}
-		else if value is XMLParser.EndElement {
-			token = "/" .. (value as! XMLParser.EndElement).getName()
+		else if value is MarkupLanguageParser.EndElement {
+			token = "/" .. (value as! MarkupLanguageParser.EndElement).getName()
 		}
-		else if value is XMLParser.CharacterData {
-			token = (value as! XMLParser.CharacterData).getData()
+		else if value is MarkupLanguageParser.CharacterData {
+			token = (value as! MarkupLanguageParser.CharacterData).getData()
 		}
-		else if value is XMLParser.Comment {
-			token = "<!-- " .. (value as! XMLParser.Comment).getText() .. " -->"
+		else if value is MarkupLanguageParser.TextData {
+			token = (value as! MarkupLanguageParser.TextData).getData()
+		}
+		else if value is MarkupLanguageParser.Comment {
+			token = "<!-- " .. (value as! MarkupLanguageParser.Comment).getText() .. " -->"
 		}
 		else {
 			token = "(unknown)"
@@ -244,7 +247,7 @@ macro TRY_ACCEPT(x)
 		return true
 }
 
-func parserPeek as XMLParser.Value
+func parserPeek as MarkupLanguageParser.Value
 {
 	assert values
 	assert currentPosition >= 0
@@ -252,7 +255,7 @@ func parserPeek as XMLParser.Value
 	return values[currentPosition]
 }
 
-func parserNext as XMLParser.Value
+func parserNext as MarkupLanguageParser.Value
 {
 	var v = parserPeek()
 	if v:
@@ -260,7 +263,7 @@ func parserNext as XMLParser.Value
 	return v
 }
 
-func parserPrev as XMLParser.Value
+func parserPrev as MarkupLanguageParser.Value
 {
 	if currentPosition < 1:
 		return null
@@ -268,12 +271,12 @@ func parserPrev as XMLParser.Value
 	return parserPeek()
 }
 
-func acceptStartElement(name as string = null) as XMLParser.StartElement
+func acceptStartElement(name as string = null) as MarkupLanguageParser.StartElement
 {
 	var oo = getCurrentPosition()
 	if autoSkipTextAndComments:
 		skipTextAndComments()
-	var nn = assert parserPeek() as XMLParser.StartElement
+	var nn = assert parserPeek() as MarkupLanguageParser.StartElement
 	if name == null || nn.getName() == name {
 		parserNext()
 		return nn
@@ -282,7 +285,7 @@ func acceptStartElement(name as string = null) as XMLParser.StartElement
 	return null
 }
 
-func parseStartElement(name as string = null) as XMLParser.StartElement
+func parseStartElement(name as string = null) as MarkupLanguageParser.StartElement
 {
 	var v = acceptStartElement(name)
 	if not v {
@@ -296,15 +299,15 @@ func parseStartElement(name as string = null) as XMLParser.StartElement
 	return v
 }
 
-func acceptAnyEndElement as XMLParser.EndElement:
+func acceptAnyEndElement as MarkupLanguageParser.EndElement:
 	return acceptEndElementWithName(null)
 
-func acceptEndElementWithName(name as string) as XMLParser.EndElement
+func acceptEndElementWithName(name as string) as MarkupLanguageParser.EndElement
 {
 	var oo = getCurrentPosition()
 	if autoSkipTextAndComments:
 		skipTextAndComments()
-	var nn = assert parserPeek() as XMLParser.EndElement
+	var nn = assert parserPeek() as MarkupLanguageParser.EndElement
 	if name == null || nn.getName() == name {
 		parserNext()
 		return nn
@@ -313,17 +316,17 @@ func acceptEndElementWithName(name as string) as XMLParser.EndElement
 	return null
 }
 
-func acceptEndElement(element as XMLParser.StartElement) as XMLParser.EndElement
+func acceptEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
 {
 	if not element:
 		return acceptEndElementWithName(null)
 	return acceptEndElementWithName(element.getName())
 }
 
-func parseAnyEndElement as XMLParser.EndElement:
+func parseAnyEndElement as MarkupLanguageParser.EndElement:
 	return parseEndElementWithName(null)
 
-func parseEndElementWithName(name as string) as XMLParser.EndElement
+func parseEndElementWithName(name as string) as MarkupLanguageParser.EndElement
 {
 	var v = acceptEndElementWithName(name)
 	if not v {
@@ -337,14 +340,14 @@ func parseEndElementWithName(name as string) as XMLParser.EndElement
 	return v
 }
 
-func parseEndElement(element as XMLParser.StartElement) as XMLParser.EndElement
+func parseEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
 {
 	if not element:
 		return parseEndElementWithName(null)
 	return parseEndElementWithName(element.getName())
 }
 
-func acceptSingleElement(name as string = null) as XMLParser.StartElement
+func acceptSingleElement(name as string = null) as MarkupLanguageParser.StartElement
 {
 	var oo = getCurrentPosition()
 	var element = assert acceptStartElement(name)
@@ -353,7 +356,7 @@ func acceptSingleElement(name as string = null) as XMLParser.StartElement
 	return element
 }
 
-func parseSingleElement(name as string = null) as XMLParser.StartElement
+func parseSingleElement(name as string = null) as MarkupLanguageParser.StartElement
 {
 	var v = acceptSingleElement(name)
 	if not v {
@@ -403,7 +406,7 @@ func parseStringElementData(tagName as string = null) as string
 	return v
 }
 
-func acceptElementTree(name as string, startHandler as function<void,XMLParser.StartElement>, childHandler as function<bool>) as bool
+func acceptElementTree(name as string, startHandler as function<void,MarkupLanguageParser.StartElement>, childHandler as function<bool>) as bool
 {
 	var element = assert acceptStartElement(name)
 	if startHandler:
@@ -426,13 +429,13 @@ func acceptText(force as bool = false) as string
 		if not cc:
 			break
 		if skipCommentsInText {
-			if cc is XMLParser.Comment {
+			if cc is MarkupLanguageParser.Comment {
 				parserNext()
 				continue
 			}
 		}
-		if cc is XMLParser.CharacterData {
-			var txt = (cc as! XMLParser.CharacterData).getData()
+		if cc is MarkupLanguageParser.CharacterData || cc is MarkupLanguageParser.TextData {
+			var txt = getTextData(cc)
 			if String.isNotEmpty(txt) {
 				if sb == null:
 					sb = new StringBuilder()
@@ -468,12 +471,12 @@ func skipTextAndComments
 		var cc = parserPeek()
 		if not cc:
 			break
-		if cc is XMLParser.Comment {
+		if cc is MarkupLanguageParser.Comment {
 			parserNext()
 			continue
 		}
-		if cc is XMLParser.CharacterData {
-			var txt = (cc as! XMLParser.CharacterData).getData()
+		if cc is MarkupLanguageParser.CharacterData || cc is MarkupLanguageParser.TextData {
+			var txt = getTextData(cc)
 			if isEmptyString(txt) {
 				parserNext()
 				continue
@@ -536,6 +539,15 @@ func calculatePosition(pos as int, result as Position)
 			p ++
 		}
 	}
+}
+
+func getTextData(elem as MarkupLanguageParser.Value) private as string
+{
+	if elem is MarkupLanguageParser.CharacterData:
+		return (elem as! MarkupLanguageParser.CharacterData).getData()
+	if elem is MarkupLanguageParser.TextData:
+		return (elem as! MarkupLanguageParser.TextData).getData()
+	return null
 }
 
 func getLines private as vector<string>
