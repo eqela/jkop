@@ -1,0 +1,291 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+import jk.env
+
+class:
+
+class FDReader is Reader is Closable
+{
+	func forFd(fd as int) static as this
+	{
+		if fd < 0:
+			return null
+		var v = new this()
+		v.setFd(fd)
+		return v
+	}
+
+	prop fd as int
+
+	func close
+	{
+		var fd = this.fd
+		if fd >= 0 {
+			lang "lua" {{{
+				_io:close_handle(fd)
+			}}}
+			fd = -1
+		}
+	}
+
+	func read(buffer as buffer) as int
+	{
+		assert buffer
+		var fd = this.fd
+		var v = 0
+		lang "lua" {{{
+			v = _io:read_from_handle(fd, buffer)
+		}}}
+		return v
+	}
+}
+
+class FDWriter is Writer is Closable
+{
+	func forFd(fd as int) static as this
+	{
+		if fd < 0:
+			return null
+		var v = new this()
+		v.setFd(fd)
+		return v
+	}
+
+	prop fd as int
+
+	func close
+	{
+		var fd = this.fd
+		if fd >= 0 {
+			lang "lua" {{{
+				_io:close_handle(fd)
+			}}}
+			fd = -1
+		}
+	}
+
+	func write(buf as buffer, size as int) as int
+	{
+		var fd = this.fd
+		var v = 0
+		lang "lua" {{{
+			v = _io:write_to_handle(fd, buf, size)
+		}}}
+		return v
+	}
+}
+
+class MyProcess is Process is ProcessWithIO
+{
+	prop pid as int
+	prop inWriter as FDWriter
+	prop outReader as FDReader
+	prop errReader as FDReader
+	var status = 0
+
+	func close
+	{
+		if inWriter {
+			inWriter.close()
+			inWriter = null
+		}
+		if outReader {
+			outReader.close()
+			outReader = null
+		}
+		if errReader {
+			errReader.close()
+			errReader = null
+		}
+	}
+
+	func getStandardInput as Writer:
+		return inWriter
+
+	func getStandardOutput as Reader:
+		return outReader
+
+	func getStandardError as Reader:
+		return errReader
+
+	func getId as string:
+		return String.forInteger(pid)
+
+	func updateStatus
+	{
+		if pid >= 0 {
+			var alive = 0
+			var pid = this.pid
+			lang "lua" {{{
+				alive = _os:is_process_alive(pid)
+			}}}
+			if alive == 0:
+				waitForExit()
+		}
+	}
+
+	func isRunning as bool
+	{
+		updateStatus()
+		if pid >= 0:
+			return true
+		return false
+	}
+
+	func getExitStatus as int
+	{
+		updateStatus()
+		return status
+	}
+
+	func sendInterrupt
+	{
+		var pid = this.pid
+		lang "lua" {{{
+			_os:send_process_signal(pid, 2)
+		}}}
+	}
+
+	func killRequest
+	{
+		var pid = this.pid
+		lang "lua" {{{
+			_os:send_process_signal(pid, 15)
+		}}}
+	}
+
+	func killForce
+	{
+		var pid = this.pid
+		lang "lua" {{{
+			_os:send_process_signal(pid, 9)
+		}}}
+	}
+
+	func kill(timeout as int)
+	{
+		killRequest()
+		var n = 0
+		while n < timeout {
+			if not isRunning():
+				return
+			lang "lua" {{{
+				_os:sleep_milliseconds(100);
+			}}}
+			n += 100
+		}
+		killForce()
+	}
+
+	func waitForExit as int
+	{
+		var v = status
+		var pid = this.pid
+		if pid >= 0 {
+			lang "lua" {{{
+				v = _os:wait_for_process(pid)
+			}}}
+			close()
+			this.status = v
+			this.pid = -1
+		}
+		return v
+	}
+}
+
+func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver, withIO as bool, errorBuffer as StringBuilder) static as Process
+{
+	assert launcher
+	var file = assert launcher.getFile()
+	var filepath = file.getPath()
+	var params = launcher.getParams()
+	var env = new vector<string>
+	var cenv = EnvironmentVariable.getAll()
+	if cenv {
+		var keys as vector<string> #force = Map.getKeys(cenv)
+		foreach key in keys:
+			env += key .. "=" .. cenv[key]
+	}
+	var emap = launcher.getEnv()
+	if emap {
+		var keys as vector<string> #force = Map.getKeys(emap)
+		foreach key in keys:
+			env += key .. "=" .. emap[key]
+	}
+	var cwd = launcher.getCwd()
+	var cwdpath as string
+	if cwd:
+		cwdpath = cwd.getPath()
+	var pid as int
+	var fdin = -1
+	var fdout = -1
+	var fderr = -1
+	// FIXME: Support uid, gid, trapSigInt, pipePty
+	if launcher.getReplaceSelf() {
+		lang "lua" {{{
+			_os:replace_process(filepath, params, env, cwdpath)
+		}}}
+	}
+	else if pipeHandler {
+		lang "lua" {{{
+			pid, fdin, fdout, fderr = _os:start_piped_process(filepath, params, env, cwdpath)
+		}}}
+	}
+	else {
+		lang "lua" {{{
+			pid = _os:start_process(filepath, params, env, cwdpath)
+		}}}
+	}
+	if pid < 0:
+		return null
+	var v = new MyProcess()
+	v.setPid(pid)
+	v.setInWriter(FDWriter.forFd(fdin))
+	v.setOutReader(FDReader.forFd(fdout))
+	v.setErrReader(FDReader.forFd(fderr))
+	if wait {
+		if pipeHandler {
+			var or = v.getOutReader()
+			var buffer = MALLOC 4096
+			loop {
+				var r = or.read(buffer)
+				if r < 1:
+					break
+				pipeHandler.onBufferData(buffer, r)
+			}
+			var er = v.getErrReader()
+			loop {
+				var r = er.read(buffer)
+				if r < 1:
+					break
+				pipeHandler.onBufferData(buffer, r)
+			}
+		}
+		v.waitForExit()
+	}
+	return v
+}

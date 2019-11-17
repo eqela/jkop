@@ -1,0 +1,113 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.io
+
+class is MarkupLanguageParser:
+
+func forFile(file as File) static as this
+{
+	assert file
+	var reader = assert file.read()
+	var v = new this()
+	v.it = new CharacterIteratorForReader(reader)
+	return v
+}
+
+func forString(string as string) static as this
+{
+	assert string
+	var v = new this()
+	v.it = CharacterIteratorForString.forString(string)
+	return v
+}
+
+func forIterator(it as CharacterIterator) static as this
+{
+	assert it
+	var v = new this()
+	v.it = it
+	return v
+}
+
+func parseAsTreeObject(xml as string, ignoreWhiteSpace as bool = true) static as DynamicMap
+{
+	var root as DynamicMap
+	var stack = new Stack<DynamicMap>()
+	var pp = forString(xml)
+	pp.setIgnoreWhiteSpace(ignoreWhiteSpace)
+	loop {
+		var o = pp.next()
+		if o == null:
+			break
+		if o is MarkupLanguageParser.StartElement {
+			var name = (o as! MarkupLanguageParser.StartElement).getName()
+			if root == null && name == "?xml":
+				continue
+			var nn = new DynamicMap()
+			nn.set("name", name)
+			nn.set("attributes", (o as! MarkupLanguageParser.StartElement).getParams())
+			if root == null {
+				root = nn
+				stack.push(nn)
+			}
+			else {
+				var current = stack.peek()
+				if current == null:
+					current = root
+				var children = current.getDynamicVector("children")
+				if children == null {
+					children = new DynamicVector()
+					current.set("children", children)
+				}
+				children.append(nn)
+				stack.push(nn)
+			}
+		}
+		else if o is MarkupLanguageParser.EndElement {
+			stack.pop()
+		}
+		else if o is MarkupLanguageParser.CharacterData || o is MarkupLanguageParser.TextData {
+			var current = stack.peek()
+			if current {
+				var children = current.getDynamicVector("children")
+				if children == null {
+					children = new DynamicVector()
+					current.set("children", children)
+				}
+				var data as string
+				if o is MarkupLanguageParser.CharacterData {
+					data = (o as! MarkupLanguageParser.CharacterData).getData()
+				}
+				else {
+					data = (o as! MarkupLanguageParser.TextData).getData()
+				}
+				children.append(data)
+			}
+		}
+	}
+	return root
+}

@@ -1,0 +1,145 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.time
+import jk.web
+import jk.log
+import jk.gfx.util
+
+class is WebImageWidget #widget:
+
+class CachedImage
+{
+	prop image as Image
+	prop timeStamp as long
+	prop ttl as long
+	var queue as vector<function<void, Image>>
+
+	ctor
+	{
+		queue = new vector<function<void, Image>>
+		timeStamp = SystemClock.asSeconds()
+	}
+
+	func isAvailable as bool:
+		return image && ((SystemClock.asSeconds() - timeStamp) < ttl)
+
+	func push(callback as function<void, Image>)
+	{
+		Vector.append(queue, callback)
+	}
+
+	func pop as function<void, Image>:
+		return Vector.popFirst(queue)
+
+	func checkTTL
+	{
+		if((SystemClock.asSeconds() - timeStamp) >= ttl) {
+			timeStamp = SystemClock.asSeconds()
+			image = null
+		}
+	}
+}
+
+prop widgetImageRounded = false
+var cacheMap static private as DynamicMap
+var ttl static private as long = 60 * 5
+
+func setTTL(seconds as long) static
+{
+	assert seconds >= 60
+	ttl = seconds
+}
+
+func removeCachedImage(url as string, rounded as bool) static
+{
+	assert cacheMap && String.isNotEmpty(url)
+	var key = (rounded) ? url .. "_rounded" : url .. "_raw"
+	cacheMap.remove(key)
+}
+
+func queryImage(context as GuiApplicationContext, url as string, headers as KeyValueList<string,string>, body as buffer, rounded as bool, callback as function<void, Image>, errorCallback as function<void,Error>) static private
+{
+	if not cacheMap:
+		cacheMap = new DynamicMap()
+	var key = (rounded) ? url .. "_rounded" : url .. "_raw"
+	var cachedImage = cacheMap.get(key) as CachedImage
+	if not cachedImage {
+		cachedImage = new CachedImage()
+		cachedImage.setTtl(ttl)
+		cacheMap.set(key, cachedImage)
+	}
+	cachedImage.checkTTL()
+	if cachedImage.isAvailable() {
+		callback(cachedImage.getImage())
+		return
+	}
+	cachedImage.push(callback)
+	var client = NativeWebClient.instance()
+	if not client {
+		Log.error(context, "Failed to create web client.")
+		if errorCallback:
+			errorCallback(Error.forCode("noWebClient"))
+		return
+	}
+	Log.debug(context, VALUE "__THIS__" .. ": Start loading image: `" .. url .."'")
+	var cif final = cachedImage
+	var roundedf final = rounded
+	var invokeCallback final = func(cache as CachedImage) {
+		assert cache
+		loop {
+			var cb = cache.pop()
+			if not cb:
+				break
+			cb(cache.getImage())
+		}
+	}
+	doQueryImage(context, url, headers, body, func(image as Image) {
+		if roundedf {
+			ImageUtil.createCircularImage(image, func(newImage as Image) {
+				cif.setImage(newImage)
+				invokeCallback(cif)
+			})
+		}
+		else {
+			cif.setImage(image)
+			invokeCallback(cif)
+		}
+	}, errorCallback)
+}
+
+func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void,Error>) override
+{
+	var img final = onStartLoading(getWidgetUseOverlay())
+	var cb final = callback
+	queryImage(context, url, headers, body, widgetImageRounded, func(imgo as Image) {
+		onEndLoading()
+		img.setWidgetImage(imgo)
+	}, func(error as Error) {
+		onEndLoading()
+		if cb:
+			cb(error)
+	})
+}

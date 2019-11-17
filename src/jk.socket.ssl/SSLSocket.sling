@@ -1,0 +1,85 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.socket
+import jk.log
+import jk.fs
+
+class is ConnectedSocket abstract:
+
+func createInstance(cSocket as ConnectedSocket, serverAddress as string = null, ctx as LoggingContext = null, certFile as File = null, keyFile as File = null, isServer as bool = false, acceptInvalidCertificate as bool = false, passphrase as string = null) static as this
+{
+	assert cSocket
+	var v as this
+	IFDEF "target_cs" {
+		IFDEF "target_netx" {
+			var sslStream = new SSLSocketDotNet()
+			sslStream.setAcceptInvalidCertificate(acceptInvalidCertificate)
+			sslStream.setCtx(ctx)
+			sslStream.setServerAddress(serverAddress)
+			if sslStream.open(cSocket, certFile, keyFile, isServer, passphrase):
+				v = sslStream
+		}
+	}
+	IFDEF "target_java" {
+		var sslStream = new SSLSocketJava()
+		sslStream.setAcceptInvalidCertificate(acceptInvalidCertificate)
+		sslStream.setCtx(ctx)
+		sslStream.setServerAddress(serverAddress)
+		if sslStream.open(cSocket, certFile, keyFile, isServer, passphrase):
+			v = sslStream
+	}
+	IFDEF "target_kotlin" {
+		var sslStream = new SSLSocketKotlin()
+		sslStream.setAcceptInvalidCertificate(acceptInvalidCertificate)
+		sslStream.setCtx(ctx)
+		sslStream.setServerAddress(serverAddress)
+		if sslStream.open(cSocket, certFile, keyFile, isServer, passphrase):
+			v = sslStream
+	}
+	IFDEF "target_sushi" {
+		var ss = new SSLSocketForSushi()
+		ss.setAcceptInvalidCertificate(acceptInvalidCertificate)
+		ss.setCtx(ctx)
+		ss.setServerAddress(serverAddress)
+		if ss.open(cSocket, certFile, keyFile, isServer, passphrase):
+			v = ss
+	}
+	return v
+}
+
+func forClient(cSocket as ConnectedSocket, hostAddress as string, ctx as LoggingContext = null, acceptInvalidCertificate as bool = false, passphrase as string = null) static as this:
+	return createInstance(cSocket, hostAddress, ctx, null, null, false, acceptInvalidCertificate, passphrase)
+
+func forServer(cSocket as ConnectedSocket, certFile as File = null, keyFile as File = null, ctx as LoggingContext = null, acceptInvalidCertificate as bool = false, passphrase as string = null) static as this:
+	return createInstance(cSocket, null, ctx, certFile, keyFile, true, acceptInvalidCertificate, passphrase)
+
+func setAcceptInvalidCertificate(accept as bool) abstract
+func setRequireClientCertificate(require as bool) abstract
+func close abstract
+func read(buffer as buffer) abstract as int
+func readWithTimeout(buffer as buffer, timeout as int) abstract as int
+func write(buffer as buffer, size as int) abstract as int
+func getSocket abstract as ConnectedSocket

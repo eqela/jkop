@@ -1,0 +1,351 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.ui
+import jk.widget
+
+class:
+
+IFDEF "target_android" {
+	depend "androidPermission:android.permission.READ_CONTACTS"
+}
+ELSE IFDEF "target_ios_objc" {
+	depend "objc-framework:ContactsUI"
+	depend "objc-header-m:<ContactsUI/ContactsUI.h>"
+
+	class MyPickerDelegate implements !"CNContactPickerDelegate"
+	{
+		prop callback as function<void,Contact,Error>
+
+		lang "objc" {{{
+			- (void)contactPicker:(CNContactPickerViewController *)picker didSelectContact:(CNContact *)contact
+			{
+				[self onContactPicked:contact];
+				objc_removeAssociatedObjects(picker);
+			}
+		}}}
+
+		func onContactPicked(contact as !"CNContact")
+		{
+			if(callback == null || contact == null) {
+				return
+			}
+			var v = new Contact()
+			var givenName = lang "objc" string {{{ [contact givenName] }}}
+			var middleName = lang "objc" string {{{ [contact middleName] }}}
+			var familyName = lang "objc" string {{{ [contact familyName] }}}
+			var namesb = new StringBuilder()
+			if(String.isEmpty(givenName) == false) {
+				namesb.append(givenName)
+			}
+			if(String.isEmpty(middleName) == false) {
+				if(namesb.count() > 0) {
+					namesb.append(' ')
+				}
+				namesb.append(middleName)
+			}
+			if(String.isEmpty(familyName) == false) {
+				if(namesb.count() > 0) {
+					namesb.append(' ')
+				}
+				namesb.append(familyName)
+			}
+			v.setName(namesb.toString())
+			lang "objc" {{{
+				for(CNLabeledValue<CNPhoneNumber*>* value in [contact phoneNumbers]) {
+					[v addToPhoneNumbers:[[value value] stringValue]];
+				}
+			}}}
+			callback(v, null)
+		}
+	}
+}
+ELSE IFDEF "target_swift" {
+	depend "swift-import:ContactsUI"
+
+	class MyPickerDelegate implements !"CNContactPickerDelegate"
+	{
+		prop callback as function<void,Contact,Error>
+
+		lang "swift" {{{
+			@available(iOS 9.0, *)
+			@objc func contactPicker(_ picker: CNContactPickerViewController, didSelect contact: CNContact)
+			{
+				self.onContactPicked(contact)
+				objc_removeAssociatedObjects(picker)
+			}
+
+			@available(iOS 9.0, *)
+		}}}
+		func onContactPicked(contact as !"CNContact")
+		{
+			if !callback || !contact:
+				return
+			var v = new Contact()
+			var givenName = lang "swift" string {{{ contact?.givenName }}}
+			var middleName = lang "swift" string {{{ contact?.middleName }}}
+			var familyName = lang "swift" string {{{ contact?.familyName }}}
+			var namesb = new StringBuilder()
+			if not String.isEmpty(givenName) {
+				namesb.append(givenName)
+			}
+			if not String.isEmpty(middleName) {
+				if namesb.count() > 0:
+					namesb.append(' ')
+				namesb.append(middleName)
+			}
+			if not String.isEmpty(familyName) {
+				if(namesb.count() > 0):
+					namesb.append(' ')
+				namesb.append(familyName)
+			}
+			v.setName(namesb.toString())
+			lang "swift" {{{
+				for value: CNLabeledValue in (contact?.phoneNumbers)! {
+					v!.addToPhoneNumbers(value.value.stringValue)
+				}
+			}}}
+			callback(v, null)
+		}
+	}
+}
+
+func isSupported static as bool
+{
+	IFDEF "target_android" {
+		return true
+	}
+	ELSE IFDEF "target_ios_objc" {
+		return true
+	}
+	ELSE IFDEF "target_swift" {
+		return true
+	}
+	ELSE {
+		return false
+	}
+}
+
+var context as GuiApplicationContext
+
+ctor(context as GuiApplicationContext)
+{
+	this.context = context
+}
+
+func pickOneContact(widget as Widget, callback as function<void,Contact,Error>)
+{
+	var cb final #used = callback
+	IFDEF "target_android" {
+		var fwidget final = widget
+		var screen final = ScreenForWidget.findScreenForWidget(fwidget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, Error.forCode("noScreenFound"))
+			}
+			return
+		}
+		var perms = new string[] { "android.permission.READ_CONTACTS" }
+		(context as GuiApplicationContextForAndroid).requestPermissions(perms, func(permissionStatus as bool) {
+			if(permissionStatus == false) {
+				if(cb != null) {
+					cb(null, Error.forCode("noPermission"))
+				}
+				return
+			}
+			var act = (context as GuiApplicationContextForAndroid).getAndroidActivityContext() as !"android.app.Activity"
+			var activity final = act
+			screen.setAndroidActivityResultHandler(func(requestCode as int, resultCode as int, data as !"android.content.Intent") {
+				if(requestCode != 0) {
+					if(cb != null) {
+						cb(null, Error.forCode("invalidRequestCode"))
+					}
+					return
+				}
+				var ok as int
+				IFDEF "target_java" {
+					ok = lang "java" int {{{ android.app.Activity.RESULT_OK }}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					ok = lang "kotlin" int {{{ android.app.Activity.RESULT_OK }}}
+				}
+				if(resultCode != ok) {
+					if(cb != null) {
+						cb(null, null)
+					}
+					return
+				}
+				var contactData as !"android.net.Uri"
+				IFDEF "target_java" {
+					contactData = lang "java" !"android.net.Uri" {{{ data.getData() }}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					contactData = lang "kotlin" !"android.net.Uri" {{{ data?.getData() }}}
+				}
+				if(contactData == null) {
+					if(cb != null) {
+						cb(null, Error.forCode("noContactData"))
+					}
+					return
+				}
+				var cursor as !"android.database.Cursor"
+				IFDEF "target_java" {
+					cursor = lang "java" !"android.database.Cursor" {{{ activity.getContentResolver().query(contactData, null, null, null, null) }}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					cursor = lang "kotlin" !"android.database.Cursor" {{{ activity?.getContentResolver()?.query(contactData, null, null, null, null) }}}
+				}
+				if(cursor == null) {
+					if(cb != null) {
+						cb(null, Error.forCode("failedToReadContact"))
+					}
+					return
+				}
+				var moveToFirst as bool
+				IFDEF "target_java" {
+					moveToFirst = lang "java" bool {{{ cursor.moveToFirst() }}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					moveToFirst = lang "kotlin" bool {{{ cursor?.moveToFirst() }}}
+				}
+				if(moveToFirst == false) {
+					if(cb != null) {
+						cb(null, Error.forCode("failedToReadContactRecord"))
+					}
+					return
+				}
+				var v = new Contact()
+				IFDEF "target_java" {
+					lang "java" {{{
+						v.setName(cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME)));
+						String id = cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts._ID));
+						android.database.Cursor phones = activity.getContentResolver().query(
+							android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+							android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID +" = "+ id, null, null);
+						if(phones != null && phones.moveToFirst()) {
+							while(true) {
+								String number = phones.getString(phones.getColumnIndex("data1"));
+								if(number != null) {
+									v.addToPhoneNumbers(number);
+								}
+								if(phones.moveToNext() == false) {
+									break;
+								}
+							}
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						v?.setName(cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts.DISPLAY_NAME)))
+						var id = cursor.getString(cursor.getColumnIndex(android.provider.ContactsContract.Contacts._ID))
+						var phones = activity?.getContentResolver()?.query(
+						android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI, null,
+						android.provider.ContactsContract.CommonDataKinds.Phone.CONTACT_ID + " = " + id, null, null)
+						if (phones != null && phones.moveToFirst()) {
+							while (true) {
+								val number = phones.getString(phones.getColumnIndex("data1"))
+								if (number != null) {
+									v?.addToPhoneNumbers(number)
+								}
+								if (phones.moveToNext() == false) {
+									break
+								}
+							}
+						}
+					}}}
+				}
+				if(cb != null) {
+					cb(v, null)
+				}
+			})
+			IFDEF "target_java" {
+				lang "java" {{{
+					android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI);
+					activity.startActivityForResult(intent, 0);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					var intent = android.content.Intent(android.content.Intent.ACTION_PICK, android.provider.ContactsContract.Contacts.CONTENT_URI)
+					activity?.startActivityForResult(intent, 0)
+				}}}
+			}
+		})
+	}
+	ELSE IFDEF("target_ios_objc") {
+		var screen final = ScreenForWidget.findScreenForWidget(widget)
+		if(screen == null) {
+			if(cb != null) {
+				cb(null, Error.forCode("noScreenFound"))
+			}
+			return
+		}
+		var delegate = new MyPickerDelegate()
+		delegate.setCallback(callback)
+		lang "objc" {{{
+			CNContactPickerViewController* picker = [[CNContactPickerViewController alloc] init];
+			if(picker == nil) {
+		}}}
+		callback(null, Error.forCode("noContactData"))
+		lang "objc" {{{
+				return;
+			}
+			picker.delegate = delegate;
+			objc_setAssociatedObject(picker, "_pickerDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+			[screen presentViewController:picker animated:YES completion:nil];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var screen final = ScreenForWidget.findScreenForWidget(widget)
+		if !screen {
+			if cb:
+				cb(null, Error.forCode("noScreenFound"))
+			return
+		}
+		var delegate = new MyPickerDelegate()
+		delegate.setCallback(callback)
+		lang "swift" {{{
+			if #available(iOS 9.0, *) {
+				var picker = CNContactPickerViewController()
+				if(picker == nil) {
+		}}}
+		callback(null, Error.forCode("noContactData"))
+		lang "swift" {{{
+					return
+				}
+				picker.delegate = delegate
+				objc_setAssociatedObject(picker, "_pickerDelegate", delegate, objc_AssociationPolicy.OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+				screen?.present(picker, animated: true)
+			}
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		if(cb != null) {
+			cb(null, Error.forCode("notSupported"))
+		}
+	}
+}

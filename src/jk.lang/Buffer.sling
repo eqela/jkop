@@ -1,0 +1,698 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+**
+** The Buffer class provides convenience methods for dealing with data buffers
+** (arbitrary sequences of bytes).
+**
+
+class:
+
+IFDEF "target_swift"
+{
+	depend "swift-import:CoreFoundation"
+}
+
+class MyBufferObject is BufferObject private
+{
+	prop buffer as buffer
+
+	func toBuffer as buffer:
+		return buffer
+}
+
+**
+** Returns the given array as a BufferObject (which is an object type)
+** that can be used wherever an object or a class instance is required.
+**
+
+func asObject(buffer as buffer) static as BufferObject
+{
+	var v = new MyBufferObject()
+	v.setBuffer(buffer)
+	return v
+}
+
+func asBuffer(obj as object) static as buffer
+{
+	assert obj
+	if obj is buffer:
+		return obj as! buffer
+	if obj is BufferObject {
+		var bo = obj as! BufferObject
+		return bo.toBuffer()
+	}
+	return null
+}
+
+func forInt8Array(buf as int8[]) static as buffer
+{
+	assert buf
+	IFDEF "target_cs" {
+		return lang "cs" buffer {{{ (byte[])(System.Array)buf }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" buffer {{{ buf }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" buffer {{{ buf!!.asUByteArray() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var data as buffer #used
+		lang "swift" {{{
+			let buffer = (buf as Swift.Array).map { UInt8(bitPattern: $0 as! Int8) }
+			data = NSMutableData(data: Foundation.Data(buffer))
+		}}}
+		return data
+	}
+	ELSE {
+		var sz = SIZE buf
+		var v = MALLOC sz
+		for(var n=0; n<sz; n++):
+			v[n] = buf[n]
+		return v
+	}
+}
+
+func toInt8Array(buf as buffer) static as int8[]
+{
+	assert buf
+	IFDEF "target_cs" {
+		return lang "cs" int8[] {{{ (sbyte[])(System.Array)buf }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int8[] {{{ buf }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" buffer {{{ buf!!.asByteArray() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var v = new int8[SIZE buf]
+		lang "swift" {{{
+			var c: Int = 0
+			for el in buf! as Data {
+				if(c < buf.length) {
+					v![c] = Int8(bitPattern: el)
+					c += 1
+				}
+			}
+		}}}
+		return v
+	}
+	ELSE {
+		var sz = SIZE buf
+		var v = new int8[sz]
+		for(var n=0; n<sz; n++):
+			v[n] = buf[n]
+		return v
+	}
+}
+
+func getSubBuffer(buffer as buffer, offset as long, size as long = -1, alwaysNewBuffer as bool = false) static as buffer
+{
+	if alwaysNewBuffer == false && offset == 0 && size < 0:
+		return buffer
+	var bsz = getSize(buffer)
+	var sz = size
+	if sz < 0:
+		sz = bsz - offset
+	if alwaysNewBuffer == false && offset == 0 && sz == bsz:
+		return buffer
+	if sz < 1:
+		return null
+	var v = MALLOC sz
+	copyFrom(v, buffer, offset, 0, sz)
+	return v
+}
+
+func getInt8(buffer as buffer #used, offset as long #used) static as uint8
+{
+	if not buffer:
+		return 0 as uint8
+	IFDEF "target_cs" {
+		return lang "cs" uint8 {{{ buffer[offset] }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" uint8 {{{ buffer[(int)offset] }}}
+	}
+	ELSE IFDEF "target_objc" {
+		var v as uint8
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 1)];
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" uint8 {{{ new Uint8Array(buffer)[offset] }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" uint8 {{{ buffer[offset+1] }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" uint8 {{{ buffer[offset+1] }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" uint8 {{{ buffer!!.get(offset.toInt()) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint8 #used
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 1))
+		}}}
+		return v
+	}
+	ELSE {
+		return buffer[offset] as uint8
+	}
+}
+
+IFDEF "target_cs" {
+	lang "cs" {{{
+		static ushort reverse16(ushort value) {
+			return((ushort)((value & 0xFFU) << 8 | (value & 0xFF00U) >> 8));
+		}
+
+		static uint reverse32(uint value) {
+			return((uint)((value & 0x000000FFU) << 24 | (value & 0x0000FF00U) << 8 |
+				(value & 0x00FF0000U) >> 8 | (value & 0xFF000000U) >> 24));
+		}
+	}}}
+}
+
+func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, size as long) static
+{
+	assert array
+	assert src
+	IFDEF "target_cs" {
+		IFDEF "target_netcore" {
+			lang "cs" {{{
+				System.Array.Copy(src, (int)soffset, array, (int)doffset, (int)size);
+			}}}
+		}
+		ELSE IFDEF "target_uwp" {
+			lang "cs" {{{
+				System.Array.Copy(src, (int)soffset, array, (int)doffset, (int)size);
+			}}}
+		}
+		ELSE {
+			lang "cs" {{{
+				System.Array.Copy(src, soffset, array, doffset, size);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			java.lang.System.arraycopy(src, (int)soffset, array, (int)doffset, (int)size);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[array replaceBytesInRange:NSMakeRange(doffset, size) withBytes:[src bytes]+soffset length:size];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			var suint = new Uint8Array(src);
+			var sz = size;
+			if((soffset + size) > suint.byteLength) {
+				sz = suint.byteLength - soffset;
+			}
+			var arrayToCopy = suint.subarray(soffset, sz);
+			var duint = new Uint8Array(array);
+			duint.set(arrayToCopy, doffset);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var arrayToCopy = src!!.copyOfRange(soffset.toInt(), soffset.toInt() + size.toInt())
+			var it = arrayToCopy.asIterable()
+			var index = doffset.toInt()
+			for (item in it) {
+				array!!.set(index, item)
+				index++
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			array.replaceBytes(in: NSMakeRange(Int(doffset), Int(size)), withBytes: src.bytes + Int(soffset), length: Int(size))
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_util:copy_buffer_bytes(src, array, soffset, doffset, size)
+		}}}
+	}
+	ELSE {
+		for(var n=0; n<size; n++):
+			array[doffset+n] = src[soffset+n]
+	}
+}
+
+func getInt16LE(buffer as buffer, offset as long) static as uint16
+{
+	if not buffer:
+		return 0 as uint16
+	IFDEF "target_cs" {
+		var v as uint16 = 0
+		lang "cs" {{{
+			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian == false) {
+				v = reverse16(v);
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_objc" {
+		var v as uint16
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 2)];
+			v = CFSwapInt16LittleToHost(v);
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		var v as uint16
+		lang "kotlin" {{{
+			var buff = buffer!!.copyOfRange(offset.toInt(), offset.toInt() + 2)
+			var bb = java.nio.ByteBuffer.wrap(buff!!.toByteArray())
+			if(bb.order() == java.nio.ByteOrder.BIG_ENDIAN) {
+				bb = bb.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+			}
+			v = bb.getShort()?.toUShort()
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint16 #used
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 2))
+			v = CFSwapInt16LittleToHost(UInt16(v))
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		var b1 = buffer[offset] as uint8
+		var b2 = buffer[offset+1] as uint8
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b2, b1) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func getInt16BE(buffer as buffer, offset as long) static as uint16
+{
+	if not buffer:
+		return 0 as uint16
+	IFDEF"target_cs" {
+		var v as uint16 = 0
+		lang "cs" {{{
+			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian) {
+				v = reverse16(v);
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_objc" {
+		var v as uint16
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 2)];
+			v = CFSwapInt16BigToHost(v);
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		var v as uint16
+		lang "kotlin" {{{
+			var buff = buffer!!.copyOfRange(offset.toInt(), offset.toInt() + 2)
+			var bb = java.nio.ByteBuffer.wrap(buff!!.toByteArray())
+			if(bb.order() == java.nio.ByteOrder.LITTLE_ENDIAN) {
+				bb = bb.order(java.nio.ByteOrder.BIG_ENDIAN)
+			}
+			v = bb.getShort()?.toUShort()
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint16 #used
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 2))
+			v = CFSwapInt16BigToHost(UInt16(v))
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		var b1 = buffer[offset] as uint8
+		var b2 = buffer[offset+1] as uint8
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b1, b2) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func getInt32LE(buffer as buffer, offset as long) static as uint32
+{
+	IFDEF "target_cs" {
+		var v as uint32 = 0
+		lang "cs" {{{
+			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian == false) {
+				v = reverse32(v);
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_objc" {
+		var v as uint32
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 4)];
+			v = CFSwapInt32LittleToHost(v);
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		var v as uint32
+		lang "kotlin" {{{
+			var buff = buffer!!.copyOfRange(offset.toInt(), offset.toInt() + 4)
+			var bb = java.nio.ByteBuffer.wrap(buff!!.toByteArray())
+			if(bb.order() == java.nio.ByteOrder.BIG_ENDIAN) {
+				bb = bb.order(java.nio.ByteOrder.LITTLE_ENDIAN)
+			}
+			v = bb.getInt()?.toUInt()
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint32 #used
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 4))
+			v = CFSwapInt32LittleToHost(UInt32(v))
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		var b1 = buffer[offset] as uint8
+		var b2 = buffer[offset+1] as uint8
+		var b3 = buffer[offset+2] as uint8
+		var b4 = buffer[offset+3] as uint8
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host32(b4, b3, b2, b1) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func getInt32BE(buffer as buffer, offset as long) static as uint32
+{
+	IFDEF "target_cs" {
+		var v as uint32 = 0
+		lang "cs" {{{
+			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
+			if(System.BitConverter.IsLittleEndian) {
+				v = reverse32(v);
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_objc" {
+		var v as uint32
+		lang "objc" {{{
+			[buffer getBytes:&v range:NSMakeRange(offset, 4)];
+			v = CFSwapInt32BigToHost(v);
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		var v as uint32
+		lang "kotlin" {{{
+			var buff = buffer!!.copyOfRange(offset.toInt(), offset.toInt() + 4)
+			var bb = java.nio.ByteBuffer.wrap(buff!!.toByteArray())
+			if(bb.order() == java.nio.ByteOrder.LITTLE_ENDIAN) {
+				bb = bb.order(java.nio.ByteOrder.BIG_ENDIAN)
+			}
+			v = bb.getInt()?.toUInt()
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as uint32 #used
+		lang "swift" {{{
+			NSMutableData(data: buffer! as Data).getBytes(&v, range: NSMakeRange(Int(offset), 4))
+			v = CFSwapInt32BigToHost(UInt32(v))
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		var b1 = buffer[offset] as uint8
+		var b2 = buffer[offset+1] as uint8
+		var b3 = buffer[offset+2] as uint8
+		var b4 = buffer[offset+3] as uint8
+		return lang "lua" uint16 {{{ _util:network_bytes_to_host32(b1, b2, b3, b4) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func forInt32BE(number as uint32) static as buffer
+{
+	IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _util:number_to_buffer32be(number) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func forInt32LE(number as uint32) static as buffer
+{
+	IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _util:number_to_buffer32le(number) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func getSize(buffer as buffer #used) static as long
+{
+	if buffer == null:
+		return 0
+	IFDEF "target_objc" {
+		return lang "objc" int {{{ [buffer length] }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int {{{ buffer.length }}}
+	}
+	ELSE IFDEF "target_cs" {
+		return lang "cs" int {{{ buffer.Length }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" int {{{ buffer.byteLength }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" long {{{ #buffer }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" long {{{ (buffer.size).toLong() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" long {{{ Int64(buffer.length) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func getByte(buffer as buffer, offset as long) static as uint8:
+	return getInt8(buffer, offset)
+
+func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used) static
+{
+	assert buffer
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			((uint8_t*)[buffer mutableBytes])[offset] = value;
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			buffer[(int)offset] = value;
+		}}}
+	}
+	ELSE IFDEF "target_cs" {
+		lang "cs" {{{
+			buffer[offset] = value;
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			new Uint8Array(buffer)[offset] = value;
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			buffer!!.set(offset.toInt(), value)
+		}}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{
+			buffer[offset+1] = value
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			(buffer.mutableBytes as UnsafeMutableRawPointer).assumingMemoryBound(to: UInt8.self)[Int(offset)] = value
+		}}}
+	}
+	ELSE {
+		buffer[offset] = value
+	}
+}
+
+func allocate(size as long) static as buffer:
+	return MALLOC size
+
+func resize(buffer as buffer, newSize as long) static as buffer
+{
+	if not buffer:
+		return allocate(newSize)
+	if SIZE(buffer) == newSize:
+		return buffer
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			System.Array.Resize(ref buffer, (int)newSize);
+		}}}
+		return buffer
+	}
+	ELSE IFDEF "target_java" {
+		var nbuf = allocate(newSize)
+		var buffSize = getSize(buffer)
+		if newSize < getSize(buffer):
+			buffSize = getSize(nbuf)
+		lang "java" {{{
+			System.arraycopy(buffer, 0, nbuf, 0, (int)buffSize);
+		}}}
+		return nbuf
+	}
+	ELSE IFDEF "target_js" {
+		var newbuffer = allocate(newSize)
+		lang "js" {{{
+			var uint8 = new Uint8Array(newbuffer);
+			uint8.set(new Uint8Array(buffer));
+		}}}
+		return newbuffer
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" buffer {{{ buffer!!.copyOf(newSize.toInt()) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var data as buffer
+		var bufferLength = getSize(buffer)
+		if newSize == bufferLength {
+			data = buffer
+		}
+		else if newSize > bufferLength {
+			lang "swift" {{{
+				buffer.increaseLength(by: Int(newSize) - buffer.length)
+				data = buffer
+			}}}
+		}
+		else {
+			lang "swift" {{{
+				data = NSMutableData(data: (buffer as Foundation.Data).dropLast(buffer.length - Int(newSize)))
+			}}}
+		}
+		return data
+	}
+	ELSE {
+		var oldSize = 0
+		if buffer:
+			oldSize = SIZE buffer
+		var v = MALLOC newSize
+		for(var n=0; n<newSize; n++) {
+			if n < oldSize {
+				v[n] = buffer[n]
+			}
+			else {
+				v[n] = 0
+			}
+		}
+		return v
+	}
+}
+
+func append(original as buffer, toAppend as buffer, size as long = -1) static as buffer
+{
+	if toAppend == null || size == 0:
+		return original
+	var sz = size
+	var os = getSize(original)
+	var oas = getSize(toAppend)
+	if sz >= 0:
+		oas = sz
+	var nl = os + oas
+	var nb = resize(original, nl)
+	copyFrom(nb, toAppend, 0, os, oas)
+	return nb
+}
+
+func forHexString(str as string) static as buffer
+{
+	if str == null || String.getLength(str) % 2 != 0:
+		return null
+	var sb as StringBuilder
+	var b = allocate(String.getLength(str) / 2)
+	var n as int
+	var it = String.iterate(str)
+	while it {
+		var c = it.getNextChar()
+		if c < 1:
+			break
+		if sb == null:
+			sb = new StringBuilder()
+		if((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c<= '9')) {
+			sb.append(c)
+			if sb.count() == 2 {
+				setByte(b, n++, String.toIntegerFromHex(sb.toString()))
+				sb.clear()
+			}
+		}
+		else {
+			return null
+		}
+	}
+	return b
+}

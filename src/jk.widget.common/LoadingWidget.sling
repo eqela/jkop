@@ -1,0 +1,115 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+var displayText static as string
+var displayImage static as Image
+
+func initializeWithText(text as string) static
+{
+	displayText = text
+	displayImage = null
+}
+
+func initializeWithImage(image as Image) static
+{
+	displayText = null
+	displayImage = image
+}
+
+func openPopup(context as GuiApplicationContext, widget as Widget) static as this
+{
+	var v = new this(context)
+	if(v.showPopup(widget) == false) {
+		v = null
+	}
+	return v
+}
+
+func closePopup(widget as this) static as this
+{
+	if(widget != null) {
+		widget.stop()
+		Widget.removeFromParent(widget)
+	}
+	return null
+}
+
+var loading as Widget
+var animation as WidgetAnimation
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	var background = CanvasWidget.forColor(context, Color.forRGBADouble(0, 0, 0, 0.8))
+	Widget.setWidgetClickHandler(background, func {
+		; // no action
+	})
+	addWidget(background)
+	if(displayImage != null) {
+		var img = ImageWidget.forImage(context, displayImage)
+		img.setWidgetImageHeight(context.getHeightValue("20mm"))
+		loading = img
+	}
+	else {
+		var text = displayText
+		if(String.isEmpty(text)) {
+			text = "Loading .."
+		}
+		var lt = LabelWidget.forText(context, text)
+		lt.setWidgetTextColor(Color.white())
+		lt.setWidgetFontSize(context.getHeightValue("3mm"))
+		loading = lt
+	}
+	addWidget(AlignWidget.forWidget(context, loading, 0.5, 0.5))
+	start()
+}
+
+func start
+{
+	animation = WidgetAnimation.forDuration(context, 1000)
+	animation.addFadeOutIn(loading)
+	animation.setShouldLoop(true)
+	animation.start()
+}
+
+func stop
+{
+	if(animation != null) {
+		animation.setShouldStop(true)
+		animation = null
+	}
+}
+
+func showPopup(target as Widget) as bool
+{
+	var topmost = LayerWidget.findTopMostLayerWidget(target)
+	if(topmost == null) {
+		return false
+	}
+	topmost.addWidget(this)
+	return true
+}

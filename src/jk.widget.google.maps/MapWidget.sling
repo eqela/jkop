@@ -1,0 +1,1857 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget
+import jk.geo
+
+class is ParentAwareWidget #widget:
+
+IFDEF "target_android"
+{
+	class InfoWindowContainer is !"android.view.ViewGroup" isAlso Widget
+	{
+		ctor(ctx as GuiApplicationContext):
+			base((ctx as GuiApplicationContextForAndroid).getAndroidActivityContext())
+
+		func onLayout(changed as bool, left as int, top as int, right as int, bottom as int)
+		{
+			; // Laying out of children is done on onMeasure but we would still override onLayout since Android requires this.
+		}
+
+		func onMeasure(widthMeasureSpec as int, heightMeasureSpec as int)
+		{
+			var mw as int
+			var mh as int
+			foreach child in Widget.getChildren(this) {
+				Widget.layout(child, -1)
+				var cw = Widget.getWidth(child)
+				var ch = Widget.getHeight(child)
+				if mw < cw:
+					mw = cw
+				if mh < ch:
+					mh = ch
+			}
+			IFDEF "target_java" {
+				lang "java" {{{
+					setMeasuredDimension(mw, mh);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					setMeasuredDimension(mw, mh)
+				}}}
+			}
+		}
+	}
+
+	depend "gradle:com.google.android.gms:play-services-maps:11.0.0"
+	depend "gradle:com.google.android.gms:play-services-location:11.0.0"
+	depend "androidPermission:android.permission.INTERNET"
+	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
+	basetype !"com.google.android.gms.maps.MapView" type extends
+	basetype !"com.google.android.gms.maps.OnMapReadyCallback" type implements
+	basetype Widget type isAlso
+	basetype ResizeAwareWidget type implements
+	var created = false
+	var gmap as !"com.google.android.gms.maps.GoogleMap"
+	var hasSize as bool
+	var isDone as bool
+
+	func onWidgetResized
+	{
+		var thisWidth #used = Widget.getWidth(this)
+		var thisHeight #used = Widget.getHeight(this)
+		var thisX #used = Widget.getX(this)
+		var thisY #used = Widget.getY(this)
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(thisWidth > 0 && thisHeight > 0) {
+					int msw = android.view.View.MeasureSpec.UNSPECIFIED;
+					int msh = android.view.View.MeasureSpec.UNSPECIFIED;
+					msw = android.view.View.MeasureSpec.makeMeasureSpec(thisWidth, android.view.View.MeasureSpec.EXACTLY);
+					msh = android.view.View.MeasureSpec.makeMeasureSpec(thisHeight, android.view.View.MeasureSpec.EXACTLY);
+					measure(msw, msh);
+					layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(thisWidth > 0 && thisHeight > 0) {
+					var msw : kotlin.Int = android.view.View.MeasureSpec.UNSPECIFIED;
+					var msh : kotlin.Int = android.view.View.MeasureSpec.UNSPECIFIED;
+					msw = android.view.View.MeasureSpec.makeMeasureSpec(thisWidth, android.view.View.MeasureSpec.EXACTLY);
+					msh = android.view.View.MeasureSpec.makeMeasureSpec(thisHeight, android.view.View.MeasureSpec.EXACTLY);
+					measure(msw, msh);
+					layout(thisX, thisY, thisWidth+thisX, thisHeight+thisY);
+				}
+			}}}
+		}
+		if not hasSize:
+			hasSize = true
+		hasSizeAndMapInitialize()
+	}
+
+	func hasSizeAndMapInitialize
+	{
+		if isDone:
+			return
+		if hasSize && mapInitialized {
+			placeQueuedMarkers()
+			if coordinateQueue:
+				doZoomToCoordinates()
+			if centerQueue:
+				doMoveToCenter()
+			isDone = true
+		}
+	}
+
+	func onMapReady(map as !"com.google.android.gms.maps.GoogleMap")
+	{
+		gmap = map
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.maps.UiSettings settings = map.getUiSettings();
+				settings.setAllGesturesEnabled(true);
+				settings.setCompassEnabled(true);
+				settings.setIndoorLevelPickerEnabled(true);
+				settings.setMapToolbarEnabled(true);
+				settings.setMyLocationButtonEnabled(false);
+				settings.setRotateGesturesEnabled(mapSettings.getCanRotate());
+				settings.setTiltGesturesEnabled(mapSettings.getCanTilt());
+				settings.setZoomGesturesEnabled(mapSettings.getCanZoom());
+				settings.setScrollGesturesEnabled(true);
+				settings.setZoomControlsEnabled(true);
+				map.setBuildingsEnabled(true);
+				map.setIndoorEnabled(true);
+				try {
+					map.setMyLocationEnabled(mapSettings.getMapHasMyLocation());
+				}
+				catch(java.lang.SecurityException e) {
+					context.logError("Location permission is not granted.");
+				}
+				mapSettings.setSettingObject(settings);
+				mapSettings.setMapObject(gmap);
+				if(zoomInCenter) {
+					com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
+						.target(new com.google.android.gms.maps.model.LatLng(centerLat, centerLon))
+						.zoom(defaultZoomLevel)
+						.bearing(0)
+						.tilt(45)
+						.build();
+					map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition));
+				}
+				map.setOnMarkerClickListener(new com.google.android.gms.maps.GoogleMap.OnMarkerClickListener() {
+					public boolean onMarkerClick (com.google.android.gms.maps.model.Marker marker) {
+						onMarkerClicked(marker);
+						return false;
+					}
+				});
+				map.setOnMapClickListener(new com.google.android.gms.maps.GoogleMap.OnMapClickListener() {
+					public void onMapClick(com.google.android.gms.maps.model.LatLng loc) {
+						onMapClicked(loc.latitude, loc.longitude);
+					}
+				});
+				map.setOnInfoWindowClickListener(new com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener() {
+					public void onInfoWindowClick (com.google.android.gms.maps.model.Marker marker) {
+						MyMapMarker myMarker = (MyMapMarker)marker.getTag();
+						myMarker.onInfoWindowClicked();
+					}
+				});
+				map.setInfoWindowAdapter(new com.google.android.gms.maps.GoogleMap.InfoWindowAdapter() {
+					public android.view.View getInfoContents(com.google.android.gms.maps.model.Marker marker) {
+						return(null);
+					}
+
+					public android.view.View getInfoWindow(com.google.android.gms.maps.model.Marker marker) {
+						MyMapMarker myMarker = (MyMapMarker)marker.getTag();
+						android.view.View widget = myMarker.getInfoWindowWidget();
+						if(cave.ui.Widget.hasParent(widget)) {
+							cave.ui.Widget.removeFromParent(widget);
+							return(null);
+						}
+						InfoWindowContainer container = new InfoWindowContainer(context);
+						cave.ui.Widget.addChild(container, widget);
+						return(container);
+					}
+				});
+				map.setOnCameraMoveStartedListener(new com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener() {
+					public void onCameraMoveStarted(int reason) {
+						onCameraStartMoving(reason == com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE);
+					}
+				});
+				map.setOnCameraMoveListener(new com.google.android.gms.maps.GoogleMap.OnCameraMoveListener() {
+					public void onCameraMove() {
+						onCameraMoving();
+					}
+				});
+				map.setOnCameraIdleListener(new com.google.android.gms.maps.GoogleMap.OnCameraIdleListener() {
+					public void onCameraIdle() {
+						onCameraStopMoving();
+					}
+				});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var settings : com.google.android.gms.maps.UiSettings = map!!.getUiSettings()
+				settings.setAllGesturesEnabled(true)
+				settings.setCompassEnabled(true)
+				settings.setIndoorLevelPickerEnabled(true)
+				settings.setMapToolbarEnabled(true)
+				settings.setMyLocationButtonEnabled(false)
+				settings.setRotateGesturesEnabled(mapSettings!!.getCanRotate())
+				settings.setTiltGesturesEnabled(mapSettings!!.getCanTilt())
+				settings.setZoomGesturesEnabled(mapSettings!!.getCanZoom())
+				settings.setScrollGesturesEnabled(true)
+				settings.setZoomControlsEnabled(true)
+				map.setBuildingsEnabled(true)
+				map.setIndoorEnabled(true)
+				try {
+					var ms = mapSettings
+					map.setMyLocationEnabled(ms!!.getMapHasMyLocation());
+				}
+				catch(e:java.lang.SecurityException) {
+					context!!.logError("Location permission is not granted.");
+				}
+				mapSettings!!.setSettingObject(settings)
+				mapSettings!!.setMapObject(gmap)
+				if(zoomInCenter) {
+					var cameraPosition : com.google.android.gms.maps.model.CameraPosition = com.google.android.gms.maps.model.CameraPosition.Builder()
+						.target(com.google.android.gms.maps.model.LatLng(centerLat, centerLon))
+						.zoom(defaultZoomLevel.toFloat())
+						.bearing(0.toFloat())
+						.tilt(45.toFloat())
+						.build()
+					map.animateCamera(com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition))
+				}
+				map.setOnMarkerClickListener(object : com.google.android.gms.maps.GoogleMap.OnMarkerClickListener {
+					override fun onMarkerClick(marker : com.google.android.gms.maps.model.Marker): kotlin.Boolean {
+						onMarkerClicked(marker)
+						return false
+					}
+				})
+				map.setOnMapClickListener(object : com.google.android.gms.maps.GoogleMap.OnMapClickListener {
+					override fun onMapClick(loc : com.google.android.gms.maps.model.LatLng) {
+						onMapClicked(loc.latitude, loc.longitude)
+					}
+				})
+				map.setOnInfoWindowClickListener(object : com.google.android.gms.maps.GoogleMap.OnInfoWindowClickListener {
+					override fun onInfoWindowClick (marker : com.google.android.gms.maps.model.Marker) {
+						var myMarker : MyMapMarker = marker.getTag() as MyMapMarker
+						myMarker.onInfoWindowClicked()
+					}
+				})
+				map.setInfoWindowAdapter(object : com.google.android.gms.maps.GoogleMap.InfoWindowAdapter {
+					override fun getInfoContents(marker : com.google.android.gms.maps.model.Marker) : android.view.View? {
+						return(null)
+					}
+
+					override fun getInfoWindow(marker : com.google.android.gms.maps.model.Marker) : android.view.View? {
+						var myMarker : MyMapMarker = marker.getTag() as MyMapMarker
+						var widget : android.view.View? = myMarker.getInfoWindowWidget()
+						if(cave.ui.Widget.hasParent(widget)) {
+							cave.ui.Widget.removeFromParent(widget);
+							return(null)
+						}
+						var container : InfoWindowContainer = InfoWindowContainer(context)
+						cave.ui.Widget.addChild(container, widget)
+						return(container)
+					}
+				});
+				map.setOnCameraMoveStartedListener(object : com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener {
+					override fun onCameraMoveStarted(reason: kotlin.Int) {
+						onCameraStartMoving(reason == com.google.android.gms.maps.GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE)
+					}
+				})
+				map.setOnCameraMoveListener(object : com.google.android.gms.maps.GoogleMap.OnCameraMoveListener {
+					override fun onCameraMove() {
+						onCameraMoving()
+					}
+				})
+				map.setOnCameraIdleListener(object : com.google.android.gms.maps.GoogleMap.OnCameraIdleListener {
+					override fun onCameraIdle() {
+						onCameraStopMoving()
+					}
+				})
+			}}}
+		}
+		if mapInitialized == false:
+			mapInitialized = true
+		hasSizeAndMapInitialize()
+	}
+}
+
+ELSE IFDEF "target_html"
+{
+	basetype Widget type extends
+	basetype GeoCoder type implements
+
+	var mapCounter static = 0
+	var sdkIncluded static = false
+	var sdkLoaded static = false
+	var mapViewWaiting static as this
+	var addressQueryWaiting static as string
+	var addressQueryWaitingListener static as GeoCoderLocationListener
+	var myId as string
+	var mapObject as object #used
+
+	func initializeHtmlWidget
+	{
+		myId = "GoogleMapWidget" .. String.forInteger(mapCounter++)
+		HTMLDOM.setAttribute(element, "id", myId)
+		if sdkLoaded {
+			context.startTimer(0, func {
+				initializeMapForWidget()
+			})
+		}
+		else {
+			if sdkIncluded {
+				PRINT("Google Maps SDK included but not yet loaded. Cannot proceed.")
+				return
+			}
+			mapViewWaiting = this
+			var googleScript = HTMLDOM.createElement("script")
+			HTMLDOM.setAttribute(googleScript, "src", "https://maps.googleapis.com/maps/api/js?key=" .. URLEncoder.encode(webApiKey) .. "&callback=CaveGoogleMapsMapWidget.onGoogleMapLoaded")
+			HTMLDOM.setAttribute(googleScript, "async", "")
+			HTMLDOM.setAttribute(googleScript, "defer", "")
+			HTMLDOM.appendChild(HTMLDOM.getDocumentBody(), googleScript)
+			sdkIncluded = true
+		}
+	}
+
+	func onGoogleMapLoaded static
+	{
+		sdkLoaded = true
+		var vv = mapViewWaiting
+		mapViewWaiting = null
+		if vv != null {
+			vv.initializeMapForWidget()
+			if addressQueryWaiting != null {
+				vv.queryLocation(addressQueryWaiting, addressQueryWaitingListener)
+				addressQueryWaiting = null
+				addressQueryWaitingListener = null
+			}
+		}
+	}
+
+	func physicalAddressForResults(results as object) as PhysicalAddress
+	{
+		var v = new PhysicalAddress()
+		lang "js" {{{
+			var result = results[0];
+			v.setCompleteAddress(result.formatted_address);
+			var comps = result.address_components;
+			for(var n=0; n<comps.length; n++) {
+				var comp = comps[n];
+				var types = comp.types;
+				for(var m=0; m<types.length; m++) {
+					var type = types[m];
+					if(type === "street_number") {
+						v.setStreetAddressDetail(comp.long_name);
+					}
+					else if(type === "route") {
+						v.setStreetAddress(comp.long_name);
+					}
+					else if(type === "sublocality") {
+						v.setSubLocality(comp.long_name);
+					}
+					else if(type === "locality") {
+						v.setLocality(comp.long_name);
+					}
+					else if(type === "country") {
+						v.setCountry(comp.long_name);
+						v.setCountryCode(comp.short_name);
+					}
+					else if(type === "postal_code") {
+						v.setPostalCode(comp.long_name);
+					}
+					else if(type === "administrative_area_level_1") {
+						v.setAdministrativeArea(comp.long_name);
+					}
+					else if(type === "administrative_area_level_2") {
+						v.setSubAdministrativeArea(comp.long_name);
+					}
+				}
+			}
+		}}}
+		return v
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+	{
+		if listener == null:
+			return false
+		var error #used = Error.forCode("geocoding_failed")
+		var myObject #used = this
+		lang "js" {{{
+			var geoCoder = new google.maps.Geocoder();
+			geoCoder.geocode({'location': { lat: latitude, lng : longitude }}, function(results, status) {
+				if(status != "OK" || !results) {
+					listener.onQueryAddressErrorReceived(error);
+				}
+				else {
+					console.log(JSON.stringify(results, null, 4));
+					var pa = myObject.physicalAddressForResults(results);
+					pa.setLatitude(latitude);
+					pa.setLongitude(longitude);
+					listener.onQueryAddressCompleted(pa);
+				}
+			});
+		}}}
+		return true
+	}
+
+	func queryLocation(address as string, listener as GeoCoderLocationListener) as bool
+	{
+		if listener == null:
+			return false
+		if sdkLoaded == false {
+			addressQueryWaiting = address
+			addressQueryWaitingListener = listener
+			return true
+		}
+		var error #used = Error.forCode("geocoding_failed")
+		var r #used = new GeoLocation()
+		lang "js" {{{
+			var geoCoder = new google.maps.Geocoder();
+			geoCoder.geocode({'address': address }, function(results, status) {
+				if(status != "OK" || !results) {
+					listener.onQueryLocationErrorReceived(error);
+				}
+				else {
+					console.log(JSON.stringify(results, null, 4));
+					r.setLatitude(results[0].geometry.location.lat());
+					r.setLongitude(results[0].geometry.location.lng());
+					listener.onQueryLocationCompleted(r);
+				}
+			});
+		}}}
+		return true
+	}
+
+	func initializeMapForWidget private
+	{
+		if mapInitialized:
+			return
+		var myObject #used = this
+		lang "js" {{{
+			var map = new google.maps.Map(document.getElementById(this.myId), {
+				zoom: this.defaultZoomLevel,
+				center: { lat: this.centerLat, lng: this.centerLon }
+			});
+			this.mapObject = map;
+			var dragging = false;
+			google.maps.event.addListener(map, 'click', function(evt) {
+				myObject.onMapClicked(evt.latLng.lat(), evt.latLng.lng());
+			});
+			google.maps.event.addListener(map, 'dragstart', function() {
+				dragging = true;
+				myObject.onCameraStartMoving(true);
+			});
+			google.maps.event.addListener(map, 'drag', function() {
+				myObject.onCameraMoving();
+			});
+			google.maps.event.addListener(map, 'dragend', function() {
+				dragging = false;
+				myObject.onCameraStopMoving();
+			});
+			google.maps.event.addListener(map, 'center_changed', function() {
+				if(dragging == true) {
+					return;
+				}
+				myObject.onCameraStopMoving();
+			});
+		}}}
+		mapInitialized = true
+		placeQueuedMarkers()
+		if coordinateQueue != null:
+			doZoomToCoordinates()
+		if centerQueue != null:
+			doMoveToCenter()
+	}
+}
+
+ELSE IFDEF "target_ios_objc"
+{
+	basetype !"GMSMapView" type extends
+	basetype !"GMSMapViewDelegate" type implements
+	basetype GeoCoder type implements
+	basetype Widget type isAlso
+	depend "objc-header-h:<GoogleMaps/GoogleMaps.h>"
+	depend "objc-framework:GoogleMapsBase"
+	depend "objc-framework:GoogleMaps"
+	depend "objc-framework:GoogleMapsCore"
+	depend "objc-framework:Accelerate"
+	depend "objc-framework:CoreData"
+	depend "objc-framework:CoreGraphics"
+	depend "objc-framework:CoreLocation"
+	depend "objc-framework:CoreText"
+	depend "objc-framework:GLKit"
+	depend "objc-framework:ImageIO"
+	depend "ldlib:c++"
+	depend "ldlib:z"
+	depend "objc-framework:OpenGLES"
+	depend "objc-framework:QuartzCore"
+	depend "objc-framework:SystemConfiguration"
+	depend "objc-framework:UIKit"
+	depend "objc-framework:Security"
+	var googleMapsApiInitialized static = false
+
+	func mapView(mapview as !"GMSMapView", markerInfoWindow as !"GMSMarker") as Widget
+	{
+		var myMarker = lang "objc" MyMapMarker {{{ (CaveGoogleMapsMapWidgetMyMapMarker*)markerInfoWindow.userData }}}
+		var view = myMarker.getInfoWindowWidget()
+		if view != null:
+			Widget.layout(view, -1, false)
+		return view
+	}
+
+	lang "objc" {{{
+		- (void)mapView:(GMSMapView *)mapView didTapAtCoordinate:(CLLocationCoordinate2D)coordinate
+		{
+			[self onMapClicked:coordinate.latitude lon:coordinate.longitude];
+		}
+
+		- (void)mapView:(GMSMapView*)mapView didTapInfoWindowOfMarker:(GMSMarker*)marker
+		{
+			CaveGoogleMapsMapWidgetMyMapMarker* myMarker = (CaveGoogleMapsMapWidgetMyMapMarker*)marker.userData;
+			[myMarker onInfoWindowClicked];
+		}
+		
+		- (BOOL)mapView:(GMSMapView *)mapView didTapMarker:(GMSMarker *)marker
+		{
+			[self onMarkerClicked: marker];
+			return(NO);
+		}
+
+		- (void) mapViewSnapshotReady:(GMSMapView *)mapView
+		{
+			if(self->mapInitialized == false) {
+				self->mapInitialized = true;
+				[self placeQueuedMarkers];
+				if(self->coordinateQueue != nil) {
+					[self doZoomToCoordinates];
+				}
+				if(self->centerQueue != nil) {
+					[self doMoveToCenter];
+				}
+			}
+		}
+
+		- (void) mapView:(GMSMapView *)mapView willMove:(BOOL)gesture
+		{
+			[self onCameraStartMoving: gesture];
+		}
+
+		- (void) mapView:(GMSMapView *)mapView didChangeCameraPosition:(GMSCameraPosition *)position
+		{
+			[self onCameraMoving];
+		}
+
+		- (void) mapView:(GMSMapView *)mapView idleAtCameraPosition:(GMSCameraPosition *)position
+		{
+			[self onCameraStopMoving];
+		}
+	}}}
+
+	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", latitude as double, longitude as double, listener as GeoCoderAddressListener)
+	{
+		var addLine1 as string
+		var addLine2 as string
+		var country as string
+		var administrativeArea as string
+		var locality as string
+		var subLocality as string
+		var streetAddress as string
+		var postalCode as string
+		lang "objc" {{{
+			addLine1 = resp.firstResult.addressLine1;
+			addLine2 = resp.firstResult.addressLine2;
+			country = resp.firstResult.country;
+			administrativeArea = resp.firstResult.administrativeArea;
+			locality = resp.firstResult.locality;
+			subLocality = resp.firstResult.subLocality;
+			streetAddress = resp.firstResult.thoroughfare;
+			postalCode = resp.firstResult.postalCode;
+		}}}
+		var sb = new StringBuilder()
+		if addLine1 != null:
+			sb.append(addLine1)
+		if String.isEmpty(addLine2) == false {
+			if sb.count() > 0:
+				sb.append(' ')
+			sb.append(addLine2)
+		}
+		var v = new PhysicalAddress()
+		v.setCompleteAddress(sb.toString())
+		v.setLatitude(latitude)
+		v.setLongitude(longitude)
+		v.setCountry(country)
+		v.setAdministrativeArea(administrativeArea)
+		v.setLocality(locality)
+		v.setSubLocality(subLocality)
+		v.setStreetAddress(streetAddress)
+		v.setPostalCode(postalCode)
+		if listener != null:
+			listener.onQueryAddressCompleted(v)
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+	{
+		var myObject #used = this
+		lang "objc" {{{
+			GMSGeocoder* gc = [GMSGeocoder geocoder];
+			[gc reverseGeocodeCoordinate:CLLocationCoordinate2DMake(latitude, longitude) completionHandler:^(GMSReverseGeocodeResponse *resp, NSError *error) {
+				if(error != nil) {
+					NSLog(@"MapWidget: Error: %@", [error localizedDescription]);
+				}
+				[myObject onGeoCoderAddress:resp latitude:latitude longitude:longitude listener:listener];
+			}];
+		}}}
+		return true
+	}
+
+	func queryLocation(address as string, listener as GeoCoderLocationListener) as bool
+	{
+		return true
+	}
+}
+
+ELSE IFDEF "target_swift"
+{
+	basetype !"GMSMapView" type extends
+	basetype !"GMSMapViewDelegate" type implements
+	basetype Widget type isAlso
+	depend "swift-import:GoogleMapsBase"
+	depend "swift-import:GoogleMaps"
+	depend "swift-import:GoogleMapsCore"
+	depend "swift-import:Accelerate"
+	depend "swift-import:CoreData"
+	depend "swift-import:CoreGraphics"
+	depend "swift-import:CoreLocation"
+	depend "swift-import:CoreText"
+	depend "swift-import:GLKit"
+	depend "swift-import:ImageIO"
+	depend "swift-import:OpenGLES"
+	depend "swift-import:QuartzCore"
+	depend "swift-import:SystemConfiguration"
+	depend "swift-import:UIKit"
+	depend "swift-import:Security"
+
+	var googleMapsApiInitialized static = false
+
+	func mapView(mapview as !"GMSMapView", markerInfoWindow as !"GMSMarker") as Widget
+	{
+		var myMarker = lang "swift" MyMapMarker {{{ markerInfoWindow?.userData as? CaveGoogleMapsMapWidgetMyMapMarker }}}
+		var view = myMarker.getInfoWindowWidget()
+		if view:
+			Widget.layout(view, -1, false)
+		return view
+	}
+
+	lang "swift" {{{
+		public func mapView(_ mapview: GMSMapView, _ markerInfoWindow: GMSMarker?) -> UIView? {
+			let myMarker: CaveGoogleMapsMapWidgetMyMapMarker? = markerInfoWindow?.userData as? CaveGoogleMapsMapWidgetMyMapMarker
+			let view: UIView? = myMarker!.getInfoWindowWidget()
+			if view !== nil {
+				CaveUiWidget.layout(view, -1, false)
+			}
+			return view
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTapAt coordinate: CLLocationCoordinate2D) {
+			onMapClicked(coordinate.latitude, coordinate.longitude)
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTapInfoWindowOf marker: GMSMarker) {
+			let myMarker = marker.userData as? CaveGoogleMapsMapWidgetMyMapMarker
+			myMarker?.onInfoWindowClicked()
+		}
+
+		private func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
+			onMarkerClicked(marker)
+			return false
+		}
+
+		private func mapViewSnapshotReady(_ mapView: GMSMapView) {
+			if mapInitialized == false {
+				mapInitialized = true
+				placeQueuedMarkers()
+				if coordinateQueue != nil {
+					doZoomToCoordinates()
+				}
+				if centerQueue != nil {
+					doMoveToCenter()
+				}
+			}
+		}
+
+		private func mapView(_ mapView: GMSMapView, willMove gesture: Bool) {
+			onCameraStartMoving()
+		}
+	}}}
+
+	func onGeoCoderAddress(resp as !"GMSReverseGeocodeResponse", latitude as double, longitude as double, listener as GeoCoderAddressListener)
+	{
+		var addLine1 as string
+		var addLine2 as string
+		var country as string
+		var administrativeArea as string
+		var locality as string
+		var subLocality as string
+		var streetAddress as string
+		var postalCode as string
+		lang "swift" {{{
+			addLine1 = resp!.firstResult()!.addressLine1()
+			addLine2 = resp!.firstResult()!.addressLine2()
+			country = resp!.firstResult()!.country
+			administrativeArea = resp!.firstResult()!.administrativeArea
+			locality = resp!.firstResult()!.locality
+			subLocality = resp!.firstResult()!.subLocality
+			streetAddress = resp!.firstResult()!.thoroughfare
+			postalCode = resp!.firstResult()!.postalCode
+		}}}
+		var sb = new StringBuilder()
+		if addLine1:
+			sb.append(addLine1)
+		if not String.isEmpty(addLine2) {
+			if sb.count() > 0:
+				sb.append(' ')
+			sb.append(addLine2)
+		}
+		var v = new PhysicalAddress()
+		v.setCompleteAddress(sb.toString())
+		v.setLatitude(latitude)
+		v.setLongitude(longitude)
+		v.setCountry(country)
+		v.setAdministrativeArea(administrativeArea)
+		v.setLocality(locality)
+		v.setSubLocality(subLocality)
+		v.setStreetAddress(streetAddress)
+		v.setPostalCode(postalCode)
+		if listener:
+			listener.onQueryAddressCompleted(v)
+	}
+
+	func queryAddress(latitude as double, longitude as double, listener as GeoCoderAddressListener) as bool
+	{
+		var myObject #used = this
+		lang "swift" {{{
+			var gc = GMSGeocoder()
+			gc.reverseGeocodeCoordinate(CLLocationCoordinate2DMake(latitude, longitude), completionHandler: { resp, error in
+				if error != nil {
+					print("MapWidget: Error: \(error?.localizedDescription ?? "")")
+				}
+				myObject?.onGeoCoderAddress(resp, latitude, longitude, listener)
+			})
+		}}}
+		return true
+	}
+
+	func queryLocation(address as string, listener as GeoCoderLocationListener) as bool:
+		return true
+}
+
+class MyMapMarker is MapMarker
+{
+	prop lat as double
+	prop lon as double
+	prop rotation as double
+	prop anchorX as double
+	prop anchorY as double
+	prop label as string
+	prop title as string
+	prop icon as Image
+	prop removed = false
+	var clickHandler as function
+	var infoWindowWidget as Widget
+	var infoWindowClickHandler as function
+	var markerObject public as object
+
+	func move(lat as double, lon as double)
+	{
+		this.lat = lat
+		this.lon = lon
+		if markerObject {
+			IFDEF "target_html" {
+				lang "js" {{{
+					this.markerObject.setPosition({ lat: lat, lng: lon });
+				}}}
+			}
+			ELSE IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(this.lat, this.lon);
+						((com.google.android.gms.maps.model.Marker)markerObject).setPosition(pos);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(this.lat, this.lon)
+						(markerObject as com.google.android.gms.maps.model.Marker).setPosition(pos);
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setPosition:CLLocationCoordinate2DMake(lat, lon)];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.position = CLLocationCoordinate2DMake(lat, lon)
+
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented."
+			}
+		}
+	}
+
+	func remove
+	{
+		if markerObject {
+			IFDEF "target_html" {
+				lang "js" {{{
+					this.markerObject.setMap(null);
+				}}}
+			}
+			ELSE IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.model.Marker)markerObject).remove();
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(markerObject as com.google.android.gms.maps.model.Marker).remove();
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setMap:nil];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.map = nil
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented."
+			}
+		}
+		removed = true
+	}
+
+	func rotate(deg as double)
+	{
+		rotation = deg
+		if markerObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.model.Marker)markerObject).setRotation((float)deg);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(markerObject as com.google.android.gms.maps.model.Marker).setRotation(deg.toFloat())
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSMarker*)self->markerObject setRotation:deg];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(markerObject as? GMSMarker)?.rotation = deg
+				}}}
+			}
+		}
+	}
+
+	func setAnchor(x as double, y as double)
+	{
+		anchorX = x
+		anchorY = y
+		if markerObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.model.Marker)markerObject).setAnchor((float)x, (float)y);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(markerObject as com.google.android.gms.maps.model.Marker).setAnchor(x.toFloat(), (y.toFloat()))
+					}}}
+				}
+			}
+			ELSE {
+				ERROR "Not yet implemented"
+			}
+		}
+	}
+
+	func setInfoWindowWidget(window as Widget):
+		infoWindowWidget = window
+
+	func getInfoWindowWidget as Widget:
+		return infoWindowWidget
+
+	func setInfoWindowClickHandler(handler as function):
+		infoWindowClickHandler = handler
+
+	func setClickHandler(handler as function):
+		clickHandler = handler
+
+	func onMapMarkerClicked
+	{
+		if clickHandler:
+			clickHandler()
+	}
+
+	func onInfoWindowClicked
+	{
+		if infoWindowClickHandler:
+			infoWindowClickHandler()
+	}
+}
+
+class MapCamera public
+{
+	prop angle as double
+	prop bearing as double
+	prop zoom as double
+	prop latitude as double
+	prop longitude as double
+}
+
+class MyMapSettings public
+{
+	var canZoom = true
+	var canTilt = true
+	var canRotate = true
+	var mapHasMyLocation = false
+	prop settingObject as object
+	prop mapObject as object
+
+	func setCanZoom(enable as bool)
+	{
+		canZoom = enable
+		if settingObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.UiSettings)settingObject).setZoomGesturesEnabled(canZoom);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(settingObject as com.google.android.gms.maps.UiSettings).setZoomGesturesEnabled(canZoom)
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setZoomGestures:canZoom];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.zoomGestures = canZoom
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented"
+			}
+		}
+	}
+
+	func setCanTilt(enable as bool)
+	{
+		canTilt = enable
+		if settingObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.UiSettings)settingObject).setTiltGesturesEnabled(canTilt);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(settingObject as com.google.android.gms.maps.UiSettings).setTiltGesturesEnabled(canTilt);
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setTiltGestures:canTilt];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.tiltGestures = canTilt
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented"
+			}
+		}
+	}
+
+	func setCanRotate(enable as bool)
+	{
+		canRotate = enable
+		if settingObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.UiSettings)settingObject).setRotateGesturesEnabled(canRotate);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(settingObject as com.google.android.gms.maps.UiSettings).setRotateGesturesEnabled(canRotate);
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					[(GMSUISettings*)self->settingObject setRotateGestures:canRotate];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(settingObject as? GMSUISettings)?.rotateGestures = canRotate
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented"
+			}
+		}
+	}
+
+	func setMapHasMyLocation(enable as bool)
+	{
+		mapHasMyLocation = enable
+		if settingObject {
+			IFDEF "target_android" {
+				IFDEF "target_java" {
+					lang "java" {{{
+						((com.google.android.gms.maps.GoogleMap)mapObject).setMyLocationEnabled(mapHasMyLocation);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						(mapObject as com.google.android.gms.maps.GoogleMap).setMyLocationEnabled(mapHasMyLocation)
+					}}}
+				}
+			}
+			ELSE IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					((GMSMapView*)self->mapObject).myLocationEnabled = mapHasMyLocation;
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					(mapObject as? GMSMapView)?.isMyLocationEnabled = mapHasMyLocation
+				}}}
+			}
+			ELSE {
+				ERROR "Not implemented"
+			}
+		}
+	}
+
+	func getCanZoom as bool:
+		return canZoom
+
+	func getCanTilt as bool:
+		return canTilt
+
+	func getCanRotate as bool:
+		return canRotate
+
+	func getMapHasMyLocation as bool:
+		return mapHasMyLocation
+}
+
+func forApiKeys(context as GuiApplicationContext, webApiKey as string, iosApiKey as string) static as this
+{
+	IFDEF "target_ios_objc" {
+		if googleMapsApiInitialized == false {
+			lang "objc" {{{
+				[GMSServices provideAPIKey:iosApiKey];
+			}}}
+			googleMapsApiInitialized = true
+		}
+	}
+	IFDEF "target_swift" {
+		if not googleMapsApiInitialized {
+			lang "swift" {{{
+				GMSServices.provideAPIKey(iosApiKey!)
+			}}}
+			googleMapsApiInitialized = true
+		}
+	}
+	var v = new this(context)
+	v.setWebApiKey(webApiKey)
+	return v
+}
+
+prop webApiKey as string
+prop centerLat = 0.0
+prop centerLon = 0.0
+prop defaultZoomLevel = 14
+prop zoomInCenter = true
+prop streetViewEnabled as bool
+prop markerSize as int
+prop widgetMapCameraStartMovingHandler as function<void, bool>
+prop widgetMapCameraMovingHandler as function
+prop widgetMapCameraStopMovingHandler as function
+var context as GuiApplicationContext
+var mapClickHandler as function<void,double,double>
+var mapMarkers as vector<MyMapMarker>
+var markerQueue as vector<MyMapMarker>
+var coordinateQueue as vector<DynamicMap>
+var coordinateQueueMoveWithAnimation as bool
+var centerQueue as GeoLocation
+var centerQueueMoveWithAnimation as bool
+var mapSettings as MyMapSettings
+var mapInitialized = false
+
+ctor(context as GuiApplicationContext) private
+{
+	IFDEF "target_android" {
+		base((context as! cave.GuiApplicationContextForAndroid).getActivityContext())
+		IFDEF "target_java" {
+			lang "java" {{{
+				setBackgroundColor(0xff000000);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setBackgroundColor(0xff000000.toInt())
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+		}}}
+	}
+	this.context = context
+	markerSize = context.getHeightValue("6mm")
+	mapSettings = new MyMapSettings()
+}
+
+func onWidgetAddingToParent:
+	;
+
+func onWidgetAddedToParent
+{
+	IFDEF "target_html" {
+		initializeHtmlWidget()
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			self.delegate = self;
+			GMSUISettings* settings = [self settings];
+			[settings setAllGesturesEnabled:YES];
+			[settings setCompassButton:YES];
+			[settings setIndoorPicker:YES];
+			[settings setMyLocationButton:NO];
+			[settings setRotateGestures:[mapSettings getCanRotate]];
+			[settings setScrollGestures:YES];
+			[settings setTiltGestures:[mapSettings getCanTilt]];
+			[settings setZoomGestures:[mapSettings getCanZoom]];
+			self.buildingsEnabled = YES;
+			self.indoorEnabled = YES;
+			self.myLocationEnabled = [mapSettings getMapHasMyLocation];
+			[mapSettings setSettingObject: settings];
+			[mapSettings setMapObject: self];
+		}}}
+		if zoomInCenter {
+			lang "objc" {{{
+				GMSCameraPosition *camera = [GMSCameraPosition cameraWithLatitude:self->centerLat longitude:self->centerLon zoom:self->defaultZoomLevel
+					bearing:0 viewingAngle:45];
+				[self animateToCameraPosition:camera];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.delegate = self
+			var settings = self.settings
+			settings.setAllGesturesEnabled(true)
+			settings.compassButton = true
+			settings.indoorPicker = true
+			settings.myLocationButton = false
+			settings.rotateGestures = mapSettings!.getCanRotate()
+			settings.scrollGestures = true
+			settings.tiltGestures = mapSettings!.getCanTilt()
+			settings.zoomGestures = mapSettings!.getCanZoom()
+			isBuildingsEnabled = true
+			isIndoorEnabled = true
+			isMyLocationEnabled = mapSettings!.getMapHasMyLocation()
+			mapSettings?.setSettingObject(settings)
+			mapSettings?.setMapObject(self)
+		}}}
+		if(zoomInCenter) {
+			lang "swift" {{{
+				let camera = GMSCameraPosition.camera(withLatitude: centerLat, longitude: centerLon, zoom: Float(defaultZoomLevel), bearing: 0, viewingAngle: 45)
+				animate(to: camera)
+			}}}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		var myObject #used = this
+		if created == false {
+			created = true
+			IFDEF "target_java" {
+				lang "java" {{{
+					onCreate(new android.os.Bundle());
+					onResume();
+					getMapAsync(myObject);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					onCreate(android.os.Bundle())
+					onResume()
+					getMapAsync(myObject)
+				}}}
+			}
+		}
+	}
+}
+func onWidgetRemovedFromParent:
+	;
+
+func onMarkerClicked(marker as object)
+{
+	assert marker
+	var myMarker as MyMapMarker
+	IFDEF "target_android" {
+		myMarker = (marker as! !"com.google.android.gms.maps.model.Marker").getTag() as! MyMapMarker
+	}
+	ELSE IFDEF "target_ios_objc" {
+		myMarker = lang "objc" MyMapMarker {{{ ((GMSMarker *)marker).userData }}}
+	}
+	ELSE IFDEF "target_swift" {
+		myMarker = lang "swift" MyMapMarker {{{ (marker as? GMSMarker)?.userData as? CaveGoogleMapsMapWidgetMyMapMarker }}}
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+	}
+	assert myMarker
+	myMarker.onMapMarkerClicked()
+}
+
+func onMapClicked(lat as double, lon as double) private
+{
+	if mapClickHandler != null:
+		mapClickHandler(lat, lon)
+}
+
+func addMapClickHandler(handler as function<void,double,double>)
+{
+	mapClickHandler = handler
+}
+
+func addMapMarker(lat as double, lon as double, label as string, title as string, icon as Image = null) as MapMarker
+{
+	var v = new MyMapMarker()
+	v.setLat(lat)
+	v.setLon(lon)
+	v.setLabel(label)
+	v.setTitle(title)
+	v.setIcon(icon)
+	if mapInitialized {
+		doAddMapMarker(v)
+	}
+	else {
+		if markerQueue == null:
+			markerQueue = new vector<MyMapMarker>
+		markerQueue += v
+	}
+	return v
+}
+
+func placeQueuedMarkers
+{
+	foreach(marker in markerQueue) {
+		if marker.getRemoved() == false:
+			doAddMapMarker(marker)
+	}
+	markerQueue = null
+}
+
+func doAddMapMarker(marker as MyMapMarker) private
+{
+	IFDEF "target_html" {
+		var ico #used = marker.getIcon() as ImageForBrowser
+		var msz #used = markerSize
+		lang "js" {{{
+			var mkropt = { position: { lat: marker.getLat(), lng: marker.getLon() },
+				map: this.mapObject,
+				title : marker.getTitle(),
+				label : marker.getLabel()
+			};
+			if(ico != null) {
+				var icon = { url: ico.getSource(),
+					scaledSize: { width: msz, height: msz}
+				};
+				mkropt.icon = icon;
+			}
+			var mo = new google.maps.Marker(mkropt);
+			google.maps.event.addListener(mo, 'click', function(evt) {
+				
+				marker.onMapMarkerClicked();
+				/* Default behavior when marker is clicked */
+
+				var pos = mo.getPosition();
+				this.moveToCenter(pos.lat(), pos.lng(), true);
+				var iww = marker.getInfoWindowWidget();
+				if(iww !== null) {
+					CaveUIWidget.setWidgetClickHandler(iww, function() {
+						marker.onInfoWindowClicked();
+					});
+					var inf = new google.maps.InfoWindow({
+						content : iww.element
+					});
+					google.maps.event.addListener(inf, 'domready', function() {
+						iww.onWidgetAddingToParent();
+						iww.onWidgetAddedToParent();
+						iww.scheduleLayout();
+					});
+					inf.open(this.mapObject, mo);
+				}
+			}.bind(this));
+			marker.markerObject = mo;
+		}}}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(marker.getLat(), marker.getLon());
+				com.google.android.gms.maps.model.MarkerOptions mkropt = new com.google.android.gms.maps.model.MarkerOptions()
+					.position(pos)
+					.anchor((float)marker.getAnchorX(), (float)marker.getAnchorY())
+					.title(marker.getTitle())
+					.visible(true);
+				cave.Image ico = marker.getIcon();
+				if(ico != null) {
+					cave.ImageForAndroid ic = (cave.ImageForAndroid)ico.scaleToSize(markerSize, markerSize);
+					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getAndroidBitmap()));
+				}
+				else {
+					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE));
+				}
+				com.google.android.gms.maps.model.Marker mk = gmap.addMarker(mkropt);
+				mk.setTag(marker);
+				marker.markerObject = mk;
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(marker!!.getLat(), marker!!.getLon())
+				var mkropt : com.google.android.gms.maps.model.MarkerOptions = com.google.android.gms.maps.model.MarkerOptions()
+					.position(pos)
+					.anchor((marker!!.getAnchorX()).toFloat(), (marker!!.getAnchorY()).toFloat())
+					.title(marker.getTitle())
+					.visible(true)
+				var ico : cave.Image? = marker.getIcon()
+				if(ico != null) {
+					var ic : cave.ImageForAndroid = ico.scaleToSize(markerSize, markerSize) as cave.ImageForAndroid
+					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getKotlinBitmap()))
+				}
+				else {
+					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.defaultMarker(com.google.android.gms.maps.model.BitmapDescriptorFactory.HUE_ORANGE))
+				}
+				var mk : com.google.android.gms.maps.model.Marker = gmap!!.addMarker(mkropt)
+				mk.setTag(marker)
+				marker.markerObject = mk
+			}}}
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		var img as ImageForIOS
+		if marker.getIcon() {
+			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForIOS
+		}
+		lang "objc" {{{
+			GMSMarker* mm = [GMSMarker markerWithPosition:CLLocationCoordinate2DMake([marker getLat], [marker getLon])]; 
+			mm.title = [marker getTitle];
+			// mm.label = [marker getLabel];
+			if(img != nil) {
+				mm.icon = img->uiImage;
+			}
+			mm.map = self;
+			mm.userData = marker;
+			marker->markerObject = mm;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var img as ImageForSwift
+		if marker.getIcon():
+			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForSwift
+		lang "swift" {{{
+			let mm = GMSMarker(position: CLLocationCoordinate2DMake(_: (marker?.getLat())!, _: (marker?.getLon())!))
+			mm.title = marker?.getTitle()
+			if(img != nil) {
+				mm.icon = img?.uiImage
+			}
+			mm.map = self
+			mm.userData = marker
+			marker?.markerObject = mm
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	if not mapMarkers:
+		mapMarkers = new vector<MyMapMarker>
+	mapMarkers += marker
+}
+
+func moveToCenter(lat as double, lon as double, animated as bool = false)
+{
+	centerQueue = new GeoLocation().setLatitude(lat).setLongitude(lon)
+	centerQueueMoveWithAnimation = animated
+	if mapInitialized:
+		doMoveToCenter()
+}
+
+func doMoveToCenter private
+{
+	assert centerQueue
+	moveCamera(new MapCamera()
+		.setLatitude(centerQueue.getLatitude())
+		.setLongitude(centerQueue.getLongitude())
+		.setZoom(defaultZoomLevel)
+		.setAngle(45)
+		.setBearing(0), centerQueueMoveWithAnimation)
+}
+
+func moveCamera(camera as MapCamera, animated as bool)
+{
+	assert camera
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.maps.model.CameraPosition cameraPosition = new com.google.android.gms.maps.model.CameraPosition.Builder()
+					.target(new com.google.android.gms.maps.model.LatLng(camera.getLatitude(), camera.getLongitude()))
+					.zoom((float)camera.getZoom())
+					.bearing((float)camera.getBearing())
+					.tilt((float)camera.getAngle())
+					.build();
+				com.google.android.gms.maps.CameraUpdate update = com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition);
+				if(animated) {
+					gmap.animateCamera(update);
+				}
+				else {
+					gmap.moveCamera(update);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var cameraPosition : com.google.android.gms.maps.model.CameraPosition = com.google.android.gms.maps.model.CameraPosition.Builder()
+					.target(com.google.android.gms.maps.model.LatLng(camera.getLatitude(), camera.getLongitude()))
+					.zoom((camera.getZoom()).toFloat())
+					.bearing((camera.getBearing()).toFloat())
+					.tilt((camera.getAngle()).toFloat())
+					.build();
+				var update : com.google.android.gms.maps.CameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newCameraPosition(cameraPosition)
+				if(animated) {
+					gmap!!.animateCamera(update)
+				}
+				else {
+					gmap!!.moveCamera(update)
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		lang "js" {{{
+			var latlon = { "lat" : camera.getLatitude(), "lng" : camera.getLongitude() };
+			if(animated) {
+				this.mapObject.panTo(latlon);
+			}
+			else {
+				this.mapObject.setCenter(latlon);
+			}
+		}}}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			GMSCameraPosition *camerapos = [GMSCameraPosition cameraWithLatitude:[camera getLatitude] longitude:[camera getLongitude] zoom:[camera getZoom]
+				bearing:[camera getBearing] viewingAngle:[camera getAngle]];
+			if(animated) {
+				[self animateToCameraPosition:camerapos];
+			}
+			else {
+				[self moveCamera:[GMSCameraUpdate setCamera:camerapos]];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let camerapos = GMSCameraPosition.camera(withLatitude: (camera?.getLatitude())!, longitude: (camera?.getLongitude())!, zoom: Float((camera?.getZoom())!), bearing: (camera?.getBearing())!, viewingAngle: (camera?.getAngle())!)
+			if animated {
+				animate(to: camerapos)
+			} else {
+				moveCamera(GMSCameraUpdate.setCamera(camerapos))
+			}
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func zoomToCoordinates(coors as vector<DynamicMap>, animated as bool = true)
+{
+	if mapInitialized {
+		coordinateQueue = coors
+		coordinateQueueMoveWithAnimation = animated
+		doZoomToCoordinates()
+	}
+	else {
+		coordinateQueue = coors
+	}
+}
+
+func doZoomToCoordinates
+{
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				com.google.android.gms.maps.model.LatLngBounds.Builder llbounds = new com.google.android.gms.maps.model.LatLngBounds.Builder();
+				for(jk.lang.DynamicMap coor : coordinateQueue) {
+					double lat = (double)coor.getDouble("latitude");
+					double lon = (double)coor.getDouble("longitude");
+					com.google.android.gms.maps.model.LatLng pos = new com.google.android.gms.maps.model.LatLng(lat, lon);
+					llbounds.include(pos);
+				}
+				com.google.android.gms.maps.CameraUpdate update = com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70);
+				if(coordinateQueueMoveWithAnimation) {
+					gmap.animateCamera(update);
+				}
+				else {
+					gmap.moveCamera(update);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var llbounds : com.google.android.gms.maps.model.LatLngBounds.Builder = com.google.android.gms.maps.model.LatLngBounds.Builder()
+				var cQueue = coordinateQueue
+				if(cQueue != null) {
+					for(coor in cQueue) {
+						var lat : kotlin.Double = coor!!.getDouble("latitude")
+						var lon : kotlin.Double  = coor!!.getDouble("longitude")
+						var pos : com.google.android.gms.maps.model.LatLng = com.google.android.gms.maps.model.LatLng(lat, lon)
+						llbounds.include(pos)
+					}
+				}
+				var update : com.google.android.gms.maps.CameraUpdate = com.google.android.gms.maps.CameraUpdateFactory.newLatLngBounds(llbounds.build(), 70)
+				if(coordinateQueueMoveWithAnimation) {
+					gmap!!.animateCamera(update)
+				}
+				else {
+					gmap!!.moveCamera(update)
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		lang "js" {{{
+			var bounds = new google.maps.LatLngBounds();
+			for(var i = 0; i < this.coordinateQueue.length; i++) {
+				var bound = this.coordinateQueue[i];
+				var latlon = new google.maps.LatLng({ lat: bound.getDouble("latitude"), lng: bound.getDouble("longitude")});
+				bounds.extend(latlon);
+			}
+			this.mapObject.fitBounds(bounds);
+		}}}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			GMSMutablePath *path = [GMSMutablePath path];
+			for(CapeDynamicMap *coor in coordinateQueue) {
+				if(coor == nil) {
+					continue;
+				}
+				[path addCoordinate:CLLocationCoordinate2DMake([coor getDouble:@"latitude" defval:0.0], [coor getDouble:@"longitude" defval:0.0])];
+			}
+			GMSCoordinateBounds *bounds = [[GMSCoordinateBounds alloc] initWithPath:path];
+			GMSCameraUpdate* update = [GMSCameraUpdate fitBounds:bounds withPadding:70.0f];
+			if(coordinateQueueMoveWithAnimation) {
+				[self animateWithCameraUpdate:update];
+			}
+			else {
+				[self moveCamera:update];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let path = GMSMutablePath()
+			for case let coor as CapeDynamicMap in coordinateQueue! {
+				if(coor == nil) {
+					continue;
+				}
+				path.add(CLLocationCoordinate2DMake(coor.getDouble("latitude", 0.0), coor.getDouble("longitude", 0.0)))
+			}
+			let bounds = GMSCoordinateBounds(path: path)
+			let update = GMSCameraUpdate.fit(bounds, withPadding: 70.0)
+			if(coordinateQueueMoveWithAnimation) {
+				self.animate(with: update)
+			}
+			else {
+				self.moveCamera(update)
+			}
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getMapCenterLatitude as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		var v as double
+		IFDEF "target_java" {
+			v = lang "java" double {{{ gmap.getCameraPosition().target.latitude }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" double {{{ gmap!!.getCameraPosition().target.latitude }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].target.latitude }}}
+	}
+	ELSE IFDEF "target_swift" {
+		assert mapInitialized
+		return lang "swift" double {{{ self.camera.target.latitude }}}
+	}
+	ELSE IFDEF "target_html" {
+		var lat = 0.0
+		lang "js" {{{
+			if(this.mapObject) {
+				lat = this.mapObject.getCenter().lat();
+			}
+		}}}
+		return lat
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+		return 0.0
+	}
+}
+
+func getMapCenterLongitude as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		var v as double
+		IFDEF "target_java" {
+			v = lang "java" double {{{ gmap.getCameraPosition().target.longitude }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" double {{{ gmap!!.getCameraPosition().target.longitude }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].target.longitude }}}
+	}
+	ELSE IFDEF "target_swift" {
+		assert mapInitialized
+		return lang "swift" double {{{ self.camera.target.longitude }}}
+	}
+	ELSE IFDEF "target_html" {
+		var lng = 0.0
+		lang "js" {{{
+			if(this.mapObject) {
+				lng = this.mapObject.getCenter().lng();
+			}
+		}}}
+		return lng
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+		return 0.0
+	}
+}
+
+func getMapZoom as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		var v as double
+		IFDEF "target_java" {
+			v = lang "java" double {{{ gmap.getCameraPosition().zoom }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" double {{{ gmap!!.getCameraPosition().zoom }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].zoom }}}
+	}
+	ELSE IFDEF "target_html" {
+		var zoom = 0.0
+		lang "js" {{{
+			if(this.mapObject) {
+				zoom = this.mapObject.getZoom();
+			}
+		}}}
+		return zoom
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+		return 0.0
+	}
+}
+
+func getMapBearing as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		var v as double
+		IFDEF "target_java" {
+			v = lang "java" double {{{ gmap.getCameraPosition().bearing }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" double {{{ gmap!!.getCameraPosition().bearing }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].bearing }}}
+	}
+	ELSE IFDEF "target_html" {
+		var zoom = 0.0
+		lang "js" {{{
+			if(this.mapObject) {
+				zoom = this.mapObject.getHeading();
+			}
+		}}}
+		return zoom
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+		return 0.0
+	}
+}
+
+func getMapTilt as double
+{
+	IFDEF "target_android" {
+		assert isDone
+		var v as double
+		IFDEF "target_java" {
+			v = lang "java" double {{{ gmap.getCameraPosition().tilt }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" double {{{ gmap!!.getCameraPosition().tilt }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		assert mapInitialized
+		return lang "objc" double {{{ [self camera].viewingAngle }}}
+	}
+	ELSE IFDEF "target_html" {
+		var zoom = 0.0
+		lang "js" {{{
+			if(this.mapObject) {
+				zoom = this.mapObject.getTilt();
+			}
+		}}}
+		return zoom
+	}
+	ELSE {
+		ERROR "Not yet implemented"
+		return 0.0
+	}
+}
+
+func clearMapMarkers
+{
+	foreach marker in mapMarkers:
+		marker.remove()
+}
+
+func getMapCenterLocationAsDynamicMap as DynamicMap:
+	return new DynamicMap().set("latitude", getMapCenterLatitude()).set("longitude", getMapCenterLongitude())
+
+func onCameraStartMoving(dueToGesture as bool)
+{
+	if widgetMapCameraStartMovingHandler:
+		widgetMapCameraStartMovingHandler(dueToGesture)
+}
+
+func onCameraMoving
+{
+	if widgetMapCameraMovingHandler:
+		widgetMapCameraMovingHandler()
+}
+
+func onCameraStopMoving
+{
+	if widgetMapCameraStopMovingHandler:
+		widgetMapCameraStopMovingHandler()
+}
+
+func setMapCanBeZoom(enable as bool):
+	mapSettings.setCanZoom(enable)
+
+func setMapCanBeTilt(enable as bool):
+	mapSettings.setCanTilt(enable)
+
+func setMapCanBeRotate(enable as bool):
+	mapSettings.setCanRotate(enable)
+
+func setMapHasMyLocation(enable as bool):
+	mapSettings.setMapHasMyLocation(enable)
