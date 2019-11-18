@@ -1,0 +1,248 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is StringObject:
+
+func forTimeSeconds(seconds as long) static as this
+{
+	var v = assert new this()
+	v.setTimeSeconds(seconds)
+	return v
+}
+
+func forTimeValue(tv as TimeValue) static as this
+{
+	assert tv
+	return forTimeSeconds(tv.getSeconds())
+}
+
+func forString(string as string) static as this
+{
+	assert string
+	var comps = assert String.split(string, ' ', 2)
+	var c0 = Vector.get(comps, 0)
+	var c1 = Vector.get(comps, 1)
+	assert String.isNotEmpty(c0)
+	var comps2 = assert String.split(c0, '-', 3)
+	assert Vector.getSize(comps2) == 3
+	var v = new this()
+	v.setYear(String.toInteger(Vector.get(comps2, 0)))
+	v.setMonth(String.toInteger(Vector.get(comps2, 1)))
+	v.setDayOfMonth(String.toInteger(Vector.get(comps2, 2)))
+	if String.isNotEmpty(c1) {
+		var tcs = String.split(c1, ':', 3)
+		if Vector.getSize(tcs) == 3 {
+			v.setHours(String.toInteger(Vector.get(tcs, 0)))
+			v.setMinutes(String.toInteger(Vector.get(tcs, 1)))
+			v.setSeconds(String.toInteger(Vector.get(tcs, 2)))
+		}
+	}
+	return v
+}
+
+var timeSeconds as long
+prop weekDay as int
+prop dayOfMonth as int
+prop month as int
+prop year as int
+prop hours as int
+prop minutes as int
+prop seconds as int
+prop utc = false
+prop timezoneOffset as long = 0
+
+func onTimeSecondsChanged(seconds as long #used)
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			var dt = new System.DateTime(1970, 1, 1).AddSeconds(seconds);
+			setWeekDay((int)dt.DayOfWeek + 1);
+			setDayOfMonth(dt.Day);
+			setMonth(dt.Month);
+			setYear(dt.Year);
+			setHours(dt.Hour);
+			setMinutes(dt.Minute);
+			setSeconds(dt.Second);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			java.util.TimeZone tz = java.util.TimeZone.getDefault();
+			java.util.Calendar cal = java.util.Calendar.getInstance(tz);
+			cal.setTimeInMillis(seconds*1000);
+			setDayOfMonth(cal.get(java.util.Calendar.DAY_OF_MONTH));
+			setMonth(cal.get(java.util.Calendar.MONTH) + 1);
+			setYear(cal.get(java.util.Calendar.YEAR));
+			setWeekDay(cal.get(java.util.Calendar.DAY_OF_WEEK));
+			setHours(cal.get(java.util.Calendar.HOUR_OF_DAY));
+			setMinutes(cal.get(java.util.Calendar.MINUTE));
+			setSeconds(cal.get(java.util.Calendar.SECOND));
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			var date = new Date(seconds * 1000);
+			this.year = date.getFullYear();
+			this.month = date.getMonth() + 1;
+			this.dayOfMonth = date.getDate();
+			this.weekDay = date.getDay() + 1;
+			this.hours = date.getHours();
+			this.minutes = date.getMinutes();
+			this.seconds = date.getSeconds();
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			struct tm lt;
+		}}}
+		var tp #used = timeSeconds
+		if(utc == false) {
+			lang "objc" {{{
+				localtime_r((const time_t*)&tp, &lt);
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				gmtime_r((const time_t*)&tp, &lt);
+			}}}
+		}
+		var dwday as int
+		var dday as int
+		var dmonth as int
+		var dyear as int
+		var dhours as int
+		var dmins as int
+		var dseconds as int
+		lang "objc" {{{
+			dwday = lt.tm_wday + 1;
+			dday = lt.tm_mday;
+			dmonth = lt.tm_mon + 1;
+			dyear = 1900 + lt.tm_year;
+			dhours = lt.tm_hour;
+			dmins = lt.tm_min;
+			dseconds = lt.tm_sec;
+		}}}
+		this.year = dyear
+		this.month = dmonth
+		this.dayOfMonth = dday
+		this.weekDay = dwday
+		this.hours = dhours
+		this.minutes = dmins
+		this.seconds = dseconds
+	}
+	ELSE IFDEF "target_swift" {
+		var sec as long
+		if utc {
+			sec = seconds
+		}
+		else {
+			sec = seconds + timezoneOffset
+		}
+		lang "swift" {{{
+			let date = Date(timeIntervalSince1970: Swift.Double(sec))
+			let myCalendar = Calendar(identifier: .gregorian)
+			let dt = myCalendar.dateComponents([.year, .month, .day, .weekday, .hour, .minute, .second], from: date)
+			self.year = dt.year!
+			self.month = dt.month!
+			self.dayOfMonth = dt.day!
+			self.weekDay = dt.weekday!
+			self.hours = dt.hour!
+			self.minutes = dt.minute!
+			self.seconds = dt.second!
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		var o = this
+		if(utc == false) {
+			lang "lua" {{{
+				o.weekDay, o.dayOfMonth, o.month, o.year, o.hours, o.minutes, o.seconds = _os:get_timestamp_details_local(seconds)
+			}}}
+		}
+		else {
+			lang "lua" {{{
+				o.weekDay, o.dayOfMonth, o.month, o.year, o.hours, o.minutes, o.seconds = _os:get_timestamp_details_utc(seconds)
+			}}}
+		}
+	}
+	ELSE {
+		var day = (seconds / 60 / 60 / 24) as double
+		var y = day / 365.25 as int
+		this.year = 1970 + y
+		var yearreminder = day % 365.25
+		this.month = (yearreminder / 30.44) + 1 as int
+		this.dayOfMonth = (yearreminder % 30.44) + 1 as int
+		this.hours = (seconds / (60 * 60)) % 24 as int
+		this.weekDay = ((day + 4) % 7)+ 1 as int
+		this.seconds = seconds % 60 as int
+		this.minutes = (seconds / 60) % 60 as int
+	}
+}
+
+func getTimeSeconds as long:
+	return timeSeconds
+
+func setTimeSeconds(seconds as long)
+{
+	timeSeconds = seconds
+	onTimeSecondsChanged(seconds)
+}
+
+func toStringDate(delim as char = '-') as string
+{
+	var sb = new StringBuilder()
+	sb.append(String.forIntegerWithPadding(getYear(), 4))
+	if delim > 0:
+		sb.append(delim)
+	sb.append(String.forIntegerWithPadding(getMonth(), 2))
+	if delim > 0:
+		sb.append(delim)
+	sb.append(String.forIntegerWithPadding(getDayOfMonth(), 2))
+	return sb.toString()
+}
+
+func toStringTime(delim as char = ':') as string
+{
+	var sb = new StringBuilder()
+	sb.append(String.forIntegerWithPadding(getHours(), 2))
+	if delim > 0:
+		sb.append(delim)
+	sb.append(String.forIntegerWithPadding(getMinutes(), 2))
+	if delim > 0:
+		sb.append(delim)
+	sb.append(String.forIntegerWithPadding(getSeconds(), 2))
+	return sb.toString()
+}
+
+func toStringDateTime as string
+{
+	var sb = new StringBuilder()
+	sb.append(toStringDate())
+	sb.append(" ")
+	sb.append(toStringTime())
+	return sb.toString()
+}
+
+func toString as string:
+	return toStringDateTime()

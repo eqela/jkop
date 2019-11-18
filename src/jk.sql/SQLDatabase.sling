@@ -1,0 +1,573 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+
+class abstract:
+
+prop logger as LoggingContext = null
+
+// Generic methods (shared for both synchronous and asynchoronous APIs)
+func prepare(sql as string) abstract as SQLStatement
+func getDatabaseTypeId abstract as string
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
+func prepareDeleteTableStatement(table as string) abstract as SQLStatement
+func prepareCreateIndexStatement(table as string, column as string, unique as bool) abstract as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func getLastInsertId(table as string) abstract as long
+func getIdentityColumnName(table as string) abstract as string
+func getPrimaryKeyColumnName(table as string) abstract as string
+func columnExists(table as string, name as string) abstract as bool
+func isColumnTypeSame(table as string, column as SQLTableColumnInfo) abstract as bool
+
+// Asynchronous API
+func close(callback as function) abstract
+func execute(stmt as SQLStatement, callback as function<void, bool>) abstract
+func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) abstract
+func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) abstract
+func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) abstract
+func tableExists(table as string, callback as function<void, bool>) abstract
+func queryAllTableNames(callback as function<void, vector>) abstract
+
+// Synchronous API
+func close abstract
+func execute(stmt as SQLStatement) abstract as bool
+func executeUpdateDelete(stmt as SQLStatement) abstract as int
+func query(stmt as SQLStatement) abstract as SQLResultSetIterator
+func querySingleRow(stmt as SQLStatement) abstract as DynamicMap
+func tableExists(table as string) abstract as bool
+func queryAllTableNames abstract as vector
+
+**
+** Checks if the database table exists and creates it if it does not exist.
+** Returns false if something went wrong.
+**
+
+func ensureColumnsExists(tableName as string, columns as vector<SQLTableColumnInfo>) as bool
+{
+	foreach column as SQLTableColumnInfo in columns {
+		if columnExists(tableName, column.getName()) {
+			if not isColumnTypeSame(tableName, column):
+				assert execute(prepareUpdateColumnTypeStatement(tableName, column))
+		}
+		else {
+			assert execute(prepareCreateColumnStatement(tableName, column))
+		}
+	}
+	return true
+}
+
+func ensureTableExists(table as SQLTableInfo) virtual as bool
+{
+	assert table
+	var name = table.getName()
+	assert String.isNotEmpty(name)
+	if tableExists(name) {
+		var v = ensureColumnsExists(name, table.getColumns())
+		if v:
+			return true
+		return false
+	}
+	assert execute(prepareCreateTableStatement(name, table.getColumns()))
+	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
+		if not execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())):
+			execute(prepareDeleteTableStatement(name))
+	}
+	return true
+}
+
+**
+** Checks if the database table exists and creates it if it does not exist.
+** Calls the callback function parameter if supplied and passes the result of the operation.
+**
+
+func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) virtual
+{
+	var v = ensureTableExists(table)
+	if callback:
+		callback(v)
+}
+
+**
+** Creates the column selection part of an SQL select statement
+** in string from the supplied array of column name(s).
+**
+
+func createColumnSelectionString(columns as array) private as string
+{
+	if not columns || SIZE(columns) < 1:
+		return "*"
+	var sb = new StringBuilder()
+	var first = true
+	foreach column as string in columns {
+		if not first:
+			sb.append(", ")
+		sb.append(column)
+		first = false
+	}
+	return sb.toString()
+}
+
+**
+** Creates the order by part of an SQL select statement
+** in string from the supplied array of column name(s)
+** or instance(s) of SQLOrderingRule class.
+**
+
+func createOrderByString(order as array) as string
+{
+	assert order && SIZE(order) > 0
+	var sb = new StringBuilder()
+	sb.append(" ORDER BY ")
+	var first = true
+	foreach rule in order {
+		if not first:
+			sb.append(", ")
+		if rule is SQLOrderingRule {
+			var sr = rule as! SQLOrderingRule
+			sb.append(sr.getColumn())
+			sb.append(' ')
+			if sr.getDescending() {
+				sb.append("DESC")
+			}
+			else {
+				sb.append("ASC")
+			}
+		}
+		else {
+			var str = String.asString(rule)
+			if not str:
+				str = "unknown"
+			sb.append(str)
+			sb.append(" DESC")
+		}
+		first = false
+	}
+	return sb.toString()
+}
+
+**
+** Creates an instance of SQLStatement for select all statement
+** with the specified database table name.
+**
+
+func prepareQueryAllStatement(table as string) as SQLStatement:
+	return prepareQueryAllStatement(table, null, null)
+
+**
+** Creates an instance of SQLStatement for select statement
+** with the specified database table name and an array of column name(s).
+**
+
+func prepareQueryAllStatement(table as string, columns as array) as SQLStatement:
+	return prepareQueryAllStatement(table, columns, null)
+
+**
+** Creates an instance of SQLStatement for select statement with the specified
+** database table name, an array of column name(s) and an array of column
+** name(s) or instance(s) of SQLOrderingRule for order by clause.
+**
+
+func prepareQueryAllStatement(table as string, columns as array, order as array) virtual as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.append("SELECT ")
+	sb.append(createColumnSelectionString(columns))
+	sb.append(" FROM ")
+	sb.append(table)
+	sb.append(createOrderByString(order))
+	sb.append(";")
+	return prepare(sb.toString())
+}
+
+**
+** Creates an instance of SQLStatement for select count statement
+** with the specified database table name and a map of criteria.
+**
+
+func prepareCountRecordsStatement(table as string, criteria as map) virtual as SQLStatement:
+	return prepareCountRecordsStatement(table, criteria, false)
+
+func prepareCountRecordsStatement(table as string, criteria as map, likeOperator as bool) virtual as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.append("SELECT COUNT(*) AS count FROM ")
+	sb.append(table)
+	var first = true
+	var keys as vector
+	if criteria {
+		keys = Map.getKeys(criteria) as vector
+		foreach key as string in keys {
+			if first {
+				sb.append(" WHERE ")
+				first = false
+			}
+			else {
+				sb.append(" AND ")
+			}
+			sb.append(key)
+			if likeOperator {
+				sb.append(" LIKE ?")
+			}
+			else {
+				sb.append(" = ?")
+			}
+		}
+	}
+	sb.append(';')
+	var stmt = assert prepare(sb.toString())
+	if keys {
+		foreach key as string in keys {
+			var val = String.asString(Map.get(criteria, key))
+			if likeOperator {
+				stmt.addParamString("%" .. val .. "%")
+			}
+			else {
+				stmt.addParamString(val)
+			}
+		}
+	}
+	return stmt
+}
+
+**
+** Creates an instance of SQLStatement for select all statement
+** with the specified database table name and a map of criteria.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null, false)
+
+**
+** Creates an instance of SQLStatement for select all statement
+** with the specified database table name, a map of criteria, and limit.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null, false)
+
+**
+** Creates an instance of SQLStatement for select all statement
+** with the specified database table name, a map of criteria,
+** limit and offset.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null, false)
+
+**
+** Creates an instance of SQLStatement for select statement
+** with the specified database table name, a map of criteria,
+** limit, offset and an array of column name(s).
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null, false)
+
+**
+** Creates an instance of SQLStatement for select statement
+** with the specified database table name, a map of criteria,
+** limit, offset, an array of column name(s) and an array of column
+** name(s) or instance(s) of SQLOrderingRule for order by clause.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array) virtual as SQLStatement:
+	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, order, false)
+
+**
+** Creates an instance of SQLStatement for select statement
+** with the specified database table name, a map of criteria,
+** limit, offset, an array of column name(s), an array of column
+** name(s) or instance(s) of SQLOrderingRule for order by clause
+** and a flag to use LIKE operator.
+**
+
+func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array, likeOperator as bool) virtual as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.append("SELECT ")
+	sb.append(createColumnSelectionString(columns))
+	sb.append(" FROM ")
+	sb.append(table)
+	var first = true
+	var keys as vector
+	if criteria {
+		keys = Map.getKeys(criteria) as vector
+		foreach key as string in keys {
+			if first {
+				sb.append(" WHERE ")
+				first = false
+			}
+			else {
+				sb.append(" AND ")
+			}
+			sb.append(key)
+			if likeOperator {
+				sb.append(" LIKE ?")
+			}
+			else {
+				sb.append(" = ?")
+			}
+		}
+	}
+	sb.append(createOrderByString(order))
+	if limit > 0 {
+		sb.append(" LIMIT ")
+		sb.append(String.forInteger(limit))
+	}
+	if offset > 0 {
+		sb.append(" OFFSET ")
+		sb.append(String.forInteger(offset))
+	}
+	sb.append(';')
+	var sql = sb.toString()
+	var stmt = prepare(sql)
+	if not stmt:
+		return null
+	if keys {
+		foreach key as string in keys {
+			var val = String.asString(Map.get(criteria, key))
+			if likeOperator {
+				stmt.addParamString("%" .. val .. "%")
+			}
+			else {
+				stmt.addParamString(val)
+			}
+		}
+	}
+	return stmt
+}
+
+**
+** Creates an instance of SQLStatement for query distinct values
+** with the specified database table name and column name.
+**
+
+func prepareQueryDistinctValuesStatement(table as string, column as string) virtual as SQLStatement
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(column)
+	var sb = new StringBuilder()
+	sb.append("SELECT DISTINCT ")
+	sb.append(column)
+	sb.append(" FROM ")
+	sb.append(table)
+	sb.append(";")
+	return prepare(sb.toString())
+}
+
+**
+** Creates an instance of SQLStatement for select all statement with the
+** specified database table name and an instance of DynamicMap for criteria.
+**
+
+func prepareSelectStatement(table as string, data as DynamicMap) virtual as SQLStatement
+{
+	var criteria as map = null
+	if data:
+		criteria = data.toObjectMap()
+	return prepareQueryWithCriteriaStatement(table, criteria)
+}
+
+**
+** Creates an instance of SQLStatement for insert statement with the
+** specified database table name and an instance of DynamicMap for values.
+**
+
+func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLStatement
+{
+	assert String.isNotEmpty(table) && data && data.getCount() > 0
+	var sb = new StringBuilder()
+	sb.append("INSERT INTO ")
+	sb.append(table)
+	sb.append(" ( ")
+	var first = true
+	var keys = data.getKeys()
+	foreach key in keys {
+		if not first:
+			sb.append(',')
+		sb.append(key as string)
+		first = false
+	}
+	sb.append(" ) VALUES ( ")
+	first = true
+	foreach key in keys {
+		if not first:
+			sb.append(',')
+		sb.append('?')
+		first = false
+	}
+	sb.append(" );")
+	var stmt = assert prepare(sb.toString())
+	foreach key in keys {
+		var o = data.get(key)
+		if o is string || o is StringObject {
+			stmt.addParamString(String.asString(o))
+		}
+		else if o is IntegerObject {
+			stmt.addParamInteger(Integer.asInteger(o))
+		}
+		else if o is LongIntegerObject {
+			stmt.addParamLongInteger(LongInteger.asLong(o))
+		}
+		else if o is DoubleObject {
+			stmt.addParamDouble(Double.asDouble(o))
+		}
+		else if o is BufferObject {
+			stmt.addParamBlob((o as! BufferObject).toBuffer())
+		}
+		else if o is buffer {
+			stmt.addParamBlob(o as buffer)
+		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
+		}
+		else {
+			var s = String.asString(o)
+			if not s:
+				s = ""
+			stmt.addParamString(s)
+		}
+	}
+	return stmt
+}
+
+**
+** Creates an instance of SQLStatement for update statement with the
+** specified database table name, an instance of DynamicMap for
+** criteria and an instance of DynamicMap for values.
+**
+
+func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
+{
+	assert String.isNotEmpty(table) && data && data.getCount() > 0
+	var sb = new StringBuilder()
+	sb.append("UPDATE ")
+	sb.append(table)
+	sb.append(" SET ")
+	var params = new vector<object>
+	var first = true
+	var keys as Iterator<string> #force = data.iterateKeys()
+	while keys {
+		var key = keys.next()
+		if not key:
+			break
+		if not first:
+			sb.append(", ")
+		sb.append(key)
+		sb.append(" = ?")
+		first = false
+		params += data.get(key)
+	}
+	if criteria && criteria.getCount() > 0 {
+		sb.append(" WHERE ")
+		first = true
+		var criterias as Iterator<string> #force = criteria.iterateKeys()
+		while criterias {
+			var criterium = criterias.next()
+			if not criterium:
+				break
+			if not first:
+				sb.append(" AND ")
+			sb.append(criterium)
+			sb.append(" = ?")
+			first = false
+			params += criteria.get(criterium)
+		}
+	}
+	sb.append(';')
+	var stmt = assert prepare(sb.toString())
+	foreach o in params {
+		if o is BufferObject {
+			stmt.addParamBlob((o as! BufferObject).toBuffer())
+		}
+		else if o is buffer {
+			stmt.addParamBlob(o as! buffer)
+		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
+		}
+		else {
+			var s = String.asString(o)
+			if not s:
+				s = ""
+			stmt.addParamString(s)
+		}
+	}
+	return stmt
+}
+
+**
+** Creates an instance of SQLStatement for delete statement with the
+** specified database table name, an instance of DynamicMap for
+** criteria and an instance of DynamicMap for values.
+**
+
+func prepareDeleteStatement(table as string, criteria as DynamicMap) virtual as SQLStatement
+{
+	assert String.isNotEmpty(table)
+	var sb = new StringBuilder()
+	sb.append("DELETE FROM ")
+	sb.append(table)
+	var params = new vector<object>
+	if criteria && criteria.getCount() > 0 {
+		sb.append(" WHERE ")
+		var first = true
+		var criterias as Iterator<string> #force = criteria.iterateKeys()
+		while criterias {
+			var criterium = criterias.next()
+			if not criterium:
+				break
+			if not first:
+				sb.append(" AND ")
+			sb.append(criterium)
+			sb.append(" = ?")
+			first = false
+			params += criteria.get(criterium)
+		}
+	}
+	sb.append(';')
+	var stmt = prepare(sb.toString())
+	if not stmt:
+		return null
+	foreach o in params {
+		if o is BufferObject {
+			stmt.addParamBlob((o as! BufferObject).toBuffer())
+		}
+		else if o is buffer {
+			stmt.addParamBlob(o as! buffer)
+		}
+		else if o is BooleanObject {
+			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
+		}
+		else {
+			var s = String.asString(o)
+			if not s:
+				s = ""
+			stmt.addParamString(s)
+		}
+	}
+	return stmt
+}

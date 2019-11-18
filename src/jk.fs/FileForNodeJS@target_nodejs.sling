@@ -1,0 +1,167 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is File private:
+
+class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
+{
+	var fd as int
+	prop file as File
+
+	func read(buffer as buffer) as int
+	{
+		var v = -1
+		var sz #used = Buffer.getSize(buffer) as int
+		lang "js" {{{
+			try {
+				v = require("fs").readSync(this.fd, Buffer.from(buffer), 0, sz, null)
+			}
+			catch(e) {
+				this.file.onError("" + e.stack);
+				v = -1;
+			}
+		}}}
+		return v
+	}
+
+	func getSize as int
+	{
+		if file:
+			return file.getSize()
+		return 0
+	}
+
+	func close
+	{
+		if fd >= 0 {
+			lang "js" {{{
+				require("fs").closeSync(this.fd);
+			}}}
+			fd = -1
+		}
+	}
+
+	func setCurrentPosition(n as int64) as bool
+	{
+		ERROR "Not implemented"
+		return false
+	}
+
+	func getCurrentPosition as int64
+	{
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+var path as string
+
+func forPath(path as string) static as File
+{
+	var v = new this()
+	v.setPath(path)
+	return v
+}
+
+func entry(name as string) override as File
+{
+	var pp as string
+	lang "js" {{{
+		pp = require("path").join(this.path, name);
+	}}}
+	return forPath(pp)
+}
+
+func move(dest as File, replace as bool) override stub as bool
+func touch override stub as bool
+
+func read override as FileReader
+{
+	var fd as int
+	lang "js" {{{
+		try {
+			fd = require("fs").openSync(this.path, "r");
+		}
+		catch(e) {
+			fd = -1;
+		}
+	}}}
+	assert fd >= 0
+	var v #used = new MyFileReader()
+	v.setFile(this)
+	v.fd = fd
+	return v
+}
+
+func write override stub as FileWriter
+func append override stub as FileWriter
+
+func stat override as FileInfo
+{
+	lang "js" {{{
+		let ss = require("fs").statSync(this.path);
+		if(!ss) {
+			return(null);
+		}
+	}}}
+	var v = new FileInfo()
+	v.setFile(this)
+	v.setSize(lang "js" int {{{ ss.size }}})
+	v.setCreateTime(lang "js" long {{{ ss.ctimeMs / 1000.0 }}})
+	v.setAccessTime(lang "js" long {{{ ss.atimeMs / 1000.0 }}})
+	v.setModifyTime(lang "js" long {{{ ss.mtimeMs / 1000.0 }}})
+	v.setOwnerUser(lang "js" int {{{ ss.uid }}})
+	v.setOwnerGroup(lang "js" int {{{ ss.gid }}})
+	v.setMode(lang "js" int {{{ ss.mode }}})
+	v.setExecutable(false)
+	if lang "js" bool {{{ ss.isFile() }}} {
+		v.setType(FileInfo.FILE_TYPE_FILE)
+	}
+	else if lang "js" bool {{{ ss.isDirectory() }}} {
+		v.setType(FileInfo.FILE_TYPE_DIR)
+	}
+	if lang "js" bool {{{ ss.isSymbolicLink() }}}:
+		v.setLink(true)
+	return v
+}
+
+func isExecutable override stub as bool
+func createDirectory override stub as bool
+func createDirectoryRecursive override stub as bool
+func removeDirectory override stub as bool
+
+func setPath(newPath as string)
+{
+	lang "js" {{{
+		this.path = require("path").normalize(newPath)
+	}}}
+}
+
+func getPath override as string:
+	return path
+
+func remove override stub as bool
+func makeExecutable override stub as bool
+func entries override stub as Iterator<File>

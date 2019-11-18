@@ -1,0 +1,213 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ContainerWidget #widget:
+
+class MyChildEntry
+{
+	var widget public as Widget
+	var weight public as double
+}
+
+func forContext(context as GuiApplicationContext, widgetMargin as int #notLiteral = 0, widgetSpacing as int #notLiteral = 0) static as this
+{
+	var v = new this(context)
+	v.widgetMarginLeft = widgetMargin
+	v.widgetMarginRight = widgetMargin
+	v.widgetMarginTop = widgetMargin
+	v.widgetMarginBottom = widgetMargin
+	v.widgetSpacing = widgetSpacing
+	return v
+}
+
+var children as vector<MyChildEntry>
+prop widgetSpacing #notLiteral = 0
+var widgetMarginLeft protected = 0
+var widgetMarginRight protected = 0
+var widgetMarginTop protected = 0
+var widgetMarginBottom protected = 0
+prop widgetFixedHeight #notLiteral = 0
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	children = new vector<MyChildEntry>
+}
+
+func setWidgetMargin(margin as int #notLiteral) as this
+{
+	widgetMarginLeft = margin
+	widgetMarginRight = margin
+	widgetMarginTop = margin
+	widgetMarginBottom = margin
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginLeft as int:
+	return widgetMarginLeft
+
+func setWidgetMarginLeft(value as int #notLiteral) as this
+{
+	widgetMarginLeft = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginRight as int:
+	return widgetMarginRight
+
+func setWidgetMarginRight(value as int #notLiteral) as this
+{
+	widgetMarginRight = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginTop as int:
+	return widgetMarginTop
+
+func setWidgetMarginTop(value as int #notLiteral) as this
+{
+	widgetMarginTop = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginBottom as int:
+	return widgetMarginBottom
+
+func setWidgetMarginBottom(value as int #notLiteral) as this
+{
+	widgetMarginBottom = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func computeWidgetLayout(widthConstraint as int #notLiteral) override
+{
+	var totalWeight = 0.0
+	var highest = 0
+	var availableWidth = widthConstraint - widgetMarginLeft - widgetMarginRight
+	var childCount = 0
+	foreach child in children {
+		childCount ++
+		if child.weight > 0.0 {
+			totalWeight += child.weight
+		}
+		else {
+			Widget.layout(child.widget, -1)
+			availableWidth -= Widget.getWidth(child.widget)
+			var height = Widget.getHeight(child.widget)
+			if(height > highest) {
+				highest = height
+			}
+		}
+	}
+	if childCount > 1 && widgetSpacing > 0:
+		availableWidth -= (childCount-1) * widgetSpacing
+	foreach child in children {
+		if child.weight > 0.0 {
+			var ww = (availableWidth * child.weight / totalWeight) as int
+			Widget.layout(child.widget, ww)
+			var height = Widget.getHeight(child.widget)
+			if height > highest:
+				highest = height
+		}
+	}
+	var realHighest = highest
+	highest += widgetMarginTop + widgetMarginBottom
+	if widgetFixedHeight > 0:
+		highest = widgetFixedHeight
+	if widthConstraint < 0 {
+		var totalWidth = widthConstraint - availableWidth
+		Widget.setLayoutSize(this, totalWidth, highest)
+	}
+	else {
+		Widget.setLayoutSize(this, widthConstraint, highest)
+	}
+	if availableWidth < 0:
+		availableWidth = 0
+	var x = widgetMarginLeft
+	foreach child in children {
+		var ww as int
+		if child.weight > 0.0 {
+			ww = (availableWidth * child.weight / totalWeight) as int
+			Widget.move(child.widget, x, widgetMarginTop)
+			Widget.layout(child.widget, ww)
+			Widget.resizeHeight(child.widget, realHighest)
+		}
+		else {
+			ww = Widget.getWidth(child.widget)
+			Widget.move(child.widget, x, widgetMarginTop)
+			Widget.layout(child.widget, ww)
+			Widget.resizeHeight(child.widget, realHighest)
+		}
+		x += ww
+		x += widgetSpacing
+	}
+}
+
+func onWidgetHeightChanged(height as int #notLiteral) override
+{
+	base.onWidgetHeightChanged(height)
+	foreach child in Widget.getChildren(this):
+		Widget.resizeHeight(child, height - widgetMarginTop - widgetMarginBottom)
+}
+
+func onChildWidgetsRemoved(widgets as vector<Widget>) override
+{
+	REMOVE_WIDGETS_FROM_VECTOR(widgets, children)
+	base.onChildWidgetsRemoved(widgets)
+}
+
+func addWidget(widget as Widget) override as ContainerWidget:
+	return addWidget(widget, 0.0)
+
+func removeAllChildren:
+	Widget.removeChildrenOf(this)
+
+func addWidget(widget as Widget, weight as double) as this
+{
+	if widget {
+		var ee = new MyChildEntry()
+		ee.widget = widget
+		ee.weight = weight
+		children += ee
+		Widget.addChild(this, widget)
+	}
+	return this
+}
+
+func setWidgetWeight(widget as Widget, weight as double)
+{
+	foreach child in children {
+		if child.widget == widget {
+			child.weight = weight
+			Widget.onLayoutChanged(this)
+			break
+		}
+	}
+}

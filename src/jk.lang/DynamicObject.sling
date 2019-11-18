@@ -1,0 +1,164 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+class StringIteratorWrapper is Iterator<object>
+{
+	prop iterator as CharacterIterator
+
+	func next as object
+	{
+		if not iterator:
+			return null
+		var c = iterator.getNextChar()
+		if Character.isEOF(c) {
+			iterator = null
+			return null
+		}
+		IFDEF "target_objc" {
+			return lang "objc" object {{{ [NSNumber numberWithUnsignedInt:c] }}}
+		}
+		ELSE {
+			return c as! object
+		}
+	}
+
+	func hasNext as bool
+	{
+		assert iterator
+		return not iterator.hasEnded()
+	}
+}
+
+class BufferIteratorWrapper is Iterator<object>
+{
+	prop buffer as buffer
+	prop size as long
+	var position = 0
+
+	func next as object
+	{
+		if not buffer:
+			return null
+		if position >= size:
+			return null
+		var v = buffer[position]
+		position++
+		IFDEF "target_objc" {
+			return lang "objc" object {{{ [NSNumber numberWithUnsignedInt:v] }}}
+		}
+		ELSE {
+			return v as! object
+		}
+	}
+
+	func hasNext as bool
+	{
+		assert buffer
+		assert position < size - 1
+		return true
+	}
+}
+
+class ArrayIteratorWrapper is Iterator<object>
+{
+	prop array as array
+	prop size as long
+	var position = 0
+
+	func next as object
+	{
+		if not array:
+			return null
+		if position >= size:
+			return null
+		var v = array[position]
+		position++
+		return v
+	}
+
+	func hasNext as bool
+	{
+		assert array
+		assert position < size - 1
+		return true
+	}
+}
+
+class VectorIteratorWrapper is Iterator<object>
+{
+	prop vector as vector
+	prop size as long
+	var position = 0
+
+	func next as object
+	{
+		if not vector:
+			return null
+		if position >= size:
+			return null
+		var v = vector[position]
+		position++
+		return v
+	}
+
+	func hasNext as bool
+	{
+		assert vector
+		assert position < size - 1
+		return true
+	}
+}
+
+func iterate(object as dynamic) static as Iterator<object>
+{
+	if object is string {
+		var v = new StringIteratorWrapper()
+		v.setIterator(String.iterate(object as! string))
+		return v
+	}
+	if object is buffer {
+		var v = new BufferIteratorWrapper()
+		v.setBuffer(object as! buffer)
+		v.setSize(SIZE(object as! buffer))
+		return v
+	}
+	if object is array {
+		var v = new ArrayIteratorWrapper()
+		v.setArray(object as! array)
+		v.setSize(SIZE(object as! array))
+		return v
+	}
+	if object is vector {
+		var v = new VectorIteratorWrapper()
+		v.setVector(object as! vector)
+		v.setSize(SIZE(object as! vector))
+		return v
+	}
+	if object is map:
+		return iterate(Map.getValues(object as! map))
+	return null
+}

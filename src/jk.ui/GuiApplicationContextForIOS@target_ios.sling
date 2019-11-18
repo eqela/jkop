@@ -1,0 +1,489 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is GuiApplicationContext:
+
+IFDEF "target_swift" {
+	depend "swift-import:UIKit"
+}
+ELSE IFDEF "target_objc" {
+	depend "objc-header-m:<UIKit/UIKit.h>"
+	depend "objc-header-m:<sys/utsname.h>"
+}
+
+func getApplicationDataDirectory override as File
+{
+	ERROR "Not implemented"
+	return null
+}
+
+func getResourceImage(id as string) override as Image
+{
+	if String.isEmpty(id):
+		return null
+	var cp = assert CurrentProcess.getExecutableFile()
+	var bundleDir = assert cp.getParent()
+	var f = bundleDir.entry(id .. ".png")
+	if f.isFile() == false:
+		f = bundleDir.entry(id .. ".jpg")
+	assert f.isFile()
+	return ImageForIOS.forFile(f)
+}
+
+func getImageForBuffer(buffer as buffer, mimeType as string) override as Image:
+	return ImageForIOS.forBuffer(buffer)
+
+func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void, Image>) override
+{
+	assert callback
+	callback(ImageForIOS.forBuffer(buffer))
+}
+
+class MyAlertDelegate implements !"UIAlertViewDelegate"
+{
+	IFDEF "target_swift" {
+		basetype !"NSObject" type extends
+
+		ctor override:
+			;
+	}
+	prop callback as function
+	prop okCallback as function
+	prop cancelCallback as function
+
+	func onDismissed(index as int)
+	{
+		if(index == 0 && cancelCallback != null) {
+			cancelCallback()
+			return
+		}
+		if(index == 1 && okCallback != null) {
+			okCallback()
+			return
+		}
+		if(callback != null) {
+			callback()
+		}
+	}
+
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			- (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex
+			{
+				[self onDismissed:buttonIndex];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			func alertView(_ alertView: UIAlertView, didDismissWithButtonIndex buttonIndex: Int)
+			{
+				self.onDismissed(buttonIndex)
+			}
+		}}}
+	}
+}
+
+var myDelegate as MyAlertDelegate
+
+func getMyAlertDelegate private as MyAlertDelegate
+{
+	if not myDelegate:
+		myDelegate = new MyAlertDelegate()
+	return myDelegate
+}
+
+func showMessageDialog(title as string, message as string) override:
+	showMessageDialog(title, message, null)
+
+func showMessageDialog(title as string, message as string, callback as function) override
+{
+	var dg as MyAlertDelegate
+	if(callback != null) {
+		dg = getMyAlertDelegate()
+		dg.setCallback(callback)
+	}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:title
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: title!, message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+			alert.show()
+		}}}
+	}
+}
+
+func showConfirmDialog(title as string, message as string, okcallback as function, cancelcallback as function) override
+{
+	var dg as MyAlertDelegate
+	if(okcallback != null || cancelcallback != null) {
+		dg = getMyAlertDelegate()
+		dg.setOkCallback(okcallback)
+		dg.setCancelCallback(cancelcallback)
+	}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:title
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"No", @"Yes", nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: title!, message: message!, delegate:dg, cancelButtonTitle: nil, otherButtonTitles:"No", "Yes")
+			alert.show()
+		}}}
+	}
+}
+
+func showErrorDialog(message as string) override:
+	showErrorDialog(message, null)
+
+func showErrorDialog(message as string, callback as function) override
+{
+	var dg as MyAlertDelegate
+	if(callback != null) {
+		dg = getMyAlertDelegate()
+		dg.setCallback(callback)
+	}
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			UIAlertView* alert = [[UIAlertView alloc]
+				initWithTitle:@"ERROR"
+				message:message
+				delegate:dg
+				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
+			[alert show];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let alert = UIAlertView(title: "ERROR", message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+			alert.show()
+		}}}
+	}
+}
+
+func getScreenTopMargin override as int
+{
+	var v as int
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			CGSize statusBarSize = [[UIApplication sharedApplication] statusBarFrame].size;
+			v = MIN(statusBarSize.width, statusBarSize.height);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let statusBarSize = UIApplication.shared.statusBarFrame.size
+			v = Int(min(statusBarSize.width, statusBarSize.height))
+		}}}
+	}
+	return v
+}
+
+func getScreenWidth override as int:
+	return getDeviceInfo().getScreenWidth()
+
+func getScreenHeight override as int:
+	return getDeviceInfo().getScreenHeight()
+
+func getMachineName as string
+{
+	var v as string
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			struct utsname si;
+			if(uname(&si) >= 0) {
+				v = [NSString stringWithCString:si.machine encoding:NSUTF8StringEncoding];
+			}
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			var si = utsname()
+			if(uname(&si) >= 0) {
+				v = NSString(bytes: &si.machine, length: Int(_SYS_NAMELEN), encoding: String.Encoding.utf8.rawValue) as? String
+			}
+		}}}
+	}
+	return v
+}
+
+func detectDeviceInfo private as IOSDeviceInfo
+{
+	// Source of information: https://en.wikipedia.org/wiki/List_of_iOS_devices
+	var name = getMachineName()
+	if name == null {
+		;
+	}
+	else if String.startsWith(name, "iPhone") {
+		if name == "iPhone8,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6S", 326)
+		}
+		else if name == "iPhone8,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6S Plus", 401)
+		}
+		else if name == "iPhone8,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone SE", 326)
+		}
+		else if name == "iPhone9,1" || name == "iPhone9,3" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 7", 326)
+		}
+		else if name == "iPhone9,2" || name == "iPhone9,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 7 Plus", 401)
+		}
+		else if name == "iPhone1,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 1", 163)
+		}
+		else if name == "iPhone1,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 3G", 163)
+		}
+		else if name == "iPhone2,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 3G", 163)
+		}
+		else if name == "iPhone3,1" || name == "iPhone3,2" || name == "iPhone3,3" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 4", 326)
+		}
+		else if name == "iPhone4,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 4S", 326)
+		}
+		else if name == "iPhone5,1" || name == "iPhone5,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 5", 326)
+		}
+		else if name == "iPhone5,3" || name == "iPhone5,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 5C", 326)
+		}
+		else if name == "iPhone6,1" || name == "iPhone6,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 5S", 326)
+		}
+		else if name == "iPhone7,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6", 326)
+		}
+		else if name == "iPhone7,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6 Plus", 401)
+		}
+		else if name == "iPhone8,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6s", 326)
+		}
+		else if name == "iPhone8,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 6s Plus", 401)
+		}
+		else if name == "iPhone8,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone SE", 401)
+		}
+		else if name == "iPhone9,1" || name == "iPhone9,3" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 7", 326)
+		}
+		else if name == "iPhone9,2" || name == "iPhone9,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 7 Plus", 401)
+		}
+		else if name == "iPhone10,1" || name == "iPhone10,4" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 8", 326)
+		}
+		else if name == "iPhone10,2" || name == "iPhone10,5" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 8 Plus", 401)
+		}
+		else if name == "iPhone10,3" || name == "iPhone10,6" {
+			return IOSDeviceInfo.forDetails(name, "iPhone X", 458)
+		}
+		else if name == "iPhone11,2" {
+			return IOSDeviceInfo.forDetails(name, "iPhone XS", 458)
+		}
+		else if name == "iPhone11,4" || name == "iPhone11,6" {
+			return IOSDeviceInfo.forDetails(name, "iPhone XS Max", 458)
+		}
+		else if name == "iPhone11,8" {
+			return IOSDeviceInfo.forDetails(name, "iPhone XR", 326)
+		}
+		else if name == "iPhone12,1" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 11", 326)
+		}
+		else if name == "iPhone12,3" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 11 Pro", 458)
+		}
+		else if name == "iPhone12,5" {
+			return IOSDeviceInfo.forDetails(name, "iPhone 11 Pro Max", 458)
+		}
+		else {
+			return IOSDeviceInfo.forDetails(name, "iPhone (unknown)", 326)
+		}
+	}
+	else if String.startsWith(name, "iPod") {
+		if name == "iPod1,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 1G", 163)
+		}
+		else if name == "iPod2,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 2G", 163)
+		}
+		else if name == "iPod3,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 3G", 163)
+		}
+		else if name == "iPod4,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 4G", 326)
+		}
+		else if name == "iPod5,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 5G", 326)
+		}
+		else if name == "iPod7,1" {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch 6G", 326)
+		}
+		else {
+			return IOSDeviceInfo.forDetails(name, "iPod Touch (unknown)", 326)
+		}
+	}
+	else if String.startsWith(name, "iPad") {
+		if name == "iPad1,1" {
+			return IOSDeviceInfo.forDetails(name, "iPad 1G", 132)
+		}
+		else if name == "iPad2,1" || name == "iPad2,2" || name == "iPad2,3" || name == "iPad2,4" {
+			return IOSDeviceInfo.forDetails(name, "iPad 2", 132)
+		}
+		else if name == "iPad3,1" || name == "iPad3,2" || name == "iPad3,3" {
+			return IOSDeviceInfo.forDetails(name, "iPad 3", 264)
+		}
+		else if name == "iPad3,4" || name == "iPad3,5" || name == "iPad3,6" {
+			return IOSDeviceInfo.forDetails(name, "iPad 4", 264)
+		}
+		else if name == "iPad4,1" || name == "iPad4,2" || name == "iPad4,3" {
+			return IOSDeviceInfo.forDetails(name, "iPad Air", 264)
+		}
+		else if name == "iPad5,3" || name == "iPad5,4" {
+			return IOSDeviceInfo.forDetails(name, "iPad Air 2", 264)
+		}
+		else if name == "iPad2,5" || name == "iPad2,6" || name == "iPad2,7" {
+			return IOSDeviceInfo.forDetails(name, "iPad Mini 1G", 163)
+		}
+		else if name == "iPad4,4" || name == "iPad4,5" || name == "iPad4,6" {
+			return IOSDeviceInfo.forDetails(name, "iPad Mini 2", 326)
+		}
+		else if name == "iPad4,7" || name == "iPad4,8" || name == "iPad4,9" {
+			return IOSDeviceInfo.forDetails(name, "iPad Mini 3", 326)
+		}
+		else if name == "iPad5,1" || name == "iPad5,2" {
+			return IOSDeviceInfo.forDetails(name, "iPad Mini 4", 326)
+		}
+		else if name == "iPad6,7" || name == "iPad6,8" {
+			return IOSDeviceInfo.forDetails(name, "iPad Pro 12.9in", 264)
+		}
+		else if name == "iPad6,3" || name == "iPad6,4" {
+			return IOSDeviceInfo.forDetails(name, "iPad Pro 9.7in", 264)
+		}
+		else {
+			return IOSDeviceInfo.forDetails(name, "iPad (unknown)", 264)
+		}
+	}
+	else if String.startsWith(name, "Watch") {
+		return IOSDeviceInfo.forDetails(name, "Apple Watch", 326)
+	}
+	else if name == "i386" {
+		return IOSDeviceInfo.forDetails(name, "iOS Simulator x86", 0)
+	}
+	else if name == "x86_64" {
+		return IOSDeviceInfo.forDetails(name, "iOS Simulator x64", 0)
+	}
+	return IOSDeviceInfo.forDetails(name, "Apple Device (unknown)", 326)
+}
+
+var deviceInfo as IOSDeviceInfo
+
+func getDeviceInfo as IOSDeviceInfo
+{
+	if(deviceInfo == null) {
+		deviceInfo = detectDeviceInfo()
+		var width as int
+		var height as int
+		var scale as double
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				width = [[UIScreen mainScreen] bounds].size.width;
+				height = [[UIScreen mainScreen] bounds].size.height;
+				scale = [[UIScreen mainScreen] nativeScale];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				width = Int(UIScreen.main.bounds.size.width)
+				height = Int(UIScreen.main.bounds.size.height)
+				scale = Double(UIScreen.main.nativeScale)
+			}}}
+		}
+		deviceInfo.setScreenWidth(width)
+		deviceInfo.setScreenHeight(height)
+		deviceInfo.setScale(scale)
+		if(deviceInfo.getDpi() < 1) {
+			var ss = 163 * scale as int
+			if(ss > 400) {
+				ss = 401
+			}
+			deviceInfo.setDpi(ss)
+		}
+		logDebug("Device detected: " .. deviceInfo.toString())
+	}
+	return deviceInfo
+}
+
+func getScreenDensity override as int:
+	return getDeviceInfo().getDpi() / getScreenScaleFactor()
+
+func getScreenScaleFactor as double:
+	return getDeviceInfo().getScale()
+
+func getHeightValue(spec as string) override as int:
+	return cave.Length.asPoints(spec, getScreenDensity())
+
+func getWidthValue(spec as string) override as int:
+	return cave.Length.asPoints(spec, getScreenDensity())
+
+func startTimer(timeout as long, callback as function) override
+{
+	IFDEF "target_objc" {
+		lang "objc" {{{
+			dispatch_time_t dtt = dispatch_time(DISPATCH_TIME_NOW, timeout * 1000000);
+			dispatch_after(dtt, dispatch_get_main_queue(), ^(void) {
+				callback();
+			});
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let dtt = DispatchTime.now() +  DispatchTimeInterval.milliseconds(Int(timeout * 1000))
+			DispatchQueue.main.asyncAfter(deadline: dtt) {
+				callback!()
+			}
+		}}}
+	}
+}

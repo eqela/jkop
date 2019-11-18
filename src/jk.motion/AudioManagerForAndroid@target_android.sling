@@ -1,0 +1,461 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is AudioManager:
+
+class MyAudioClip is AudioClip is Runnable
+{
+	prop soundPool as !"android.media.SoundPool"
+	prop soundId as int
+
+	func run
+	{
+		var sid as int #used
+		IFDEF "target_java" {
+			lang "java" {{{
+				sid = soundPool.play(soundId, 1, 1, 0, 0, 1);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				sid = soundPool!!.play(soundId, lv.toFloat(), rv.toFloat(), 0, 0, r.toFloat())
+			}}}
+		}
+	}
+
+	func play as bool
+	{
+		assert Thread.start(this)
+		return true
+	}
+}
+
+class MyAudioStream is AudioStream
+{
+	var mp as !"android.media.MediaPlayer"
+
+	var resourceId as int #used
+	var prepared = false
+	var milli #used = 1000
+
+	ctor(activityContext as !"android.content.Context", id as string)
+	{
+		var rid #used = (activityContext.getPackageName() as! string) .. ":raw/" .. id
+		var resourceid as int #used
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.content.res.Resources res = activityContext.getResources();
+				if(res != null) {
+					int aid = res.getIdentifier(rid, null, null);
+					if(aid > 0) {
+						mp = android.media.MediaPlayer.create(activityContext, aid);
+						resourceid = aid;
+					}
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val res : android.content.res.Resources = activityContext.getResources()
+				if(res != null) {
+					val aid = res.getIdentifier(rid, null, null)
+					if(aid > 0) {
+						mp = android.media.MediaPlayer.create(activityContext, aid)
+						resourceid = aid
+					}
+				}
+			}}}
+		}
+	}
+
+	func play as bool
+	{
+		return playback("play")
+	}
+
+	func pause as bool
+	{
+		return playback("pause")
+	}
+
+	func stop as bool
+	{
+		return playback("stop")
+	}
+
+	func seek(sec as int) as bool
+	{
+		return playback("seek", Integer.asObject(sec))
+	}
+
+	func getCurrentTime as int
+	{
+		var ct as int
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					ct = mp.getCurrentPosition() / milli;
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val m = mp
+				if(m != null) {
+					ct = m.getCurrentPosition() / milli
+				}
+			}}}
+		}
+		return ct
+	}
+
+	func getDuration as int
+	{
+		var n as int
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					n = (int)(mp.getDuration() / milli);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				val m = mp
+				if(m != null) {
+					n = (m.getDuration()).toInt() / milli
+				}
+			}}}
+		}
+		return n
+	}
+
+	func setLooping(v as bool) as bool
+	{
+		return playback("loop", Boolean.asObject(v))
+	}
+
+	func setVolume(v as double) as bool
+	{
+		var volume = v
+		if(v > 1.0) {
+			volume = 1.0
+		}
+		else if(v < 0) {
+			volume = 0.0
+		}
+		return playback("volume",  Double.asObject(volume))
+	}
+
+	func playback(action as string, obj as object = null) as bool
+	{
+		assert mp
+		if(action == "play") {
+			if(!prepared) {
+				IFDEF "target_java" {
+					lang "java" {{{
+						try{
+							mp.prepareAsync();
+						}
+						catch(java.lang.IllegalStateException e) {
+							e.printStackTrace();
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						try {
+							m!!.prepareAsync()
+						}
+						catch(e : java.lang.IllegalStateException) {
+							e.printStackTrace()
+						}
+					}}}
+				}
+				prepared = true
+			}
+			IFDEF "target_java" {
+				lang "java" {{{
+					try{
+						mp.start();
+					}
+					catch(java.lang.IllegalStateException e) {
+						e.printStackTrace();
+					}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						m!!.start()
+					}
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
+					}
+				}}}
+			}
+		}
+		else if(action == "stop") {
+			IFDEF "target_java" {
+				lang "java" {{{
+					try{
+						if(mp.isPlaying()) {
+							mp.seekTo(0);
+						}
+						mp.stop();
+					}
+					catch(java.lang.IllegalStateException e) {
+						e.printStackTrace();
+					}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						if(m!!.isPlaying()) {
+							m!!.seekTo(0)
+						}
+						m!!.stop()
+					}
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
+					}
+				}}}
+			}
+			prepared = false
+		}
+		else if(action == "pause") {
+			IFDEF "target_java" {
+				lang "java" {{{
+					try{
+						if(mp.isPlaying()) {
+							mp.pause();
+						}
+					}
+					catch(java.lang.IllegalStateException e) {
+						e.printStackTrace();
+					}
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					try {
+						if(m!!.isPlaying()) {
+							m!!.pause()
+						}
+					}
+					catch(e : java.lang.IllegalStateException) {
+						e.printStackTrace()
+					}
+				}}}
+			}
+		}
+		else if(action == "loop") {
+			if(obj is BooleanObject) {
+				var v #used = Boolean.asBoolean(obj)
+				IFDEF "target_java" {
+					lang "java" {{{
+						mp.setLooping(v);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						m!!.setLooping(v)
+					}}}
+				}
+			}
+		}
+		else if(action == "seek") {
+			if(obj is IntegerObject) {
+				var sec #used = Integer.asInteger(obj)
+				IFDEF "target_java" {
+					lang "java" {{{
+						try{
+							if(prepared) {
+								mp.seekTo(sec * milli);
+							}
+						}
+						catch(java.lang.IllegalStateException e) {
+							e.printStackTrace();
+						}
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						try {
+							if(prepared) {
+								m!!.seekTo(sec * milli)
+							}
+						}
+						catch(e : java.lang.IllegalStateException) {
+							e.printStackTrace()
+						}
+					}}}
+				}
+			}
+		}
+		else if(action == "volume") {
+			if(obj is DoubleObject) {
+				var v #used = Double.asDouble(obj)
+				IFDEF "target_java" {
+					lang "java" {{{
+							mp.setVolume((float)v, (float)v);
+					}}}
+				}
+				ELSE IFDEF "target_kotlin" {
+					lang "kotlin" {{{
+						m!!.setVolume(v.toFloat(), v.toFloat())
+					}}}
+				}
+			}
+		}
+		return true
+	}
+
+	dtor
+	{
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(mp != null) {
+					mp.release();
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			var m = mp
+			lang "kotlin" {{{
+				if(m != null) {
+					m.release()
+				}
+			}}}
+		}
+	}
+}
+
+func forApplication(context as AndroidApplicationContext) static as this
+{
+	if(context == null) {
+		return null
+	}
+	var v = new this()
+	v.setContext(context)
+	return v
+}
+
+prop context as AndroidApplicationContext
+var soundPool as !"android.media.SoundPool"
+
+ctor
+{
+	IFDEF "target_java" {
+		lang "java" {{{
+			soundPool = new android.media.SoundPool(128, android.media.AudioManager.STREAM_MUSIC, 0);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			soundPool = android.media.SoundPool(128, android.media.AudioManager.STREAM_MUSIC, 0)
+		}}}
+	}
+}
+
+func sanitizeResourceName(n as string) private as string
+{
+	if(n == null) {
+		return null
+	}
+	var sb = new StringBuilder()
+	var it = String.iterate(n)
+	var c as char
+	while((c = it.getNextChar()) > 0) {
+		if(c >= 'A' && c <= 'Z') {
+			sb.append(('a' + c - 'A') as char)
+		}
+		else if(c >= 'a' && c <= 'z') {
+			sb.append(c)
+		}
+		else if(c >= '0' && c <= '9') {
+			sb.append(c)
+		}
+		else {
+			sb.append('_')
+		}
+	}
+	return sb.toString()
+}
+
+func getClipForResource(id as string) override as AudioClip
+{
+	if(String.isEmpty(id)) {
+		return null
+	}
+	var activityContext = context.getAndroidActivityContext()
+	if(activityContext == null) {
+		return null
+	}
+	var soundId = -1
+	var rid #used = (activityContext.getPackageName() as! string) .. ":raw/" .. sanitizeResourceName(id)
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.content.res.Resources res = activityContext.getResources();
+			if(res != null) {
+				int aid = res.getIdentifier(rid, null, null);
+				if(aid > 0) {
+					soundId = soundPool.load(activityContext, aid, 1);
+				}
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			val res : android.content.res.Resources = activityContext.getResources()
+			if(res != null) {
+				val aid = res.getIdentifier(rid, null, null)
+				if(aid > 0) {
+					soundId = soundPool!!.load(activityContext, aid, 1)
+				}
+			}
+		}}}
+	}
+	if(soundId < 0) {
+		return null
+	}
+	var v = new MyAudioClip()
+	v.setSoundPool(soundPool)
+	v.setSoundId(soundId)
+	return v
+}
+
+func getStreamForResource(id as string) override as AudioStream
+{
+	if(String.isEmpty(id)) {
+		return null
+	}
+	var activityContext = context.getAndroidActivityContext()
+	if(activityContext == null) {
+		return null
+	}
+	return new MyAudioStream(activityContext, sanitizeResourceName(id))
+}

@@ -1,0 +1,1371 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithValue #widget:
+
+func forType(context as GuiApplicationContext, type as int, placeholder as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetType(type)
+	v.setWidgetPlaceholder(placeholder)
+	return v
+}
+
+IFDEF "target_android"
+{
+	basetype !"android.widget.EditText" type extends
+	basetype Widget type isAlso
+}
+
+ELSE IFDEF "target_ios_objc"
+{
+	basetype !"UITextField" type extends
+	basetype !"UITextFieldDelegate" type implements
+	basetype Widget type isAlso
+	depend "objc-framework:CoreGraphics"
+	var maxLength as int
+
+	lang "objc" {{{
+		- (void)textFieldDidChange:(UITextField*)textField {
+			[self onChangeListener];
+		}
+
+		- (BOOL)textFieldShouldReturn:(UITextField *)field {
+			if(field == self) {
+				[field resignFirstResponder];
+			}
+			[self onEnterKeyListener];
+			return YES;
+		}
+
+		- (void)textFieldDidBeginEditing:(UITextField *)textField {
+			[self onFocusListener];
+		}
+
+		- (void)textFieldDidEndEditing:(UITextField *)textField {
+			[self onLoseFocusListener];
+		}
+
+		- (CGRect)textRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+
+		- (CGRect)editingRectForBounds:(CGRect)bounds {
+			return CGRectInset(bounds, widgetPaddingLeft, widgetPaddingTop);
+		}
+
+		- (BOOL)textField:(UITextField *) textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string {
+			BOOL rt = NO;
+			if ([[self text] length] < self->maxLength || [string length] == 0 || self->maxLength == 0)  {
+                rt = YES;
+            }
+			return rt;
+		}
+	}}}
+}
+
+ELSE IFDEF "target_swift"
+{
+	basetype !"UITextField" type extends
+	basetype !"UITextFieldDelegate" type implements
+	basetype Widget type isAlso
+	depend "swift-import:CoreGraphics"
+	var maxLength as int
+
+	lang "swift" {{{
+		@objc func textFieldDidChange(_ textField: UITextField) {
+			self.onChangeListener()
+		}
+
+		func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+			if(textField == self) {
+				textField.resignFirstResponder()
+			}
+			self.onEnterKeyListener()
+			return true
+		}
+
+		func textFieldDidBeginEditing(_ textField: UITextField) {
+			self.onFocusListener()
+		}
+
+		func textFieldDidEndEditing(_ textField: UITextField) {
+			self.onLoseFocusListener()
+		}
+
+		override public func textRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		override public func editingRect(forBounds bounds: CGRect) -> CGRect {
+			return bounds.insetBy(dx: CGFloat(widgetPaddingLeft), dy: CGFloat(widgetPaddingTop))
+		}
+
+		func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+			var rt : Bool = false
+			if self.text!.count < self.maxLength || string.count == 0 || self.maxLength == 0 {
+				rt = true
+			}
+			return rt
+		}
+	}}}
+}
+
+ELSE IFDEF "target_macosoc"
+{
+	basetype !"NSTextField" type extends
+	basetype Widget type isAlso
+}
+
+ELSE IFDEF "target_reactjs"
+{
+	depend "js:React:react"
+	basetype !"React.Component" type extends
+	basetype Widget type isAlso
+
+	lang "js" {{{
+		render() {
+			function handleKeypress(e) {
+				var k = e.which || e.keyCode;
+				if(k == 13) {
+					this.onEnterKeyListener();
+				}
+			};
+			return(<input border="0" onInput={onChangeListener} onKeypress={handleKeypress} />);
+		}
+	}}}
+}
+
+ELSE IFDEF "target_html"
+{
+	basetype Widget
+
+	func createElement override as object:
+		return HTMLDOM.createElement("input")
+
+	func prepareElement(v as object) override
+	{
+		base.prepareElement(v)
+		HTMLDOM.setStyle(v, "box-sizing", "border-box")
+		HTMLDOM.setStyle(v, "border", "0")
+		HTMLDOM.addEventListener(element, "input", func {
+			onChangeListener()
+		})
+		HTMLDOM.addEventListener(element, "focus", func {
+			onFocusListener()
+		})
+		HTMLDOM.addEventListener(element, "blur", func {
+			onLoseFocusListener()
+		})
+		lang "js" {{{
+			this.element.addEventListener("keypress", function(e) {
+				var k = e.which || e.keyCode;
+				if(k == 13) {
+					this.onEnterKeyListener();
+				}
+			}.bind(this));
+		}}}
+	}
+}
+
+ELSE IFDEF "target_uwp"
+{
+	basetype !"Windows.UI.Xaml.Controls.TextBox" type extends
+	basetype Widget type isAlso
+}
+
+ELSE
+{
+	basetype Widget
+}
+
+const TYPE_DEFAULT = 0 // text input using whatever default settings on the current platform
+const TYPE_NONASSISTED = 1 // text input with no input assistance (prediction, word completion, etc.)
+const TYPE_NAME = 2 // name text input (capitalized words)
+const TYPE_EMAIL_ADDRESS = 3
+const TYPE_URL = 4
+const TYPE_PHONE_NUMBER = 5
+const TYPE_PASSWORD = 6
+const TYPE_INTEGER = 7
+const TYPE_FLOAT = 8
+const TYPE_STREET_ADDRESS = 9
+
+const ALIGN_LEFT = 0
+const ALIGN_RIGHT = 1
+const ALIGN_CENTER = 2
+
+var widgetContext as GuiApplicationContext
+var widgetType as int
+var widgetPlaceholder as string
+var widgetText as string
+var widgetFontUnderline as bool
+var widgetFontItalic as bool
+var widgetFontBold as bool
+var widgetTextAlign as int
+var widgetPaddingLeft = 0
+var widgetPaddingTop = 0
+var widgetPaddingRight = 0
+var widgetPaddingBottom = 0
+var widgetFontFamily as string
+var widgetFontResource as string
+var widgetFontSize as double
+var widgetTextColor as Color
+var widgetBackgroundColor as Color
+var widgetIsEnabled = true
+prop widgetTextChangeHandler as function
+prop widgetOnEnterKeyPressed as function
+prop widgetOnFocusHandler as function
+prop widgetOnLoseFocusHandler as function
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF "target_android" {
+		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+		IFDEF "target_java" {
+			lang "java" {{{
+				setSingleLine();
+				addTextChangedListener(new android.text.TextWatcher() {
+					public void onTextChanged(java.lang.CharSequence s, int start, int before, int count) {
+						onChangeListener();
+					}
+
+					public void beforeTextChanged(java.lang.CharSequence s, int start, int count, int after) {
+					}
+
+					public void afterTextChanged(android.text.Editable s) {
+					}
+				});
+				setOnKeyListener(new android.view.View.OnKeyListener() {
+					public boolean onKey(android.view.View view, int keyCode, android.view.KeyEvent keyEvent) {
+						if(keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+							onEnterKeyListener();
+							return(true);
+						}
+						return(false);
+					}
+				});
+				setOnFocusChangeListener(new android.view.View.OnFocusChangeListener() {
+					public void onFocusChange(android.view.View view, boolean hasFocus) {
+						if(hasFocus) {
+							onFocusListener();
+						}
+						else {
+							onLoseFocusListener();
+						}
+					}
+				});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setSingleLine()
+				addTextChangedListener(object : android.text.TextWatcher {
+					override fun onTextChanged(s : kotlin.CharSequence, start : kotlin.Int, before : kotlin.Int, count : kotlin.Int) {
+						onChangeListener()
+					}
+
+					override fun beforeTextChanged(s : kotlin.CharSequence, start : kotlin.Int, count : kotlin.Int, after : kotlin.Int) {
+					}
+
+					override fun afterTextChanged(s : android.text.Editable) {
+					}
+				})
+				setOnKeyListener(object : android.view.View.OnKeyListener {
+					override fun onKey(view : android.view.View, keyCode : kotlin.Int, keyEvent : android.view.KeyEvent) : kotlin.Boolean {
+						if(keyCode == android.view.KeyEvent.KEYCODE_ENTER) {
+							onEnterKeyListener()
+							return true
+						}
+						return false
+					}
+				})
+				setOnFocusChangeListener(object : android.view.View.OnFocusChangeListener {
+					override fun onFocusChange(view : android.view.View, hasFocus : kotlin.Boolean) {
+						if(hasFocus) {
+							onFocusListener();
+						}
+						else {
+							onLoseFocusListener();
+						}
+					}
+				})
+			}}}
+		}
+	}
+	IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			self.delegate = self;
+			self.autocorrectionType = UITextAutocorrectionTypeNo;
+			self.autocapitalizationType = UITextAutocapitalizationTypeNone;
+			[self addTarget:self action:@selector(textFieldDidChange:) forControlEvents:UIControlEventEditingChanged];
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+			self.delegate = self
+			self.autocorrectionType = UITextAutocorrectionType.no
+			self.autocapitalizationType = UITextAutocapitalizationType.none
+			self.addTarget(self, action: #selector(textFieldDidChange(_ :)), for: UIControl.Event.editingChanged)
+		}}}
+	}
+	IFDEF "target_html" {
+		HTMLDOM.setStyle(element, "outline-width", "0")
+	}
+	IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Background = jk.ui.Color.forRGBA(0,0,0,0).toBrush();
+			this.Padding = new Windows.UI.Xaml.Thickness(0,0,0,0);
+			this.BorderThickness = new Windows.UI.Xaml.Thickness(0,0,0,0);
+			this.MinHeight = 0.0;
+			this.GotFocus += (object sender, Windows.UI.Xaml.RoutedEventArgs e) => {
+				onFocusListener();
+			};
+			this.LostFocus += (object sender, Windows.UI.Xaml.RoutedEventArgs e) => {
+				onLoseFocusListener();
+			};
+		}}}
+	}
+	widgetContext = context
+	setWidgetStyle(VALUE "__THIS__")
+}
+
+func setWidgetStyle(style as string) as this
+{
+	widgetFontFamily = widgetContext.getStyleString(style, "fontFamily")
+	if String.isEmpty(widgetFontFamily):
+		widgetFontFamily = "Arial"
+	widgetFontSize = widgetContext.getStylePixels(style, "fontSize")
+	if widgetFontSize < 1.0:
+		widgetFontSize = widgetContext.getHeightValue("3mm")
+	var fr = widgetContext.getStyleString(style, "fontResource")
+	if String.isNotEmpty(fr):
+		setWidgetFontResource(fr)
+	widgetTextColor = widgetContext.getStyleColor(style, "textColor")
+	widgetBackgroundColor = widgetContext.getStyleColor(style, "backgroundColor")
+	setWidgetPadding(widgetContext.getStylePixels(style, "padding"))
+	updateWidgetFont()
+	updateWidgetColors()
+	return this
+}
+
+func setWidgetTextColor(color as Color) as this
+{
+	widgetTextColor = color
+	updateWidgetColors()
+	return this
+}
+
+func getWidgetTextColor as Color:
+	return widgetTextColor
+
+func setWidgetBackgroundColor(color as Color) as this
+{
+	widgetBackgroundColor = color
+	updateWidgetColors()
+	return this
+}
+
+func getWidgetBackgroundColor as Color:
+	return widgetBackgroundColor
+
+func updateWidgetColors private
+{
+	var textColor = widgetTextColor
+	if textColor == null {
+		if widgetBackgroundColor {
+			if widgetBackgroundColor.isLightColor() {
+				textColor = Color.black()
+			}
+			else {
+				textColor = Color.white()
+			}
+		}
+		else {
+			textColor = Color.black()
+		}
+	}
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setHintTextColor(jk.ui.Color.forRGB(154,154,154).toARGBInt32());
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor.toARGBInt32());
+				}
+				else {
+					setBackgroundColor(0);
+				}
+				setTextColor(textColor.toARGBInt32());
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setHintTextColor(jk.ui.Color.forRGB(154,154,154)!!.toARGBInt32())
+				if(widgetBackgroundColor != null) {
+					setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
+				}
+				else {
+					setBackgroundColor(0)
+				}
+				setTextColor(textColor!!.toARGBInt32())
+			}}}
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		var bgc #used = widgetBackgroundColor
+		lang "objc" {{{
+			if(bgc != nil) {
+				self.backgroundColor = [bgc toUIColor];
+			}
+			else {
+				self.backgroundColor = nil;
+			}
+			self.textColor = [textColor toUIColor];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var bgc #used = widgetBackgroundColor
+		lang "swift" {{{
+			if(bgc != nil) {
+				self.backgroundColor = bgc.toUIColor()
+			}
+			else {
+				self.backgroundColor = nil
+			}
+			self.textColor = textColor.toUIColor()
+		}}}
+	}
+	ELSE IFDEF "target_html" {
+		if widgetBackgroundColor == null {
+			HTMLDOM.setStyle(element, "background-color", "rgba(0,0,0,0)")
+		}
+		else {
+			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(widgetBackgroundColor))
+		}
+		HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(textColor))
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Foreground = textColor.toBrush();
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetType(type as int) as this
+{
+	widgetType = type
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(widgetType == TYPE_DEFAULT) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE |
+						android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+				}
+				else if(widgetType == TYPE_NONASSISTED) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+						| android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+				}
+				else if(widgetType == TYPE_NAME) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME |
+						android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+				}
+				else if(widgetType == TYPE_EMAIL_ADDRESS) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+						| android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+				}
+				else if(widgetType == TYPE_URL) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+				}
+				else if(widgetType == TYPE_PHONE_NUMBER) {
+					setInputType(android.text.InputType.TYPE_CLASS_PHONE);
+				}
+				else if(widgetType == TYPE_PASSWORD) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+				}
+				else if(widgetType == TYPE_INTEGER) {
+					setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+				}
+				else if(widgetType == TYPE_FLOAT) {
+					setInputType(android.text.InputType.TYPE_CLASS_NUMBER | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+				}
+				else if(widgetType == TYPE_STREET_ADDRESS) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS |
+						android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE | android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT |
+						android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+				}
+				else {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(widgetType == TYPE_DEFAULT) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE or
+						android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+				}
+				else if(widgetType == TYPE_NONASSISTED) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+						or android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+				}
+				else if(widgetType == TYPE_NAME) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME or
+						android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+				}
+				else if(widgetType == TYPE_EMAIL_ADDRESS) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+						or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+				}
+				else if(widgetType == TYPE_URL) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI);
+				}
+				else if(widgetType == TYPE_PHONE_NUMBER) {
+					setInputType(android.text.InputType.TYPE_CLASS_PHONE);
+				}
+				else if(widgetType == TYPE_PASSWORD) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+				}
+				else if(widgetType == TYPE_INTEGER) {
+					setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+				}
+				else if(widgetType == TYPE_FLOAT) {
+					setInputType(android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL);
+				}
+				else if(widgetType == TYPE_STREET_ADDRESS) {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_POSTAL_ADDRESS or
+						android.text.InputType.TYPE_TEXT_FLAG_AUTO_COMPLETE or android.text.InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or
+						android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+				}
+				else {
+					setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		if widgetType == TYPE_DEFAULT {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if widgetType == TYPE_NONASSISTED {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if widgetType == TYPE_NAME {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if widgetType == TYPE_EMAIL_ADDRESS {
+			HTMLDOM.setAttribute(element, "type", "email")
+		}
+		else if widgetType == TYPE_URL {
+			HTMLDOM.setAttribute(element, "type", "url")
+		}
+		else if widgetType == TYPE_PHONE_NUMBER {
+			HTMLDOM.setAttribute(element, "type", "tel")
+		}
+		else if widgetType == TYPE_PASSWORD {
+			HTMLDOM.setAttribute(element, "type", "password")
+		}
+		else if widgetType == TYPE_INTEGER {
+			HTMLDOM.setAttribute(element, "type", "number")
+		}
+		else if widgetType == TYPE_FLOAT {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else if widgetType == TYPE_STREET_ADDRESS {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+		else {
+			HTMLDOM.setAttribute(element, "type", "text")
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		if widgetType == TYPE_DEFAULT {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeDefault];
+				[self setSpellCheckingType:UITextSpellCheckingTypeDefault];
+			}}}
+		}
+		else if widgetType == TYPE_NONASSISTED {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_NAME {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeWords];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_EMAIL_ADDRESS {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeEmailAddress];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_URL {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeURL];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_PHONE_NUMBER {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypePhonePad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_PASSWORD {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+				[self setSecureTextEntry:YES];
+			}}}
+		}
+		else if widgetType == TYPE_INTEGER {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeNumberPad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_FLOAT {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDecimalPad];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeNone];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else if widgetType == TYPE_STREET_ADDRESS {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeNo];
+				[self setSpellCheckingType:UITextSpellCheckingTypeNo];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setKeyboardType:UIKeyboardTypeDefault];
+				[self setAutocapitalizationType:UITextAutocapitalizationTypeSentences];
+				[self setAutocorrectionType:UITextAutocorrectionTypeDefault];
+				[self setSpellCheckingType:UITextSpellCheckingTypeDefault];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		if widgetType == TYPE_DEFAULT {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.sentences
+				self.autocorrectionType = UITextAutocorrectionType.default
+				self.spellCheckingType = UITextSpellCheckingType.default
+			}}}
+		}
+		else if widgetType == TYPE_NONASSISTED {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_NAME {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.words
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_EMAIL_ADDRESS {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.emailAddress
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_URL {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.URL
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_PHONE_NUMBER {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.phonePad
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_PASSWORD {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+				self.isSecureTextEntry = true
+			}}}
+		}
+		else if widgetType == TYPE_INTEGER {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.numberPad
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_FLOAT {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.decimalPad
+				self.autocapitalizationType = UITextAutocapitalizationType.none
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else if widgetType == TYPE_STREET_ADDRESS {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.sentences
+				self.autocorrectionType = UITextAutocorrectionType.no
+				self.spellCheckingType = UITextSpellCheckingType.no
+			}}}
+		}
+		else {
+			lang "swift" {{{
+				self.keyboardType = UIKeyboardType.default
+				self.autocapitalizationType = UITextAutocapitalizationType.sentences
+				self.autocorrectionType = UITextAutocorrectionType.default
+				self.spellCheckingType = UITextSpellCheckingType.default
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	updateWidgetFont()
+	return this
+}
+
+func getWidgetType as int:
+	return widgetType
+
+func setWidgetText(text as string) as this
+{
+	widgetText = text
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setText(text);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setText(text);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		lang "js" {{{
+			this.element.value = text;
+		}}}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			[self setText:text];
+		}}}
+		onChangeListener()
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.text = text
+		}}}
+		onChangeListener()
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Text = text;
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetText as string
+{
+	IFDEF "target_html" {
+		return HTMLDOM.getValue(element)
+	}
+	ELSE IFDEF "target_android" {
+		var v as string
+		IFDEF "target_java" {
+			v = lang "java" string {{{ getText().toString() }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			v = lang "kotlin" string {{{ getText().toString() }}}
+		}
+		return v
+	}
+	ELSE IFDEF "target_ios_objc" {
+		return lang "objc" string {{{ [self text] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ self.text }}}
+	}
+	ELSE IFDEF "target_uwp" {
+		return lang "cs" string {{{ this.Text }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func setWidgetPlaceholder(placeholder as string) as this
+{
+	widgetPlaceholder = placeholder
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setHint(placeholder);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setHint(placeholder);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		HTMLDOM.setAttribute(element, "placeholder", placeholder)
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			[self setPlaceholder:placeholder];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.placeholder = placeholder
+		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.PlaceholderText = placeholder;
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetPlaceholder as string:
+	return widgetPlaceholder
+
+func setWidgetFontBold(bold as bool)
+{
+	widgetFontBold = bold
+	updateWidgetFont()
+}
+
+func setWidgetFontUnderline(underline as bool)
+{
+	widgetFontUnderline = underline
+	updateWidgetFont()
+}
+
+func setWidgetFontItalic(italic as bool)
+{
+	widgetFontItalic = italic
+	updateWidgetFont()
+}
+
+func getWidgetFontUnderline as bool:
+	return widgetFontUnderline
+
+func getWidgetFontItalic as bool:
+	return widgetFontItalic
+
+func getWidgetFontBold as bool:
+	return widgetFontBold
+
+func setWidgetPadding(padding as int #notLiteral):
+	setWidgetPadding(padding, padding, padding, padding)
+
+func setWidgetPadding(x as int #notLiteral, y as int #notLiteral):
+	setWidgetPadding(x, y, x, y)
+
+func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
+{
+	if l < 0 || t < 0 || r < 0 || b < 0:
+		return this
+	if widgetPaddingLeft == l && widgetPaddingTop == t && widgetPaddingRight == r && widgetPaddingBottom == b:
+		return this
+	widgetPaddingLeft = l
+	widgetPaddingTop = t
+	widgetPaddingRight = r
+	widgetPaddingBottom = b
+	updateWidgetPadding()
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func updateWidgetPadding private
+{
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setPadding(widgetPaddingLeft, widgetPaddingTop, widgetPaddingRight, widgetPaddingBottom);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		HTMLDOM.setStyle(element, "padding",
+			String.forInteger(widgetPaddingTop) .. "px " ..
+				String.forInteger(widgetPaddingRight) .. "px " ..
+				String.forInteger(widgetPaddingBottom) .. "px " ..
+				String.forInteger(widgetPaddingLeft) .. "px")
+	}
+	ELSE IFDEF "target_ios_objc" {
+		// iOS implementation simply uses the values set above. No further action required.
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			var thickness = new Windows.UI.Xaml.Thickness();
+			thickness.Left = (double)widgetPaddingLeft;
+			thickness.Top = (double)widgetPaddingTop;
+			thickness.Right = (double)widgetPaddingRight;
+			thickness.Bottom = (double)widgetPaddingBottom;
+			this.Padding = thickness;
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetFontFamily(family as string) as this
+{
+	widgetFontFamily = family
+	updateWidgetFont()
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func setWidgetFontResource(res as string) as this
+{
+	widgetFontResource = res
+	updateWidgetFont()
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func setWidgetFontSize(fontSize as double #notLiteral) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont()
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func dismissKeyboard
+{
+	IFDEF "target_android" {
+		var actx #used = (widgetContext as! GuiApplicationContextForAndroid).getActivityContext()
+		IFDEF "target_java" {
+			lang "java" {{{
+				clearFocus();
+				android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager)actx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+				im.hideSoftInputFromWindow(getWindowToken(), 0);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				clearFocus();
+				val im = actx!!.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+				im.hideSoftInputFromWindow(getWindowToken(), 0)
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func updateWidgetFont private
+{
+	IFDEF "target_html" {
+		HTMLDOM.setFontFamily(element, widgetFontFamily)
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(widgetFontSize) .. "px")
+		if widgetFontBold:
+			HTMLDOM.setStyle(element, "font-weight", "bold")
+		if widgetFontItalic:
+			HTMLDOM.setStyle(element, "font-style", "italic")
+		if widgetFontUnderline:
+			HTMLDOM.setStyle(element, "text-decoration", "underline")
+	}
+	ELSE IFDEF "target_ios_objc" {
+		var ff = widgetFontFamily
+		if String.isEmpty(ff):
+			ff = "Arial"
+		lang "objc" {{{
+			UIFont* font = [UIFont fontWithName:ff size:widgetFontSize];
+			if(font == nil) {
+				font = [UIFont fontWithName:@"Arial" size:widgetFontSize];
+			}
+			if(widgetFontBold == YES) {
+				UIFontDescriptor * fontD = [font.fontDescriptor fontDescriptorWithSymbolicTraits:UIFontDescriptorTraitBold];
+    			font = [UIFont fontWithDescriptor:fontD size:widgetFontSize];
+			}
+			[self setFont:font];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var ff = widgetFontFamily
+		if String.isEmpty(ff):
+			ff = "Arial"
+		lang "swift" {{{
+			var font : UIFont? = UIFont(name: ff!, size: CGFloat(widgetFontSize))
+			if(font == nil) {
+				font = UIFont(name: "Arial", size: CGFloat(widgetFontSize))
+			}
+			if(widgetFontBold == true) {
+				let fontD : UIFontDescriptor = font!.fontDescriptor.withSymbolicTraits(UIFontDescriptor.SymbolicTraits.traitBold)!
+				font = UIFont(descriptor: fontD, size: CGFloat(widgetFontSize))
+			}
+			self.font = font
+		}}}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
+				int style = android.graphics.Typeface.NORMAL;
+				if(widgetFontBold == true) {
+					style = android.graphics.Typeface.BOLD;
+				}
+				if(widgetFontResource != null) {
+					android.content.Context ctx = ((jk.ui.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), style);
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, style));
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, widgetFontSize.toFloat());
+				var style : kotlin.Int = android.graphics.Typeface.NORMAL;
+				if(widgetFontBold == true) {
+					style = android.graphics.Typeface.BOLD;
+				}
+				if(widgetFontResource != null) {
+					var ctx = (widgetContext as jk.ui.GuiApplicationContextForAndroid).getActivityContext();
+					setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), style);
+				}
+				else {
+					setTypeface(android.graphics.Typeface.create(widgetFontFamily, style));
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.FontSize = (double)widgetFontSize;
+			this.FontFamily = new Windows.UI.Xaml.Media.FontFamily(widgetFontFamily);
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetIsEnabled(v as bool)
+{
+	widgetIsEnabled = v
+	IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.IsReadOnly = !v;
+		}}}
+	}
+	ELSE IFDEF "target_html" {
+		if widgetIsEnabled {
+			HTMLDOM.setAttribute(element, "disabled", null)
+		}
+		else {
+			HTMLDOM.setAttribute(element, "disabled", "disabled")
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetIsEnabled as bool:
+	return widgetIsEnabled
+
+func setWidgetValue(value as object) virtual
+{
+	var v = String.asString(value)
+	if not v:
+		v = ""
+	setWidgetText(v)
+}
+
+func getWidgetValue virtual as object:
+	return getWidgetText()
+
+func onChangeListener private
+{
+	if widgetTextChangeHandler:
+		widgetTextChangeHandler()
+}
+
+func onEnterKeyListener private
+{
+	if widgetOnEnterKeyPressed:
+		widgetOnEnterKeyPressed()
+}
+
+func onFocusListener private
+{
+	if widgetOnFocusHandler:
+		widgetOnFocusHandler()
+}
+
+func onLoseFocusListener private
+{
+	if widgetOnLoseFocusHandler:
+		widgetOnLoseFocusHandler()
+}
+
+func focus
+{
+	IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			[self becomeFirstResponder];
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.becomeFirstResponder()
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetTextAlign(align as int) as this
+{
+	widgetTextAlign = align
+	IFDEF "target_html" {
+		if align == ALIGN_LEFT {
+			HTMLDOM.setStyle(element, "text-align", "left")
+		}
+		else if align == ALIGN_RIGHT {
+			HTMLDOM.setStyle(element, "text-align", "right")
+		}
+		else {
+			HTMLDOM.setStyle(element, "text-align", "left")
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		if align == ALIGN_LEFT {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentLeft];
+			}}}
+		}
+		else if align == ALIGN_RIGHT {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentRight];
+			}}}
+		}
+		else if align == ALIGN_CENTER {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentCenter];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[self setTextAlignment:UITextAlignmentLeft];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		if align == ALIGN_LEFT {
+			lang "swift" {{{
+				self.textAlignment = NSTextAlignment.left
+			}}}
+		}
+		else if align == ALIGN_RIGHT {
+			lang "swift" {{{
+				self.textAlignment = NSTextAlignment.right
+			}}}
+		}
+		else if align == ALIGN_CENTER {
+			lang "swift" {{{
+				self.textAlignment = NSTextAlignment.center
+			}}}
+		}
+		else {
+			lang "swift" {{{
+				self.textAlignment = NSTextAlignment.left
+			}}}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			if align == ALIGN_LEFT {
+				lang "java" {{{
+					setGravity(android.view.Gravity.LEFT);
+				}}}
+			}
+			else if align == ALIGN_RIGHT {
+				lang "java" {{{
+					setGravity(android.view.Gravity.RIGHT);
+				}}}
+			}
+			else if align == ALIGN_CENTER {
+				lang "java" {{{
+					setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+				}}}
+			}
+			else {
+				lang "java" {{{
+					setGravity(android.view.Gravity.LEFT);
+				}}}
+			}
+		}
+		ELSE IFDEF "target_kotlin" {
+			if align == ALIGN_LEFT {
+				lang "kotlin" {{{
+					setGravity(android.view.Gravity.LEFT);
+				}}}
+			}
+			else if align == ALIGN_RIGHT {
+				lang "kotlin" {{{
+					setGravity(android.view.Gravity.RIGHT);
+				}}}
+			}
+			else if align == ALIGN_CENTER {
+				lang "kotlin" {{{
+					setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+				}}}
+			}
+			else {
+				lang "kotlin" {{{
+					setGravity(android.view.Gravity.LEFT);
+				}}}
+			}
+		}
+	}
+	ELSE IFDEF "target_uwp" {
+		if align == ALIGN_LEFT {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
+			}}}
+		}
+		else if align == ALIGN_RIGHT {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Right;
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				TextAlignment = Windows.UI.Xaml.TextAlignment.Left;
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return this
+}
+
+func getWidgetTextAlign as int:
+	return widgetTextAlign
+
+func setWidgetMaxLength(v as int) as this
+{
+	IFDEF "target_html" {
+		HTMLDOM.setAttribute(element, "maxlength", String.forInteger(v))
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(v)});
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setFilters(arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(v)))
+			}}}
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		maxLength = v
+	}
+	ELSE IFDEF "target_swift" {
+		maxLength = v
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return this
+}

@@ -1,0 +1,93 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ZipReader:
+
+depend "dll:System.IO.Compression.dll"
+depend "dll:System.IO.Compression.FileSystem.dll"
+depend "netcore:package System.IO.Compression 4.1.0-rc2-24027"
+
+class MyZipReaderEntry is ZipReaderEntry
+{
+	prop entry as !"System.IO.Compression.ZipArchiveEntry"
+
+	func getContentReader override as Reader
+	{
+		var stream as !"System.IO.Stream"
+		lang "cs" {{{
+			try {
+				stream = entry.Open();
+			}
+			catch(System.Exception e) {
+				stream = null;
+			}
+		}}}
+		assert stream
+		return DotNetStreamReader.forStream(stream)
+	}
+}
+
+prop file as File
+var archive as magical<System.IO.Compression.ZipArchive>
+
+func initialize as this
+{
+	assert file
+	var fp = assert file.getPath()
+	lang "cs" {{{
+		archive = System.IO.Compression.ZipFile.Open(fp, System.IO.Compression.ZipArchiveMode.Read);
+	}}}
+	assert archive
+	return this
+}
+
+func getEntries override as vector<ZipReaderEntry>
+{
+	var v = new vector<ZipReaderEntry>
+	if archive {
+		lang "cs" {{{
+			foreach(System.IO.Compression.ZipArchiveEntry entry in archive.Entries) {
+				var ee = new MyZipReaderEntry();
+				ee.setName(entry.FullName);
+				ee.setCompressedSize(entry.CompressedLength);
+				ee.setUncompressedSize(entry.Length);
+				ee.setEntry(entry);
+				ee.setMode((entry.ExternalAttributes >> 16) & 0x1ff);
+				v.Add(ee);
+			}
+		}}}
+	}
+	return v
+}
+
+func close override
+{
+	if archive {
+		lang "cs" {{{
+			archive.Dispose();
+		}}}
+		archive = null
+	}
+}

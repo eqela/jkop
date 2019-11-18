@@ -1,0 +1,324 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is File:
+
+class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader public
+{
+	var file public as !"java.io.File"
+	var stream public as !"java.io.FileInputStream"
+
+	func initialize as this
+	{
+		if file {
+			lang "kotlin" {{{
+				try {
+					stream = java.io.FileInputStream(file)
+				}
+				catch(e: Exception) {
+					e.printStackTrace()
+					return(null)
+				}
+				return(this)
+			}}}
+		}
+		return null
+	}
+
+	func read(buffer as buffer) as int
+	{
+		if !buffer:
+			return 0
+		var ptr #used = buffer
+		var sz #used = Buffer.getSize(buffer) as int
+		var v as int #used
+		lang "kotlin" {{{
+			try {
+				v = stream!!.read(ptr!!.toByteArray(), 0, sz)
+			}
+			catch(e: Exception) {
+				e.printStackTrace()
+			}
+		}}}
+		return v
+	}
+
+	func getSize as int
+	{
+		var v as int
+		lang "kotlin" {{{
+			try {
+				v = stream!!.available()
+			}
+			catch(e: Exception) {
+				e.printStackTrace()
+			}
+		}}}
+		return v
+	}
+
+	func close
+	{
+		lang "kotlin" {{{
+			try {
+				stream!!.close()
+			}
+			catch(e :Exception) {
+				e.printStackTrace()
+			}
+		}}}
+	}
+
+	func setCurrentPosition(n as int64) as bool:
+		return false
+
+	func getCurrentPosition as int64:
+		return 0
+}
+
+class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter is FlushableWriter public
+{
+	prop append as bool
+	var stream public as !"java.io.FileOutputStream"
+	var file public as !"java.io.File"
+
+	func initialize as this
+	{
+		if file {
+			lang "kotlin" {{{
+				try {
+					stream = java.io.FileOutputStream(file)
+				}
+				catch(e: Exception) {
+					e.printStackTrace()
+				}
+				return(this)
+			}}}
+		}
+		return null
+	}
+
+	func write(buffer as buffer, size as int) as int
+	{
+		if !buffer:
+			return 0
+		var ptr #used = buffer
+		var sz #used = size
+		if sz < 1:
+			var sz #used = Buffer.getSize(buffer) as int
+		lang "kotlin" {{{
+			try {
+				stream!!.write(buffer!!.toByteArray(), 0, sz)
+			}
+			catch(e:Exception) {
+				e.printStackTrace()
+			}
+		}}}
+		return sz
+	}
+
+	func close
+	{
+		var stream as !"java.io.FileOutputStream"
+		var file as !"java.io.File"
+		lang "kotlin" {{{
+			try {
+				stream!!.close()
+			}
+			catch(e:Exception) {
+				e.printStackTrace()
+			}
+		}}}
+	}
+
+	func setCurrentPosition(n as int64) as bool:
+		return false
+
+	func getCurrentPosition as int64:
+		return 0
+
+	func flush
+	{
+		lang "kotlin" {{{
+			try {
+				stream!!.flush()
+			}
+			catch(e:Exception) {
+				e.printStackTrace()
+			}
+		}}}
+	}
+}
+
+var path as string
+
+func forPath(path as string) static as File
+{
+	if String.isEmpty(path):
+		return null
+	var v = new this()
+	v.setPath(path)
+	return v
+}
+
+func setPath(newPath as string):
+	this.path = newPath
+
+func getPath override as string:
+	return path
+
+func createDirectoryRecursive override as bool
+{
+	var v as bool
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		v = f.mkdirs()
+	}}}
+	return v
+}
+
+func read override as FileReader
+{
+	var v #used = new MyFileReader()
+	lang "kotlin" {{{
+		v?.file = java.io.File(path)
+	}}}
+	return v.initialize()
+}
+
+func write override as FileWriter
+{
+	var v = new MyFileWriter()
+	lang "kotlin" {{{
+		v?.file = java.io.File(path)
+	}}}
+	return v.initialize()
+}
+
+func createDirectory override as bool
+{
+	var v as bool #used
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		v = f.mkdir()
+	}}}
+	return v
+}
+
+func remove override as bool
+{
+	var v as bool #used
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		v = f.delete()
+	}}}
+	return v
+}
+
+func isExecutable override as bool
+{
+	var v as bool #used
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		v = f.canExecute()
+	}}}
+	return v
+}
+
+func append override as FileWriter
+{
+	var v = new MyFileWriter().setAppend(true)
+	lang "kotlin" {{{
+		v?.file = java.io.File(path)
+	}}}
+	return v.initialize()
+}
+
+func touch override as bool
+{
+	var v as bool #used
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		try {
+			v = f.createNewFile()
+		}
+		catch(e: Exception) {
+			e.printStackTrace()
+		}
+	}}}
+	return v
+}
+
+func move(dest as File, replace as bool) override as bool
+{
+	if dest.exists() {
+		if not replace:
+			return false
+		dest.remove()
+	}
+	var destpath = dest.getPath()
+	if !destpath:
+		return false
+	var v as bool #used
+	lang "kotlin" {{{
+		var src = java.io.File(path)
+		var dst = java.io.File(destpath)
+		v = src.renameTo(dst)
+	}}}
+	return v
+}
+
+func stat override as FileInfo
+{
+	var v #used = new FileInfo()
+	lang "kotlin" {{{
+		var f = java.io.File(path)
+		if(f.exists() == false) {
+			return(v)
+		}
+		v!!.setSize(f.length().toInt())
+		v!!.setModifyTime(f.lastModified().toLong())
+		if(f.isDirectory()) {
+			v!!.setType(FileInfo.FILE_TYPE_DIR)
+		}
+		else if(f.isFile()) {
+			v!!.setType(FileInfo.FILE_TYPE_FILE)
+		}
+	}}}
+	return v
+}
+
+func entry(name as string) override as File
+{
+	if String.isEmpty(name):
+		return this
+	var v = new this()
+	v.path = path .. "/" .. name
+	return v
+}
+
+func makeExecutable override stub as bool
+func entries override stub as Iterator<File>
+func removeDirectory override stub as bool

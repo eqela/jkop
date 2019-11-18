@@ -1,0 +1,151 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+
+class is Writer is SeekableWriter:
+
+func create(writer as Writer, cipher as BlockCipher) static as this
+{
+	assert writer
+	assert cipher
+	var v = new this()
+	v.writer = writer
+	v.cipher = cipher
+	v.bsize = cipher.getBlockSize()
+	v.bcurr = 0
+	v.bdata = Buffer.allocate(cipher.getBlockSize())
+	v.outbuf = Buffer.allocate(cipher.getBlockSize())
+	return v
+}
+
+var cipher as BlockCipher
+var writer as Writer
+var bsize as int
+var bcurr as int
+var bdata as buffer
+var outbuf as buffer
+
+IFDEF "target_supports_destructor"
+{
+	dtor
+	{
+		close()
+	}
+}
+
+func close
+{
+	if writer && bdata {
+		var bb = Buffer.allocate(1)
+		var bbptr = bb
+		var n as int
+		for(n = bcurr; n<bsize; n++):
+			Buffer.setByte(bdata, n, bsize - bcurr)
+		var wcb = writeCompleteBlock(bdata)
+		if not wcb {
+			Buffer.setByte(bbptr, 0, bsize - bcurr)
+			writer.write(bb, -1)
+		}
+	}
+	writer = null
+	cipher = null
+	bdata = null
+}
+
+func setCurrentPosition(n as int64) as bool
+{
+	//FIXME: Need to clear / reset the state (and read the current block to be a part of it)
+	if writer && writer is SeekableWriter {
+		var sw = writer as! SeekableWriter
+		return sw.setCurrentPosition(n)
+	}
+	return false
+}
+
+func getCurrentPosition as int64
+{
+	if writer && writer is SeekableWriter {
+		var sw = writer as! SeekableWriter
+		return sw.getCurrentPosition()
+	}
+	return -1
+}
+
+func writeCompleteBlock(buf as buffer) as bool
+{
+	cipher.encryptBlock(buf, outbuf)
+	if writer.write(outbuf, -1) == Buffer.getSize(outbuf):
+		return true
+	return false
+}
+
+func writeBlock(buf as buffer) as int
+{
+	var size = Buffer.getSize(buf)
+	if bcurr + size < bsize {
+		var bufptr = buf
+		Buffer.copyFrom(bdata, bufptr, 0, bcurr, size)
+		bcurr += size
+		return size
+	}
+	if bcurr > 0 {
+		var bufptr = buf
+		var x = bsize - bcurr
+		Buffer.copyFrom(bdata, bufptr, 0, bcurr, x)
+		if writeCompleteBlock(bdata) == false:
+			return 0
+		bcurr = 0
+		if x == size:
+			return x
+		return x + writeBlock(Buffer.getSubBuffer(buf, x, size - x))
+	}
+	if writeCompleteBlock(buf) == false:
+		return 0
+	return bsize
+}
+
+func write(buf as buffer, asize as int = -1) as int
+{
+	if buf == null:
+		return 0
+	var bufptr = buf
+	if bufptr == null:
+		return 0
+	var size = asize
+	if size < 0:
+		size = Buffer.getSize(buf)
+	if size < 1:
+		return 0
+	var v = 0
+	var n as int
+	for(n=0; n<size; n += bsize) {
+		var x = bsize
+		if n + x > size:
+			x = size - n
+		v += writeBlock(Buffer.getSubBuffer(buf, n, x))
+	}
+	return v
+}
