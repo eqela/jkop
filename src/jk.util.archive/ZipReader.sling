@@ -1,0 +1,82 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+
+class abstract:
+
+func forFile(file as File) static as this
+{
+	IFDEF "target_cs" {
+		return new ZipReaderForDotNet().setFile(file).initialize()
+	}
+	// FIXME: For Java, use classes in java.util.zip
+	return null
+}
+
+func extractZipBufferToDirectory(zipBuffer as buffer, destDir as File, listener as function<void,File> = null) static as bool
+{
+	assert zipBuffer
+	var dd = assert TemporaryDirectory.create()
+	var ff = dd.entry("files.zip")
+	assert ff.setContentsBuffer(zipBuffer):
+		dd.removeRecursive()
+	var v = extractZipFileToDirectory(ff, destDir, listener)
+	dd.removeRecursive()
+	return v
+}
+
+func extractZipFileToDirectory(zipFile as File, destDir as File, listener as function<void,File> = null) static as bool
+{
+	assert zipFile
+	assert destDir
+	var zf = assert forFile(zipFile)
+	if not destDir.isDirectory():
+		destDir.createDirectoryRecursive()
+	assert destDir.isDirectory():
+		zf.close()
+	foreach entry in zf.getEntries() {
+		var ename = entry.getName()
+		if String.isEmpty(ename):
+			continue
+		var dd = destDir
+		ename = String.replace(ename, '\\', '/')
+		foreach comp in String.split(ename, '/') {
+			if comp == "." || comp == "..":
+				continue
+			dd = dd.entry(comp)
+		}
+		if listener:
+			listener(dd)
+		assert entry.writeToFile(dd):
+			zf.close()
+	}
+	zf.close()
+	return true
+}
+
+func getEntries abstract as vector<ZipReaderEntry>
+func close abstract

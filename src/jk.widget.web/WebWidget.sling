@@ -1,0 +1,241 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+func forUrl(context as GuiApplicationContext, url as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetUrl(url)
+	return v
+}
+
+func forHtmlString(context as GuiApplicationContext, html as string) static as this
+{
+	var v = new this(context)
+	v.setWidgetHtmlString(html)
+	return v
+}
+
+IFDEF "target_android"
+{
+	basetype !"android.webkit.WebView" type extends
+	basetype Widget type isAlso
+	depend "androidPermission:android.permission.INTERNET"
+
+	class MyWebViewClient extends !"android.webkit.WebViewClient"
+	{
+		ctor:
+			;
+
+		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", url as string) override as bool
+		{
+			var vp = view as! parent
+			return vp.overrideWidgetUrlLoading(url)
+		}
+	}
+}
+
+IFDEF "target_ios_objc"
+{
+	basetype !"UIWebView" type extends
+	basetype !"UIWebViewDelegate" type implements
+	basetype Widget type isAlso
+
+	lang "objc" {{{
+		- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType
+		{
+			return(![self overrideWidgetUrlLoading:[[request URL] absoluteString]]);
+		}
+	}}}
+}
+
+IFDEF "target_swift"
+{
+	basetype !"UIWebView" type extends
+	basetype !"UIWebViewDelegate" type implements
+	basetype Widget type isAlso
+
+	lang "swift" {{{
+		func webView(_ webView: UIWebView, shouldStartLoadWith request: URLRequest, navigationType: UIWebView.NavigationType) -> Bool {
+			return self.overrideWidgetUrlLoading(request.url!.absoluteString)
+		}
+	}}}
+}
+
+IFDEF "target_html"
+{
+	basetype Widget
+
+	func createElement override as object
+	{
+		var v = HTMLDOM.createElement("iframe")
+		HTMLDOM.setAttribute(v, "sandbox", "allow-forms allow-scripts allow-modals allow-popups allow-same-origin")
+		return v
+	}
+}
+
+var widgetContext as GuiApplicationContext
+var widgetUrl as string
+var widgetHtmlString as string
+prop customUrlHandler as function<bool,string>
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF "target_android" {
+		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+		IFDEF "target_java" {
+			lang "java" {{{
+				setWebViewClient(new MyWebViewClient());
+				setWebChromeClient(new android.webkit.WebChromeClient());
+				android.webkit.WebSettings settings = getSettings();
+				settings.setJavaScriptEnabled(true);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setWebViewClient(MyWebViewClient())
+				setWebChromeClient(android.webkit.WebChromeClient())
+				var settings : android.webkit.WebSettings = getSettings()
+				settings!!.setJavaScriptEnabled(true)
+			}}}
+		}
+	}
+	IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			[self setDelegate:self];
+		}}}
+	}
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			super.init(frame: CGRect.zero)
+		}}}
+	}
+	widgetContext = context
+}
+
+func overrideWidgetUrlLoading(url as string) as bool
+{
+	if(customUrlHandler != null) {
+		return customUrlHandler(url)
+	}
+	return false
+}
+
+func setWidgetHtmlString(html as string) as this
+{
+	this.widgetHtmlString = html
+	this.widgetUrl = null
+	updateWidgetContent()
+	return this
+}
+
+func getWidgetHtmlString as string
+{
+	return widgetHtmlString
+}
+
+func setWidgetUrl(url as string) as this
+{
+	this.widgetUrl = url
+	this.widgetHtmlString = null
+	updateWidgetContent()
+	return this
+}
+
+func getWidgetUrl as string
+{
+	return widgetUrl
+}
+
+func updateWidgetContent private
+{
+	var url = widgetUrl
+	if(url != null) {
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					loadUrl(url);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					loadUrl(url)
+				}}}
+			}
+		}
+		ELSE IFDEF "target_ios_objc" {
+			lang "objc" {{{
+				[self loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:url]]];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.loadRequest(URLRequest(url: URL(string: url!)!))
+			}}}
+		}
+		ELSE IFDEF "target_html" {
+			lang "js" {{{
+				this.element.src = url;
+			}}}
+		}
+		ELSE {
+			ERROR "Not implemented"
+		}
+	}
+	else {
+		var htmlString #used = widgetHtmlString
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					loadData(htmlString, "text/html", null);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					loadData(htmlString, "text/html", null)
+				}}}
+			}
+		}
+		ELSE IFDEF "target_ios_objc" {
+			lang "objc" {{{
+				[self loadHTMLString:htmlString baseURL:nil];
+			}}}
+		}
+		ELSE IFDEF "target_html" {
+			lang "js" {{{
+				this.element.srcdoc = htmlString;
+				if(!this.element.hasAttribute("srcdoc")) {
+					this.element.setAttribute("htmlDoc", htmlString);
+					var jsUrl = "javascript: window.frameElement.getAttribute('htmlDoc')";
+					this.element.setAttribute("src", jsUrl);
+				}
+			}}}
+		}
+		ELSE {
+			ERROR "Not implemented"
+		}
+	}
+}

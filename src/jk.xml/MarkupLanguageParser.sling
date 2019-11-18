@@ -1,0 +1,344 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+class Value public
+{
+	prop position as int
+}
+
+class StartElement is Value public
+{
+	prop name as string
+	prop params as DynamicMap
+
+	func getParam(pname as string) as string
+	{
+		assert params
+		return params.getString(pname)
+	}
+}
+
+class EndElement is Value public
+{
+	prop name as string
+}
+
+class CharacterData is Value public
+{
+	prop data as string
+}
+
+class TextData is Value public
+{
+	prop data as string
+}
+
+class Comment is Value public
+{
+	prop text as string
+}
+
+var it protected as CharacterIterator
+var nextQueue as Value
+var cdataStart = "![CDATA["
+var commentStart = "!--"
+var tag as StringBuilder = null
+var def as StringBuilder = null
+var cdata as StringBuilder = null
+var comment as StringBuilder = null
+prop ignoreWhiteSpace = false
+var currentPosition = 0
+
+func onTagString(tagstring as string, pos as int) private as Value
+{
+	if String.charAt(tagstring, 0) == '/' {
+		var v = new EndElement()
+		v.setPosition(pos)
+		v.setName(String.subString(tagstring, 1))
+		return v
+	}
+	var element = new StringBuilder()
+	var params = new DynamicMap()
+	var it = CharacterIteratorForString.forString(tagstring)
+	var c as char
+	// element name
+	while((c = it.getNextChar()) > 0) {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/' {
+			if element.count() > 0:
+				break
+		}
+		else {
+			element.append(c)
+		}
+	}
+	// parameters
+	while c > 0 && c != '/' {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			c = it.getNextChar()
+			continue
+		}
+		var pname = new StringBuilder()
+		var pval = new StringBuilder()
+		while c > 0 && c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '=' {
+			pname.append(c)
+			c = it.getNextChar()
+		}
+		while c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			c = it.getNextChar()
+		if c != '=' {
+			; // error; but we will try to survive it anyway.
+		}
+		else {
+			c = it.getNextChar()
+			while c == ' ' || c == '\t' || c == '\n' || c == '\r':
+				c = it.getNextChar()
+			if c != '"' {
+				; // should not be as per spec; try to deal with it anyway.
+				while c > 0 && c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+					pval.append(c)
+					c = it.getNextChar()
+				}
+				while c == ' ' || c == '\t' || c == '\n' || c == '\r':
+					c = it.getNextChar()
+			}
+			else {
+				c = it.getNextChar()
+				while c > 0 && c != '"' {
+					pval.append(c)
+					c = it.getNextChar()
+				}
+				if c != '"' {
+					; // error; but ignore it.
+				}
+				else {
+					c = it.getNextChar()
+				}
+				while c == ' ' || c == '\t' || c == '\n' || c == '\r':
+					c = it.getNextChar()
+			}
+		}
+		var pnamestr = pname.toString()
+		var pvalstr = pval.toString()
+		params.set(pnamestr, pvalstr)
+	}
+	var els = element.toString()
+	if c == '/' {
+		var e = new EndElement()
+		e.setName(els)
+		e.setPosition(pos)
+		nextQueue = e
+	}
+	var v = new StartElement()
+	v.setPosition(pos)
+	v.setName(els)
+	v.setParams(params)
+	return v
+}
+
+func isOnlyWhiteSpace(str as string) private as bool
+{
+	if str == null:
+		return true
+	foreach c in String.toCharArray(str) {
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			; // all good
+		}
+		else {
+			return false
+		}
+	}
+	return true
+}
+
+func getNextChar private as char
+{
+	assert it
+	var v = it.getNextChar()
+	if v > 0:
+		currentPosition ++
+	return v
+}
+
+func moveToPreviousChar
+{
+	assert it
+	if currentPosition > 0 {
+		currentPosition --
+		it.moveToPreviousChar()
+	}
+}
+
+func peek as Value
+{
+	if nextQueue:
+		return nextQueue
+	nextQueue = next()
+	return nextQueue
+}
+
+func next as Value
+{
+	if nextQueue {
+		var v = nextQueue
+		nextQueue = null
+		return v
+	}
+	var prv as char
+	var pos = currentPosition
+	var qot = false
+	while it.hasEnded() == false {
+		var cbp = currentPosition
+		var nxb = getNextChar()
+		if nxb < 1:
+			continue
+		if tag {
+			if nxb == '>' && not qot {
+				var ts = tag.toString()
+				tag = null
+				var st = onTagString(ts, pos)
+				if st is StartElement && nextQueue == null && isSelfClosing((st as! StartElement).getName()) {
+					var e = new EndElement()
+					e.setName((st as! StartElement).getName())
+					e.setPosition(it.getCurrentPosition())
+					nextQueue = e
+				}
+				return st
+			}
+			tag.append(nxb)
+			if nxb == '"' && prv != '\\'{
+				if qot {
+					qot = false
+				}
+				else {
+					qot = true
+				}
+			}
+			if nxb == '[' && tag.count() == String.getLength(cdataStart) && String.equals(cdataStart, tag.toString()) {
+				tag = null
+				cdata = new StringBuilder()
+			}
+			else if nxb == '-' && tag.count() == String.getLength(commentStart) && String.equals(commentStart, tag.toString()) {
+				tag = null
+				comment = new StringBuilder()
+			}
+			prv = nxb
+		}
+		else if cdata {
+			var c0 = nxb
+			var c1 as char
+			var c2 as char
+			if c0 == ']' {
+				c1 = getNextChar()
+				if c1 == ']' {
+					c2 = getNextChar()
+					if c2 == '>' {
+						var dd = cdata.toString()
+						cdata = null
+						var v = new CharacterData()
+						v.setPosition(pos)
+						v.setData(dd)
+						return v
+					}
+					else {
+						moveToPreviousChar()
+						moveToPreviousChar()
+						cdata.append(c0)
+					}
+				}
+				else {
+					moveToPreviousChar()
+					cdata.append(c0)
+				}
+			}
+			else {
+				cdata.append(c0)
+			}
+		}
+		else if comment {
+			var c0 = nxb
+			var c1 as char
+			var c2 as char
+			if c0 == '-' {
+				c1 = getNextChar()
+				if c1 == '-' {
+					c2 = getNextChar()
+					if c2 == '>' {
+						var ct = comment.toString()
+						comment = null
+						var v = new Comment()
+						v.setPosition(pos)
+						v.setText(ct)
+						return v
+					}
+					else {
+						moveToPreviousChar()
+						moveToPreviousChar()
+						comment.append(c0)
+					}
+				}
+				else {
+					moveToPreviousChar()
+					comment.append(c0)
+				}
+			}
+			else {
+				comment.append(c0)
+			}
+		}
+		else {
+			if nxb == '<' {
+				if def {
+					var cd = def.toString()
+					def = null
+					if ignoreWhiteSpace && cd {
+						if isOnlyWhiteSpace(cd) {
+							cd = null
+							pos = cbp
+						}
+					}
+					if cd {
+						moveToPreviousChar()
+						var v = new TextData()
+						v.setPosition(pos)
+						v.setData(cd)
+						return v
+					}
+				}
+				tag = new StringBuilder()
+			}
+			else {
+				if def == null:
+					def = new StringBuilder()
+				def.append(nxb)
+			}
+		}
+	}
+	return null
+}
+
+func isSelfClosing(tag as string) virtual as bool:
+	return false

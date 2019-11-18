@@ -1,0 +1,295 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Duplicateable is Iterateable<string>:
+
+func asDynamicMap(object as object) static as this
+{
+	assert object
+	if object is this:
+		return object as! this
+	if object is map:
+		return forObjectMap(object as! map)
+	return null
+}
+
+func forObjectMap(map as map<object,object>) static as this
+{
+	var v = new this()
+	if map {
+		var it as Iterator<object> #force = Map.iterateKeys(map)
+		while it {
+			var key = it.next()
+			if key == null:
+				break
+			if key is string == false:
+				continue
+			v.set(key as! string, Map.getValue(map, key as! string))
+		}
+	}
+	return v
+}
+
+func forStringMap(map as map<string,string>) static as this
+{
+	var v = new this()
+	if map {
+		var it as Iterator<string> #force = Map.iterateKeys(map)
+		while it {
+			var key = it.next()
+			if key == null:
+				break
+			v.set(key, Map.getValue(map, key))
+		}
+	}
+	return v
+}
+
+func forDynamicMaps(map1 as this, map2 as this) static as this
+{
+	var v = new this()
+	v.mergeFrom(map1)
+	v.mergeFrom(map2)
+	return v
+}
+
+func forDynamicMap(map as this) static as this
+{
+	assert map
+	return map.duplicateMap()
+}
+
+var map as map<string,object>
+
+ctor:
+	map = new map<string,object>
+
+func asMap as map<string,object>:
+	return map
+
+func asStringMap as map<string,string>:
+	return toStringMap()
+
+func toStringMap as map<string,string>
+{
+	var v = new map<string,string>
+	var it = iterateKeys()
+	while it {
+		var key = it.next()
+		if not key:
+			break
+		Map.set(v, key, getString(key))
+	}
+	return v
+}
+
+func toObjectMap as map
+{
+	var v = new map
+	var it = iterateKeys()
+	while it {
+		var key = it.next()
+		if not key:
+			break
+		Map.set(v, key, getString(key))
+	}
+	return v
+}
+
+func duplicate as object:
+	return duplicateMap()
+
+func duplicateMap as this
+{
+	var v = new this()
+	var it = iterateKeys()
+	while it {
+		var key = it.next()
+		if key == null:
+			break
+		v.set(key, get(key))
+	}
+	return v
+}
+
+func mergeFrom(other as this) as this
+{
+	if other == null:
+		return this
+	var it = other.iterateKeys()
+	while it {
+		var key = it.next()
+		if key == null:
+			break
+		set(key, other.get(key))
+	}
+	return this
+}
+
+func set(key as string, value as object) as this
+{
+	if key:
+		map[key] = value
+	return this
+}
+
+func set(key as string, value as buffer) as this
+{
+	if not value {
+		map[key] = null
+		return this
+	}
+	return set(key, Buffer.asObject(value))
+}
+
+func set(key as string, value as int) as this:
+	return set(key, Integer.asObject(value))
+
+func set(key as string, value as long) as this:
+	return set(key, LongInteger.asObject(value))
+
+func set(key as string, value as bool) as this:
+	return set(key, Boolean.asObject(value))
+
+func set(key as string, value as double) as this:
+	return set(key, Double.asObject(value))
+
+func get(key as string) as object:
+	return Map.getValue(map, key)
+
+func getString(key as string, defval as string = null) as string
+{
+	var v = String.asString(get(key))
+	if v == null:
+		return defval
+	return v
+}
+
+func getInteger(key as string, defval as int = 0) as int
+{
+	var vv = get(key)
+	if vv == null:
+		return defval
+	return Integer.asInteger(vv)
+}
+
+func getLongInteger(key as string, defval as long = 0) as long
+{
+	var vv = get(key)
+	if vv == null:
+		return defval
+	return LongInteger.asLong(vv)
+}
+
+func getBoolean(key as string, defval as bool = false) as bool
+{
+	var vv = get(key)
+	if vv == null:
+		return defval
+	return Boolean.asBoolean(vv)
+}
+
+func getDouble(key as string, defval as double = 0.0) as double
+{
+	var vv = get(key)
+	if vv == null:
+		return defval
+	return Double.asDouble(vv)
+}
+
+func getBuffer(key as string) as buffer
+{
+	var vv = assert get(key)
+	return Buffer.asBuffer(vv)
+}
+
+func getDynamicVector(key as string) as DynamicVector
+{
+	var vv = get(key) as DynamicVector
+	if vv:
+		return vv
+	var v = getVector(key)
+	if v:
+		return DynamicVector.forObjectVector(v)
+	return null
+}
+
+func getVector(key as string) as vector<object>
+{
+	var val = assert get(key)
+	if val is vector:
+		return val as! vector
+	if val is VectorObject<object> {
+		var vo = val as! VectorObject<object>
+		var vv as vector<object> #force = vo.toVector()
+		return vv
+	}
+	return null
+}
+
+func getDynamicMap(key as string) as this:
+	return get(key) as this
+
+func getKeys as vector<string>
+{
+	var v as vector<string> #force = Map.getKeys(map)
+	return v
+}
+
+func getValues as vector
+{
+	var v as vector #force = Map.getValues(map)
+	return v
+}
+
+func iterate as Iterator<string>
+{
+	var v as Iterator<string> #force = Map.iterateKeys(map)
+	return v
+}
+
+func iterateKeys as Iterator<string>
+{
+	var v as Iterator<string> #force = Map.iterateKeys(map)
+	return v
+}
+
+func iterateValues as Iterator<object>
+{
+	var v as Iterator<object> #force = Map.iterateValues(map)
+	return v
+}
+
+func remove(key as string):
+	Map.remove(map, key)
+
+func clear:
+	Map.clear(map)
+
+func getCount as int:
+	return Map.count(map)
+
+func containsKey(key as string) as bool:
+	return Map.containsKey(map, key)

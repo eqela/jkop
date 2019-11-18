@@ -1,0 +1,237 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is ContainerWidget #widget:
+
+func findTopMostLayerWidget(widget as Widget) static as this
+{
+	var v as this
+	var pp = widget
+	while pp {
+		if pp is this:
+			v = pp as! this
+		pp = Widget.getParent(pp)
+	}
+	return v
+}
+
+func forContext(context as GuiApplicationContext) static as this:
+	return new this(context)
+
+func forMargin(context as GuiApplicationContext, margin as int #notLiteral) static as this
+{
+	var v = new this(context)
+	v.setWidgetMargin(margin)
+	return v
+}
+
+func forWidget(context as GuiApplicationContext, widget as Widget, margin as int #notLiteral = 0) static as this
+{
+	var v = new this(context)
+	v.setWidgetMargin(margin)
+	v.addWidget(widget)
+	return v
+}
+
+func forWidgetAndWidth(context as GuiApplicationContext, widget as Widget, width as int #notLiteral) static as this
+{
+	var v = new this(context)
+	v.addWidget(widget)
+	v.setWidgetWidthRequest(width)
+	return v
+}
+
+func forWidgets(context as GuiApplicationContext, widgets as array<Widget>, margin as int #notLiteral = 0) static as this
+{
+	var v = new this(context)
+	v.setWidgetMargin(margin)
+	foreach widget in widgets:
+		v.addWidget(widget)
+	return v
+}
+
+var widgetMarginLeft protected = 0
+var widgetMarginRight protected = 0
+var widgetMarginTop protected = 0
+var widgetMarginBottom protected = 0
+var widgetWidthRequest = 0
+var widgetHeightRequest = 0
+var widgetMinimumHeightRequest = 0
+var widgetMaximumWidthRequest = 0
+
+func setWidgetMaximumWidthRequest(width as int #notLiteral) as this
+{
+	widgetMaximumWidthRequest = width
+	if Widget.getWidth(this) > width:
+		Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMaximumWidthRequest as int:
+	return widgetMaximumWidthRequest
+
+func setWidgetWidthRequest(request as int #notLiteral) as this
+{
+	widgetWidthRequest = request
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetWidthRequest as int:
+	return widgetWidthRequest
+
+func setWidgetHeightRequest(request as int #notLiteral) as this
+{
+	widgetHeightRequest = request
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetHeightRequest as int:
+	return widgetHeightRequest
+
+func setWidgetMinimumHeightRequest(request as int #notLiteral) as this
+{
+	widgetMinimumHeightRequest = request
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMinimumHeightRequest as int:
+	return widgetMinimumHeightRequest
+
+func setWidgetMargin(margin as int #notLiteral) as this
+{
+	widgetMarginLeft = margin
+	widgetMarginRight = margin
+	widgetMarginTop = margin
+	widgetMarginBottom = margin
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginLeft as int:
+	return widgetMarginLeft
+
+func setWidgetMarginLeft(value as int #notLiteral) as this
+{
+	widgetMarginLeft = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginRight as int:
+	return widgetMarginRight
+
+func setWidgetMarginRight(value as int #notLiteral) as this
+{
+	widgetMarginRight = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginTop as int:
+	return widgetMarginTop
+
+func setWidgetMarginTop(value as int #notLiteral) as this
+{
+	widgetMarginTop = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func getWidgetMarginBottom as int:
+	return widgetMarginBottom
+
+func setWidgetMarginBottom(value as int #notLiteral) as this
+{
+	widgetMarginBottom = value
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func onWidgetHeightChanged(height as int #notLiteral) override
+{
+	base.onWidgetHeightChanged(height)
+	var mh = height - widgetMarginTop - widgetMarginBottom
+	foreach child in Widget.getChildren(this) {
+		Widget.resizeHeight(child, mh)
+	}
+}
+
+func computeWidgetLayout(widthConstraint as int #notLiteral) override
+{
+	var wc = widthConstraint
+	if wc < 0 && widgetWidthRequest > 0:
+		wc = widgetWidthRequest
+	if wc >= 0 {
+		wc = wc - widgetMarginLeft - widgetMarginRight
+		if wc < 0:
+			wc = 0
+	}
+	var mw as int
+	var mh as int
+	foreach child in Widget.getChildren(this) {
+		Widget.layout(child, wc)
+		Widget.move(child, widgetMarginLeft, widgetMarginTop)
+		var cw = Widget.getWidth(child)
+		if wc < 0 && widgetMaximumWidthRequest > 0 && cw + widgetMarginLeft + widgetMarginRight > widgetMaximumWidthRequest {
+			Widget.layout(child, widgetMaximumWidthRequest - widgetMarginLeft - widgetMarginRight)
+			cw = Widget.getWidth(child)
+		}
+		var ch = Widget.getHeight(child)
+		if cw > mw:
+			mw = cw
+		if ch > mh:
+			mh = ch
+	}
+	var fw = widthConstraint
+	if widgetWidthRequest > 0 && mw <= 0:
+		fw = widgetWidthRequest
+	if fw < 0 :
+		fw = mw+widgetMarginLeft+widgetMarginRight
+	var fh = mh+widgetMarginTop+widgetMarginBottom
+	if widgetHeightRequest > 0:
+		fh = widgetHeightRequest
+	if widgetMinimumHeightRequest > 0 && fh < widgetMinimumHeightRequest:
+		fh = widgetMinimumHeightRequest
+	Widget.setLayoutSize(this, fw, fh)
+	mw = Widget.getWidth(this) - widgetMarginLeft - widgetMarginRight
+	mh = Widget.getHeight(this) - widgetMarginTop - widgetMarginBottom
+	foreach child in Widget.getChildren(this) {
+		if wc < 0:
+			Widget.layout(child, mw)
+		Widget.resizeHeight(child, mh)
+	}
+}
+
+func removeAllChildren:
+	Widget.removeChildrenOf(this)
+
+func getChildWidget(index as int) as Widget
+{
+	var children = assert Widget.getChildren(this)
+	return Vector.get(children, index)
+}

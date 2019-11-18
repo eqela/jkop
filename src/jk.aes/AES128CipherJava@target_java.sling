@@ -1,0 +1,98 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is BlockCipher:
+
+lang "java" {{{
+	java.security.Key key;
+}}}
+
+func create(k as object)static as this
+{
+	var v = new this()
+	if(v.setKey(k)) {
+		return v
+	}
+	return null
+}
+
+func setKey(o as object) as bool
+{
+	var key as buffer = null
+	if(o == null) {
+		;
+	}
+	else if(o is buffer) {
+		key = o as buffer
+	}
+	else if(o is string) {
+		var keyhash = MD5Encoder.encode(o)
+		key = Buffer.forHexString(keyhash)
+	}
+	if(key != null) {
+		var kptr = key
+		if(kptr != null) {
+			lang "java" {{{
+				this.key = new javax.crypto.spec.SecretKeySpec(kptr, 0, kptr.length, "AES");
+			}}}
+		}
+		return true
+	}
+	return false
+}
+
+func getBlockSize override as int:
+	return 16
+
+func doCipher(src as buffer, dest as buffer, mode as int)
+{
+	if(src == null || dest == null || Buffer.getSize(src) != 16 || Buffer.getSize(dest) != 16) {
+		return
+	}
+	lang "java" {{{
+		try {
+			javax.crypto.Cipher aes = javax.crypto.Cipher.getInstance("AES/ECB/NoPadding");
+			aes.init(mode, key);
+			aes.doFinal(src, 0, (int)Buffer.getSize(src), dest, 0);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+		}
+	}}}
+}
+
+func encryptBlock(src as buffer, dest as buffer) override
+{
+	lang "java" {{{
+		doCipher(src, dest, javax.crypto.Cipher.ENCRYPT_MODE);
+	}}}
+}
+
+func decryptBlock(src as buffer, dest as buffer) override
+{
+	lang "java" {{{
+		doCipher(src, dest, javax.crypto.Cipher.DECRYPT_MODE);
+	}}}
+}

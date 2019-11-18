@@ -1,0 +1,451 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+import jk.gfx
+
+class:
+
+func forDescription(desc as string) static as this
+{
+	var v = new this()
+	assert v.parseDescription(desc)
+	return v
+}
+
+class Element public
+{
+	func forType(type as string) static as this
+	{
+		var v = new this()
+		v.setProperty("type", type)
+		return v
+	}
+
+	func forProperties(properties as DynamicMap) static as this
+	{
+		var v = new this()
+		v.setProperties(properties)
+		return v
+	}
+
+	prop properties as DynamicMap
+	prop children as vector<this>
+
+	func getId as string
+	{
+		assert properties
+		return properties.getString("id")
+	}
+
+	func getType as string
+	{
+		assert properties
+		return properties.getString("type")
+	}
+
+	func getLabel as string
+	{
+		assert properties
+		return properties.getString("label")
+	}
+
+	func isType(type as string) as bool
+	{
+		assert properties
+		assert type
+		if properties.getString("type") == type:
+			return true
+		return false
+	}
+
+	func setProperty(key as string, value as object)
+	{
+		assert key
+		if not properties:
+			properties = new DynamicMap()
+		properties.set(key, value)
+	}
+
+	func setProperty(key as string, value as int)
+	{
+		setProperty(key, String.forInteger(value))
+	}
+
+	func setProperty(key as string, value as double)
+	{
+		setProperty(key, String.forDouble(value))
+	}
+
+	func setProperty(key as string, value as bool)
+	{
+		setProperty(key, String.forBoolean(value))
+	}
+
+	func getPropertyObject(key as string) as object
+	{
+		assert properties
+		return properties.get(key)
+	}
+
+	func getPropertyDynamicVector(key as string) as DynamicVector
+	{
+		assert properties
+		return properties.getDynamicVector(key)
+	}
+
+	func getPropertyVector(key as string) as vector<object>
+	{
+		assert properties
+		return properties.getVector(key)
+	}
+
+	func getPropertyString(key as string) as string
+	{
+		assert properties
+		return properties.getString(key)
+	}
+
+	func getPropertyInteger(key as string) as int
+	{
+		assert properties
+		return properties.getInteger(key)
+	}
+
+	func getPropertyDouble(key as string) as double
+	{
+		assert properties
+		return properties.getDouble(key)
+	}
+
+	func getPropertyBoolean(key as string) as bool
+	{
+		assert properties
+		return properties.getBoolean(key)
+	}
+
+	func addToChildren(element as this)
+	{
+		assert element
+		if not children:
+			children = new vector<this>
+		children += element
+	}
+}
+
+var root as Element
+var stack as Stack<Element>
+
+ctor
+{
+	clear()
+}
+
+func clear
+{
+	stack = new Stack<Element>()
+	root = startVerticalContainer()
+}
+
+func getRoot as Element
+{
+	return root
+}
+
+func addElement(element as Element) as Element
+{
+	var current = stack.peek()
+	if current:
+		current.addToChildren(element)
+	return element
+}
+
+func startVerticalContainer as Element #deprecated
+{
+	var v = Element.forType("VerticalContainer")
+	addElement(v)
+	stack.push(v)
+	return v
+}
+
+func endVerticalContainer as Element #deprecated
+{
+	var cc = stack.peek()
+	if cc && cc.isType("VerticalContainer"):
+		stack.pop()
+	return cc
+}
+
+func startHorizontalContainer as Element #deprecated
+{
+	var v = Element.forType("HorizontalContainer")
+	addElement(v)
+	stack.push(v)
+	return v
+}
+
+func endHorizontalContainer as Element #deprecated
+{
+	var cc = stack.peek()
+	if cc && cc.isType("HorizontalContainer"):
+		stack.pop()
+	return cc
+}
+
+func startGroup(id as string, title as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("GroupContainer")
+	v.setProperty("id", id)
+	v.setProperty("title", title)
+	v.setProperty("description", description)
+	addElement(v)
+	stack.push(v)
+	return v
+}
+
+func endGroup as Element #deprecated
+{
+	var cc = stack.peek()
+	if cc && cc.isType("GroupContainer"):
+		stack.pop()
+	return cc
+}
+
+func startTab(id as string, label as string) as Element #deprecated
+{
+	var v = Element.forType("TabContainer")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	addElement(v)
+	stack.push(v)
+	return v
+}
+
+func endTab as Element #deprecated
+{
+	var cc = stack.peek()
+	if cc && cc.isType("TabContainer"):
+		stack.pop()
+	return cc
+}
+
+func addTextInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("TextInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addRawTextInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("RawTextInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addPasswordInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("PasswordInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addNameInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("NameInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addEmailAddressInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("EmailAddressInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addPhoneNumberInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("PhoneNumberInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addStreetAddressInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("StreetAddressInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addMultipleChoiceInput(id as string, label as string, description as string, values as array<string>) as Element #deprecated
+{
+	var vvs = new KeyValueList<string,string>()
+	foreach(value in values) {
+		var comps = String.split(value, ':', 2)
+		var kk = Vector.get(comps, 0)
+		var vv = Vector.get(comps, 1)
+		if(vv == null) {
+			vv = kk
+		}
+		vvs.add(kk, vv)
+	}
+	return addMultipleChoiceInput(id, label, description, vvs)
+}
+
+func addMultipleChoiceInput(id as string, label as string, description as string, values as KeyValueList<string,string>) as Element #deprecated
+{
+	var v = Element.forType("MultipleChoiceInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	var vv = new DynamicVector()
+	var it = values.iterate()
+	while it {
+		var kvp = it.next()
+		if not kvp:
+			break
+		var m = new DynamicMap()
+		m.set("key", kvp.key)
+		m.set("value", kvp.value)
+		vv.append(m)
+	}
+	v.setProperty("values", vv)
+	return addElement(v)
+}
+
+func addDateInput(id as string, label as string, description as string, skipYears as int) as Element #deprecated
+{
+	var v = Element.forType("DateInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("skipYears", skipYears)
+	return addElement(v)
+}
+
+func addPhotoCaptureInput(id as string, label as string, description as string, defImage as Image) as Element #deprecated
+{
+	var v = Element.forType("PhotoCaptureInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("defaultImage", defImage)
+	return addElement(v)
+}
+
+func addCodeInput(id as string, label as string, description as string, rows as int) as Element #deprecated
+{
+	var v = Element.forType("CodeInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("rows", rows)
+	return addElement(v)
+}
+
+func addTextAreaInput(id as string, label as string, description as string, rows as int) as Element #deprecated
+{
+	var v = Element.forType("TextAreaInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("rows", rows)
+	return addElement(v)
+}
+
+func addStaticTextElement(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("StaticTextElement")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addRadioGroupInput(id as string, label as string, description as string, groupname as string, items as vector<string>) as Element #deprecated
+{
+	var v = Element.forType("RadioGroupInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("groupName", groupname)
+	v.setProperty("items", DynamicVector.forStringVector(items))
+	return addElement(v)
+}
+
+func addCheckBoxInput(id as string, label as string, description as string, isChecked as bool) as Element #deprecated
+{
+	var v = Element.forType("CheckBoxInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	v.setProperty("isChecked", isChecked)
+	return addElement(v)
+}
+
+func addStringListInput(id as string, label as string, description as string) as Element #deprecated
+{
+	var v = Element.forType("StringListInput")
+	v.setProperty("id", id)
+	v.setProperty("label", label)
+	v.setProperty("description", description)
+	return addElement(v)
+}
+
+func addFieldsTo(fields as vector<object>, element as Element) as bool
+{
+	assert fields
+	foreach field as DynamicMap in fields {
+		var e = Element.forProperties(field)
+		var childFields = e.getPropertyVector("fields")
+		if childFields:
+			addFieldsTo(childFields, e)
+		element.addToChildren(e)
+	}
+	return true
+}
+
+func parseDescription(desc as string) as bool
+{
+	clear()
+	var data = assert JSONParser.parse(desc) as DynamicMap
+	assert addFieldsTo(data.getVector("fields"), root)
+	return true
+}

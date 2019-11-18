@@ -1,0 +1,405 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+func findTabContainerWidget(widget as Widget) static as this
+{
+	var pp = Widget.getParent(widget)
+	while pp {
+		if pp is this:
+			return pp as! this
+		pp = Widget.getParent(pp)
+	}
+	return null
+}
+
+func pushTab(tab as TabContentWidget, parent as Widget) static as bool
+{
+	var tabs = assert findTabContainerWidget(parent)
+	tabs.addTab(tab)
+	return true
+}
+
+class DefaultTabItemWidget is TabItemWidget #widget
+{
+	ui LayerWithBackgroundColorWidget
+	{
+		color = Color.white()
+		LayerWidget {
+			margin = context.getHeightValue("2mm")
+			LabelWidget title {
+				text = "New Tab"
+			}
+		}
+	}
+
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		forceCreateWidget()
+	}
+
+	func setTabTitle(txt as string):
+		title.setWidgetText(txt)
+
+	func onTabSelected
+	{
+		setWidgetColor(Color.white())
+		title.setWidgetTextColor(Color.black())
+	}
+
+	func onTabDeselected
+	{
+		setWidgetColor(Color.instance("#f2f2f2"))
+		title.setWidgetTextColor(Color.white())
+	}
+}
+
+class DefaultTabItemCreator is TabItemCreator
+{
+	prop context as GuiApplicationContext
+
+	func createTabItemWidgetFor(title as string) as TabItemWidget
+	{
+		var v = new DefaultTabItemWidget(context)
+		v.setTabTitle(title)
+		return v
+	}
+
+	func addXButton(item as TabItemWidget, tabContainer as TabContainerWidget) as Widget:
+		return item as Widget
+
+	func isXButtonEnabled as bool:
+		return false
+}
+
+class TabObject public
+{
+	var title public as string
+	var index public as int
+	var item public as Widget
+	var content public as Widget
+
+	func setOnTabClickHandler(handler as function<void, this>)
+	{
+		var hdl final = handler
+		var obj final = this
+		Widget.setWidgetClickHandler(item as! Widget, func {
+			hdl(obj)
+		})
+	}
+}
+
+class MyContainerWidget is LayerWidget #widget
+{
+	prop widgetParent as parent
+
+	func onChildWidgetsRemoved(widgets as vector<Widget>) override
+	{
+		Widget.onLayoutChanged(this)
+		assert widgetParent
+		foreach widget in widgets {
+			var w = widget as TabContentWidget
+			if w {
+				var title = w.getTabContentTitle()
+				var tab = widgetParent.getTabObject(title)
+				Widget.removeFromParent(tab.item)
+				widgetParent.removeTabObject(title)
+			}
+		}
+	}
+}
+
+class TabTitleContainerWidget is ContainerWidget #widget
+{
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		children = new vector<Widget>
+	}
+
+	var children as vector<Widget>
+
+	func computeWidgetLayout(widthConstraint as int #notLiteral) override
+	{
+		var mw = 0
+		var mh = 0
+		foreach child in children {
+			Widget.layout(child, -1)
+			Widget.move(child, mw, 0)
+			mw += Widget.getWidth(child)
+			var ch = Widget.getHeight(child)
+			if ch > mh:
+				mh = ch
+		}
+		Widget.setLayoutSize(this, widthConstraint, mh)
+	}
+
+	func addWidget(widget as Widget) override as ContainerWidget:
+		return addWidget(widget, -1)
+
+	func addWidget(widget as Widget, index as int) as this
+	{
+		if widget {
+			if index > -1 {
+				Vector.insert(children, widget, index)
+			}
+			else {
+				children += widget
+			}
+			Widget.addChild(this, widget)
+		}
+		updateIndexes()
+		return this
+	}
+
+	func onChildWidgetAdded(widget as Widget) override
+	{
+		var v = new vector<Widget>
+		v += widget
+		base.onChildWidgetsRemoved(v)
+	}
+
+	func onChildWidgetsRemoved(widgets as vector<Widget>) override
+	{
+		var update = false
+		foreach widget in widgets {
+			if Vector.removeValue(children, widget) > -1:
+				update = true
+		}
+		if update:
+			updateIndexes()
+		base.onChildWidgetsRemoved(widgets)
+	}
+
+	func updateIndexes
+	{
+		var nv = new vector<Widget>
+		foreach child in children:
+			nv += child
+		children = nv
+	}
+}
+
+ui LayerWidget
+{
+	VerticalBoxWidget {
+		TabTitleContainerWidget tabTitleContainer {
+		}
+		LayerWithBackgroundColorWidget canvas : 1.0 {
+			MyContainerWidget tabContentContainer {
+				parent = this
+			}
+		}
+	}
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	tabItemCreator = new DefaultTabItemCreator().setContext(ctx)
+	tabCollection = new vector<TabObject>
+	forceCreateWidget()
+}
+
+prop beforeTabSwitchEventHandler as function<void, int, dynamic>
+prop tabSwitchEventHandler as function<void, int>
+prop tabItemCreator as TabItemCreator
+var tabCollection as vector<TabObject>
+var currentTab as TabObject
+
+func addTab(widget as TabContentWidget)
+{
+	assert widget
+	var title = widget.getTabContentTitle()
+	if not title:
+		title = ""
+	var v = tabItemCreator.createTabItemWidgetFor(title) as! Widget
+	if tabItemCreator.isXButtonEnabled() {
+		var box = tabItemCreator.addXButton(v as TabItemWidget, this)
+		tabTitleContainer.addWidget(box)
+	}
+	else {
+		tabTitleContainer.addWidget(v)
+	}
+	var tab = new TabObject()
+	tab.title = title
+	tab.item = v
+	tab.index = SIZE(tabCollection)
+	tab.content = widget
+	tab.setOnTabClickHandler(func(to as TabObject) {
+		updateSelectedTab(to, false)
+	})
+	addTabObject(tab)
+	updateSelectedTab(tab, true)
+}
+
+func removeTab(title as string)
+{
+	var obj = assert getTabObject(title)
+	Widget.removeFromParent(obj.item)
+	Widget.removeFromParent(obj.content)
+	var idx = currentTab.index
+	removeTabObject(title)
+	updateTabIndexes()
+	if SIZE(tabCollection) == idx:
+		idx = idx -1
+	setActiveTab(idx)
+}
+
+func updateTabIndexes
+{
+	var idx = 0
+	foreach tab as TabObject in tabCollection {
+		tab.index = idx
+		idx++
+	}
+}
+
+func addTabObject(tab as TabObject) private:
+	tabCollection += tab
+
+func getTabObject(title as string) as TabObject
+{
+	var tabObject as TabObject
+	foreach tab as TabObject in tabCollection {
+		if tab.title == title {
+			tabObject = tab
+			break
+		}
+	}
+	return tabObject
+}
+
+func removeTabObject(title as string)
+{
+	var tab = assert getTabObject(title)
+	Vector.removeValue(tabCollection, tab)
+}
+
+func updateSelectedTab(tab as TabObject, newTab as bool) private
+{
+	assert tab != currentTab
+	if currentTab {
+		(currentTab.item as! TabItemWidget).onTabDeselected()
+		Widget.setVisible(currentTab.content, false)
+	}
+	var oldTab = currentTab
+	currentTab = tab
+	(currentTab.item as! TabItemWidget).onTabSelected()
+	if beforeTabSwitchEventHandler {
+		var tabCancel = new Boolean()
+		beforeTabSwitchEventHandler(currentTab.index, tabCancel)
+		if tabCancel.toBoolean():
+			return
+	}
+	if newTab {
+		if not Widget.getVisible(this):
+			Widget.setVisible(currentTab.content, true)
+		tabContentContainer.addWidget(currentTab.content)
+	}
+	else {
+		Widget.setVisible(currentTab.content, true)
+	}
+	if currentTab.content is DisplayAwareWidget:
+		(currentTab.content as! DisplayAwareWidget).onWidgetDisplayed()
+	if tabSwitchEventHandler:
+		tabSwitchEventHandler(oldTab.index)
+}
+
+func setWidgetContentOutlineColor(color as Color) as this
+{
+	canvas.setWidgetOutlineColor(color)
+	return this
+}
+
+func setWidgetContentOutlineWidth(width as int) as this
+{
+	canvas.setWidgetOutlineWidth(width)
+	return this
+}
+
+func getTabItemWidget(title as string) as TabItemWidget
+{
+	var tabObject = assert getTabObject(title)
+	return tabObject.item as! TabItemWidget
+}
+
+func getActiveTabIndex as int
+{
+	if not currentTab:
+		return -1
+	return currentTab.index
+}
+
+func setTabEnabled(index as int, enable as bool)
+{
+	var ee final = enable
+	var tabObject = assert Vector.get(tabCollection, index) as! TabObject
+	tabObject.setOnTabClickHandler(func(to as TabObject) {
+		if ee:
+			updateSelectedTab(to, false)
+	})
+}
+
+func getTabItemWidget(index as int) as TabItemWidget
+{
+	var tabObject = assert Vector.get(tabCollection, index) as! TabObject
+	return tabObject.item as! TabItemWidget
+}
+
+func setActiveTab(index as int)
+{
+	var tabObject = assert Vector.get(tabCollection, index) as! TabObject
+	updateSelectedTab(tabObject, false)
+}
+
+func getTabContentWidget(index as int) as Widget
+{
+	var tabObject = assert Vector.get(tabCollection, index) as! TabObject
+	return tabObject.content
+}
+
+func getTabCount as int:
+	return Vector.getSize(tabCollection)
+
+func setTabVisible(index as int, v as bool)
+{
+	var tabObject = assert Vector.get(tabCollection, index) as! TabObject
+	if not v {
+		Widget.removeFromParent(tabObject.item)
+	}
+	else if not Widget.hasParent(tabObject.item) {
+		tabTitleContainer.addWidget(tabObject.item, index)
+	}
+	if currentTab == tabObject {
+		Widget.setVisible(tabObject.content, v)
+		if v && tabObject.content is DisplayAwareWidget:
+			(tabObject.content as! DisplayAwareWidget).onWidgetDisplayed()
+		if not v:
+			setActiveTab(0)
+	}
+}

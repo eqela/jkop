@@ -1,0 +1,240 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget is ScreenAwareWidget #widget:
+
+prop widgetBackgroundColor as Color
+prop widgetTextColor as Color
+prop widgetMenuItemSpacing as int #notLiteral
+var widgetTitle as string
+var widgetLeftIconResource as string
+var widgetLeftAction as function
+var widgetRightIconResource as string
+var widgetRightAction as function
+var widgetTitleContainer as AlignWidget
+var label as LabelWidget
+var leftButton as ImageButtonWidget
+var rightButton as ImageButtonWidget
+var box as HorizontalBoxWidget
+var menuItems as HorizontalBoxWidget
+var overlayWidget as LayerWidget
+var canvas as CanvasWidget
+
+func setWidgetTitle(value as string) as this
+{
+	widgetTitle = value
+	if label:
+		label.setWidgetText(widgetTitle)
+	Widget.setLayoutSize(label, -1, Widget.getHeight(label))
+	return this
+}
+
+func setWidgetTitleAlignment(align as double)
+{
+	assert widgetTitleContainer
+	widgetTitleContainer.setAlignForIndex(0, align, 0.5)
+}
+
+func setActionBarMargin(margin as int #notLiteral)
+{
+	assert box
+	box.setWidgetMargin(margin)
+}
+
+func setActionBarMarginLeft(margin as int #notLiteral)
+{
+	assert box
+	box.setWidgetMarginLeft(margin)
+}
+
+func setActionBarMarginRight(margin as int #notLiteral)
+{
+	assert box
+	box.setWidgetMarginRight(margin)
+}
+
+func setActionBarMarginTop(margin as int #notLiteral)
+{
+	assert box
+	box.setWidgetMarginTop(margin)
+}
+
+func setActionBarMarginBottom(margin as int #notLiteral)
+{
+	assert box
+	box.setWidgetMarginBottom(margin)
+}
+
+func getWidgetTitleLabel as LabelWidget:
+	return label
+
+func getWidgetTitle as string:
+	return widgetTitle
+
+func configureLeftButton(iconResource as string, action as function)
+{
+	widgetLeftIconResource = iconResource
+	widgetLeftAction = action
+	updateLeftButton()
+}
+
+func configureRightButton(iconResource as string, action as function)
+{
+	widgetRightIconResource = iconResource
+	widgetRightAction = action
+	updateRightButton()
+}
+
+func configureRightButtonMenu(iconResource as string, menu as Menu)
+{
+	widgetRightIconResource = iconResource
+	widgetRightAction = func {
+		PopupMenu.showBelow(context, rightButton, menu, context.getWidthValue("50mm"), 1)
+	}
+	updateRightButton()
+}
+
+func updateLeftButton private
+{
+	assert leftButton
+	if String.isNotEmpty(widgetLeftIconResource) {
+		leftButton.setWidgetImageResource(widgetLeftIconResource)
+		leftButton.setWidgetClickHandler(widgetLeftAction)
+	}
+	else {
+		leftButton.setWidgetImageResource(null)
+		leftButton.setWidgetClickHandler(null)
+	}
+}
+
+func updateRightButton private
+{
+	assert rightButton
+	if String.isNotEmpty(widgetRightIconResource) {
+		rightButton.setWidgetImageResource(widgetRightIconResource)
+		rightButton.setWidgetClickHandler(widgetRightAction)
+	}
+	else {
+		rightButton.setWidgetImageResource(null)
+		rightButton.setWidgetClickHandler(null)
+	}
+}
+
+func getWidgetTextColor as Color
+{
+	var wtc = widgetTextColor
+	if not wtc:
+		wtc = Color.forRGB(255, 255, 255)
+	return wtc
+}
+
+func onWidgetAddedToScreen(screen as ScreenForWidget)
+{
+	IFDEF "target_ios" {
+		var wtc = getWidgetTextColor()
+		if wtc && wtc.isLightColor():
+			screen.enableLightStatusBarStyle()
+	}
+}
+
+func onWidgetRemovedFromScreen(screen as ScreenForWidget)
+{
+	IFDEF "target_ios" {
+		screen.enableDefaultStatusBarStyle()
+	}
+}
+
+func configureMenuItems(items as vector<Widget>)
+{
+	if not items:
+		return
+	if not menuItems:
+		return
+	foreach widget in items:
+		menuItems.addWidget(widget)
+}
+
+func setActionBarBackgroundColor(color as Color)
+{
+	if canvas:
+		canvas.setWidgetColor(color)
+}
+
+func addOverlay(widget as Widget)
+{
+	if overlayWidget:
+		overlayWidget.addWidget(widget)
+}
+
+func removeOverlay as bool
+{
+	if not overlayWidget:
+		return false
+	Widget.removeChildrenOf(overlayWidget)
+	return true
+}
+
+func clearMenuItems
+{
+	if menuItems:
+		Widget.removeChildrenOf(menuItems)
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	var bgc = widgetBackgroundColor
+	if bgc {
+		canvas = CanvasWidget.forColor(context, bgc)
+		addWidget(canvas)
+	}
+	var tml = new TopMarginLayerWidget(context)
+	label = LabelWidget.forText(context, widgetTitle)
+	label.setWidgetFontFamily("Arial")
+	var wtc = getWidgetTextColor()
+	label.setWidgetTextColor(wtc)
+	box = HorizontalBoxWidget.forContext(context)
+	box.setWidgetMargin(context.getWidthValue("1mm"))
+	box.setWidgetSpacing(context.getWidthValue("1mm"))
+	leftButton = new ImageButtonWidget(context)
+	leftButton.setWidgetButtonHeight(context.getHeightValue("6mm"))
+	box.addWidget(leftButton)
+	updateLeftButton()
+	widgetTitleContainer = AlignWidget.forWidget(context, label, 0.5, 0.5)
+	box.addWidget(widgetTitleContainer, 1.0)
+	var spacing = widgetMenuItemSpacing
+	if spacing < 0:
+		spacing = context.getWidthValue("1mm")
+	menuItems = HorizontalBoxWidget.forContext(context, context.getWidthValue("1mm"), spacing)
+	box.addWidget(menuItems)
+	rightButton = new ImageButtonWidget(context)
+	rightButton.setWidgetButtonHeight(context.getHeightValue("6mm"))
+	box.addWidget(rightButton)
+	updateRightButton()
+	tml.addWidget(box)
+	overlayWidget = new LayerWidget(context)
+	tml.addWidget(overlayWidget)
+	addWidget(tml)
+}

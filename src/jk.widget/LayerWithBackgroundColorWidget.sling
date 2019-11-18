@@ -1,0 +1,319 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+IFNDEF "target_html" {
+	var canvas as CanvasWidget
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	IFNDEF "target_html" {
+		addWidget(canvas = new CanvasWidget(ctx))
+	}
+}
+
+const TOP_SIDE = 0
+const LEFT_SIDE = 1
+const BOTTOM_SIDE = 2
+const RIGHT_SIDE = 3
+
+var widgetColor as Color
+var widgetOutlineColor = Color.black()
+var widgetOutlineWidth as int
+var widgetBorderStyle as int
+var widgetTopLeftRadius as double
+var widgetTopRightRadius as double
+var widgetBottomRightRadius as double
+var widgetBottomLeftRadius as double
+var widgetBorderLeftWidth = -1
+var widgetBorderRightWidth = -1
+var widgetBorderTopWidth = -1
+var widgetBorderBottomWidth = -1
+var widgetBorderLeftColor = Color.black()
+var widgetBorderRightColor = Color.black()
+var widgetBorderTopColor = Color.black()
+var widgetBorderBottomColor = Color.black()
+var widgetBorderLeftStyle as int
+var widgetBorderRightStyle as int
+var widgetBorderTopStyle as int
+var widgetBorderBottomStyle as int
+
+func setWidgetColor(color as Color) as this
+{
+	widgetColor = color
+	IFDEF "target_html" {
+		if widgetColor {
+			HTMLDOM.setStyle(this.element, "background-color", HTMLDOM.colorToRGBA(widgetColor))
+		}
+		else {
+			HTMLDOM.removeStyle(this.element, "background-color")
+		}
+	}
+	ELSE {
+		assert canvas
+		canvas.setWidgetColor(color)
+	}
+	return this
+}
+
+func getWidgetColor as Color:
+	return widgetColor
+
+func setWidgetOutlineColor(color as Color)
+{
+	widgetOutlineColor = color
+	updateWidgetBorder(-1, widgetOutlineWidth, widgetOutlineColor, widgetBorderStyle)
+}
+
+func getWidgetOutlineColor as Color:
+	return widgetOutlineColor
+
+func setWidgetOutlineWidth(width as int #notLiteral)
+{
+	widgetOutlineWidth = width
+	updateWidgetBorder(-1, widgetOutlineWidth, widgetOutlineColor, widgetBorderStyle)
+}
+
+func getWidgetOutlineWidth as int:
+	return widgetOutlineWidth
+
+func setWidgetBorderLeftWidth(sz as int #notLiteral)
+{
+	widgetBorderLeftWidth = sz
+	updateWidgetBorder(LEFT_SIDE, widgetBorderLeftWidth, widgetBorderLeftColor, widgetBorderLeftStyle)
+}
+
+func setWidgetBorderRightWidth(sz as int #notLiteral)
+{
+	widgetBorderRightWidth = sz
+	updateWidgetBorder(RIGHT_SIDE, widgetBorderRightWidth, widgetBorderRightColor, widgetBorderRightStyle)
+}
+
+func setWidgetBorderTopWidth(sz as int #notLiteral)
+{
+	widgetBorderTopWidth = sz
+	updateWidgetBorder(TOP_SIDE, widgetBorderTopWidth, widgetBorderTopColor, widgetBorderTopStyle)
+}
+
+func setWidgetBorderBottomWidth(sz as int #notLiteral)
+{
+	widgetBorderBottomWidth = sz
+	updateWidgetBorder(BOTTOM_SIDE, widgetBorderBottomWidth, widgetBorderBottomColor, widgetBorderBottomStyle)
+}
+
+func setWidgetBorderBottomColor(color as Color)
+{
+	widgetBorderBottomColor = color
+	updateWidgetBorder(BOTTOM_SIDE, widgetBorderBottomWidth, widgetBorderBottomColor, widgetBorderBottomStyle)
+}
+
+func setWidgetBorderTopColor(color as Color)
+{
+	widgetBorderTopColor = color
+	updateWidgetBorder(TOP_SIDE, widgetBorderTopWidth, widgetBorderTopColor, widgetBorderTopStyle)
+}
+
+func setWidgetBorderRightColor(color as Color)
+{
+	widgetBorderRightColor = color
+	updateWidgetBorder(RIGHT_SIDE, widgetBorderRightWidth, widgetBorderRightColor, widgetBorderRightStyle)
+}
+
+func setWidgetBorderLeftColor(color as Color)
+{
+	widgetBorderLeftColor = color
+	updateWidgetBorder(LEFT_SIDE, widgetBorderLeftWidth, widgetBorderLeftColor, widgetBorderLeftStyle)
+}
+
+func setWidgetBorderLeftStyle(style as int)
+{
+	widgetBorderLeftStyle = style
+	updateWidgetBorder(LEFT_SIDE, widgetBorderLeftWidth, widgetBorderLeftColor, widgetBorderLeftStyle)
+}
+
+func setWidgetBorderRightStyle(style as int)
+{
+	widgetBorderRightStyle = style
+	updateWidgetBorder(RIGHT_SIDE, widgetBorderRightWidth, widgetBorderRightColor, widgetBorderRightStyle)
+}
+
+func setWidgetBorderTopStyle(style as int)
+{
+	widgetBorderTopStyle = style
+	updateWidgetBorder(TOP_SIDE, widgetBorderTopWidth, widgetBorderTopColor, widgetBorderTopStyle)
+}
+
+func setWidgetBorderBottomStyle(style as int)
+{
+	widgetBorderBottomStyle = style
+	updateWidgetBorder(BOTTOM_SIDE, widgetBorderBottomWidth, widgetBorderBottomColor, widgetBorderBottomStyle)
+}
+
+func updateWidgetBorder(borderSide as int, borderWidth as int, borderColor as Color, borderStyle as int) private
+{
+	IFDEF "target_html" {
+		var borderSideString = "border"
+		if borderSide == TOP_SIDE:
+			borderSideString = "border-top"
+		if borderSide == LEFT_SIDE:
+			borderSideString = "border-left"
+		if borderSide == BOTTOM_SIDE:
+			borderSideString = "border-bottom"
+		if borderSide == RIGHT_SIDE:
+			borderSideString = "border-right"
+		var borderStyleString = "solid"
+		if borderStyle == CanvasWidget.BORDER_STYLE_DASHED:
+			borderStyleString = "dashed"
+		if borderStyle == CanvasWidget.BORDER_STYLE_DOTTED:
+			borderStyleString = "dotted"
+		if borderStyle == CanvasWidget.BORDER_STYLE_NONE:
+			borderStyleString = "none"
+		if borderWidth < 0 {
+			HTMLDOM.removeStyle(element, borderSideString)
+			HTMLDOM.removeStyle(element, borderSideString .. "-color")
+			HTMLDOM.removeStyle(element, borderSideString .. "-style")
+			HTMLDOM.removeStyle(element, "box-sizing")
+		}
+		else {
+			HTMLDOM.setStyle(element, borderSideString, String.asString(borderWidth) .. "px")
+			HTMLDOM.setStyle(element, borderSideString .. "-style", borderStyleString)
+			HTMLDOM.setStyle(element, borderSideString .. "-color", borderColor.toRgbString())
+			HTMLDOM.setStyle(element, "box-sizing", "border-box")
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetRoundingRadiusTopLeft(radius as double #notLiteral)
+{
+	widgetTopLeftRadius = radius
+	updateCanvasRoundingRadius()
+}
+
+func setWidgetRoundingRadiusTopRight(radius as double #notLiteral)
+{
+	widgetTopRightRadius = radius
+	updateCanvasRoundingRadius()
+}
+
+func setWidgetRoundingRadiusBottomLeft(radius as double #notLiteral)
+{
+	widgetBottomLeftRadius = radius
+	updateCanvasRoundingRadius()
+}
+
+func setWidgetRoundingRadiusBottomRight(radius as double #notLiteral)
+{
+	widgetBottomRightRadius = radius
+	updateCanvasRoundingRadius()
+}
+
+func setWidgetRoundingRadius(radius as double #notLiteral):
+	setWidgetRoundingRadius(radius, radius, radius, radius)
+
+func setWidgetRoundingRadius(lradius as double #notLiteral, rradius as double #notLiteral):
+	setWidgetRoundingRadius(lradius, rradius, rradius, lradius)
+
+func setWidgetRoundingRadius(tlradius as double #notLiteral, trradius as double #notLiteral, brradius as double #notLiteral, blradius as double #notLiteral)
+{
+	widgetTopLeftRadius = tlradius
+	widgetTopRightRadius = trradius
+	widgetBottomRightRadius = brradius
+	widgetBottomLeftRadius = blradius
+	updateCanvasRoundingRadius()
+}
+
+func updateCanvasRoundingRadius private
+{
+	var isRounded = true
+	if widgetTopLeftRadius <= 0.0 && widgetTopRightRadius <= 0.0 && widgetBottomRightRadius <= 0.0 && widgetBottomLeftRadius <= 0.0 {
+		isRounded = false
+	}
+	IFDEF "target_html" {
+		if isRounded {
+			HTMLDOM.setStyle(element, "border-radius", String.asString(widgetTopLeftRadius) .. "px " ..
+				String.asString(widgetTopRightRadius) .. "px " ..
+				String.asString(widgetBottomRightRadius) .. "px " ..
+				String.asString(widgetBottomLeftRadius) .. "px")
+		}
+		else {
+			HTMLDOM.removeStyle(element, "border-radius")
+		}
+	}
+	ELSE {
+		if canvas:
+			canvas.setWidgetRoundingRadius(widgetTopLeftRadius, widgetTopRightRadius, widgetBottomRightRadius, widgetBottomLeftRadius)
+	}
+}
+
+func setWidgetBorderStyle(style as int) as this
+{
+	widgetBorderStyle = style
+	IFDEF "target_html" {
+		if style == CanvasWidget.BORDER_STYLE_SOLID {
+			HTMLDOM.setStyle(element, "border-style", "solid")
+		}
+		else if style == CanvasWidget.BORDER_STYLE_DASHED {
+			HTMLDOM.setStyle(element, "border-style", "dashed")
+		}
+		else if style == CanvasWidget.BORDER_STYLE_DOTTED {
+			HTMLDOM.setStyle(element, "border-style", "dotted")
+		}
+		else if style == CanvasWidget.BORDER_STYLE_NONE {
+			HTMLDOM.setStyle(element, "border-style", "none")
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			let border = CAShapeLayer()
+			border.strokeColor = UIColor.black.cgColor
+			border.fillColor = nil
+			if style == CaveUiCanvasWidget.BORDER_STYLE_SOLID {
+				border.lineDashPattern = nil
+			}
+			else if style == CaveUiCanvasWidget.BORDER_STYLE_DASHED {
+				border.lineDashPattern = [10,5]
+			}
+			else if style == CaveUiCanvasWidget.BORDER_STYLE_DOTTED {
+				border.lineDashPattern = [5,5]
+			}
+			else if style == CaveUiCanvasWidget.BORDER_STYLE_NONE {
+				border.lineDashPattern = [0,0]
+			}
+			border.path = UIBezierPath(rect: self.bounds).cgPath
+			border.frame = self.bounds
+			self.layer.addSublayer(border)
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return this
+}

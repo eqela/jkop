@@ -1,0 +1,894 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.json
+
+class:
+
+class TagData private
+{
+	var words public as vector<string>
+
+	ctor(words as vector<string>)
+	{
+		this.words = words
+	}
+}
+
+func processFile(file as File, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
+{
+	var v = assert forFile(file, markerBegin, markerEnd)
+	return v.execute(vars)
+}
+
+func processString(text as string, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
+{
+	var v = assert forString(text, markerBegin, markerEnd)
+	return v.execute(vars)
+}
+
+func forFile(file as File, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+{
+	assert file
+	var text = assert file.getContentsUTF8()
+	var ids = includeDirs
+	if not ids {
+		ids = new vector<File>
+		ids += file.getParent()
+	}
+	return forString(text, markerBegin, markerEnd, type, ids, includeFileData, logContext)
+}
+
+func forHTMLFile(file as File, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this:
+	return forFile(file, "<%", "%>", TYPE_HTML, includeDirs, includeFileData, logContext)
+
+func forString(text as string, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+{
+	var v = new this()
+	v.setLogContext(logContext)
+	v.setText(text)
+	v.setType(type)
+	v.setMarkerBegin(markerBegin)
+	v.setMarkerEnd(markerEnd)
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
+		v = null
+	return v
+}
+
+func forHTMLString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+{
+	var v = new this()
+	v.setLogContext(logContext)
+	v.setText(text)
+	v.setType(TYPE_HTML)
+	v.setMarkerBegin("<%")
+	v.setMarkerEnd("%>")
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
+		v = null
+	return v
+}
+
+func forJSONString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+{
+	var v = new this()
+	v.setLogContext(logContext)
+	v.setText(text)
+	v.setType(TYPE_JSON)
+	v.setMarkerBegin("{{")
+	v.setMarkerEnd("}}")
+	v.setIncludeDirs(includeDirs)
+	v.setIncludeFileData(includeFileData)
+	if v.prepare() == false:
+		v = null
+	return v
+}
+
+const TYPE_GENERIC = 0
+const TYPE_HTML = 1
+const TYPE_JSON = 2
+
+prop tokens as vector<object>
+prop text as string
+prop markerBegin as string
+prop markerEnd as string
+prop logContext as LoggingContext
+prop type = TYPE_GENERIC
+prop languagePreferences as vector<string>
+prop includeDirs as vector<File>
+prop includeFileData as map<string,object>
+
+func setLanguagePreference(language as string)
+{
+	languagePreferences = new vector<string>
+	if(language != null) {
+		languagePreferences += language
+	}
+}
+
+func getIncludeFileContent(fileName as string) as string
+{
+	assert fileName
+	var ff as File
+	if includeFileData {
+		var o = Map.get(includeFileData, fileName)
+		if o {
+			if o is string:
+				return o as! string
+			if o is buffer:
+				return String.forUTF8Buffer(o as! buffer)
+			if o is File:
+				ff = o as! File
+		}
+	}
+	if not ff {
+		if PathInfo.isAbsolutePath(fileName):
+			ff = File.forPath(fileName)
+	}
+	if not ff {
+		foreach includeDir in includeDirs {
+			var x = File.forRelativePath(fileName, includeDir)
+			if x.isFile() {
+				ff = x
+				break
+			}
+		}
+	}
+	assert ff && ff.isFile():
+		Log.warning(logContext, "Included file was not found: `" .. fileName .. "'")
+	var cc = ff.getContentsUTF8()
+	if not cc:
+		Log.warning(logContext, "Failed to read included file: `" .. ff.getPath() .. "'")
+	return cc
+}
+
+func tokenizeString(inputdata as string) private as vector<object>
+{
+	if(markerBegin == null || markerEnd == null) {
+		Log.error(logContext, "No template markers were given")
+		return null
+	}
+	if(String.getLength(markerBegin) != 2 || String.getLength(markerEnd) != 2) {
+		Log.error(logContext, "Invalid template markers: `" .. markerBegin .. "' and `" .. markerEnd .. "'")
+		return null
+	}
+	var mb1 = String.charAt(markerBegin, 0)
+	var mb2 = String.charAt(markerBegin, 1)
+	var me1 = String.charAt(markerEnd, 0)
+	var me2 = String.charAt(markerEnd, 1)
+	var pc as char
+	var tag as StringBuilder
+	var data as StringBuilder
+	var it = String.iterate(inputdata)
+	var v = new vector<object>
+	while(it != null) {
+		var c = it.getNextChar()
+		if(c <= 0) {
+			break
+		}
+		// parsing the tag
+		if(tag != null) {
+			if(pc == me1 && tag.count() > 2) {
+				tag.append(pc)
+				tag.append(c)
+				if(c == me2) {
+					var tt = tag.toString()
+					var tts = String.strip(String.subString(tt, 2, String.getLength(tt)-4))
+					var words = String.quotedStringToVector(tts, ' ')
+					if(Vector.get(words, 0) == "include") {
+						var fileName = Vector.get(words, 1)
+						if String.isEmpty(fileName) {
+							Log.warning(logContext, "Include tag with empty filename. Ignoring it.")
+						}
+						else {
+							var cc = getIncludeFileContent(fileName)
+							if cc {
+								var nt = forString(cc, markerBegin, markerEnd, type, includeDirs, includeFileData)
+								if nt == null {
+									Log.warning(logContext, "Failed to process included template file: `" .. fileName .. "'")
+								}
+								else {
+									foreach token in nt.getTokens():
+										v += token
+								}
+							}
+							else {
+								Log.warning(logContext, "Failed to get include file content: `" .. fileName .. "'")
+							}
+						}
+					}
+					else {
+						v += new TagData(words)
+					}
+					tag = null
+				}
+			}
+			else if(c != me1) {
+				tag.append(c)
+			}
+		}
+		else {
+			if(pc == mb1) {
+				if(c == mb2) {
+					if(data != null) {
+						v += data
+						data = null
+					}
+					tag = new StringBuilder()
+					tag.append(pc)
+					tag.append(c)
+				}
+				else {
+					if(data == null) {
+						data = new StringBuilder()
+					}
+					data.append(pc)
+					data.append(c)
+				}
+			}
+			else if(c != mb1) {
+				if(data == null) {
+					data = new StringBuilder()
+				}
+				data.append(c)
+			}
+		}
+		pc = c
+	}
+	if(pc == mb1) {
+		if(data == null) {
+			data = new StringBuilder()
+		}
+		data.append(pc)
+	}
+	if(data != null) {
+		v += data
+		data = null
+	}
+	if(tag != null) {
+		Log.error(logContext, "Unfinished tag: `" .. tag.toString() .. "'")
+		return null
+	}
+	return v
+}
+
+func prepare as bool
+{
+	var str = assert text:
+		Log.error(logContext, "No input string was specified.")
+	assert tokens = tokenizeString(str)
+	return true
+}
+
+func execute(vars as DynamicMap, importDirs as vector<File> = null) as string
+{
+	assert tokens:
+		Log.error(logContext, "TextTemplate has not been prepared")
+	var result = new StringBuilder()
+	assert doExecute(tokens, vars, result, importDirs)
+	return result.toString()
+}
+
+func substituteVariables(orig as string, vars as DynamicMap) private as string
+{
+	if orig == null:
+		return orig
+	if String.indexOf(orig, "${") < 0:
+		return orig
+	var sb = new StringBuilder()
+	var varbuf as StringBuilder
+	var flag = false
+	var it = String.iterate(orig)
+	while it {
+		var c = it.getNextChar()
+		if c <= 0:
+			break
+		if varbuf {
+			if c == '}' {
+				var varname = varbuf.toString()
+				if vars {
+					var varcut as string
+					if String.indexOf(varname, '!') > 0 {
+						var sp as Iterator<string> #force = Vector.iterate(String.split(varname, '!', 2))
+						varname = sp.next()
+						varcut = sp.next()
+					}
+					var r = getVariableValueString(vars, varname)
+					if String.isEmpty(varcut) == false {
+						var itc = String.iterate(varcut)
+						var cx as char
+						while((cx = itc.getNextChar()) > 0) {
+							var n = String.lastIndexOf(r, cx)
+							if n < 0:
+								break
+							r = String.subString(r, 0, n)
+						}
+					}
+					sb.append(r)
+				}
+				varbuf = null
+			}
+			else {
+				varbuf.append(c)
+			}
+			continue
+		}
+		if flag == true {
+			flag = false
+			if c == '{' {
+				varbuf = new StringBuilder()
+			}
+			else {
+				sb.append('$')
+				sb.append(c)
+			}
+			continue
+		}
+		if c == '$' {
+			flag = true
+			continue
+		}
+		sb.append(c)
+	}
+	return sb.toString()
+}
+
+func getVariableValue(vars as DynamicMap, varname as string) as object
+{
+	if(vars == null || varname == null) {
+		return null
+	}
+	var vv = vars.get(varname)
+	if(vv != null) {
+		return vv
+	}
+	var ll = String.split(varname, '.')
+	if(Vector.getSize(ll) < 2) {
+		return null
+	}
+	var nvar = Vector.get(ll, Vector.getSize(ll)-1) as string
+	Vector.removeLast(ll)
+	var cc = vars
+	foreach(vv2 as string in ll) {
+		if(cc == null) {
+			return null
+		}
+		var vv2o = cc.get(vv2)
+		cc = vv2o as DynamicMap
+		if(cc == null && vv2o != null && vv2o is JSONObject) {
+			cc = ((vv2o as! JSONObject).toJsonObject()) as DynamicMap
+		}
+	}
+	if(cc != null) {
+		return cc.get(nvar)
+	}
+	return null
+}
+
+func getVariableValueString(vars as DynamicMap, varname as string) as string
+{
+	var v = getVariableValue(vars, varname)
+	if(v == null) {
+		return null
+	}
+	if(v is DynamicMap) {
+		if(languagePreferences != null) {
+			foreach(language in languagePreferences) {
+				var s = (v as! DynamicMap).getString(language)
+				if(s != null) {
+					return s
+				}
+			}
+		}
+		else {
+			var s = (v as! DynamicMap).getString("en")
+			if(s != null) {
+				return s
+			}
+		}
+		return null
+	}
+	return String.asString(v)
+}
+
+func getVariableValueVector(vars as DynamicMap, varname as string) as vector<object>
+{
+	var v = getVariableValue(vars, varname)
+	if(v == null) {
+		return null
+	}
+	if(v is vector<object>) {
+		return v as! vector<object>
+	}
+	if(v is VectorObject<object>) {
+		var vo = v as! VectorObject<object>
+		var vv as vector<object> #force = vo.toVector()
+		return vv
+	}
+	if(v is ArrayObject<object>) {
+		var vo = v as ArrayObject<object>
+		var vv as array<object> #force = vo.toArray()
+		var vvx as vector<object> #force = Vector.forArray(vv)
+		return vvx
+	}
+	if(v is DynamicVector) {
+		var dv = v as! DynamicVector
+		return dv.toVector()
+	}
+	return null
+}
+
+func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<object>, result as StringBuilder, importDirs as vector<File>) as bool
+{
+	if(tag == null) {
+		return false
+	}
+	var tagname = Vector.get(tag, 0)
+	if(String.isEmpty(tagname)) {
+		return false
+	}
+	if(tagname == "for") {
+		var varname = Vector.get(tag, 1)
+		var inword = Vector.get(tag, 2)
+		var origvar = substituteVariables(Vector.get(tag, 3), vars)
+		if(String.isEmpty(varname) || String.isEmpty(origvar) || inword != "in") {
+			Log.error(logContext, "Invalid for tag: `" .. String.combine(tag, ' ') .. "'")
+			return false
+		}
+		var index = 0
+		vars.set("__for_first", "true")
+		var vv = getVariableValueVector(vars, origvar)
+		foreach(o in vv) {
+			if(index % 2 == 0) {
+				vars.set("__for_parity", "even")
+			}
+			else {
+				vars.set("__for_parity", "odd")
+			}
+			vars.set(varname, o)
+			if(doExecute(data, vars, result, importDirs) == false) {
+				return false
+			}
+			if(index == 0) {
+				vars.set("__for_first", "false")
+			}
+			index ++
+		}
+		vars.remove("__for_first")
+		vars.remove("__for_parity")
+		return true
+	}
+	if(tagname == "if") {
+		var lvalue = Vector.get(tag, 1)
+		if(lvalue == null) {
+			return true
+		}
+		var operator = Vector.get(tag, 2)
+		if(operator == null) {
+			var varval = getVariableValue(vars, lvalue)
+			if(varval == null) {
+				return true
+			}
+			if(varval is VectorObject<object>) {
+				if(Vector.isEmpty((varval as! VectorObject<object>).toVector())) {
+					return true
+				}
+			}
+			if(varval is DynamicMap) {
+				var value = varval as! DynamicMap
+				if(value.getCount() < 1) {
+					return true
+				}
+			}
+			if(varval is string) {
+				if(String.isEmpty(varval as! string)) {
+					return true
+				}
+			}
+			if(varval is StringObject) {
+				if(String.isEmpty((varval as! StringObject).toString())) {
+					return true
+				}
+			}
+			if(doExecute(data, vars, result, importDirs) == false) {
+				return false
+			}
+			return true
+		}
+		lvalue = substituteVariables(lvalue, vars)
+		var rvalue = Vector.get(tag, 3)
+		if(rvalue != null) {
+			rvalue = substituteVariables(rvalue, vars)
+		}
+		if(lvalue == null || String.isEmpty(operator) || rvalue == null) {
+			Log.error(logContext, "Invalid if tag: `" .. String.combine(tag, ' ') .. "'")
+			return false
+		}
+		if(operator == "==" || operator == "=" || operator == "is") {
+			if(rvalue != lvalue) {
+				return true
+			}
+			if(doExecute(data, vars, result, importDirs) == false) {
+				return false
+			}
+			return true
+		}
+		if(operator == "!=" || operator == "not") {
+			if(rvalue == lvalue) {
+				return true
+			}
+			if(doExecute(data, vars, result, importDirs) == false) {
+				return false
+			}
+			return true
+		}
+		Log.error(logContext, "Unknown operator `" .. operator .. "' in if tag: `" .. String.combine(tag, ' ') .. "'")
+		return false
+	}
+	return false
+}
+
+func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuilder, importDirs as vector<File>) private as bool
+{
+	if(data == null) {
+		return true
+	}
+	var blockctr = 0
+	var blockdata as vector<object>
+	var blocktag as vector<string>
+	var vars = avars
+	if(vars == null) {
+		vars = new DynamicMap()
+	}
+	foreach(o in data) {
+		var tagname as string
+		var words as vector<string>
+		var tagData = o as TagData
+		if(tagData != null) {
+			words = tagData.words
+			if(words != null) {
+				tagname = Vector.get(words, 0)
+				if(String.isEmpty(tagname)) {
+					Log.warning(logContext, "Empty tag encountered. Ignoring it.")
+					continue
+				}
+			}
+		}
+		if(tagname == "end") {
+			blockctr --
+			if(blockctr == 0 && blockdata != null) {
+				if(handleBlock(vars, blocktag, blockdata, result, importDirs) == false) {
+					Log.error(logContext, "Handling of a block failed")
+					continue
+				}
+				blockdata = null
+				blocktag = null
+			}
+		}
+		if(blockctr > 0) {
+			if(tagname == "for" || tagname == "if") {
+				blockctr ++
+			}
+			if(blockdata == null) {
+				blockdata = new vector<object>
+			}
+			blockdata += o
+			continue
+		}
+		if(o is string || o is StringObject) {
+			result.append(String.asString(o))
+			continue
+		}
+		if(tagname == "=" || tagname == "printstring") {
+			var varname = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(varname) == false) {
+				var vv = getVariableValueString(vars, varname)
+				if(String.isEmpty(vv) == false) {
+					if(this.type == TYPE_HTML) {
+						vv = HTMLString.sanitize(vv)
+					}
+					result.append(vv)
+				}
+				else {
+					var defaultvalue = substituteVariables(Vector.get(words, 2), vars)
+					if(String.isEmpty(defaultvalue) == false) {
+						if(this.type == TYPE_HTML) {
+							defaultvalue = HTMLString.sanitize(defaultvalue)
+						}
+						result.append(defaultvalue)
+					}
+				}
+			}
+		}
+		else if(tagname == "printRaw") {
+			var varname = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(varname) == false) {
+				var vv = getVariableValueString(vars, varname)
+				if(String.isEmpty(vv) == false) {
+					result.append(vv)
+				}
+				else {
+					var defaultvalue = substituteVariables(Vector.get(words, 2), vars)
+					if(String.isEmpty(defaultvalue) == false) {
+						result.append(defaultvalue)
+					}
+				}
+			}
+		}
+		else if(tagname == "catPath") {
+			var hasSlash = false
+			var n = 0
+			foreach(word in words) {
+				n++
+				if(n == 1) {
+					continue
+				}
+				word = substituteVariables(word, vars)
+				var it = String.iterate(word)
+				if(it == null) {
+					continue
+				}
+				if(n > 2 && hasSlash == false) {
+					result.append('/')
+					hasSlash = true
+				}
+				loop {
+					var c = it.getNextChar()
+					if(c < 1) {
+						break
+					}
+					if(c == '/') {
+						if(hasSlash == false) {
+							result.append(c)
+							hasSlash = true
+						}
+					}
+					else {
+						result.append(c)
+						hasSlash = false
+					}
+				}
+			}
+		}
+		else if(tagname == "printJson") {
+			var varname = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(varname) == false) {
+				var vv = getVariableValue(vars, varname)
+				if(vv != null) {
+					result.append(JSONEncoder.encode(vv))
+				}
+			}
+		}
+		else if(tagname == "printRichText") {
+			var markup = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(markup) == false) {
+				var doc = RichTextDocument.forWikiMarkupString(markup)
+				if(doc != null) {
+					result.append(doc.toHtml(null))
+				}
+			}
+		}
+		else if(tagname == "printDate") {
+			var timestamp = substituteVariables(Vector.get(words, 1), vars)
+			var aslong = String.toLong(timestamp)
+			var asstring = DateTime.forTimeSeconds(aslong).toStringDate('/')
+			result.append(asstring)
+		}
+		else if(tagname == "printTime") {
+			var timestamp = substituteVariables(Vector.get(words, 1), vars)
+			var aslong = String.toLong(timestamp)
+			var asstring = DateTime.forTimeSeconds(aslong).toStringTime(':')
+			result.append(asstring)
+		}
+		else if(tagname == "printDateTime") {
+			var timestamp = substituteVariables(Vector.get(words, 1), vars)
+			var aslong = String.toLong(timestamp)
+			var dt = DateTime.forTimeSeconds(aslong)
+			result.append(dt.toStringDate('/'))
+			result.append(' ')
+			result.append(dt.toStringTime(':'))
+		}
+		else if(tagname == "import") {
+			var type = Vector.get(words, 1)
+			var filename = substituteVariables(Vector.get(words, 2), vars)
+			if(String.isEmpty(filename)) {
+				Log.warning(logContext, "Invalid import tag with empty filename")
+				continue
+			}
+			var ff as File
+			foreach(dir in importDirs) {
+				ff = File.forRelativePath(filename, dir)
+				if(ff != null && ff.isFile()) {
+					break
+				}
+			}
+			if(ff == null || ff.isFile() == false) {
+				Log.error(logContext, "Unable to find file to import: `" .. filename .. "'")
+				continue
+			}
+			Log.debug(logContext, "Attempting to import file: `" .. ff.getPath() .. "'")
+			var content = ff.getContentsUTF8()
+			if(String.isEmpty(content)) {
+				Log.error(logContext, "Unable to read import file: `" .. ff.getPath() .. "'")
+				continue
+			}
+			if(type == "html") {
+				content = HTMLString.sanitize(content)
+			}
+			else if(type == "template") {
+				var t = forString(content, markerBegin, markerEnd, this.type, importDirs)
+				if(t == null) {
+					Log.error(logContext, "Failed to parse imported template file: `" .. ff.getPath() .. "'")
+					continue
+				}
+				if(doExecute(t.getTokens(), vars, result, importDirs) == false) {
+					Log.error(logContext, "Failed to process imported template file: `" .. ff.getPath() .. "'")
+					continue
+				}
+				content = null
+			}
+			else if(type == "raw") {
+				; // no processing needed
+			}
+			else {
+				Log.error(logContext, "Unknown type for import: `" .. type .. "'. Ignoring the import.")
+				continue
+			}
+			if(String.isEmpty(content) == false) {
+				result.append(content)
+			}
+		}
+		else if(tagname == "escapeHtml") {
+			var content = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(content) == false) {
+				content = HTMLString.sanitize(content)
+				if(String.isEmpty(content) == false) {
+					result.append(content)
+				}
+			}
+		}
+		else if(tagname == "set") {
+			if(Vector.getSize(words) != 3) {
+				Log.warning(logContext, "Invalid number of parameters for set tag encountered: " .. String.forInteger(Vector.getSize(words)))
+				continue
+			}
+			var varname = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(varname)) {
+				Log.warning(logContext, "Empty variable name in set tag encountered.")
+				continue
+			}
+			var newValue = substituteVariables(Vector.get(words, 2), vars)
+			vars.set(varname, newValue)
+		}
+		else if(tagname == "assign") {
+			if(Vector.getSize(words) != 3) {
+				Log.warning(logContext, "Invalid number of parameters for assign tag encountered: " .. String.forInteger(Vector.getSize(words)))
+				continue
+			}
+			var varname = substituteVariables(Vector.get(words, 1), vars)
+			if(String.isEmpty(varname)) {
+				Log.warning(logContext, "Empty variable name in assign tag encountered.")
+				continue
+			}
+			var vv = Vector.get(words, 2)
+			if(vv == "none") {
+				vars.remove(varname)
+			}
+			else {
+				vars.set(varname, getVariableValue(vars, vv))
+			}
+		}
+		else if(tagname == "for" || tagname == "if") {
+			if(blockctr == 0) {
+				blocktag = words
+			}
+			blockctr ++
+		}
+		else if(tagname == "end") {
+			; // already handled
+		}
+		else {
+			if(type == TYPE_HTML) {
+				onHTMLTag(vars, result, importDirs, tagname, words)
+			}
+			else if(type == TYPE_JSON) {
+				onJSONTag(vars, result, importDirs, tagname, words)
+			}
+			else {
+				; // Ignore unknown tags so they can be used for extensions
+			}
+		}
+	}
+	return true
+}
+
+func basename(path as string) private as string
+{
+	if(path == null) {
+		return null
+	}
+	var v = ""
+	var comps as Iterator<string> #force = Vector.iterate(String.split(path, '/'))
+	if(comps != null) {
+		var comp = comps.next()
+		while(comp != null) {
+			if(String.getLength(comp) > 0) {
+				v = comp
+			}
+			comp = comps.next()
+		}
+	}
+	return v
+}
+
+func onHTMLTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
+{
+	if(tagname == "link") {
+		var path = substituteVariables(Vector.get(words, 1), vars)
+		var text = substituteVariables(Vector.get(words, 2), vars)
+		if(String.isEmpty(text)) {
+			text = basename(path)
+		}
+		if(String.isEmpty(text)) {
+			return
+		}
+		result.append("<a href=\"" .. path .. "\"><span>" .. text .. "</span></a>")
+		return
+	}
+}
+
+func encodeJSONString(s as string, sb as StringBuilder)
+{
+	if(s == null) {
+		return
+	}
+	var it = String.iterate(s)
+	if(it == null) {
+		return
+	}
+	var c as char
+	while((c = it.getNextChar()) > 0) {
+		if(c == '"') {
+			sb.append('\\')
+		}
+		else if(c == '\\') {
+			sb.append('\\')
+		}
+		sb.append(c)
+	}
+}
+
+func onJSONTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
+{
+	if(tagname == "quotedstring") {
+		var string = substituteVariables(Vector.get(words, 1), vars)
+		encodeJSONString(string, result)
+	}
+}
