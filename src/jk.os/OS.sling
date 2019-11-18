@@ -234,7 +234,7 @@ func isSystemType(id as string) static as bool
 					return v
 				if isSystemType("posix") == false:
 					return false
-				if File.forPath("/Applications").isDirectory():
+				if isDirectory("/Applications"):
 					return true
 				return false
 			}
@@ -258,12 +258,12 @@ func isSystemType(id as string) static as bool
 				return false
 			}
 			if id == "osx" {
-				if File.forPath("/Applications").isDirectory():
+				if isDirectory("/Applications"):
 					return true
 				return false
 			}
 			if id == "posix" || id == "linux" || id == "unix" {
-				if File.forPath("/bin/sh").isFile() && File.forPath("/Applications").isDirectory() == false:
+				if isFile("/bin/sh") && isDirectory("/Applications") == false:
 					return true
 				return false
 			}
@@ -292,7 +292,7 @@ func isSystemType(id as string) static as bool
 				return v
 			if isSystemType("posix") == false:
 				return false
-			if File.forPath("/Applications").isDirectory():
+			if isDirectory("/Applications"):
 				return true
 			return false
 		}
@@ -344,20 +344,96 @@ func isSystemType(id as string) static as bool
 	}
 	ELSE IFDEF "target_swift" {
 		if id == "windows" {
-			if File.forPath("%userprofile%").isDirectory():
+			if isDirectory("%userprofile%"):
 				return true
 			return false
 		}
 		if id == "osx" {
-			if File.forPath("/Applications").isDirectory():
+			if isDirectory("/Applications"):
 				return true
 			return false
 		}
 		if id == "posix" || id == "linux" || id == "unix" {
-			if File.forPath("/bin/sh").isFile() && File.forPath("/Applications").isDirectory() == false:
+			if isFile("/bin/sh") && isDirectory("/Applications") == false:
 				return true
 			return false
 		}
 	}
 	return false
+}
+
+func isDirectory(path as string) private static as bool
+{
+	assert String.isNotEmpty(path)
+	IFDEF "target_cs" {
+		var v as bool
+		lang "cs" {{{
+			try {
+				var attrs = System.IO.File.GetAttributes(path);
+				v = attrs.HasFlag(System.IO.FileAttributes.Directory);
+			}
+			catch(System.Exception e) {
+				System.Console.WriteLine(e.ToString());
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as bool
+		var d as bool
+		lang "swift" {{{
+			var manager: FileManager = FileManager.default
+			var isDir : ObjCBool = false
+			v = manager?.fileExists(atPath:(path as NSString?)?.standardizingPath!, isDirectory:&isDir) ?? false
+			d = isDir.boolValue
+		}}}
+		if not v:
+			return false
+		return d
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" bool {{{ new java.io.File(path).isDirectory() }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return false
+	}
+}
+
+func isFile(path as string) private static as bool
+{
+	assert String.isNotEmpty(path)
+	IFDEF "target_cs" {
+		var v as bool
+		lang "cs" {{{
+			try {
+				var attrs = System.IO.File.GetAttributes(path);
+				v = attrs.HasFlag(System.IO.FileAttributes.Directory) == false;
+			}
+			catch(System.Exception e) {
+				System.Console.WriteLine(e.ToString());
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as bool
+		var d as bool
+		lang "swift" {{{
+			var manager: FileManager = FileManager.default
+			var isDir : ObjCBool = false
+			v = manager?.fileExists(atPath:(path as NSString?)?.standardizingPath!, isDirectory:&isDir) ?? false
+			d = !isDir.boolValue
+		}}}
+		if not v:
+			return false
+		return d
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" bool {{{ new java.io.File(path).isFile() }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return false
+	}
 }
