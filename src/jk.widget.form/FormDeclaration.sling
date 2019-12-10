@@ -25,13 +25,14 @@
 
 import jk.json
 import jk.gfx
+import jk.log
 
 class:
 
-func forDescription(desc as string) static as this
+func forDescription(context as LoggingContext, desc as string) static as this
 {
 	var v = new this()
-	assert v.parseDescription(desc)
+	assert v.parseDescription(context, desc)
 	return v
 }
 
@@ -429,23 +430,26 @@ func addStringListInput(id as string, label as string, description as string) as
 	return addElement(v)
 }
 
-func addFieldsTo(fields as vector<object>, element as Element) as bool
+func addFieldsTo(context as LoggingContext, fields as vector<object>, element as Element) as bool
 {
 	assert fields
 	foreach field as DynamicMap in fields {
+		Log.debug(context, "Form field: `" .. JSONEncoder.encode(field) .. "'")
 		var e = Element.forProperties(field)
 		var childFields = e.getPropertyVector("fields")
 		if childFields:
-			addFieldsTo(childFields, e)
+			addFieldsTo(context, childFields, e)
 		element.addToChildren(e)
 	}
 	return true
 }
 
-func parseDescription(desc as string) as bool
+func parseDescription(context as LoggingContext, desc as string) as bool
 {
 	clear()
-	var data = assert JSONParser.parse(desc) as DynamicMap
-	assert addFieldsTo(data.getVector("fields"), root)
+	var data = assert JSONParser.parse(desc) as DynamicMap:
+		Log.error(context, "Failed to parse form description: `" .. desc .. "'")
+	assert addFieldsTo(context, data.getVector("fields"), root):
+		Log.error(context, "Failed to generate form from field list")
 	return true
 }
