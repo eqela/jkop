@@ -30,7 +30,7 @@ class is IOManager:
 
 class MyEntry is IOManagerEntry
 {
-	prop epollfd as int
+	prop mgrfd as object
 	prop fd as int
 	var objref = 0
 	var rrl as function
@@ -81,7 +81,7 @@ class MyEntry is IOManagerEntry
 
 	func update
 	{
-		var epollfd = this.epollfd
+		var mgrfd = this.mgrfd
 		var fd = this.fd
 		var myself = this
 		var mode = -1
@@ -101,13 +101,13 @@ class MyEntry is IOManagerEntry
 			if objref > 0 {
 				var objref = this.objref
 				lang "lua" {{{
-					_net:update_io_listener(epollfd, fd, mode, objref)
+					_net:update_io_listener(mgrfd, fd, mode, objref)
 				}}}
 			}
 			else {
 				var objref = 0
 				lang "lua" {{{
-					objref = _net:register_io_listener(epollfd, fd, mode, myself)
+					objref = _net:register_io_listener(mgrfd, fd, mode, myself)
 				}}}
 				this.objref = objref
 			}
@@ -117,11 +117,11 @@ class MyEntry is IOManagerEntry
 	func remove
 	{
 		assert objref > 0
-		var epollfd = this.epollfd
+		var mgrfd = this.mgrfd
 		var fd = this.fd
 		var objref = this.objref
 		lang "lua" {{{
-			_net:remove_io_listener(epollfd, fd, objref)
+			_net:remove_io_listener(mgrfd, fd, objref)
 		}}}
 		this.objref = 0
 	}
@@ -129,11 +129,11 @@ class MyEntry is IOManagerEntry
 
 var exitflag as bool
 var running = false
-var epollfd = -1
+var mgrfd as object = null
 
 ctor
 {
-	epollfd = lang "lua" int {{{ _net:create_io_manager() }}}
+	mgrfd = lang "lua" int {{{ _net:create_io_manager() }}}
 }
 
 dtor
@@ -150,15 +150,15 @@ func close
 
 func doExecute(ctx as LoggingContext) override as bool
 {
-	var epollfd = this.epollfd
-	assert epollfd >= 0:
-		Log.error(ctx, VALUE "__THIS__" .. ": Failed to initialize epoll file descriptor")
+	var mgrfd = this.mgrfd
+	assert mgrfd:
+		Log.error(ctx, VALUE "__THIS__" .. ": Failed to initialize IO manager file descriptor")
 	exitflag = false
 	running = true
 	Log.debug(ctx, VALUE "__THIS__" .. " started")
 	while exitflag == false {
 		lang "lua" {{{
-			_net:execute_io_manager(epollfd, -1)
+			_net:execute_io_manager(mgrfd, -1)
 		}}}
 	}
 	running = false
@@ -176,12 +176,12 @@ func isRunning as bool:
 
 func add(o as object) override as IOManagerEntry
 {
-	assert epollfd >= 0
+	assert mgrfd
 	var fdo = assert o as FileDescriptor
 	var fd = fdo.getFileDescriptor()
 	assert fd >= 0
 	var v = new MyEntry()
-	v.setEpollfd(epollfd)
+	v.setMgrfd(mgrfd)
 	v.setFd(fd)
 	return v
 }
