@@ -25,17 +25,19 @@
 
 class is StringObject:
 
-func forTimeSeconds(seconds as long) static as this
+func forSeconds(seconds as long) static as this
 {
 	var v = new this()
-	v.setTimeSeconds(seconds)
+	v.updateFromTimestamp(seconds)
 	return v
 }
 
 func forTimeValue(tv as TimeValue) static as this
 {
 	assert tv
-	return forTimeSeconds(tv.getSeconds())
+	var v = new this()
+	v.updateFromTimestamp(tv.getSeconds())
+	return v
 }
 
 func forString(string as string) static as this
@@ -59,10 +61,11 @@ func forString(string as string) static as this
 			v.setSeconds(String.toInteger(Vector.get(tcs, 2)))
 		}
 	}
+	// FIXME: Add timezone support
 	return v
 }
 
-var timeSeconds as long
+prop timezoneOffset as long = 0L
 prop weekDay as int
 prop dayOfMonth as int
 prop month as int
@@ -70,10 +73,8 @@ prop year as int
 prop hours as int
 prop minutes as int
 prop seconds as int
-prop utc = false
-prop timezoneOffset as long = 0
 
-func onTimeSecondsChanged(seconds as long #used)
+func updateFromTimestamp(seconds as long)
 {
 	IFDEF "target_cs" {
 		lang "cs" {{{
@@ -117,17 +118,10 @@ func onTimeSecondsChanged(seconds as long #used)
 		lang "objc" {{{
 			struct tm lt;
 		}}}
-		var tp #used = timeSeconds
-		if utc == false {
-			lang "objc" {{{
-				localtime_r((const time_t*)&tp, &lt);
-			}}}
-		}
-		else {
-			lang "objc" {{{
-				gmtime_r((const time_t*)&tp, &lt);
-			}}}
-		}
+		var tp #used = seconds
+		lang "objc" {{{
+			gmtime_r((const time_t*)&tp, &lt);
+		}}}
 		var dwday as int
 		var dday as int
 		var dmonth as int
@@ -153,13 +147,7 @@ func onTimeSecondsChanged(seconds as long #used)
 		this.seconds = dseconds
 	}
 	ELSE IFDEF "target_swift" {
-		var sec as long
-		if utc {
-			sec = seconds
-		}
-		else {
-			sec = seconds + timezoneOffset
-		}
+		var sec = seconds
 		lang "swift" {{{
 			let date = Date(timeIntervalSince1970: Swift.Double(sec))
 			let myCalendar = Calendar(identifier: .gregorian)
@@ -175,16 +163,9 @@ func onTimeSecondsChanged(seconds as long #used)
 	}
 	ELSE IFDEF "target_sushi" {
 		var o = this
-		if utc == false {
-			lang "lua" {{{
-				o.weekDay, o.dayOfMonth, o.month, o.year, o.hours, o.minutes, o.seconds = _os:get_timestamp_details_local(seconds)
-			}}}
-		}
-		else {
-			lang "lua" {{{
-				o.weekDay, o.dayOfMonth, o.month, o.year, o.hours, o.minutes, o.seconds = _os:get_timestamp_details_utc(seconds)
-			}}}
-		}
+		lang "lua" {{{
+			o.weekDay, o.dayOfMonth, o.month, o.year, o.hours, o.minutes, o.seconds = _os:get_timestamp_details_utc(seconds)
+		}}}
 	}
 	ELSE {
 		var day = (seconds / 60 / 60 / 24) as double
@@ -198,15 +179,6 @@ func onTimeSecondsChanged(seconds as long #used)
 		this.seconds = seconds % 60 as int
 		this.minutes = (seconds / 60) % 60 as int
 	}
-}
-
-func getTimeSeconds as long:
-	return timeSeconds
-
-func setTimeSeconds(seconds as long)
-{
-	timeSeconds = seconds
-	onTimeSecondsChanged(seconds)
 }
 
 func toStringDate(delim as char = '-') as string

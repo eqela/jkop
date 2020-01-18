@@ -48,17 +48,23 @@ IFDEF "target_win32" {
 }
 
 func asDateTimeUTC static as DateTime:
-	return DateTime.forTimeSeconds(asUTCSeconds())
+	return DateTime.forSeconds(asUTCSeconds())
 
 func asDateTimeLocal static as DateTime
 {
-	var v = DateTime.forTimeSeconds(asSeconds())
+	var v = DateTime.forSeconds(asSeconds())
 	v.setTimezoneOffset(getTimezoneOffsetAsSeconds())
 	return v
 }
 
 func getTimezoneOffsetAsSeconds static as long
 {
+	meta {
+		description [[
+			Returns the number of seconds of timezone difference in the current system. The value is expressed as the
+			number of seconds to ADD the the local time in order to get the UTC time equivalent.
+		]]
+	}
 	IFDEF "target_js" {
 		var v as long
 		lang "js" {{{
@@ -97,6 +103,11 @@ func getTimezoneOffsetAsSeconds static as long
 
 func asUTCSeconds static as long
 {
+	meta {
+		description [[
+			Returns the number of seconds since January 1, 1970, in UTC timezone.
+		]]
+	}
 	IFDEF "target_cs" {
 		var v as long
 		lang "cs" {{{
@@ -111,6 +122,11 @@ func asUTCSeconds static as long
 
 func asSeconds static as long
 {
+	meta {
+		description [[
+			Returns the number of seconds since January 1, 1970, in local timezone.
+		]]
+	}
 	IFDEF "target_cs" {
 		var v as long
 		lang "cs" {{{
@@ -125,6 +141,8 @@ func asSeconds static as long
 		lang "js" {{{
 			v = new Date().getTime() / 1000;
 		}}}
+		// Date.getTime returns UTC time. So we deduct the timezone offset to get local time.
+		v -= getTimezoneOffsetAsSeconds()
 		return v
 	}
 	ELSE IFDEF "target_java" {
@@ -132,19 +150,23 @@ func asSeconds static as long
 		lang "java" {{{
 			v = java.lang.System.currentTimeMillis() / 1000;
 		}}}
+		// java.lang.System.currentTimeMillis returns UTC time. So we deduct the timezone offset to get local time.
+		v -= getTimezoneOffsetAsSeconds()
 		return v
 	}
 	ELSE IFDEF "target_posix" {
 		var v as long = 0
 		lang "c" {{{
-			v = time(NULL);
+			tzset();
+			v = time(NULL) - timezone;
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_objc" {
 		var v as long = 0
 		lang "objc" {{{
-			v = time(NULL);
+			tzset();
+			v = time(NULL) - timezone;
 		}}}
 		return v
 	}
@@ -166,16 +188,24 @@ func asSeconds static as long
 			sec = (int)(tm / 1000000UL);
 			usec = (int)(tm % 1000000UL);
 		}}}
+		// GetSystemTimeAsFileTime returns UTC time. So we deduct the timezone offset to get local time.
+		v -= getTimezoneOffsetAsSeconds()
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" long {{{ (java.lang.System.currentTimeMillis() / 1000) as kotlin.Long }}}
+		var v = lang "kotlin" long {{{ (java.lang.System.currentTimeMillis() / 1000) as kotlin.Long }}}
+		// java.lang.System.currentTimeMillis returns UTC time. So we deduct the timezone offset to get local time.
+		v -= getTimezoneOffsetAsSeconds()
+		return v
 	}
 	ELSE IFDEF "target_sushi" {
 		return lang "lua" long {{{ _os:get_system_time_seconds() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" long {{{ Swift.Int64(NSDate().timeIntervalSince1970) }}}
+		var v = lang "swift" long {{{ Swift.Int64(NSDate().timeIntervalSince1970) }}}
+		// timeIntervalSince1970 returns UTC time. So we deduct the timezone offset to get local time.
+		v -= getTimezoneOffsetAsSeconds()
+		return v
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -185,19 +215,28 @@ func asSeconds static as long
 
 func asTimeValue static as TimeValue
 {
+	meta {
+		description [[
+			Returns the current system time as a TimeValue structure (up to microsecond precision).
+			No guarantee is made as to the timezone (whether local time or UTC). Therefore, TimeValue
+			structures created this way are mostly usable for comparing the difference between two
+			objects retrieved at different times.
+		]]
+	}
 	var v = new TimeValue()
 	update(v)
 	return v
 }
 
-func asString static as string
-{
-	var tv = asTimeValue()
-	return tv.toString()
-}
-
 func update(v as TimeValue) static
 {
+	meta {
+		description [[
+			Updates an existing TimeValue object with the current time. This way you can reuse the object
+			and do not need to allocate new objects, which is especially beneficial when updating the
+			TimeValue frequently.
+		]]
+	}
 	assert v
 	IFDEF "target_cs" {
 		lang "cs" {{{
