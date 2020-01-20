@@ -44,26 +44,23 @@ class MyEntry is IOManagerEntry is FileDescriptor
 
 	func getFileDescriptor as int
 	{
-		if(fdObject == null) {
+		if fdObject == null:
 			return -1
-		}
 		return fdObject.getFileDescriptor()
 	}
 
 	func onReadReady
 	{
 		var rrl = this.rrl
-		if(rrl != null) {
+		if rrl != null:
 			rrl()
-		}
 	}
 
 	func onWriteReady
 	{
 		var wrl = this.wrl
-		if(wrl != null) {
+		if wrl != null:
 			wrl()
-		}
 	}
 
 	func setListeners(rrl as function, wrl as function)
@@ -88,12 +85,10 @@ class MyEntry is IOManagerEntry is FileDescriptor
 	func update
 	{
 		remove()
-		if(fdObject == null || master == null) {
+		if fdObject == null || master == null:
 			return
-		}
-		if(rrl == null && wrl == null) {
+		if rrl == null && wrl == null:
 			return
-		}
 		var fd #used = getFileDescriptor()
 		var epollfd #used = master.getEpollfd()
 		lang "cs" {{{
@@ -103,7 +98,7 @@ class MyEntry is IOManagerEntry is FileDescriptor
 			ev.ptr = (System.IntPtr)0; // FIXME - We need to point this object in this pointer.
 			if(Mono.Unix.Native.Syscall.epoll_ctl(epollfd, Mono.Unix.Native.EpollOp.EPOLL_CTL_ADD, fd, ref ev) == -1) {
 		}}}
-		PRINT("IOManagerMonoEpoll: Failed to add to epoll")
+		println "IOManagerMonoEpoll: Failed to add to epoll"
 		lang "cs" {{{
 				added = false;
 			}
@@ -111,27 +106,24 @@ class MyEntry is IOManagerEntry is FileDescriptor
 				added = true;
 			}
 		}}}
-		if(added == false) {
-			if(rrl != null) {
+		if added == false {
+			if rrl != null:
 				Vector.append(master.readlist, this)
-			}
-			if(wrl != null) {
+			if wrl != null:
 				Vector.append(master.writelist, this)
-			}
 		}
 	}
 
 	func remove
 	{
-		if(added == false || fdObject == null || master == null) {
+		if added == false || fdObject == null || master == null:
 			return
-		}
 		var fd #used = getFileDescriptor()
 		var epollfd #used = master.getEpollfd()
 		lang "cs" {{{
 			if(Mono.Unix.Native.Syscall.epoll_ctl(epollfd, Mono.Unix.Native.EpollOp.EPOLL_CTL_DEL, fd, 0) == -1) {
 		}}}
-		PRINT("IOManagerMonoEpoll: Failed to delete from epoll")
+		println "IOManagerMonoEpoll: Failed to delete from epoll"
 		lang "cs" {{{
 			}
 			else {
@@ -156,7 +148,7 @@ dtor
 {
 	Vector.clear(readlist)
 	Vector.clear(writelist)
-	if(epollfd >= 0) {
+	if epollfd >= 0 {
 		lang "cs" {{{
 			Mono.Unix.Native.Syscall.close(epollfd);
 		}}}
@@ -167,7 +159,7 @@ dtor
 func doExecute(ctx as LoggingContext) override as bool
 {
 	var epollfd = this.epollfd
-	if(epollfd < 0) {
+	if epollfd < 0 {
 		Log.error(ctx, "IOManagerMonoEpoll: Failed to create epollfd!")
 		return false
 	}
@@ -194,37 +186,35 @@ func doExecute(ctx as LoggingContext) override as bool
 		var events = new Mono.Unix.Native.EpollEvent[1024];
 	}}}
 	Log.debug(ctx, "IOManagerMonoEpoll: Started")
-	while(exitflag == false) {
+	while exitflag == false {
 		lang "cs" {{{
 			r = Mono.Unix.Native.Syscall.epoll_wait(epollfd, events, 1024, -1);
 		}}}
-		if(r > 0) {
-			for (var x=0; x<r; x++) {
+		if r > 0 {
+			for(var x=0; x<r; x++) {
 				var epollErr = lang "cs" int {{{ (int)Mono.Unix.Native.EpollEvents.EPOLLERR }}}
 				var epollHup = lang "cs" int {{{ (int)Mono.Unix.Native.EpollEvents.EPOLLHUP }}}
 				var epollIn = lang "cs" int {{{ (int)Mono.Unix.Native.EpollEvents.EPOLLIN }}}
 				var epollOut = lang "cs" int {{{ (int)Mono.Unix.Native.EpollEvents.EPOLLOUT }}}
 				var epollEvents = lang "cs" int {{{ (int)events[x].events }}}
-				if((epollEvents & epollErr) != 0) {
-					; // var entryfd = lang "cs" int {{{ events[x].fd; }}};
+				if (epollEvents & epollErr) != 0 {
+					nop // var entryfd = lang "cs" int {{{ events[x].fd; }}};
 				}
-				if((epollEvents & epollHup) != 0) {
-					; // var entryfd = lang "cs" int {{{ events[x].fd; }}};
+				if (epollEvents & epollHup) != 0 {
+					nop // var entryfd = lang "cs" int {{{ events[x].fd; }}};
 				}
-				if((epollEvents & epollIn) != 0) {
+				if (epollEvents & epollIn) != 0 {
 					var entryfd = lang "cs" int {{{ events[x].fd; }}}
-					foreach(entry as MyEntry in readlist) {
-						if(entryfd == entry.getFileDescriptor()) {
+					foreach entry as MyEntry in readlist {
+						if entryfd == entry.getFileDescriptor():
 							entry.onReadReady()
-						}
 					}
 				}
-				if((epollEvents & epollOut) != 0) {
+				if (epollEvents & epollOut) != 0 {
 					var entryfd = lang "cs" int {{{ events[x].fd; }}}
-					foreach(entry as MyEntry in readlist) {
-						if(entryfd == entry.getFileDescriptor()) {
+					foreach entry as MyEntry in readlist {
+						if entryfd == entry.getFileDescriptor():
 							entry.onWriteReady()
-						}
 					}
 				}
 			}
@@ -244,8 +234,8 @@ func doExecute(ctx as LoggingContext) override as bool
 func stop override
 {
 	exitflag = true
-	if(commpipewritefd >= 0) {
-		; // FIXME - Should be written in the equivalent C#
+	if commpipewritefd >= 0 {
+		nop // FIXME - Should be written in the equivalent C#
 		// lang "cs" {{{
 		// 	char c = 1
 		// 	write(commpipewritefd, &c, 1)
@@ -260,10 +250,7 @@ func isRunning as bool
 
 func add(o as object) override as IOManagerEntry
 {
-	var fdObject = o as FileDescriptor
-	if(fdObject == null) {
-		return null
-	}
+	var fdObject = assert o as FileDescriptor
 	return new MyEntry().setMaster(this).setFdObject(fdObject)
 }
 

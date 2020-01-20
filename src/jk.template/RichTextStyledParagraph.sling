@@ -36,50 +36,45 @@ prop segments as vector<RichTextSegment>
 
 func isHeading as bool
 {
-	if(heading > 0) {
+	if heading > 0:
 		return true
-	}
 	return false
 }
 
 func getTextContent as string
 {
 	var sb = new StringBuilder()
-	foreach(segment as RichTextSegment in segments) {
-		sb.append(segment.getText())
-	}
+	foreach segment as RichTextSegment in segments:
+		sb.appendString(segment.getText())
 	return sb.toString()
 }
 
 func toJson override as DynamicMap
 {
 	var segs = new vector<object>
-	foreach(segment as RichTextSegment in segments){
+	foreach segment as RichTextSegment in segments {
 		var segj = segment.toJson()
-		if(segj != null) {
+		if segj:
 			Vector.append(segs, segj)
-		}
 	}
 	var v = new DynamicMap()
-	v.set("type", "styled")
-	v.set("heading", heading)
-	v.set("segments", segs)
+	v.setString("type", "styled")
+	v.setInteger("heading", heading)
+	v.setObject("segments", segs)
 	return v
 }
 
 func toText override as string
 {
 	var sb = new StringBuilder()
-	foreach(sg as RichTextSegment in segments) {
-		sb.append(sg.getText())
+	foreach sg as RichTextSegment in segments {
+		sb.appendString(sg.getText())
 		var link = sg.getLink()
-		if(String.isEmpty(link) == false) {
-			sb.append(" (" .. link .. ")")
-		}
+		if String.isEmpty(link) == false:
+			sb.appendString(" (" .. link .. ")")
 		var ref = sg.getReference()
-		if(String.isEmpty(ref) == false) {
-			sb.append(" {" .. ref.. "}")
-		}
+		if String.isEmpty(ref) == false:
+			sb.appendString(" {" .. ref.. "}")
 	}
 	return sb.toString()
 }
@@ -90,12 +85,12 @@ func toHtml(refs as RichTextDocumentReferenceResolver) override as string
 	var tag = "p"
 	if heading > 0:
 		tag = "h" .. String.forInteger(heading)
-	sb.append("<")
-	sb.append(tag)
-	sb.append(">")
+	sb.appendString("<")
+	sb.appendString(tag)
+	sb.appendString(">")
 	foreach sg as RichTextSegment in segments:
-		sb.append(sg.toHtml(refs))
-	sb.append("</"  .. tag .. ">")
+		sb.appendString(sg.toHtml(refs))
+	sb.appendString("</"  .. tag .. ">")
 	return sb.toString()
 }
 
@@ -111,18 +106,18 @@ func addSegment(rts as RichTextSegment) as RichTextParagraph
 
 func setSegmentLink(seg as RichTextSegment, alink as string)
 {
-	if(alink == null) {
+	if alink == null {
 		seg.setLink(null)
 		return
 	}
 	var link = alink
-	if(String.startsWith(link, ">")) {
+	if String.startsWith(link, ">") {
 		seg.setIsInline(true)
-		link = String.subString(link, 1)
+		link = String.getEndOfString(link, 1)
 	}
-	if(String.startsWith(link, "!")) {
+	if String.startsWith(link, "!") {
 		seg.setLinkPopup(false)
-		link = String.subString(link, 1)
+		link = String.getEndOfString(link, 1)
 	}
 	else {
 		seg.setLinkPopup(true)
@@ -140,44 +135,43 @@ func parseSegments(txt as string)
 	var c as char
 	var pc = 0 as char
 	var seg = new RichTextSegment()
-	while((c = it.getNextChar()) > 0) {
-		if(pc == '[') {
-			if(c == '[') {
-				sb.append(c)
+	while (c = it.getNextChar()) > 0 {
+		if pc == '[' {
+			if c == '[' {
+				sb.appendCharacter(c)
 				pc = 0 as char
 				continue
 			}
-			if(sb.count() > 0) {
+			if sb.count() > 0 {
 				seg.setText(sb.toString())
 				sb.clear()
 				addSegment(seg)
 			}
 			seg = new RichTextSegment()
 			linksb = new StringBuilder()
-			linksb.append(c)
+			linksb.appendCharacter(c)
 			pc = c
 			continue
 		}
-		if(linksb != null) {
-			if(c == '|') {
+		if linksb {
+			if c == '|' {
 				setSegmentLink(seg, linksb.toString())
 				linksb.clear()
 				pc = c
 				continue
 			}
-			if(c == ']') {
+			if c == ']' {
 				var xt = linksb.toString()
-				if(seg.getLink() == null) {
+				if seg.getLink() == null {
 					setSegmentLink(seg, xt)
 				}
 				else {
 					seg.setText(xt)
 				}
-				if(String.isEmpty(seg.getText())) {
+				if String.isEmpty(seg.getText()) {
 					var ll = xt
-					if(String.startsWith(ll, "http://")) {
-						ll = String.subString(ll, 7)
-					}
+					if String.startsWith(ll, "http://"):
+						ll = String.getEndOfString(ll, 7)
 					seg.setText(ll)
 				}
 				addSegment(seg)
@@ -185,38 +179,38 @@ func parseSegments(txt as string)
 				linksb = null
 			}
 			else {
-				linksb.append(c)
+				linksb.appendCharacter(c)
 			}
 			pc = c
 			continue
 		}
-		if(pc == '{') {
-			if(c == '{') {
-				sb.append(c)
+		if pc == '{' {
+			if c == '{' {
+				sb.appendCharacter(c)
 				pc = 0 as char
 				continue
 			}
-			if(sb.count() > 0) {
+			if sb.count() > 0 {
 				seg.setText(sb.toString())
 				sb.clear()
 				addSegment(seg)
 			}
 			seg = new RichTextSegment()
 			segmentsb = new StringBuilder()
-			segmentsb.append(c)
+			segmentsb.appendCharacter(c)
 			pc = c
 			continue
 		}
-		if(segmentsb != null) {
-			if(c == '|') {
+		if segmentsb {
+			if c == '|' {
 				seg.setReference(segmentsb.toString())
 				segmentsb.clear()
 				pc = c
 				continue
 			}
-			if(c == '}') {
+			if c == '}' {
 				var xt = segmentsb.toString()
-				if(seg.getReference() == null) {
+				if seg.getReference() == null {
 					seg.setReference(xt)
 				}
 				else {
@@ -227,19 +221,19 @@ func parseSegments(txt as string)
 				segmentsb = null
 			}
 			else {
-				segmentsb.append(c)
+				segmentsb.appendCharacter(c)
 			}
 			pc = c
 			continue
 		}
-		if(pc == '*') {
-			if(c == '*') {
-				if(sb.count() > 0) {
+		if pc == '*' {
+			if c == '*' {
+				if sb.count() > 0 {
 					seg.setText(sb.toString())
 					sb.clear()
 					addSegment(seg)
 				}
-				if(seg.getBold()) {
+				if seg.getBold() {
 					seg = new RichTextSegment().setBold(false)
 				}
 				else {
@@ -247,20 +241,20 @@ func parseSegments(txt as string)
 				}
 			}
 			else {
-				sb.append(pc)
-				sb.append(c)
+				sb.appendCharacter(pc)
+				sb.appendCharacter(c)
 			}
 			pc = 0 as char
 			continue
 		}
-		if(pc == '_') {
-			if(c == '_') {
-				if(sb.count() > 0) {
+		if pc == '_' {
+			if c == '_' {
+				if sb.count() > 0 {
 					seg.setText(sb.toString())
 					sb.clear()
 					addSegment(seg)
 				}
-				if(seg.getUnderline()) {
+				if seg.getUnderline() {
 					seg = new RichTextSegment().setUnderline(false)
 				}
 				else {
@@ -268,20 +262,20 @@ func parseSegments(txt as string)
 				}
 			}
 			else {
-				sb.append(pc)
-				sb.append(c)
+				sb.appendCharacter(pc)
+				sb.appendCharacter(c)
 			}
 			pc = 0 as char
 			continue
 		}
-		if(pc == '\'') {
-			if(c == '\'') {
-				if(sb.count() > 0) {
+		if pc == '\'' {
+			if c == '\'' {
+				if sb.count() > 0 {
 					seg.setText(sb.toString())
 					sb.clear()
 					addSegment(seg)
 				}
-				if(seg.getItalic()) {
+				if seg.getItalic() {
 					seg = new RichTextSegment().setItalic(false)
 				}
 				else {
@@ -289,21 +283,19 @@ func parseSegments(txt as string)
 				}
 			}
 			else {
-				sb.append(pc)
-				sb.append(c)
+				sb.appendCharacter(pc)
+				sb.appendCharacter(c)
 			}
 			pc = 0 as char
 			continue
 		}
-		if(c != '*' && c != '_' && c != '\'' && c != '{' && c != '[') {
-			sb.append(c)
-		}
+		if c != '*' && c != '_' && c != '\'' && c != '{' && c != '[':
+			sb.appendCharacter(c)
 		pc = c
 	}
-	if(pc == '*' || pc == '_' || pc == '\'' && pc != '{' && pc != '[') {
-		sb.append(pc)
-	}
-	if(sb.count() > 0) {
+	if pc == '*' || pc == '_' || pc == '\'' && pc != '{' && pc != '[':
+		sb.appendCharacter(pc)
+	if sb.count() > 0 {
 		seg.setText(sb.toString())
 		sb.clear()
 		addSegment(seg)
@@ -312,20 +304,18 @@ func parseSegments(txt as string)
 
 func parse(text as string) as this
 {
-	if(text == null) {
+	if text == null:
 		return this
-	}
 	var txt = text
 	var prefixes = new string[] { "=", "==", "===", "====", "=====" }
 	var n as int
-	for(n=0 ; n<SIZE(prefixes); n++) {
+	for(n=0 ; n<sizeof prefixes; n++) {
 		var key = prefixes[n]
-		if(String.startsWith(txt, key .. " ") && String.endsWith(txt, " " .. key)) {
+		if String.startsWith(txt, key .. " ") && String.endsWith(txt, " " .. key) {
 			setHeading(n+1)
-			txt = String.subString(txt, String.getLength(key)+1, String.getLength(txt)-String.getLength(key)*2-2)
-			if(txt != null) {
+			txt = String.getSubString(txt, String.getLength(key)+1, String.getLength(txt)-String.getLength(key)*2-2)
+			if txt:
 				txt = String.strip(txt)
-			}
 			break
 		}
 	}
@@ -336,32 +326,31 @@ func parse(text as string) as this
 func toMarkup override as string
 {
 	var ident as string
-	if(heading == 1) {
+	if heading == 1 {
 		ident = "="
 	}
-	else if(heading == 2) {
+	else if heading == 2 {
 		ident = "=="
 	}
-	else if(heading == 3) {
+	else if heading == 3 {
 		ident = "==="
 	}
-	else if(heading == 4) {
+	else if heading == 4 {
 		ident = "===="
 	}
-	else if(heading == 5) {
+	else if heading == 5 {
 		ident = "====="
 	}
 	var sb = new StringBuilder()
-	if(String.isEmpty(ident) == false) {
-		sb.append(ident)
-		sb.append(' ')
+	if String.isEmpty(ident) == false {
+		sb.appendString(ident)
+		sb.appendCharacter(' ')
 	}
-	foreach(segment as RichTextSegment in segments) {
-		sb.append(segment.toMarkup())
-	}
-	if(String.isEmpty(ident) == false) {
-		sb.append(' ')
-		sb.append(ident)
+	foreach segment as RichTextSegment in segments:
+		sb.appendString(segment.toMarkup())
+	if String.isEmpty(ident) == false {
+		sb.appendCharacter(' ')
+		sb.appendString(ident)
 	}
 	return sb.toString()
 }

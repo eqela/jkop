@@ -131,7 +131,7 @@ class MyWSMessage
 	{
 		if statusCode < 65536 && statusCode > -1 && String.isNotEmpty(reason) {
 			var rBuffer = String.toUTF8Buffer(reason)
-			var size = SIZE(rBuffer)
+			var size = sizeof rBuffer
 			var plBuffer = Buffer.allocate(size + 2)
 			Buffer.setByte(plBuffer, 0, (statusCode >> 8) & 0xFF)
 			Buffer.setByte(plBuffer, 1, statusCode & 0xFF)
@@ -168,7 +168,7 @@ class MyWSMessage
 			size += 4
 		var payloadLength = 0
 		if payloadBuffer != null:
-			payloadLength = SIZE(payloadBuffer)
+			payloadLength = sizeof payloadBuffer
 		var plb = 0
 		if payloadLength < 126 && payloadLength >= 0 {
 			plb = payloadLength
@@ -288,7 +288,7 @@ class MyWSCloseEvent is WSCloseEvent
 	func forPayloadBuffer(payloadBuffer as buffer) static as WSCloseEvent
 	{
 		assert payloadBuffer
-		var size = SIZE(payloadBuffer)
+		var size = sizeof payloadBuffer
 		var e = new this()
 		var v as uint16
 		v |= Buffer.getByte(payloadBuffer, 0) << 8
@@ -388,7 +388,7 @@ class HTTPResponseParser
 					break
 				}
 				else {
-					sb.append(p as char)
+					sb.appendCharacter(p as char)
 				}
 				i++
 			}
@@ -410,9 +410,8 @@ class HTTPResponseParser
 					var val = String.strip(Vector.get(comps, 1))
 					v.addHeader(key, val)
 					if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
-						if(val == "chunked") {
+						if val == "chunked":
 							isChunked = true
-						}
 					}
 					else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
 						contentLength = String.toInteger(val)
@@ -448,7 +447,7 @@ class HTTPResponseParser
 				break
 			}
 			else {
-				sb.append(p as char)
+				sb.appendCharacter(p as char)
 			}
 			i++
 			if sb.count() >= 16 {
@@ -584,30 +583,30 @@ func createOpenHandshakeHTTPRequest(url as URL, key as string) static as buffer
 	// FIXME: This is temporary, there can be more additions to this.
 	assert (url && key)
 	var sb = new StringBuilder()
-	sb.append("GET ")
+	sb.appendString("GET ")
 	var path = url.toStringNohost()
 	if String.isEmpty(path) {
-		sb.append('/')
+		sb.appendCharacter('/')
 	}
 	else {
-		if String.getIndexOf(path, '/') != 0:
-			sb.append('/')
-		sb.append(path)
+		if String.getIndexOfCharacter(path, '/') != 0:
+			sb.appendCharacter('/')
+		sb.appendString(path)
 	}
-	sb.append(" HTTP/1.1\r\n")
-	sb.append("Host: ")
-	sb.append(url.getHost())
+	sb.appendString(" HTTP/1.1\r\n")
+	sb.appendString("Host: ")
+	sb.appendString(url.getHost())
 	var port = url.getPort()
 	if port != null {
-		sb.append(':')
-		sb.append(port)
+		sb.appendCharacter(':')
+		sb.appendString(port)
 	}
-	sb.append("\r\n")
-	sb.append("Upgrade: websocket\r\n")
-	sb.append("Connection: Upgrade\r\n")
-	sb.append("Sec-WebSocket-Key: ")
-	sb.append(key)
-	sb.append("\r\nSec-WebSocket-Version: 13\r\n\r\n")
+	sb.appendString("\r\n")
+	sb.appendString("Upgrade: websocket\r\n")
+	sb.appendString("Connection: Upgrade\r\n")
+	sb.appendString("Sec-WebSocket-Key: ")
+	sb.appendString(key)
+	sb.appendString("\r\nSec-WebSocket-Version: 13\r\n\r\n")
 	return String.toUTF8Buffer(sb.toString())
 }
 
@@ -616,12 +615,12 @@ func createOpenHandshakeHTTPResponse(key as string) static as buffer
 	// FIXME: This is temporary, there can be more additions to this.
 	assert key
 	var sb = new StringBuilder()
-	sb.append("HTTP/1.1 101 Switching Protocols\r\n")
-	sb.append("Upgrade: websocket\r\n")
-	sb.append("Connection: Upgrade\r\n")
-	sb.append("Sec-WebSocket-Accept: ")
-	sb.append(getAcceptValueForKey(key))
-	sb.append("\r\n\r\n")
+	sb.appendString("HTTP/1.1 101 Switching Protocols\r\n")
+	sb.appendString("Upgrade: websocket\r\n")
+	sb.appendString("Connection: Upgrade\r\n")
+	sb.appendString("Sec-WebSocket-Accept: ")
+	sb.appendString(getAcceptValueForKey(key))
+	sb.appendString("\r\n\r\n")
 	return String.toUTF8Buffer(sb.toString())
 }
 
@@ -636,7 +635,7 @@ func processData(data as buffer, size as int) private as bool
 	var nbuffer as buffer
 	var nsize as int
 	if leftOverBuffer != null {
-		var losize = SIZE(leftOverBuffer)
+		var losize = sizeof leftOverBuffer
 		nsize = losize + size
 		nbuffer = Buffer.allocate(nsize)
 		Buffer.copyFrom(nbuffer, leftOverBuffer, 0, 0, losize)
@@ -768,7 +767,7 @@ func onNewMessage(message as MyWSMessage) private
 		doSend(MyWSMessage.forPongControlFrame())
 	}
 	else if message.isPongControlFrame() {
-		; // Ignoring Pong control frame received.
+		nop // Ignoring Pong control frame received.
 	}
 	else {
 		var cb = getOnMessageCallback()
@@ -840,7 +839,7 @@ func handleConnect(u as URL, error as Error) private
 		onOpenHandshakeResponse(data, size)
 	})
 	var v = createOpenHandshakeHTTPRequest(u, key)
-	client.send(v, SIZE(v), func(oe as Error) {
+	client.send(v, sizeof v, func(oe as Error) {
 		if oe:
 			closeWithError(oe)
 	})
@@ -920,7 +919,7 @@ func doSend(message as MyWSMessage) private
 {
 	assert message
 	var data = message.toBuffer()
-	client.send(data, SIZE(data), func(error as Error) {
+	client.send(data, sizeof data, func(error as Error) {
 		if error:
 			closeWithError(error)
 	})
@@ -930,7 +929,7 @@ func close(statusCode as int, reason as string) override
 {
 	assert client
 	var data = MyWSMessage.forCloseControlFrame(WSCloseEvent.CLOSE_NORMAL).toBuffer()
-	client.send(data, SIZE(data), func(error as Error) {
+	client.send(data, sizeof data, func(error as Error) {
 		if error {
 			closeWithError(error)
 		}

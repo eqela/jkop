@@ -32,12 +32,12 @@ class:
 func forCommonDetails(serverAddress as string, serverUsername as string, serverPassword as string, senderName as string, senderAddress as string) static as this
 {
 	var config = new DynamicMap()
-	config.set("server_type", "smtp+ssl")
-	config.set("server_username", serverUsername)
-	config.set("server_password", serverPassword)
-	config.set("server_address", serverAddress)
-	config.set("sender_name", senderName)
-	config.set("sender_address", senderAddress)
+	config.setString("server_type", "smtp+ssl")
+	config.setString("server_username", serverUsername)
+	config.setString("server_password", serverPassword)
+	config.setString("server_address", serverAddress)
+	config.setString("sender_name", senderName)
+	config.setString("sender_address", senderAddress)
 	return forConfiguration(config)
 }
 
@@ -70,51 +70,45 @@ ctor:
 func getDescription as string
 {
 	var sb = new StringBuilder()
-	if(String.isEmpty(myName) == false) {
-		sb.append('"')
-		sb.append(myName)
-		sb.append('"')
+	if String.isEmpty(myName) == false {
+		sb.appendCharacter('"')
+		sb.appendString(myName)
+		sb.appendCharacter('"')
 	}
-	if(String.isEmpty(myAddress) == false) {
+	if String.isEmpty(myAddress) == false {
 		var hasName = false
-		if(sb.count() > 0) {
+		if sb.count() > 0:
 			hasName = true
+		if hasName {
+			sb.appendCharacter(' ')
+			sb.appendCharacter('<')
 		}
-		if(hasName) {
-			sb.append(' ')
-			sb.append('<')
-		}
-		sb.append(myAddress)
-		if(hasName) {
-			sb.append('>')
-		}
+		sb.appendString(myAddress)
+		if hasName:
+			sb.appendCharacter('>')
 	}
 	var s = serverInternal
-	if(String.isEmpty(s)) {
+	if String.isEmpty(s):
 		s = server
+	if String.isEmpty(s) == false {
+		sb.appendCharacter(' ')
+		sb.appendCharacter('(')
+		sb.appendString(s)
+		sb.appendCharacter(')')
 	}
-	if(String.isEmpty(s) == false) {
-		sb.append(' ')
-		sb.append('(')
-		sb.append(s)
-		sb.append(')')
-	}
-	if(sb.count() < 1) {
-		sb.append("(no configuration; raw passhtrough of messages)")
-	}
+	if sb.count() < 1:
+		sb.appendString("(no configuration; raw passhtrough of messages)")
 	return sb.toString()
 }
 
 func configure(config as DynamicMap) as this
 {
-	if(config == null) {
+	if config == null:
 		return this
-	}
 	var defaultPort = "25"
 	var scheme = config.getString("server_type", "smtp")
-	if(String.equals("smtp+ssl", scheme)) {
+	if String.equals("smtp+ssl", scheme):
 		defaultPort = "465"
-	}
 	var url = new URL()
 		.setScheme(scheme)
 		.setUsername(config.getString("server_username"))
@@ -145,47 +139,40 @@ func onSendEnd
 
 func send(msg as SMTPMessage, listener as SMTPSenderListener = null)
 {
-	if(msg == null) {
-		if(listener != null) {
+	if msg == null {
+		if listener:
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("No message to send"))
-		}
 		return
 	}
 	var rcpts = msg.getAllRcpts()
-	if(rcpts == null || rcpts.getSize() < 1) {
-		if(listener != null) {
+	if rcpts == null || rcpts.getSize() < 1 {
+		if listener:
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forSuccess())
-		}
 		return
 	}
-	if(maxSenderCount > 0 && senderCount > maxSenderCount) {
+	if maxSenderCount > 0 && senderCount > maxSenderCount {
 		Log.warning(ctx, "Reached maximum sender count " .. String.forInteger(maxSenderCount))
-		if(listener != null) {
+		if listener:
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("Maximum number of SMTP senders has been exceeded."))
-		}
 		return
 	}
-	if(String.isEmpty(myName) == false) {
+	if String.isEmpty(myName) == false:
 		msg.setMyName(myName)
-	}
-	if(String.isEmpty(myAddress) == false) {
+	if String.isEmpty(myAddress) == false:
 		msg.setMyAddress(myAddress)
-	}
 	var sct = new SMTPClientTask()
-	if(String.isEmpty(server) == false) {
+	if String.isEmpty(server) == false:
 		sct.setServer(URL.forString(server))
-	}
 	sct.setCtx(ctx)
 	sct.setServerAddress(thisServerAddress)
 	sct.setMsg(msg)
 	sct.setListener(listener)
 	sct.setSender(this)
 	sct.setAcceptInvalidCertificate(acceptInvalidCertificate)
-	if(Thread.start(sct) != null) {
+	if Thread.start(sct) != null {
 		Log.error(ctx, "Failed to start SMTP sender background task")
-		if(listener != null) {
+		if listener:
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("Failed to start SMTP sender background task"))
-		}
 		return
 	}
 	onSendStart()

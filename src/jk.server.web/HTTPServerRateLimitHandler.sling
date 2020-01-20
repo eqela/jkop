@@ -60,31 +60,22 @@ func initialize(server as HTTPServerBase)
 
 func onMaintenance
 {
-	if(addresses == null) {
-		return
-	}
+	assert addresses
 	var now = SystemClock.asSeconds()
-	if((now - lastCleanupTimeStamp) < maintenanceCleanupDelay) {
+	if (now - lastCleanupTimeStamp) < maintenanceCleanupDelay:
 		return
-	}
 	lastCleanupTimeStamp = now
 	var keys = new DynamicVector()
-	var itr = addresses.iterateValues()
-	if(itr == null) {
-		return
-	}
+	var itr = assert addresses.iterateValues()
 	loop {
 		var rc = itr.next() as RequestCounter
-		if(rc == null) {
+		if rc == null:
 			break
-		}
-		if(rc.getStartIgnoreTimeStamp() == 0 && (now - rc.getStartCountTimeStamp()) > countDuration) {
-			keys.append(rc.getIpAddress())
-		}
+		if rc.getStartIgnoreTimeStamp() == 0 && (now - rc.getStartCountTimeStamp()) > countDuration:
+			keys.appendObject(rc.getIpAddress())
 	}
-	foreach(k as string in keys.toVector()) {
+	foreach k as string in keys.toVector():
 		addresses.remove(k)
-	}
 }
 
 func onRefresh
@@ -97,7 +88,7 @@ func cleanup
 
 func handleRequest(req as HTTPServerRequest, next as function)
 {
-	if(isRequestRejected(req)) {
+	if isRequestRejected(req) {
 		req.sendJSONObject(HTTPServerJSONResponse.forNotAllowed())
 		return
 	}
@@ -107,41 +98,37 @@ func handleRequest(req as HTTPServerRequest, next as function)
 func isRequestRejected(req as HTTPServerRequest) private as bool
 {
 	var connection = req.getConnection()
-	if(connection == null) {
+	if connection == null:
 		return true
-	}
 	var socket = connection.getSocket()
-	if(socket == null) {
+	if socket == null:
 		return true
-	}
 	var ipAddress as string
-	if(socket is TCPSocket) {
+	if socket is TCPSocket {
 		ipAddress = (socket as! TCPSocket).getRemoteAddress()
 	}
 	else {
 		ipAddress = req.getRemoteAddress()
 	}
-	if(String.isEmpty(ipAddress)) {
+	if String.isEmpty(ipAddress):
 		return true
-	}
 	var now = SystemClock.asSeconds()
 	var rc = addresses.get(ipAddress) as RequestCounter
-	if(rc == null) {
-		addresses.set(ipAddress, new RequestCounter()
+	if rc == null {
+		addresses.setObject(ipAddress, new RequestCounter()
 			.setIpAddress(ipAddress)
 			.setStartCountTimeStamp(now))
 		return false
 	}
-	if(rc.getStartIgnoreTimeStamp() > 0) {
-		if((now - rc.getStartIgnoreTimeStamp()) <= ignoreDuration) {
+	if rc.getStartIgnoreTimeStamp() > 0 {
+		if (now - rc.getStartIgnoreTimeStamp()) <= ignoreDuration:
 			return true
-		}
 		addresses.remove(ipAddress)
 		return false
 	}
-	if((now - rc.getStartCountTimeStamp()) <= countDuration) {
+	if (now - rc.getStartCountTimeStamp()) <= countDuration {
 		var count = rc.getCountAfterIncrement()
-		if(count >= countLimit) {
+		if count >= countLimit {
 			rc.setStartIgnoreTimeStamp(now)
 			return true
 		}
