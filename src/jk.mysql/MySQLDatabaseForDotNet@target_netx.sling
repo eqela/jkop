@@ -178,6 +178,9 @@ class Statement is SQLStatement
 
 	func getError as string:
 		return null
+
+	func close:
+		nop
 }
 
 class ResultSet is SQLResultSetIterator
@@ -373,11 +376,10 @@ class ResultSet is SQLResultSetIterator
 
 var connectionString as string
 
-func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string) override as bool
+func doInitialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override as bool
 {
-	setDatabaseName(database)
 	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Protocol=" .. protocol .. ";Password=" .. password .. ";SslMode=" .. sslMode .. ";"
-	if getEnableUTF8():
+	if enableUTF8:
 		connectionString = connectionString .. "charset=utf8mb4;"
 	Log.debug(getLogger(), "MySQL connection string: `" .. connectionString .. "'")
 	return true
@@ -491,21 +493,5 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 			it.close()
 			callback(v)
 		}
-	})
-}
-
-func tableExists(table as string, callback as function<void, bool>) override
-{
-	var databaseName = getDatabaseName()
-	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName):
-		callback(false)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;"):
-		callback(false)
-	stmt.addParamString(databaseName)
-	stmt.addParamString(table)
-	querySingleRow(stmt, func(sr as DynamicMap) {
-		assert sr:
-			callback(false)
-		callback(String.equalsIgnoreCase(table, sr.getString("TABLE_NAME")))
 	})
 }
