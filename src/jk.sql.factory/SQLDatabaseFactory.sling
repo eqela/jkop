@@ -33,26 +33,33 @@ import jk.sqlite
 
 class:
 
-func getDatabase(ctx as LoggingContext, connectionString as string, sslMode as string = MySQLDatabase.SSL_MODE_NONE, enableUTF8 as bool = false) static as SQLDatabase
+func getDatabase(ctx as LoggingContext, connectionString as string) static as SQLDatabase
 {
-	var comps = assert String.split(connectionString, ':', 2)
-	var dbtype = Vector.get(comps, 0)
-	var dbstr = Vector.get(comps, 1)
-	assert String.isNotEmpty(dbtype)
-	assert String.isNotEmpty(dbstr)
+	var dbtype as string
+	var dbstr as string
+	var comps = String.split(connectionString, ':', 2)
+	if comps {
+		dbtype = Vector.get(comps, 0)
+		dbstr = Vector.get(comps, 1)
+	}
+	assert String.isNotEmpty(dbtype):
+		Log.error(ctx, "Invalid connection string: Failed to determine database type")
 	if dbtype == "mssql":
 		return MSSQLDatabase.forConnectionString(dbstr, ctx)
 	if dbtype == "mysql":
-		return MySQLDatabase.forConnectionString(dbstr, ctx, sslMode, enableUTF8)
+		return MySQLDatabase.forConnectionString(ctx, dbstr)
 	if dbtype == "sqlite":
 		return SQLiteDatabase.forFile(File.forPath(dbstr), true, ctx)
+	Log.error(ctx, "Unsupported database type: `" .. dbtype .. "'")
 	return null
 }
 
-func getDatabase(ctx as LoggingContext, config as DynamicMap) static as SQLDatabase
+func getDatabaseWithConfig(ctx as LoggingContext, config as DynamicMap) static as SQLDatabase
 {
 	assert config
-	if config.getString("type") == "mysql":
+	var type = config.getString("type")
+	if type == "mysql":
 		return MySQLDatabase.forConfig(ctx, config)
+	Log.error(ctx, "Unsupported database type in getDatabaseWithConfig: `" .. type .. "'")
 	return null
 }
