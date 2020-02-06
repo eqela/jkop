@@ -669,7 +669,8 @@ func isSecureConnection as bool:
 func getMyCapabilityFlags as int
 {
 	var v = 0
-	v |= CapabilityFlags.CLIENT_SSL
+	if isSecureConnection():
+		v |= CapabilityFlags.CLIENT_SSL
 	v |= CapabilityFlags.CLIENT_PROTOCOL_41
 	v |= CapabilityFlags.CLIENT_SECURE_CONNECTION
 	v |= CapabilityFlags.CLIENT_PLUGIN_AUTH
@@ -918,18 +919,25 @@ func createComQuery(query as string) as buffer
 	return pm.finalize(getNextSequence())
 }
 
-func createAuthenticationPacket(authPlugin as string, authData as string) private as buffer
+func createAuthenticationPacket(authPlugin as string, authData as string, forAuthSwitch as bool = false) private as buffer
 {
 	var pm = new PacketMaker()
-	pm.appendInt32(getMyCapabilityFlags())
-	pm.appendInt32(0xffffffff)
-	pm.appendByte(0xff)
-	pm.appendMultipleBytes(0, 23)
-	pm.appendNullTerminatedString(username)
+	if not forAuthSwitch {
+		pm.appendInt32(getMyCapabilityFlags())
+		pm.appendInt32(0xffffffff)
+		pm.appendByte(0xff)
+		pm.appendMultipleBytes(0, 23)
+		pm.appendNullTerminatedString(username)
+	}
 	if authPlugin == "mysql_clear_password" {
-		pm.appendByte(String.getLength(password))
-		pm.appendBuffer(String.toUTF8Buffer(password))
-		pm.appendNullTerminatedString("mysql_clear_password")
+		if not forAuthSwitch {
+			pm.appendByte(String.getLength(password))
+			pm.appendBuffer(String.toUTF8Buffer(password))
+			pm.appendNullTerminatedString("mysql_clear_password")
+		}
+		else {
+			pm.appendBuffer(String.toUTF8Buffer(password))
+		}
 	}
 	else if authPlugin == "mysql_native_password" {
 		var bpassword = String.toUTF8Buffer(password)
@@ -937,8 +945,8 @@ func createAuthenticationPacket(authPlugin as string, authData as string) privat
 		var encoder = assert SHAEncoder.create():
 			logError("Failed to create a SHA encoder!")
 		var h1 = encoder.encodeAsBuffer(bpassword, SHAEncoder.SHA1)
-logDebug("SHA1('" .. password .. "') = " .. SHAEncoder.getSha1HashForString(password))
-logDebug("SHA1('" .. password .. "') = " .. String.forBufferHex(h1))
+		logDebug("SHA1('" .. password .. "') = " .. SHAEncoder.getSha1HashForString(password))
+		logDebug("SHA1('" .. password .. "') = " .. String.forBufferHex(h1))
 		var hpw2 = encoder.encodeAsBuffer(h1, SHAEncoder.SHA1)
 		var concat = Buffer.append(bdata, hpw2)
 		var h2 = encoder.encodeAsBuffer(concat, SHAEncoder.SHA1)
@@ -946,9 +954,14 @@ logDebug("SHA1('" .. password .. "') = " .. String.forBufferHex(h1))
 			logError("SHA1 encoder returned buffers that are not 20 bytes!")
 		for(var n=0; n<20; n++):
 			h1[n] = h1[n] ^ h2[n]
-		pm.appendByte(20)
-		pm.appendBuffer(h1)
-		pm.appendNullTerminatedString("mysql_native_password")
+		if not forAuthSwitch {
+			pm.appendByte(20)
+			pm.appendBuffer(h1)
+			pm.appendNullTerminatedString("mysql_native_password")
+		}
+		else {
+			pm.appendBuffer(h1)
+		}
 	}
 	else if authPlugin == "caching_sha2_password" || authPlugin == "sha256_password" {
 		var bpassword = String.toUTF8Buffer(password)
@@ -956,7 +969,7 @@ logDebug("SHA1('" .. password .. "') = " .. String.forBufferHex(h1))
 		var encoder = assert SHAEncoder.create():
 			logError("Failed to create a SHA encoder!")
 		var h1 = encoder.encodeAsBuffer(bpassword, SHAEncoder.SHA256)
-logDebug("SHA256('" .. password .. "') = " .. String.forBufferHex(h1))
+		logDebug("SHA256('" .. password .. "') = " .. String.forBufferHex(h1))
 		var hpw2 = encoder.encodeAsBuffer(h1, SHAEncoder.SHA256)
 		var concat = Buffer.append(hpw2, bdata)
 		var h2 = encoder.encodeAsBuffer(concat, SHAEncoder.SHA256)
@@ -966,9 +979,14 @@ logDebug("SHA256('" .. password .. "') = " .. String.forBufferHex(h1))
 			logError("SHA256 encoder returned different size buffers " .. String.forInteger(sz) .. " and " .. String.forInteger(sz2) .. "!")
 		for(var n=0; n<sz; n++):
 			h1[n] = h1[n] ^ h2[n]
-		pm.appendByte(sz)
-		pm.appendBuffer(h1)
-		pm.appendNullTerminatedString("caching_sha2_password")
+		if not forAuthSwitch {
+			pm.appendByte(sz)
+			pm.appendBuffer(h1)
+			pm.appendNullTerminatedString("caching_sha2_password")
+		}
+		else {
+			pm.appendBuffer(h1)
+		}
 	}
 	else {
 		logError("Unsupported authentication plugin requested by server: `" .. authPlugin .. "'")
@@ -977,9 +995,9 @@ logDebug("SHA256('" .. password .. "') = " .. String.forBufferHex(h1))
 	return pm.finalize(getNextSequence())
 }
 
-func handleAuthenticationSync(authPlugin as string, authData as string) as bool
+func handleAuthenticationSync(authPlugin as string, authData as string, forAuthSwitch as bool = false) as bool
 {
-	var response = sendAndReceive(createAuthenticationPacket(authPlugin, authData))
+	var response = sendAndReceive(createAuthenticationPacket(authPlugin, authData, forAuthSwitch))
 	if not response:
 		return false
 	if authPlugin == "caching_sha2_password" {
@@ -994,13 +1012,10 @@ func handleAuthenticationSync(authPlugin as string, authData as string) as bool
 				return false
 			}
 		}
-		/*
-		// FIXME: When the SHA256 implementation works, we might get this..
 		else if sizeof response == 2 && response[0] == 0x01 && response[1] == 0x03 {
 			logInfo("FAST SUCCESS")
 			return true
 		}
-		*/
 	}
 	if handleAsErrorPacket(response) {
 		closeSocket()
@@ -1023,7 +1038,7 @@ func handleAuthenticationSync(authPlugin as string, authData as string) as bool
 				closeSocket()
 				return false
 			}
-			return handleAuthenticationSync(pluginName, authPluginData)
+			return handleAuthenticationSync(pluginName, authPluginData, true)
 		}
 	}
 	logError("Unknown packet received from MySQL server as response to handshake response.")
