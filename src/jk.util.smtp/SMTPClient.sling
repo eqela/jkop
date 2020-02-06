@@ -71,11 +71,11 @@ func communicate(ins as PrintReader, expectCode as string, ctx as LoggingContext
 	var sb = new StringBuilder()
 	var line = ins.readLine()
 	if String.isEmpty(line) == false:
-		sb.append(line)
+		sb.appendString(line)
 	while String.isEmpty(line) == false && String.getChar(line, 3) == '-' {
 		line = ins.readLine()
 		if String.isEmpty(line) == false:
-			sb.append(line)
+			sb.appendString(line)
 	}
 	if String.isEmpty(line) == false && String.getChar(line, 3) == ' ' {
 		if String.isEmpty(expectCode):
@@ -104,10 +104,10 @@ func rcptAsEmailAddress(ss as string) private static as string
 {
 	if String.isEmpty(ss):
 		return ss
-	var b = String.getIndexOf(ss, '<')
+	var b = String.getIndexOfCharacter(ss, '<')
 	if b < 0:
 		return ss
-	var e = String.getIndexOf(ss, '>')
+	var e = String.getIndexOfCharacter(ss, '>')
 	if e < 0:
 		return ss
 	return String.getSubString(ss, b + 1, e - b - 1)
@@ -153,12 +153,12 @@ func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as
 			r.addTransaction(SMTPClientTransactionResult.forError("Invalid recipient address: `" .. rcpt .. "'"))
 			break
 		}
-		var at = String.getIndexOf(em, '@')
+		var at = String.getIndexOfCharacter(em, '@')
 		if at < 0 {
 			r.addTransaction(SMTPClientTransactionResult.forError("Invalid recipient address: `" .. rcpt .. "'"))
 			break
 		}
-		var sa = String.getSubString(em, at + 1)
+		var sa = String.getEndOfString(em, at + 1)
 		if String.isEmpty(sa) {
 			r.addTransaction(SMTPClientTransactionResult.forError("Invalid recipient address: `" .. rcpt .. "'"))
 			break
@@ -166,9 +166,9 @@ func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as
 		var ss = servers.get(sa) as DynamicVector
 		if ss == null {
 			ss = new DynamicVector()
-			servers.set(sa, ss)
+			servers.setObject(sa, ss)
 		}
-		ss.append(rcpt)
+		ss.appendObject(rcpt)
 	}
 	var itr = servers.iterateKeys()
 	while itr {
@@ -237,19 +237,19 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 	if ops == null || ins == null:
 		return SMTPClientTransactionResult.forError("Unable to establish SMTP I/O streams")
 	var err as string
-	if((err = communicate(ins, "220", ctx)) != null):
+	if (err = communicate(ins, "220", ctx)) != null:
 		return SMTPClientTransactionResult.forError(err)
 	var sn = serverName
 	if String.isEmpty(sn):
 		sn = "smtpclient.jkop"
 	if writeLine(ops, "EHLO " .. sn, ctx) == false:
 		return SMTPClientTransactionResult.forNetworkError()
-	if((err = communicate(ins, "250", ctx)) != null):
+	if (err = communicate(ins, "250", ctx)) != null:
 		return SMTPClientTransactionResult.forError(err)
 	if String.equals("smtp+tls", scheme) {
 		if writeLine(ops, "STARTTLS", ctx) == false:
 			return SMTPClientTransactionResult.forNetworkError()
-		if((err = communicate(ins, "220", ctx)) != null):
+		if (err = communicate(ins, "220", ctx)) != null:
 			return SMTPClientTransactionResult.forError(err)
 		ops = null
 		ins = null
@@ -260,7 +260,7 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 		ins = PrintReader.forReader(socket)
 		if writeLine(ops, "EHLO " .. sn, ctx) == false:
 			return SMTPClientTransactionResult.forNetworkError()
-		if((err = communicate(ins, "250", ctx)) != null):
+		if (err = communicate(ins, "250", ctx)) != null:
 			return SMTPClientTransactionResult.forError(err)
 	}
 	var username = url.getUsername()
@@ -268,32 +268,32 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 	if String.isEmpty(username) == false {
 		if writeLine(ops, "AUTH login", ctx) == false:
 			return SMTPClientTransactionResult.forNetworkError()
-		if((err = communicate(ins, "334", ctx)) != null):
+		if (err = communicate(ins, "334", ctx)) != null:
 			return SMTPClientTransactionResult.forError(err)
 		if writeLine(ops, encode(username), ctx) == false:
 			return SMTPClientTransactionResult.forNetworkError()
-		if((err = communicate(ins, "334", ctx)) != null):
+		if (err = communicate(ins, "334", ctx)) != null:
 			return SMTPClientTransactionResult.forError(err)
 		if writeLine(ops, encode(password), ctx) == false:
 			return SMTPClientTransactionResult.forNetworkError()
-		if((err = communicate(ins, "235|530", ctx)) != null):
+		if (err = communicate(ins, "235|530", ctx)) != null:
 			return SMTPClientTransactionResult.forError(err)
 	}
 	if writeLine(ops, "MAIL FROM:<" .. msg.getMyAddress() .. ">", ctx) == false:
 		return SMTPClientTransactionResult.forNetworkError()
-	if((err = communicate(ins, "250", ctx)) != null):
+	if (err = communicate(ins, "250", ctx)) != null:
 		return SMTPClientTransactionResult.forError(err)
 	if rcpts {
 		foreach rcpt as string in rcpts.toVector() {
 			if writeLine(ops, "RCPT TO:<" .. rcptAsEmailAddress(rcpt) .. ">", ctx) == false:
 				return SMTPClientTransactionResult.forNetworkError()
-			if((err = communicate(ins, "250", ctx)) != null):
+			if (err = communicate(ins, "250", ctx)) != null:
 				return SMTPClientTransactionResult.forError(err)
 		}
 	}
 	if writeLine(ops, "DATA", ctx) == false:
 		return SMTPClientTransactionResult.forNetworkError()
-	if((err = communicate(ins, "354", ctx)) != null):
+	if (err = communicate(ins, "354", ctx)) != null:
 		return SMTPClientTransactionResult.forError(err)
 	if String.isEmpty(msg.getMessageID()):
 		msg.generateMessageID(sn)
@@ -303,7 +303,7 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 		return SMTPClientTransactionResult.forNetworkError()
 	if ops.print("\r\n.\r\n") == false:
 		return SMTPClientTransactionResult.forNetworkError()
-	if((err = communicate(ins, "250", ctx)) != null):
+	if (err = communicate(ins, "250", ctx)) != null:
 		return SMTPClientTransactionResult.forError(err)
 	if writeLine(ops, "QUIT", ctx) == false:
 		return SMTPClientTransactionResult.forNetworkError()

@@ -81,6 +81,13 @@ func asString(obj as object) static as string
 }
 
 **
+** Converts an arbitrary object to a string, if possible.
+**
+
+func forObject(obj as object) static as string:
+	return asString(obj)
+
+**
 ** Returns a safe string (= make sure it is not null). Essentially returns a valid
 ** non-null empty string if the value is null. Otherwise returns the string itself.
 **
@@ -96,42 +103,42 @@ func safeString(str as string) static as string
 ** Converts an integer to a string
 **
 
-func asString(value as int) static as string:
+func integerAsString(value as int) static as string:
 	return forInteger(value)
 
 **
 ** Converts a double to a string
 **
 
-func asString(value as double) static as string:
+func doubleAsString(value as double) static as string:
 	return forDouble(value)
 
 **
 ** Converts a buffer to a string
 **
 
-func asString(value as buffer) static as string:
+func bufferAsString(value as buffer) static as string:
 	return forUTF8Buffer(value)
 
 **
 ** Converts a boolean to a string
 **
 
-func asString(value as bool) static as string:
+func booleanAsString(value as bool) static as string:
 	return forBoolean(value)
 
 **
 ** Converts a character to a string
 **
 
-func asString(value as char) static as string:
+func characterAsString(value as char) static as string:
 	return forCharacter(value)
 
 **
 ** Converts a float to a string
 **
 
-func asString(value as float) static as string:
+func floatAsString(value as float) static as string:
 	return forFloat(value)
 
 **
@@ -233,7 +240,7 @@ func forASCIIBuffer(data as buffer #used) static as string
 			uintArray = new Uint8Array(data);
 		}}}
 		for(var i = 0; i < sizeof uintArray; i++):
-			sb.append(lang "js" string {{{ String.fromCharCode(uintArray[i]) }}})
+			sb.appendString(lang "js" string {{{ String.fromCharCode(uintArray[i]) }}})
 		return sb.toString()
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -249,7 +256,7 @@ func forASCIIBuffer(data as buffer #used) static as string
 		var sb = new StringBuilder()
 		var sz = sizeof data
 		for(var n=0; n<sz; n++):
-			sb.append(data[n] as char)
+			sb.appendCharacter(data[n] as char)
 		return sb.toString()
 	}
 }
@@ -297,7 +304,7 @@ func forUTF8Buffer(data as buffer #used) static as string
 			if ci.hasEnded():
 				break
 			var c = ci.getCurrentChar()
-			sb.append(c)
+			sb.appendCharacter(c)
 			ci.moveToNextChar()
 		}
 		return sb.toString()
@@ -374,7 +381,7 @@ func forCharArray(chars as char[] #used, offset as int #used, count as int #used
 		var sb = new StringBuilder()
 		var sz = sizeof chars
 		for(var n=0; n<count && n+offset<sz; n++):
-			sb.append(chars[n+offset])
+			sb.appendCharacter(chars[n+offset])
 		return sb.toString()
 	}
 }
@@ -482,12 +489,12 @@ func formatNumberString(vv as string, delimiter as char) static as string
 		var c = it.getNextChar()
 		if c < 1:
 			break
-		sb.append(c)
+		sb.appendCharacter(c)
 		rr --
 		if rr < 1:
 			break
 		if rr % 3 == 0:
-			sb.append(delimiter)
+			sb.appendCharacter(delimiter)
 	}
 	return sb.toString()
 }
@@ -532,8 +539,8 @@ func forIntegerWithPadding(vv as int, length as int, paddingString as string = n
 	var sb = new StringBuilder()
 	var n as int
 	for(n=0; n<length-ll; n++):
-		sb.append(ps)
-	sb.append(r)
+		sb.appendString(ps)
+	sb.appendString(r)
 	return sb.toString()
 }
 
@@ -547,7 +554,7 @@ func stripLeadingZeros(str as string) static as string
 			if Character.isEOF(c):
 				break
 			if c != '0':
-				return getSubString(str, i)
+				return getEndOfString(str, i)
 			i++
 		}
 		return ""
@@ -708,8 +715,8 @@ func forBufferHex(buffer as buffer) static as string
 	while p < size {
 		var s = forIntegerHex(Buffer.getByte(buffer, p))
 		if getLength(s) < 2:
-			sb.append('0')
-		sb.append(s)
+			sb.appendCharacter('0')
+		sb.appendString(s)
 		p ++
 	}
 	return sb.toString()
@@ -736,7 +743,7 @@ func forCharacter(vv as char #used) static as string
 		return lang "java" string {{{ java.lang.String.valueOf(vv) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" string {{{ vv.toString() }}}
+		return lang "js" string {{{ String.fromCharCode(vv) }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		if vv < 0x80 {
@@ -842,7 +849,7 @@ func forDouble(vv as double #used) static as string
 	}
 	ELSE IFDEF "target_cs" {
 		var str = lang "cs" string {{{ vv.ToString("0." + new string('#', 339)) }}}
-		if getIndexOf(str, '.') < 0:
+		if getIndexOfCharacter(str, '.') < 0:
 			str = str .. ".0"
 		return str
 	}
@@ -939,7 +946,7 @@ func toBuffer(str as string, charset as string) static as buffer
 	}
 }
 
-func getBytesUnsigned(str as string) private static as uint8[]:
+func getBytesUnsignedUTF8(str as string) private static as uint8[]:
 	return getBytesUnsigned(str, "UTF-8")
 
 func getBytesUnsigned(str as string #used, charset as string) private static as uint8[]
@@ -1027,10 +1034,8 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 	}
 }
 
-func getBytesSigned(str as string) static as int8[]
-{
+func getBytesSignedUTF8(str as string) static as int8[]:
 	return getBytesSigned(str, "UTF-8")
-}
 
 func getBytesSigned(str as string #used, charset as string) static as int8[]
 {
@@ -1129,7 +1134,7 @@ func getLength(str as string #used) static as int
 ** and if "str2" is null, the value of "str1" is returned.
 **
 
-func append(str1 as string #used, str2 as string #used) static as string
+func appendString(str1 as string #used, str2 as string #used) static as string
 {
 	if str1 == null:
 		return str2
@@ -1168,8 +1173,8 @@ func append(str1 as string #used, str2 as string #used) static as string
 ** the integer value.
 **
 
-func append(str as string, intvalue as int) static as string:
-	return append(str, forInteger(intvalue))
+func appendInteger(str as string, intvalue as int) static as string:
+	return appendString(str, forInteger(intvalue))
 
 **
 ** Appends a character value "charvalue" to the end of string "str". If the
@@ -1177,8 +1182,8 @@ func append(str as string, intvalue as int) static as string:
 ** the character value.
 **
 
-func append(str as string, charvalue as char) static as string:
-	return append(str, forCharacter(charvalue))
+func appendCharacter(str as string, charvalue as char) static as string:
+	return appendString(str, forCharacter(charvalue))
 
 **
 ** Appends a floating point value "floatvalue" to the end of string "str". If the
@@ -1186,8 +1191,8 @@ func append(str as string, charvalue as char) static as string:
 ** the floating point value.
 **
 
-func append(str as string, floatvalue as float) static as string:
-	return append(str, forFloat(floatvalue))
+func appendFloat(str as string, floatvalue as float) static as string:
+	return appendString(str, forFloat(floatvalue))
 
 **
 ** Appends a double-precision floating point value "doublevalue" to the end of
@@ -1195,8 +1200,8 @@ func append(str as string, floatvalue as float) static as string:
 ** representing only the floating point value.
 **
 
-func append(str as string, doublevalue as double) static as string:
-	return append(str, forDouble(doublevalue))
+func appendDouble(str as string, doublevalue as double) static as string:
+	return appendString(str, forDouble(doublevalue))
 
 **
 ** Appends a boolean value "boolvalue" to the end of string "str". If the
@@ -1204,8 +1209,8 @@ func append(str as string, doublevalue as double) static as string:
 ** the boolean value.
 **
 
-func append(str as string, boolvalue as bool) static as string:
-	return append(str, forBoolean(boolvalue))
+func appendBoolean(str as string, boolvalue as bool) static as string:
+	return appendString(str, forBoolean(boolvalue))
 
 **
 ** Converts all characters of a string to lowercase.
@@ -1291,7 +1296,7 @@ func capitalize(str as string) static as string
 	var c = getChar(str, 0)
 	if Character.isLowercaseAlpha(c) == false:
 		return str
-	return forCharacter(Character.toUppercase(c)) .. getSubString(str, 1)
+	return forCharacter(Character.toUppercase(c)) .. getEndOfString(str, 1)
 }
 
 **
@@ -1575,18 +1580,10 @@ func getHashCode(str as string #used) static as int
 
 **
 ** Gets the first index of a given character "c" in string "str", starting from
-** index "start". This method is deprecated, use getIndexOf() instead.
-**
-
-func indexOf(str as string, c as char, start as int = 0) static as int #deprecated:
-	return getIndexOf(str, c, start)
-
-**
-** Gets the first index of a given character "c" in string "str", starting from
 ** index "start".
 **
 
-func getIndexOf(str as string #used, c as char #used, start as int #used = 0) static as int
+func getIndexOfCharacter(str as string #used, c as char #used, start as int #used = 0) static as int
 {
 	if str == null || c == 0:
 		return -1
@@ -1635,18 +1632,10 @@ func getIndexOf(str as string #used, c as char #used, start as int #used = 0) st
 
 **
 ** Gets the first index of a given substring "s" in string "str", starting from
-** index "start". This method is deprecated, use getIndexOf() instead.
-**
-
-func indexOf(str as string, s as string, start as int = 0) static as int #deprecated:
-	return getIndexOf(str, s, start)
-
-**
-** Gets the first index of a given substring "s" in string "str", starting from
 ** index "start".
 **
 
-func getIndexOf(str as string #used, s as string #used, start as int #used = 0) static as int
+func getIndexOfString(str as string #used, s as string #used, start as int #used = 0) static as int
 {
 	if str == null || s == null:
 		return -1
@@ -1687,18 +1676,10 @@ func getIndexOf(str as string #used, s as string #used, start as int #used = 0) 
 
 **
 ** Gets the last index of a given character "c" in string "str", starting from
-** index "start". This method is deprecated, use getLastIndexOf() instead.
-**
-
-func lastIndexOf(str as string, c as char, start as int = -1) static as int #deprecated:
-	return getLastIndexOf(str, c, start)
-
-**
-** Gets the last index of a given character "c" in string "str", starting from
 ** index "start".
 **
 
-func getLastIndexOf(str as string #used, c as char #used, start as int #used = -1) static as int
+func getLastIndexOfCharacter(str as string #used, c as char #used, start as int #used = -1) static as int
 {
 	if str == null:
 		return -1
@@ -1737,10 +1718,10 @@ func getLastIndexOf(str as string #used, c as char #used, start as int #used = -
 		var ss = start
 		if ss < 0:
 			ss = 0
-		var ii = getIndexOf(str, c, ss)
+		var ii = getIndexOfCharacter(str, c, ss)
 		if ii >= 0 {
 			while true {
-				var ix = getIndexOf(str, c, ii+1)
+				var ix = getIndexOfCharacter(str, c, ii+1)
 				if ix < 0:
 					break
 				ii = ix
@@ -1752,18 +1733,10 @@ func getLastIndexOf(str as string #used, c as char #used, start as int #used = -
 
 **
 ** Gets the last index of a given substring "s" in string "str", starting from
-** index "start". This method is deprecated, use getLastIndexOf() instead.
-**
-
-func lastIndexOf(str as string, s as string, start as int = -1) static as int #deprecated:
-	return getLastIndexOf(str, s, start)
-
-**
-** Gets the last index of a given substring "s" in string "str", starting from
 ** index "start".
 **
 
-func getLastIndexOf(str as string #used, s as string #used, start as int #used = -1) static as int
+func getLastIndexOfString(str as string #used, s as string #used, start as int #used = -1) static as int
 {
 	if str == null:
 		return -1
@@ -1803,10 +1776,10 @@ func getLastIndexOf(str as string #used, s as string #used, start as int #used =
 		var ss = start
 		if ss < 0:
 			ss = 0
-		var ii = getIndexOf(str, s, ss)
+		var ii = getIndexOfString(str, s, ss)
 		if ii >= 0 {
 			while true {
-				var ix = getIndexOf(str, s, ii+1)
+				var ix = getIndexOfString(str, s, ii+1)
 				if ix < 0:
 					break
 				ii = ix
@@ -1817,18 +1790,10 @@ func getLastIndexOf(str as string #used, s as string #used, start as int #used =
 }
 
 **
-** Gets a substring of "str", starting from index "start". This method is
-** deprecated, use getSubString() instead.
-**
-
-func subString(str as string, start as int) static as string #deprecated:
-	return getSubString(str, start)
-
-**
 ** Gets a substring of "str", starting from index "start".
 **
 
-func getSubString(str as string #used, start as int #used) static as string
+func getEndOfString(str as string #used, start as int #used) static as string
 {
 	assert str
 	var ss = start
@@ -1866,14 +1831,6 @@ func getSubString(str as string #used, start as int #used) static as string
 		return str
 	}
 }
-
-**
-** Gets a substring of "str", starting from index "start" and with a maximum
-** length of "length". This method is deprecated, use getSubString() instead.
-**
-
-func subString(str as string, start as int, length as int) static as string #deprecated:
-	return getSubString(str, start, length)
 
 **
 ** Gets a substring of "str", starting from index "start" and with a maximum
@@ -1959,7 +1916,7 @@ func contains(str1 as string, str2 as string) static as bool
 		return lang "swift" bool {{{ (str1! as NSString).contains(str2!) }}}
 	}
 	ELSE {
-		if getIndexOf(str1, str2) >= 0:
+		if getIndexOfString(str1, str2) >= 0:
 			return true
 		return false
 	}
@@ -1977,7 +1934,7 @@ func startsWith(str1 as string, str2 as string #used, offset as int = 0) static 
 	assert str2
 	var nstr as string #used
 	if offset > 0 {
-		nstr = getSubString(str1, offset)
+		nstr = getEndOfString(str1, offset)
 	}
 	else {
 		nstr = str1
@@ -2028,7 +1985,7 @@ func startsWith(str1 as string, str2 as string #used, offset as int = 0) static 
 ** strings matched.
 **
 
-func startsWith(str as string, strings as array) static as string
+func startsWithAny(str as string, strings as array) static as string
 {
 	foreach str2 as string in strings {
 		if startsWith(str, str2):
@@ -2053,7 +2010,7 @@ func startsWithIgnoreCase(str1 as string, str2 as string, offset as int = 0) sta
 ** be returned by the method, or null if none of the strings matched.
 **
 
-func startsWithIgnoreCase(str as string, strings as array) static as string
+func startsWithAnyIgnoreCase(str as string, strings as array) static as string
 {
 	var ostr = toLowerCase(str)
 	foreach str2 as string in strings {
@@ -2116,7 +2073,7 @@ func endsWith(str1 as string #used, str2 as string #used) static as bool
 ** strings matched.
 **
 
-func endsWith(str as string, strings as array) static as string
+func endsWithAny(str as string, strings as array) static as string
 {
 	foreach str2 as string in strings {
 		if endsWith(str, str2):
@@ -2139,7 +2096,7 @@ func endsWithIgnoreCase(str1 as string, str2 as string) static as bool:
 ** be returned by the method, or null if none of the strings matched.
 **
 
-func endsWithIgnoreCase(str as string, strings as array) static as string
+func endsWithAnyIgnoreCase(str as string, strings as array) static as string
 {
 	var ostr = toLowerCase(str)
 	foreach str2 as string in strings {
@@ -2235,7 +2192,7 @@ func stripFromStart(str as string #used) static as string
 		}
 		if n < 1:
 			return str
-		return getSubString(str, n)
+		return getEndOfString(str, n)
 	}
 }
 
@@ -2245,7 +2202,7 @@ func stripFromStart(str as string #used) static as string
 ** effected. The original string remains unchanged.
 **
 
-func replace(str as string #used, oldChar as char #used, newChar as char #used) static as string
+func replaceCharacter(str as string #used, oldChar as char #used, newChar as char #used) static as string
 {
 	assert str
 	IFDEF "target_cs" {
@@ -2273,7 +2230,7 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 		return v
 	}
 	ELSE {
-		return replace(str, forCharacter(oldChar), forCharacter(newChar))
+		return replaceString(str, forCharacter(oldChar), forCharacter(newChar))
 	}
 }
 
@@ -2283,7 +2240,7 @@ func replace(str as string #used, oldChar as char #used, newChar as char #used) 
 ** have been effected. The original string remains unchanged.
 **
 
-func replace(str as string #used, target as string #used, replacement as string #used) static as string
+func replaceString(str as string #used, target as string #used, replacement as string #used) static as string
 {
 	assert str
 	if isEmpty(target):
@@ -2321,13 +2278,13 @@ func replace(str as string #used, target as string #used, replacement as string 
 	ELSE {
 		var v = str
 		loop {
-			var p = getIndexOf(v, target)
+			var p = getIndexOfString(v, target)
 			if p < 0:
 				break
 			var sb = new StringBuilder()
-			sb.append(getSubString(v, 0, p))
-			sb.append(rr)
-			sb.append(getSubString(v, p + getLength(target)))
+			sb.appendString(getSubString(v, 0, p))
+			sb.appendString(rr)
+			sb.appendString(getEndOfString(v, p + getLength(target)))
 			v = sb.toString()
 		}
 		return v
@@ -2348,7 +2305,14 @@ func toCharArray(str as string #used) static as char[]
 		return lang "java" char[] {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" char[] {{{ str }}}
+		var v as char[]
+		lang "js" {{{
+			v = []
+			for (var i = 0; i < str.length; i++) {
+				v[i] = str.charAt(i).charCodeAt();
+			}
+		}}}
+		return v
 	}
 	ELSE IFDEF "target_objc" {
 		var ca as char[]
@@ -2440,7 +2404,7 @@ func split(str as string, delim as char, max as int = 0) static as vector<string
 				n++
 			}
 			else {
-				sb.append(c)
+				sb.appendCharacter(c)
 			}
 		}
 		var s = sb.toString()
@@ -2452,12 +2416,12 @@ func split(str as string, delim as char, max as int = 0) static as vector<string
 		var n = 0
 		loop {
 			if max > 0 && Vector.getSize(v) >= max - 1 {
-				Vector.append(v, getSubString(str, n))
+				Vector.append(v, getEndOfString(str, n))
 				break
 			}
-			var x = indexOf(str, delim, n)
+			var x = getIndexOfCharacter(str, delim, n)
 			if x < 0 {
-				Vector.append(v, getSubString(str, n))
+				Vector.append(v, getEndOfString(str, n))
 				break
 			}
 			Vector.append(v, getSubString(str, n, x - n))
@@ -2699,7 +2663,7 @@ func toDouble(str as string #used) static as double
 	}
 	ELSE IFDEF "target_java" {
 		var v = 0.0
-		lang "Java" {{{
+		lang "java" {{{
 			try {
 				if(str != null) {
 					v = java.lang.Double.parseDouble(str);
@@ -2770,7 +2734,7 @@ func reverse(string as string) static as string
 	var it = iterate(string)
 	var c as char
 	while (c = it.getNextChar()) > 0:
-		sb.insert(0, c)
+		sb.insertCharacter(0, c)
 	return sb.toString()
 }
 
@@ -2805,23 +2769,23 @@ func padToLength(string as string, length as int, align as int = -1, paddingChar
 	var n = 0
 	var sb = new StringBuilder()
 	if align < 0 {
-		sb.append(string)
+		sb.appendString(string)
 		for(n=0; n<add; n++):
-			sb.append(paddingCharacter)
+			sb.appendCharacter(paddingCharacter)
 	}
 	else if align == 0 {
 		var ff = add / 2
 		var ss = add - ff
 		for(n=0; n<ff; n++):
-			sb.append(paddingCharacter)
-		sb.append(string)
+			sb.appendCharacter(paddingCharacter)
+		sb.appendString(string)
 		for(n=0; n<ss; n++):
-			sb.append(paddingCharacter)
+			sb.appendCharacter(paddingCharacter)
 	}
 	else {
 		for(n=0; n<add; n++):
-			sb.append(paddingCharacter)
-		sb.append(string)
+			sb.appendCharacter(paddingCharacter)
+		sb.appendString(string)
 	}
 	return sb.toString()
 }
@@ -2873,7 +2837,7 @@ func quotedStringToVector(str as string, delim as char, ignoreRepeatedDelimiters
 			}
 			if sb == null:
 				sb = new StringBuilder()
-			sb.append(c)
+			sb.appendCharacter(c)
 		}
 		if (quote == true || dquote == true) && sb == null:
 			sb = new StringBuilder()
@@ -2932,8 +2896,8 @@ func combine(strings as vector<string>, delim as char, unique as bool = false, i
 			Map.set(flags, o, "true")
 		}
 		if delim > 0 && sb.count() > 0:
-			sb.append(delim)
-		sb.append(o)
+			sb.appendCharacter(delim)
+		sb.appendString(o)
 	}
 	return sb.toString()
 }
@@ -3027,8 +2991,8 @@ func wrapToLines(text as string, charactersPerLine as int) static as vector<stri
 					lineBuilder = new StringBuilder()
 				}
 				if lineBuilder.count() > 0:
-					lineBuilder.append(' ')
-				lineBuilder.append(word)
+					lineBuilder.appendCharacter(' ')
+				lineBuilder.appendString(word)
 			}
 			if c < 1:
 				break
@@ -3036,7 +3000,7 @@ func wrapToLines(text as string, charactersPerLine as int) static as vector<stri
 		}
 		if wordBuilder == null:
 			wordBuilder = new StringBuilder()
-		wordBuilder.append(c)
+		wordBuilder.appendCharacter(c)
 	}
 	if lineBuilder:
 		v += lineBuilder.toString()

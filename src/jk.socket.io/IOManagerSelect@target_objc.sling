@@ -42,26 +42,23 @@ class MyEntry is IOManagerEntry is FileDescriptor
 
 	func getFileDescriptor as int
 	{
-		if(fdo == null) {
+		if fdo == null:
 			return -1
-		}
 		return fdo.getFileDescriptor()
 	}
 
 	func onReadReady
 	{
 		var rrl = this.rrl
-		if(rrl != null) {
+		if rrl != null:
 			rrl()
-		}
 	}
 
 	func onWriteReady
 	{
 		var wrl = this.wrl
-		if(wrl != null) {
+		if wrl != null:
 			wrl()
-		}
 	}
 
 	func setListeners(rrl as function, wrl as function)
@@ -86,26 +83,21 @@ class MyEntry is IOManagerEntry is FileDescriptor
 	func update
 	{
 		remove()
-		if(fdo == null || master == null) {
+		if fdo == null || master == null:
 			return
-		}
-		if(rrl == null && wrl == null) {
+		if rrl == null && wrl == null:
 			return
-		}
-		if(rrl != null) {
+		if rrl != null:
 			master.addToReadList(this)
-		}
-		if(wrl != null) {
+		if wrl != null:
 			master.addToWriteList(this)
-		}
 		added = true
 	}
 
 	func remove
 	{
-		if(added == false || master == null) {
+		if added == false || master == null:
 			return
-		}
 		master.removeFromReadList(this)
 		master.removeFromWriteList(this)
 		added = false
@@ -143,7 +135,7 @@ class ListAction
 
 func addToReadList(entry as IOManagerEntry)
 {
-	if(listActionQueue != null) {
+	if listActionQueue {
 		listActionQueue += new ListAction(entry, ListAction.ADD_TO_READ_LIST)
 		return
 	}
@@ -152,7 +144,7 @@ func addToReadList(entry as IOManagerEntry)
 
 func addToWriteList(entry as IOManagerEntry)
 {
-	if(listActionQueue != null) {
+	if listActionQueue {
 		listActionQueue += new ListAction(entry, ListAction.ADD_TO_WRITE_LIST)
 		return
 	}
@@ -161,7 +153,7 @@ func addToWriteList(entry as IOManagerEntry)
 
 func removeFromReadList(entry as IOManagerEntry)
 {
-	if(listActionQueue != null) {
+	if listActionQueue {
 		listActionQueue += new ListAction(entry, ListAction.REMOVE_FROM_READ_LIST)
 		return
 	}
@@ -170,7 +162,7 @@ func removeFromReadList(entry as IOManagerEntry)
 
 func removeFromWriteList(entry as IOManagerEntry)
 {
-	if(listActionQueue != null) {
+	if listActionQueue {
 		listActionQueue += new ListAction(entry, ListAction.REMOVE_FROM_WRITE_LIST)
 		return
 	}
@@ -179,10 +171,7 @@ func removeFromWriteList(entry as IOManagerEntry)
 
 func add(o as object) override as IOManagerEntry
 {
-	var fdo = o as FileDescriptor
-	if(fdo == null) {
-		return null
-	}
+	var fdo = assert o as FileDescriptor
 	return new MyEntry().setMaster(this).setFdo(fdo)
 }
 
@@ -196,50 +185,47 @@ func executeSelect(ctx as LoggingContext, fdr as !"fd_set*", fdw as !"fd_set*", 
 	}}}
 	var rc = 0
 	var wc = 0
-	foreach(o as FileDescriptor in readlist) {
+	foreach o as FileDescriptor in readlist {
 		fd = o.getFileDescriptor()
-		if(fd < 0) {
+		if fd < 0 {
 			lang "objc" {{{
 				FD_ZERO(fdr);
 				FD_ZERO(fdw);
 			}}}
 			return true
 		}
-		if(fd >= 0) {
+		if fd >= 0 {
 			lang "objc" {{{
 				FD_SET(fd, fdr);
 			}}}
 		}
-		if(fd > n) {
+		if fd > n:
 			n = fd
-		}
 		rc++
 	}
-	foreach(o as FileDescriptor in writelist) {
+	foreach o as FileDescriptor in writelist {
 		fd = o.getFileDescriptor()
-		if(fd < 0) {
+		if fd < 0 {
 			lang "objc" {{{
 				FD_ZERO(fdr);
 				FD_ZERO(fdw);
 			}}}
 			return true
 		}
-		if(fd >= 0) {
+		if fd >= 0 {
 			lang "objc" {{{
 				FD_SET(fd, fdw);
 			}}}
 		}
-		if(fd > n) {
+		if fd > n:
 			n = fd
-		}
 		wc++
 	}
 	var nc = 0
-	if(n > 0) {
+	if n > 0:
 		nc = n + 1
-	}
 	var r = -1
-	if(timeout < 0) {
+	if timeout < 0 {
 		lang "objc" {{{ r = select(nc, fdr, fdw, (void*)0, (void*)0); }}}
 	}
 	else {
@@ -251,7 +237,7 @@ func executeSelect(ctx as LoggingContext, fdr as !"fd_set*", fdw as !"fd_set*", 
 		}}}
 	}
 	var v = false
-	if(r < 0) {
+	if r < 0 {
 		var err as string
 		lang "objc" {{{
 			if(errno != EINTR) {
@@ -261,11 +247,10 @@ func executeSelect(ctx as LoggingContext, fdr as !"fd_set*", fdw as !"fd_set*", 
 				}
 			}
 		}}}
-		if(err != null) {
+		if err:
 			Log.error(ctx, "Call to select() returned error status " .. String.forInteger(r) .. ": " .. err)
-		}
 	}
-	else if(r > 0) {
+	else if r > 0 {
 		v = true
 	}
 	return v
@@ -291,7 +276,7 @@ func doExecute(ctx as LoggingContext) override as bool
 		}
 	}}}
 	var ee = add(StaticFileDescriptor.forFileDescriptor(prd))
-	if(ee != null) {
+	if ee {
 		ee.setReadListener(func {
 			var fd #used = prd
 			lang "objc" {{{
@@ -310,12 +295,11 @@ func doExecute(ctx as LoggingContext) override as bool
 	}}}
 	commpipewritefd = pfd
 	Log.debug(ctx, "SelectEngine started")
-	while(exitflag == false) {
-		if(executeSelect(ctx, fdsetr, fdsetw, -1) == false) {
+	while exitflag == false {
+		if executeSelect(ctx, fdsetr, fdsetw, -1) == false:
 			continue
-		}
 		listActionQueue = new vector<ListAction>
-		foreach(ele as MyEntry in readlist) {
+		foreach ele as MyEntry in readlist {
 			var fd #used = ele.getFileDescriptor()
 			lang "objc" {{{
 				if(fd < 0 || FD_ISSET(fd, fdsetr) != 0) {
@@ -326,7 +310,7 @@ func doExecute(ctx as LoggingContext) override as bool
 				}
 			}}}
 		}
-		foreach(ele as MyEntry in writelist) {
+		foreach ele as MyEntry in writelist {
 			var fd #used = ele.getFileDescriptor()
 			lang "objc" {{{
 				if(fd < 0 || FD_ISSET(fd, fdsetw) != 0) {
@@ -339,17 +323,17 @@ func doExecute(ctx as LoggingContext) override as bool
 		}
 		var lq = listActionQueue
 		listActionQueue = null
-		foreach(action as ListAction in lq) {
-			if(action.op == ListAction.ADD_TO_READ_LIST) {
+		foreach action as ListAction in lq {
+			if action.op == ListAction.ADD_TO_READ_LIST {
 				addToReadList(action.entry)
 			}
-			else if(action.op == ListAction.REMOVE_FROM_READ_LIST) {
+			else if action.op == ListAction.REMOVE_FROM_READ_LIST {
 				removeFromReadList(action.entry)
 			}
-			else if(action.op == ListAction.ADD_TO_WRITE_LIST) {
+			else if action.op == ListAction.ADD_TO_WRITE_LIST {
 				addToWriteList(action.entry)
 			}
-			else if(action.op == ListAction.REMOVE_FROM_WRITE_LIST) {
+			else if action.op == ListAction.REMOVE_FROM_WRITE_LIST {
 				removeFromWriteList(action.entry)
 			}
 		}
@@ -367,7 +351,7 @@ func doExecute(ctx as LoggingContext) override as bool
 func stop override
 {
 	exitflag = true
-	if(commpipewritefd >= 0) {
+	if commpipewritefd >= 0 {
 		lang "objc" {{{
 			char c = 1;
 			write(commpipewritefd, &c, 1);

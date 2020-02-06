@@ -29,9 +29,7 @@ var resourceCache static as map<string,this>
 
 func forAndroidBitmap(bitmap as !"android.graphics.Bitmap") static as this
 {
-	if(bitmap == null) {
-		return null
-	}
+	assert bitmap
 	var v = new this()
 	v.bitmap = bitmap
 	return v
@@ -56,20 +54,18 @@ func forSize(width as int, height as int) static as this
 
 func sanitizeResourceName(n as string) static private as string
 {
-	if(n == null) {
-		return null
-	}
+	assert n
 	var sb = new StringBuilder()
 	var it = String.iterate(n)
 	var c as char
-	while((c = it.getNextChar()) > 0) {
-		if(c >= 'A' && c <= 'Z') {
+	while (c = it.getNextChar()) > 0 {
+		if c >= 'A' && c <= 'Z' {
 			sb.append(('a' + c - 'A') as char)
 		}
-		else if(c >= 'a' && c <= 'z') {
+		else if c >= 'a' && c <= 'z' {
 			sb.append(c)
 		}
-		else if(c >= '0' && c <= '9') {
+		else if c >= '0' && c <= '9' {
 			sb.append(c)
 		}
 		else {
@@ -81,14 +77,12 @@ func sanitizeResourceName(n as string) static private as string
 
 func forResource(name as string, context as !"android.content.Context") static as this
 {
-	if(name == null || context == null) {
+	if name == null || context == null:
 		return null
-	}
-	if(resourceCache != null) {
+	if resourceCache {
 		var v = Map.getValue(resourceCache, name)
-		if(v != null) {
+		if v:
 			return v
-		}
 	}
 	var bm as !"android.graphics.Bitmap"
 	var rid #used = (context.getPackageName() as! string) .. ":drawable/" .. sanitizeResourceName(name)
@@ -104,14 +98,11 @@ func forResource(name as string, context as !"android.content.Context") static a
 			}
 		}
 	}}}
-	if(bm == null) {
-		return null
-	}
+	assert bm
 	var v = new this()
 	v.bitmap = bm
-	if(resourceCache == null) {
+	if resourceCache == null:
 		resourceCache = new map<string,this>
-	}
 	resourceCache[name] = v
 	return v
 }
@@ -124,49 +115,40 @@ func forFile(file as File) static as this
 
 func forBuffer(buffer as buffer) static as this
 {
-	if(buffer == null) {
-		return null
-	}
+	assert buffer
 	var bm as !"android.graphics.Bitmap"
 	lang "java" {{{
 		bm = android.graphics.BitmapFactory.decodeByteArray(buffer, 0, buffer.length);
 	}}}
-	if(bm == null) {
-		return null
-	}
+	assert bm
 	return forAndroidBitmap(bm)
 }
 
 var bitmap public as !"android.graphics.Bitmap"
 
-func getAndroidBitmap as !"android.graphics.Bitmap"
-{
+func getAndroidBitmap as !"android.graphics.Bitmap":
 	return bitmap
-}
 
 func getPixelWidth override as int
 {
 	var v = 0
-	if(bitmap != null) {
+	if bitmap:
 		v = bitmap.getWidth() as int
-	}
 	return v
 }
 
 func getPixelHeight override as int
 {
 	var v = 0
-	if(bitmap != null) {
+	if bitmap:
 		v = bitmap.getHeight() as int
-	}
 	return v
 }
 
 func scaleToSize(width as int, height as int) override as Image
 {
-	if(width < 0 || height < 0) {
+	if width < 0 || height < 0:
 		return this
-	}
 	var bm as !"android.graphics.Bitmap"
 	lang "java" {{{
 		try {
@@ -176,9 +158,7 @@ func scaleToSize(width as int, height as int) override as Image
 			bm = null;
 		}
 	}}}
-	if(bm == null) {
-		return null
-	}
+	assert bm
 	return forAndroidBitmap(bm)
 }
 
@@ -208,16 +188,12 @@ func scaleToHeight(h as int, callback as function<void, Image>) override
 
 func crop(x as int, y as int, w as int, h as int) override as Image
 {
-	if(bitmap == null) {
-		return null
-	}
+	assert bitmap
 	var bm as !"android.graphics.Bitmap"
 	lang "java" {{{
 		bm = android.graphics.Bitmap.createBitmap(bitmap, x, y, w, h, null, false);
 	}}}
-	if(bm == null) {
-		return null
-	}
+	assert bm
 	return forAndroidBitmap(bm)
 }
 
@@ -243,9 +219,7 @@ func toJPGData override as buffer
 
 func toPNGData override as buffer
 {
-	if(bitmap == null) {
-		return null
-	}
+	assert bitmap
 	var buf as buffer
 	lang "java" {{{
 		java.io.ByteArrayOutputStream baStream = new java.io.ByteArrayOutputStream();
@@ -265,72 +239,7 @@ func toRGBAData override as buffer
 
 func releaseImage override
 {
-	if(bitmap != null) {
+	if bitmap:
 		bitmap.recycle()
-	}
 	bitmap = null
 }
-
-/*
-public class AndroidBitmapImage : Image, Size, VgRenderable, VgRenderableImage, Renderable, RenderableImage
-{
-	public Buffer encode(String type) {
-		eq.api.DynamicBuffer v = null;
-		embed "java" {{{
-			android.graphics.Bitmap.CompressFormat cf = null;
-		}}}
-		if("image/jpeg".equals_ignore_case(type) || "jpg".equals_ignore_case(type) || "jpeg".equals_ignore_case(type)) {
-			embed "java" {{{
-				cf = android.graphics.Bitmap.CompressFormat.JPEG;
-			}}}
-		}
-		else if("png".equals_ignore_case(type)) {
-			embed "java" {{{
-				cf = android.graphics.Bitmap.CompressFormat.PNG;
-			}}}
-		}
-		else {
-			Log.warning("Image type `%s' is not supported. Not compressing it.".printf().add(type));
-		}
-		embed "java" {{{
-			if(cf != null) {
-				java.io.ByteArrayOutputStream imgstream = new java.io.ByteArrayOutputStream();
-				android.graphics.Bitmap bitmap = get_android_bitmap();
-				if(bitmap.compress(cf, 70, imgstream)) {
-					v = eq.api.DynamicBuffer.Static.create(imgstream.size());
-					byte[] dst = ((eq.api.Buffer)v).get_pointer().get_native_pointer();
-					byte[] src = null;
-					try {
-						src = imgstream.toByteArray();
-					}
-					catch(Exception e) {
-						System.err.println("Failed to write compressed image stream to buffer: " + e);
-					}
-					System.arraycopy(src,0,dst,0, src.length);
-					src = null;
-				}
-				else {
-					eq.api.Log.Static.warning((eq.api.Object)eq.api.String.Static.for_strptr("Image was not commpressed to type `" + type.to_strptr() + "'."), null, null);
-				}
-			}
-			if(v == null) {
-				android.graphics.Bitmap bitmap = get_android_bitmap();
-				java.nio.ByteBuffer bb = java.nio.ByteBuffer.allocate(bitmap.getRowBytes() * bitmap.getWidth());
-				v = eq.api.DynamicBuffer.Static.create(bitmap.getRowBytes() * bitmap.getWidth());
-				if(bb != null) {
-					bitmap.copyPixelsToBuffer(bb);
-				}
-				if(v != null) {
-					byte[] dst = ((eq.api.Buffer)v).get_pointer().get_native_pointer();
-					byte[] src = bb.array();
-					System.arraycopy(src,0,dst,0, src.length);
-					src = null;
-				}
-				bb.clear();
-			}
-		}}}
-		return(v);
-	}
-}
-
-*/
