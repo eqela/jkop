@@ -54,37 +54,38 @@ func getContentReader virtual as Reader:
 func writeToFile(file as File) virtual as bool
 {
 	assert file
-	if getIsDirectory():
-		return file.createDirectoryRecursive()
-	var reader = assert getContentReader()
-	var fp = file.getParent()
-	if fp:
-		fp.createDirectoryRecursive()
-	var writer = assert file.write() {
-		if reader is Closable:
+	var v = false
+	if getIsDirectory() {
+		v = file.createDirectoryRecursive()
+	}
+	else {
+		var reader = assert getContentReader()
+		var fp = file.getParent()
+		if fp:
+			fp.createDirectoryRecursive()
+		var writer = assert file.write() {
+			if reader is Closable:
+				(reader as! Closable).close()
+		}
+		var buf = malloc 4096 * 4
+		v = true
+		var n = 0
+		while (n = reader.read(buf)) > 0 {
+			var nr = writer.write(buf, n)
+			if nr != n {
+				v = false
+				break
+			}
+		}
+		if reader && reader is Closable:
 			(reader as! Closable).close()
+		if writer && writer is Closable:
+			(writer as! Closable).close()
+		if not v:
+			file.remove()
 	}
-	var buf = malloc 4096 * 4
-	var v = true
-	var n = 0
-	while (n = reader.read(buf)) > 0 {
-		var nr = writer.write(buf, n)
-		if nr != n {
-			v = false
-			break
-		}
-	}
-	if reader && reader is Closable:
-		(reader as! Closable).close()
-	if writer && writer is Closable:
-		(writer as! Closable).close()
-	if not v:
-		file.remove()
-	if OS.isLinux() || OS.isMacOS() {
-		if mode > 0 && file.isFile() {
-			file.setMode(mode)
-		}
-	}
+	if v && mode > 0 && (OS.isLinux() || OS.isMacOS()):
+		file.setMode(mode)
 	return v
 }
 
