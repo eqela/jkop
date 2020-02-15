@@ -42,18 +42,27 @@ func logError(message as string):
 	Log.error(logger, message)
 
 // Generic methods (shared for both synchronous and asynchoronous APIs)
-func prepare(sql as string) abstract as SQLStatement
 func getDatabaseTypeId abstract as string
-func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
-func prepareDeleteTableStatement(table as string) abstract as SQLStatement
-func prepareCreateIndexStatement(table as string, column as string, unique as bool) abstract as SQLStatement
-func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
-func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
-func getLastInsertId(table as string) abstract as long
-func getIdentityColumnName(table as string) abstract as string
-func getPrimaryKeyColumnName(table as string) abstract as string
-func columnExists(table as string, name as string) abstract as bool
-func isColumnTypeSame(table as string, column as SQLTableColumnInfo) abstract as bool
+
+// Synchronous API
+func prepareSync(sql as string) abstract as SQLStatement
+func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
+func prepareDeleteTableStatementSync(table as string) abstract as SQLStatement
+func prepareCreateIndexStatementSync(table as string, column as string, unique as bool) abstract as SQLStatement
+func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
+func getLastInsertIdSync(table as string) abstract as long
+func getIdentityColumnNameSync(table as string) abstract as string
+func getPrimaryKeyColumnNameSync(table as string) abstract as string
+func columnExistsSync(table as string, name as string) abstract as bool
+func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) abstract as bool
+func closeSync abstract
+func executeSync(stmt as SQLStatement) abstract as bool
+func executeUpdateDeleteSync(stmt as SQLStatement) abstract as int
+func querySync(stmt as SQLStatement) abstract as SQLResultSetIterator
+func querySingleRowSync(stmt as SQLStatement) abstract as DynamicMap
+func tableExistsSync(table as string) abstract as bool
+func queryAllTableNamesSync abstract as vector
 
 // Asynchronous API
 func close(callback as function) abstract
@@ -64,49 +73,44 @@ func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>
 func tableExists(table as string, callback as function<void, bool>) abstract
 func queryAllTableNames(callback as function<void, vector>) abstract
 
-// Synchronous API
-func close abstract
-func execute(stmt as SQLStatement) abstract as bool
-func executeUpdateDelete(stmt as SQLStatement) abstract as int
-func query(stmt as SQLStatement) abstract as SQLResultSetIterator
-func querySingleRow(stmt as SQLStatement) abstract as DynamicMap
-func tableExists(table as string) abstract as bool
-func queryAllTableNames abstract as vector
-
 **
 ** Checks if the database table exists and creates it if it does not exist.
 ** Returns false if something went wrong.
 **
 
-func ensureColumnsExists(tableName as string, columns as vector<SQLTableColumnInfo>) as bool
+func ensureColumnsExistsSync(tableName as string, columns as vector<SQLTableColumnInfo>) as bool
 {
 	foreach column as SQLTableColumnInfo in columns {
-		if columnExists(tableName, column.getName()) {
-			if not isColumnTypeSame(tableName, column):
-				assert execute(prepareUpdateColumnTypeStatement(tableName, column))
+		if columnExistsSync(tableName, column.getName()) {
+			if not isColumnTypeSameSync(tableName, column):
+				assert executeSync(prepareUpdateColumnTypeStatementSync(tableName, column))
 		}
 		else {
-			assert execute(prepareCreateColumnStatement(tableName, column))
+			assert executeSync(prepareCreateColumnStatementSync(tableName, column))
 		}
 	}
 	return true
 }
 
-func ensureTableExists(table as SQLTableInfo) virtual as bool
+**
+** Checks if the database table exists and creates it if it does not exist.
+**
+
+func ensureTableExistsSync(table as SQLTableInfo) virtual as bool
 {
 	assert table
 	var name = table.getName()
 	assert String.isNotEmpty(name)
-	if tableExists(name) {
-		var v = ensureColumnsExists(name, table.getColumns())
+	if tableExistsSync(name) {
+		var v = ensureColumnsExistsSync(name, table.getColumns())
 		if v:
 			return true
 		return false
 	}
-	assert execute(prepareCreateTableStatement(name, table.getColumns()))
+	assert executeSync(prepareCreateTableStatementSync(name, table.getColumns()))
 	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
-		if not execute(prepareCreateIndexStatement(name, cii.getColumn(), cii.getUnique())):
-			execute(prepareDeleteTableStatement(name))
+		if not executeSync(prepareCreateIndexStatementSync(name, cii.getColumn(), cii.getUnique())):
+			executeSync(prepareDeleteTableStatementSync(name))
 	}
 	return true
 }
@@ -118,7 +122,7 @@ func ensureTableExists(table as SQLTableInfo) virtual as bool
 
 func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) virtual
 {
-	var v = ensureTableExists(table)
+	var v = ensureTableExistsSync(table)
 	if callback:
 		callback(v)
 }
@@ -182,28 +186,12 @@ func createOrderByString(order as array) as string
 }
 
 **
-** Creates an instance of SQLStatement for select all statement
-** with the specified database table name.
-**
-
-func prepareQueryAllStatement(table as string) as SQLStatement:
-	return prepareQueryAllStatement(table, null, null)
-
-**
-** Creates an instance of SQLStatement for select statement
-** with the specified database table name and an array of column name(s).
-**
-
-func prepareQueryAllStatement(table as string, columns as array) as SQLStatement:
-	return prepareQueryAllStatement(table, columns, null)
-
-**
 ** Creates an instance of SQLStatement for select statement with the specified
 ** database table name, an array of column name(s) and an array of column
 ** name(s) or instance(s) of SQLOrderingRule for order by clause.
 **
 
-func prepareQueryAllStatement(table as string, columns as array, order as array) virtual as SQLStatement
+func prepareQueryAllStatementSync(table as string, columns as array = null, order as array = null) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.appendString("SELECT ")
@@ -212,7 +200,7 @@ func prepareQueryAllStatement(table as string, columns as array, order as array)
 	sb.appendString(table)
 	sb.appendString(createOrderByString(order))
 	sb.appendString(";")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
 **
@@ -220,10 +208,7 @@ func prepareQueryAllStatement(table as string, columns as array, order as array)
 ** with the specified database table name and a map of criteria.
 **
 
-func prepareCountRecordsStatement(table as string, criteria as map) virtual as SQLStatement:
-	return prepareCountRecordsStatement(table, criteria, false)
-
-func prepareCountRecordsStatement(table as string, criteria as map, likeOperator as bool) virtual as SQLStatement
+func prepareCountRecordsStatementSync(table as string, criteria as map, likeOperator as bool = false) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.appendString("SELECT COUNT(*) AS count FROM ")
@@ -231,7 +216,7 @@ func prepareCountRecordsStatement(table as string, criteria as map, likeOperator
 	var first = true
 	var keys as vector
 	if criteria {
-		keys = Map.getKeys(criteria) as vector
+		keys = Map.getKeys(criteria)
 		foreach key as string in keys {
 			if first {
 				sb.appendString(" WHERE ")
@@ -250,7 +235,7 @@ func prepareCountRecordsStatement(table as string, criteria as map, likeOperator
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = assert prepare(sb.toString())
+	var stmt = assert prepareSync(sb.toString())
 	if keys {
 		foreach key as string in keys {
 			var val = String.asString(Map.get(criteria, key))
@@ -266,50 +251,6 @@ func prepareCountRecordsStatement(table as string, criteria as map, likeOperator
 }
 
 **
-** Creates an instance of SQLStatement for select all statement
-** with the specified database table name and a map of criteria.
-**
-
-func prepareQueryWithCriteriaStatement(table as string, criteria as map) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, 0, 0, null, null, false)
-
-**
-** Creates an instance of SQLStatement for select all statement
-** with the specified database table name, a map of criteria, and limit.
-**
-
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, 0, null, null, false)
-
-**
-** Creates an instance of SQLStatement for select all statement
-** with the specified database table name, a map of criteria,
-** limit and offset.
-**
-
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, null, null, false)
-
-**
-** Creates an instance of SQLStatement for select statement
-** with the specified database table name, a map of criteria,
-** limit, offset and an array of column name(s).
-**
-
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, null, false)
-
-**
-** Creates an instance of SQLStatement for select statement
-** with the specified database table name, a map of criteria,
-** limit, offset, an array of column name(s) and an array of column
-** name(s) or instance(s) of SQLOrderingRule for order by clause.
-**
-
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array) virtual as SQLStatement:
-	return prepareQueryWithCriteriaStatement(table, criteria, limit, offset, columns, order, false)
-
-**
 ** Creates an instance of SQLStatement for select statement
 ** with the specified database table name, a map of criteria,
 ** limit, offset, an array of column name(s), an array of column
@@ -317,7 +258,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 ** and a flag to use LIKE operator.
 **
 
-func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit as int, offset as int, columns as array, order as array, likeOperator as bool) virtual as SQLStatement
+func prepareQueryWithCriteriaStatementSync(table as string, criteria as map, limit as int = 0, offset as int = 0, columns as array = null, order as array = null, likeOperator as bool = false) virtual as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.appendString("SELECT ")
@@ -327,7 +268,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 	var first = true
 	var keys as vector
 	if criteria {
-		keys = Map.getKeys(criteria) as vector
+		keys = Map.getKeys(criteria)
 		foreach key as string in keys {
 			if first {
 				sb.appendString(" WHERE ")
@@ -356,7 +297,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 	}
 	sb.appendCharacter(';')
 	var sql = sb.toString()
-	var stmt = prepare(sql)
+	var stmt = prepareSync(sql)
 	if not stmt:
 		return null
 	if keys {
@@ -378,7 +319,7 @@ func prepareQueryWithCriteriaStatement(table as string, criteria as map, limit a
 ** with the specified database table name and column name.
 **
 
-func prepareQueryDistinctValuesStatement(table as string, column as string) virtual as SQLStatement
+func prepareQueryDistinctValuesStatementSync(table as string, column as string) virtual as SQLStatement
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var sb = new StringBuilder()
@@ -387,7 +328,7 @@ func prepareQueryDistinctValuesStatement(table as string, column as string) virt
 	sb.appendString(" FROM ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
 **
@@ -395,12 +336,12 @@ func prepareQueryDistinctValuesStatement(table as string, column as string) virt
 ** specified database table name and an instance of DynamicMap for criteria.
 **
 
-func prepareSelectStatement(table as string, data as DynamicMap) virtual as SQLStatement
+func prepareSelectStatementSync(table as string, data as DynamicMap) virtual as SQLStatement
 {
 	var criteria as map = null
 	if data:
 		criteria = data.toObjectMap()
-	return prepareQueryWithCriteriaStatement(table, criteria)
+	return prepareQueryWithCriteriaStatementSync(table, criteria)
 }
 
 **
@@ -408,7 +349,7 @@ func prepareSelectStatement(table as string, data as DynamicMap) virtual as SQLS
 ** specified database table name and an instance of DynamicMap for values.
 **
 
-func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLStatement
+func prepareInsertStatementSync(table as string, data as DynamicMap) virtual as SQLStatement
 {
 	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
@@ -432,7 +373,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLS
 		first = false
 	}
 	sb.appendString(" );")
-	var stmt = assert prepare(sb.toString())
+	var stmt = assert prepareSync(sb.toString())
 	foreach key in keys {
 		var o = data.get(key)
 		if o is string || o is StringObject {
@@ -472,7 +413,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) virtual as SQLS
 ** criteria and an instance of DynamicMap for values.
 **
 
-func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
+func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
 {
 	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
@@ -510,7 +451,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = assert prepare(sb.toString())
+	var stmt = assert prepareSync(sb.toString())
 	foreach o in params {
 		if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
@@ -537,7 +478,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 ** criteria and an instance of DynamicMap for values.
 **
 
-func prepareDeleteStatement(table as string, criteria as DynamicMap) virtual as SQLStatement
+func prepareDeleteStatementSync(table as string, criteria as DynamicMap) virtual as SQLStatement
 {
 	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
@@ -561,7 +502,7 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) virtual as 
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = prepare(sb.toString())
+	var stmt = prepareSync(sb.toString())
 	if not stmt:
 		return null
 	foreach o in params {

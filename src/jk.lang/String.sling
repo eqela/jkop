@@ -36,7 +36,7 @@ class:
 ** Converts an arbitrary object to a string, if possible.
 **
 
-func asString(obj as object) static as string
+func asString(obj as dynamic) static as string
 {
 	assert obj
 	if obj is string:
@@ -45,14 +45,24 @@ func asString(obj as object) static as string
 		var os = obj as! StringObject
 		return os.toString()
 	}
+	if obj is int:
+		return forInteger(obj as int)
 	if obj is IntegerObject:
 		return forInteger((obj as! IntegerObject).toInteger())
+	if obj is long:
+		return forLongInteger(obj as long)
 	if obj is LongIntegerObject:
 		return forLongInteger((obj as! LongIntegerObject).toLong())
+	if obj is double:
+		return forDouble(obj as double)
 	if obj is DoubleObject:
 		return forDouble((obj as! DoubleObject).toDouble())
+	if obj is bool:
+		return forBoolean(obj as bool)
 	if obj is BooleanObject:
 		return forBoolean((obj as! BooleanObject).toBoolean())
+	if obj is char:
+		return forCharacter(obj as char)
 	if obj is CharacterObject:
 		return forCharacter((obj as! CharacterObject).toCharacter())
 	if obj is buffer:
@@ -63,12 +73,6 @@ func asString(obj as object) static as string
 			return ""
 		return forBufferHex(v)
 	}
-	/*
-	// FIXME
-	var js = JSONEncoder.encode(obj)
-	if js:
-		return js
-	*/
 	IFDEF "target_java" {
 		return lang "java" string {{{ obj.toString()}}}
 	}
@@ -98,48 +102,6 @@ func safeString(str as string) static as string
 		return ""
 	return str
 }
-
-**
-** Converts an integer to a string
-**
-
-func integerAsString(value as int) static as string:
-	return forInteger(value)
-
-**
-** Converts a double to a string
-**
-
-func doubleAsString(value as double) static as string:
-	return forDouble(value)
-
-**
-** Converts a buffer to a string
-**
-
-func bufferAsString(value as buffer) static as string:
-	return forUTF8Buffer(value)
-
-**
-** Converts a boolean to a string
-**
-
-func booleanAsString(value as bool) static as string:
-	return forBoolean(value)
-
-**
-** Converts a character to a string
-**
-
-func characterAsString(value as char) static as string:
-	return forCharacter(value)
-
-**
-** Converts a float to a string
-**
-
-func floatAsString(value as float) static as string:
-	return forFloat(value)
 
 **
 ** Checks if a string is empty (ie., either the object is a null pointer or
@@ -475,47 +437,6 @@ func forLongInteger(vv as long #used) static as string
 }
 
 **
-** Takes a string that represents a number, and presents it in a nicely
-** formatted manner, with delimiter separating each sequence of three digits.
-**
-
-func formatNumberString(vv as string, delimiter as char) static as string
-{
-	assert vv
-	var it = assert iterate(vv)
-	var rr = getLength(vv)
-	var sb = new StringBuilder()
-	loop {
-		var c = it.getNextChar()
-		if c < 1:
-			break
-		sb.appendCharacter(c)
-		rr --
-		if rr < 1:
-			break
-		if rr % 3 == 0:
-			sb.appendCharacter(delimiter)
-	}
-	return sb.toString()
-}
-
-**
-** Converts an integer value to a string and presents it in a nicely
-** formatted manner, with delimiter separating each sequence of three digits.
-**
-
-func formatInteger(vv as int, delimiter as char) static as string:
-	return formatNumberString(forInteger(vv), delimiter)
-
-**
-** Converts a long integer value to a string and presents it in a nicely
-** formatted manner, with delimiter separating each sequence of three digits.
-**
-
-func formatLongInteger(vv as int, delimiter as char) static as string:
-	return formatNumberString(forLongInteger(vv), delimiter)
-
-**
 ** Converts an integer value to a string while ensuring that the length of the
 ** resulting string will reach or exceed the given "length". If the length of the
 ** string naturally is less than the given length, then "padding" characters will
@@ -542,24 +463,6 @@ func forIntegerWithPadding(vv as int, length as int, paddingString as string = n
 		sb.appendString(ps)
 	sb.appendString(r)
 	return sb.toString()
-}
-
-func stripLeadingZeros(str as string) static as string
-{
-	if getChar(str, 0) == '0' {
-		var iter = assert iterate(str)
-		var i = 0
-		loop {
-			var c = iter.getNextChar()
-			if Character.isEOF(c):
-				break
-			if c != '0':
-				return getEndOfString(str, i)
-			i++
-		}
-		return ""
-	}
-	return str
 }
 
 **
@@ -1298,14 +1201,6 @@ func capitalize(str as string) static as string
 		return str
 	return forCharacter(Character.toUppercase(c)) .. getEndOfString(str, 1)
 }
-
-**
-** Gets a character with the specified index "index" from the given string.
-** This method is deprecated: Use getChar() instead.
-**
-
-func charAt(str as string, index as int) static as char #deprecated:
-	return getChar(str, index)
 
 **
 ** Gets a character with the specified index "index" from the given string.
@@ -2745,264 +2640,3 @@ func reverse(string as string) static as string
 
 func iterateReverse(string as string) static as CharacterIterator:
 	return iterate(reverse(string))
-
-**
-** Creates a new string based on "string" that is at least "length" characters
-** long. If the original string is shorter, it will be padded to the desired length
-** by adding instances of paddingCharacter (default of which is the space character).
-** The "aling" attribute may be either -1, 0 or 1, and determines if the padding
-** characters willb e added to the end, both sides or to the beginning, respectively.
-**
-
-func padToLength(string as string, length as int, align as int = -1, paddingCharacter as char = ' ') static as string
-{
-	var ll as int
-	if string == null {
-		ll = 0
-	}
-	else {
-		ll = getLength(string)
-	}
-	if ll >= length:
-		return string
-	var add = length - ll
-	var n = 0
-	var sb = new StringBuilder()
-	if align < 0 {
-		sb.appendString(string)
-		for(n=0; n<add; n++):
-			sb.appendCharacter(paddingCharacter)
-	}
-	else if align == 0 {
-		var ff = add / 2
-		var ss = add - ff
-		for(n=0; n<ff; n++):
-			sb.appendCharacter(paddingCharacter)
-		sb.appendString(string)
-		for(n=0; n<ss; n++):
-			sb.appendCharacter(paddingCharacter)
-	}
-	else {
-		for(n=0; n<add; n++):
-			sb.appendCharacter(paddingCharacter)
-		sb.appendString(string)
-	}
-	return sb.toString()
-}
-
-**
-** Splits the given string "str" to a vector of multiple strings, cutting the
-** string at each instance of the "delim" character where the delim does not
-** appear enclosed in either double quotes or single quotes.
-**
-** Eg. quotedStringToVector("first 'second third'", ' ') produces [ "first", "second third" ]
-**
-
-func quotedStringToVector(str as string, delim as char, ignoreRepeatedDelimiters as bool = true, escapeCharacter as char = '\\') static as vector<string>
-{
-	var v = new vector<string>
-	if str == null:
-		return v
-	var dquote = false
-	var quote = false
-	var sb as StringBuilder = null
-	var it = iterate(str)
-	loop {
-		var c = it.getNextChar()
-		if Character.isEOF(c):
-			break
-		if c == '"' && quote == false {
-			dquote = !dquote
-		}
-		else if c == '\'' && dquote == false {
-			quote = !quote
-		}
-		else if quote == false && dquote == false && c == delim {
-			if sb {
-				var r = sb.toString()
-				if r == null:
-					r = ""
-				v += r
-			}
-			else if ignoreRepeatedDelimiters == false {
-				v += ""
-			}
-			sb = null
-		}
-		else {
-			if escapeCharacter > 0 && c == escapeCharacter {
-				c = it.getNextChar()
-				if Character.isEOF(c):
-					break
-			}
-			if sb == null:
-				sb = new StringBuilder()
-			sb.appendCharacter(c)
-		}
-		if (quote == true || dquote == true) && sb == null:
-			sb = new StringBuilder()
-	}
-	if sb {
-		var r = sb.toString()
-		if r == null:
-			r = ""
-		v += r
-	}
-	return v
-}
-
-**
-** Parses the string "str", splitting it to multiple strings using quotedStringToVector(),
-** and then further processing it to key/value pairs, splitting each string at the
-** equal sign '=' and adding the entries to a map.
-**
-
-func quotedStringToMap(str as string, delim as char) static as map<string,string>
-{
-	var v = new map<string,string>
-	var vector = quotedStringToVector(str, delim)
-	foreach c in vector {
-		var sp = split(c, '=', 2)
-		var key = sp[0]
-		var val = sp[1]
-		if isEmpty(key) == false:
-			v[key] = val
-	}
-	return v
-}
-
-**
-** Combines a vector of strings to a single string, incorporating the "delim"
-** character between each string in the vector. If the "unique" variable is set to
-** "true", only one instance of each unique string will be appended to the resulting
-** string.
-**
-
-func combine(strings as vector<string>, delim as char, unique as bool = false, index as int = 0) static as string
-{
-	var sb = new StringBuilder()
-	var flags as map<string,string>
-	if unique:
-		flags = new map<string,string>
-	var i = index
-	while i < sizeof strings {
-		var o = strings[i]
-		i++
-		if o == null:
-			continue
-		if flags {
-			if Map.get(flags, o):
-				continue
-			Map.set(flags, o, "true")
-		}
-		if delim > 0 && sb.count() > 0:
-			sb.appendCharacter(delim)
-		sb.appendString(o)
-	}
-	return sb.toString()
-}
-
-**
-** Vaidates a string character-by-character, calling the supplied function to determine
-** the validity of each character. Returns true if the entire string was validated, false if not.
-**
-
-func validateCharacters(str as string, validator as function<bool,char>) static as bool
-{
-	assert str
-	var it = assert iterate(str)
-	loop {
-		var c = it.getNextChar()
-		if c < 1:
-			break
-		if validator(c) == false:
-			return false
-	}
-	return true
-}
-
-**
-** Converts a vector of objects to a vector of strings. If the allowConversion parameter is
-** true, attempts to also convert any non-string objects in the original vector to string objects,
-** if possible. In either case, any objects that are either not strings or not convertible to strings,
-** will be omitted from the resulting vector.
-**
-
-func toStringVector(vector as vector, allowConversion as bool = true) static as vector<string>
-{
-	var v = new vector<string>
-	foreach o in vector {
-		if allowConversion {
-			var s = asString(o)
-			if s:
-				v += s
-		}
-		else {
-			if o is string:
-				v += o as! string
-		}
-	}
-	return v
-}
-
-**
-** Converts a vector of strings to a vector of objects. No operations are performed on the elements.
-**
-
-func toObjectVector(vector as vector<string>) static as vector
-{
-	IFDEF "target_lua" {
-		return vector as! vector
-	}
-	ELSE {
-		var v = new vector
-		foreach o in vector:
-			v += o
-		return v
-	}
-}
-
-**
-** Wraps the given wtrings to a vector of multiple lines, honoring a maximum of charactersPerLine
-** characters on each line. Attempts to break lines at whitespace where possible.
-**
-
-func wrapToLines(text as string, charactersPerLine as int) static as vector<string>
-{
-	assert text
-	var v = new vector<string>
-	var it = iterate(text)
-	var lineBuilder as StringBuilder
-	var wordBuilder as StringBuilder
-	while it {
-		var c = it.getNextChar()
-		if c == ' ' || c == '\t' || c == '\n' || c < 1 {
-			if wordBuilder {
-				var word = wordBuilder.toString()
-				wordBuilder = null
-				if lineBuilder == null:
-					lineBuilder = new StringBuilder()
-				var cc = lineBuilder.count()
-				if cc > 0:
-					cc ++
-				cc += getLength(word)
-				if cc > charactersPerLine {
-					v += lineBuilder.toString()
-					lineBuilder = new StringBuilder()
-				}
-				if lineBuilder.count() > 0:
-					lineBuilder.appendCharacter(' ')
-				lineBuilder.appendString(word)
-			}
-			if c < 1:
-				break
-			continue
-		}
-		if wordBuilder == null:
-			wordBuilder = new StringBuilder()
-		wordBuilder.appendCharacter(c)
-	}
-	if lineBuilder:
-		v += lineBuilder.toString()
-	return v
-}
