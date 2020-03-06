@@ -23,15 +23,55 @@
  * SOFTWARE.
  */
 
-class is Message:
+class is Reader is Closable is FileDescriptor:
 
-func forText(t as string, ref as SourceReference = null) static as this
+func forFileDescriptor(fd as int) static as this
 {
 	var v = new this()
-	v.setMessage(t)
-	v.setReference(ref)
+	v.setFd(fd)
 	return v
 }
 
-func getType override as string:
-	return "info"
+pvar fd = -1
+
+IFDEF "target_supports_destructor"
+{
+	dtor:
+		close()
+}
+
+func getFileDescriptor as int:
+	return fd
+
+func read(buffer as buffer) as int
+{
+	var v = -1
+	IFDEF "target_sushi" {
+		var handle = this.fd
+		if handle >= 0 {
+			lang "lua" {{{
+				v = _io:read_from_handle(handle, buffer)
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return v
+}
+
+func close
+{
+	IFDEF "target_sushi" {
+		var handle = this.fd
+		if handle >= 0 {
+			lang "lua" {{{
+				_io:close_handle(handle)
+			}}}
+			this.fd = -1
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}

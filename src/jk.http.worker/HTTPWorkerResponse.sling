@@ -1,0 +1,98 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.worker
+import jk.mypacket
+
+class:
+
+pvar status as string
+pvar headers as KeyValueList<string,string>
+pvar body as buffer
+
+ctor
+{
+    setStatus("200")
+    setHeaders(null)
+    setBody(null)
+}
+
+func setContentType(type as string):
+    addHeader("Content-Type", type)
+
+func setResponseBuffer(type as string, buffer as buffer)
+{
+    setContentType(type)
+    setBody(buffer)
+}
+
+func setResponseString(type as string, resp as string)
+{
+    setContentType(type)
+    setBody(String.toUTF8Buffer(resp))
+}
+
+func setResponseHtml(html as string):
+    setResponseString("text/html", html)
+
+func setResponseText(text as string):
+    setResponseString("text/plain", text)
+
+func setResponseBinary(data as buffer):
+    setResponseBuffer("applicaton/octet-stream", data)
+
+func addHeader(key as string, value as string)
+{
+    assert key
+    if not headers:
+        headers = new KeyValueList<string,string>
+    headers.add(key, value)
+}
+
+func send
+{
+	var writer = Worker.getOutputWriter()
+    var builder = new MyPacketBuilder()
+    builder.appendLengthEncodedString(status)
+    if headers {
+        var count = headers.count()
+        builder.appendLengthEncodedInteger(count)
+        for(var n=0; n<count; n++) {
+            var key = headers.getKey(n)
+            var val = headers.getValue(n)
+            if not key:
+                key = ""
+            if not val:
+                val = ""
+            builder.appendLengthEncodedString(key)
+            builder.appendLengthEncodedString(val)
+        }
+        builder.appendLengthEncodedBuffer(body)
+    }
+    else {
+        builder.appendLengthEncodedInteger(0L)
+    }
+    writer.write(builder.finalize(), -1)
+}

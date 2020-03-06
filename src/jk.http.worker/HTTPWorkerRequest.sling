@@ -23,55 +23,37 @@
  * SOFTWARE.
  */
 
-class is Exception:
+import jk.worker
+import jk.mypacket
 
-func forMessage(message as string, source as SourceReference = null, trace as string = null) static as this
+class:
+
+func instance static as this
 {
-	var v = new this()
-	v.setError(ErrorMessage.forText(message, source, true, trace))
-	return v
+    var v = new this()
+    v.parseWorkerInput()
+    return v
 }
 
-func forErrorMessage(error as ErrorMessage) static as this
+func parseWorkerInput
 {
-	var v = new this()
-	v.setError(error)
-	return v
+    var parser = MyPacketParser.forBuffer(Worker.getInputBuffer())
+    setMethod(parser.getLengthEncodedString())
+    setPath(parser.getLengthEncodedString())
+    var nheaders = parser.getLengthEncodedInteger()
+    for(var n=0; n<nheaders; n++) {
+        var key = parser.getLengthEncodedString()
+        var val = parser.getLengthEncodedString()
+        if key {
+            if not headers:
+                headers = new KeyValueList<string,string>
+            headers.add(key, val)
+        }
+    }
+    setBody(parser.getLengthEncodedBuffer())
 }
 
-macro THROW(message, source)
-{
-	throw ReferenceError.forMessage(message, source)
-}
-
-prop error as ErrorMessage
-
-func getMessage as string
-{
-	assert error
-	return error.getMessage()
-}
-
-func getReference as SourceReference
-{
-	assert error
-	return error.getReference()
-}
-
-func addRelatedMessage(message as string, source as SourceReference) as this
-{
-	addRelatedMessageObject(ErrorMessage.forText(message, source))
-	return this
-}
-
-func addRelatedMessageObject(message as Message)
-{
-	assert error && message
-	error.addRelatedMessage(message)
-}
-
-func toString(debug as bool = false) as string
-{
-	assert error
-	return error.toString(debug)
-}
+pvar method as string
+pvar path as string
+pvar headers as KeyValueList<string,string>
+pvar body as buffer

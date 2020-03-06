@@ -23,62 +23,55 @@
  * SOFTWARE.
  */
 
-import jk.fs
+class is Writer is Closable is FileDescriptor:
 
-class is SourceReference:
-
-func instance(name as string, token as string, line as int, column as int, content as string, ref as SourceReference) static as this
+func forFileDescriptor(fd as int) static as this
 {
 	var v = new this()
-	v.setName(name)
-	v.setToken(token)
-	v.setLineNumber(line)
-	v.setColumnNumber(column)
-	v.setContentLine(content)
-	v.setSourceReference(ref)
+	v.setFd(fd)
 	return v
 }
 
-func forFile(file as File) static as this
+pvar fd = -1
+
+IFDEF "target_supports_destructor"
 {
-	var cn = MessageFormatter.getFilePath(file)
-	if String.isEmpty(cn):
-		cn = "<file>"
-	var v = new this()
-	v.setName(cn)
-	v.setToken(null)
-	v.setLineNumber(-1)
-	v.setColumnNumber(-1)
-	v.setContentLine(null)
-	v.setSourceReference(null)
-	return v
+    dtor:
+        close()
 }
 
-prop name as string
-prop token as string
-prop lineNumber as int
-prop columnNumber as int
-prop contentLine as string
-prop sourceReference as SourceReference
+func getFileDescriptor as int:
+	return fd
 
-func getSourceName as string:
-	return name
-
-func getSourceToken as string:
-	return token
-
-func getSourceLineNumber as int:
-	return lineNumber
-
-func getSourceColumnNumber as int:
-	return columnNumber
-
-func getSourceContentLine as string:
-	return contentLine
-
-func getNodeTrace as string
+func write(buf as buffer, size as int) as int
 {
-	if sourceReference:
-		return sourceReference.getNodeTrace()
-	return null
+    var v = -1
+    IFDEF "target_sushi" {
+        var handle = this.fd
+        if handle >= 0 {
+            lang "lua" {{{
+                v = _io:write_to_handle(handle, buf, size)
+            }}}
+        }
+    }
+    ELSE {
+        ERROR "Not implemented"
+    }
+    return v
+}
+
+func close
+{
+    IFDEF "target_sushi" {
+        var handle = this.fd
+        if handle >= 0 {
+            lang "lua" {{{
+                _io:close_handle(handle)
+            }}}
+            this.fd = -1
+        }
+    }
+    ELSE {
+        ERROR "Not implemented"
+    }
 }

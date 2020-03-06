@@ -1,0 +1,201 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+var buffer as buffer = null
+var position = 0
+
+func ensureAvailablesize(count as int)
+{
+	var sz = 0
+	if buffer:
+		sz = sizeof buffer
+	if sz < position + count:
+		buffer = Buffer.resize(buffer, sz + 1024)
+}
+
+func appendByte(byte as int)
+{
+	ensureAvailablesize(1)
+	buffer[position] = byte & 0xff
+	position++
+}
+
+func appendMultipleBytes(byte as int, count as int)
+{
+	assert count > 0
+	ensureAvailablesize(count)
+	for(var n=0; n<count; n++):
+		buffer[position++] = byte & 0xff
+}
+
+func appendBuffer(newdata as buffer)
+{
+	assert newdata
+	var nds = sizeof newdata
+	ensureAvailablesize(nds)
+	Buffer.copyFrom(buffer, newdata, 0, position, nds)
+	position += nds
+}
+
+func appendInt16(number as int)
+{
+	ensureAvailablesize(2)
+	var bb = Buffer.forInt16LE(number)
+	Buffer.copyFrom(buffer, bb, 0, position, 2)
+	position += 2
+}
+
+func appendInt24(number as int)
+{
+	ensureAvailablesize(3)
+	var bb = Buffer.forInt32LE(number)
+	Buffer.copyFrom(buffer, bb, 0, position, 3)
+	position += 3
+}
+
+func appendInt32(number as uint32)
+{
+	ensureAvailablesize(4)
+	var bb = Buffer.forInt32LE(number)
+	Buffer.copyFrom(buffer, bb, 0, position, 4)
+	position += 4
+}
+
+func appendInt64(number as uint64)
+{
+	ensureAvailablesize(8)
+	var bb = Buffer.forInt64LE(number)
+	Buffer.copyFrom(buffer, bb, 0, position, 8)
+	position += 8
+}
+
+func appendDouble(number as double)
+{
+	ensureAvailablesize(8)
+	var bb = Buffer.forDouble64LE(number)
+	Buffer.copyFrom(buffer, bb, 0, position, 8)
+	position += 8
+}
+
+func appendNullTerminatedString(string as string)
+{
+	if not string {
+		appendByte(0)
+		return
+	}
+	var it = String.iterate(string)
+	while it {
+		var c = it.getNextChar()
+		if Character.isEOF(c) {
+			appendByte(0)
+			break
+		}
+		appendByte(c as int)
+	}
+}
+
+func appendFixedLengthString(string as string, length as int)
+{
+	assert length > 0
+	var it = String.iterate(string)
+	for(var n=0; n<length; n++) {
+		var c = it.getNextChar()
+		if Character.isEOF(c) {
+			appendByte(0)
+		}
+		else {
+			appendByte(c as int)
+		}
+	}
+}
+
+func appendEofTerminatedString(string as string)
+{
+	if not string:
+		return
+	var it = String.iterate(string)
+	while it {
+		var c = it.getNextChar()
+		if Character.isEOF(c):
+			break
+		appendByte(c as int)
+	}
+}
+
+func appendLengthEncodedInteger(value as long)
+{
+	if value < 251 {
+		appendByte(value as int8)
+	}
+	else if value < 65536 {
+		appendByte(0xfc)
+		appendInt16(value)
+	}
+	else if value < 16777216 {
+		appendByte(0xfd)
+		appendInt24(value)
+	}
+	else {
+		appendByte(0xfe)
+		appendInt64(value)
+	}
+}
+
+func appendLengthEncodedString(value as string)
+{
+	if not value {
+		appendLengthEncodedInteger(0L)
+		return
+	}
+	var bb = String.toUTF8Buffer(value)
+	if not bb {
+		appendLengthEncodedInteger(0L)
+		return
+	}
+	var sz = sizeof bb
+	appendLengthEncodedInteger(sz)
+	if sz > 0:
+		appendBuffer(bb)
+}
+
+func appendLengthEncodedBuffer(value as buffer)
+{
+	if not value {
+		appendLengthEncodedInteger(0L)
+		return
+	}
+	var sz = sizeof value
+	appendLengthEncodedInteger(sz)
+	if sz > 0:
+		appendBuffer(value)
+}
+
+func finalize as buffer
+{
+	assert buffer
+	return Buffer.getSubBuffer(buffer, 0, position)
+}
