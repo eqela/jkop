@@ -1,0 +1,74 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.ui
+import jk.json
+import jk.web
+import jk.http.client
+import jk.widget
+
+class:
+
+func forApplications(context as GuiApplicationContext, clientId as string) static as string
+{
+	IFDEF "target_browser" {
+		var id final #used = clientId
+		lang "js" {{{
+			const popupCenter = (w, h) => {
+				const dualScreenLeft = window.screenLeft !== undefined ? window.screenLeft : window.screenX;
+				const dualScreenTop = window.screenTop !== undefined ? window.screenTop : window.screenY;
+				var width = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth || screen.width;
+				var height = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight || screen.height;
+				var left = ((width / 2) - (w / 2)) + dualScreenLeft;
+				var top = ((height / 2) - (h / 2)) + dualScreenTop;
+				var specs = 'scrollbars=yes, width=' + w + ', height=' + h + ', top=' + top + ', left=' + left;
+				window.open('https://github.com/login/oauth/authorize?client_id=' + id + '&scope=user', '_blank', specs)
+			}
+			popupCenter(800, 700)
+		}}}
+	}
+}
+
+func getAccessToken(code as string, clientId as string, clientSecret as string, callback as function<void, string>) static
+{
+	assert code
+	assert clientId
+	assert clientSecret
+	var webClient = new CustomWebClient()
+	var hrs = new KeyValueList<string,string>()
+	hrs.add("Content-Type", "application/json")
+	var dm = new DynamicMap()
+	dm.setString("clientId", clientId)
+	dm.setString("clientSecret", clientSecret)
+	dm.setString("code", code)
+	var data = String.toUTF8Buffer(JSONEncoder.encode(dm))
+	var status as string
+	webClient.query("POST", "https://github.com/login/oauth/access_token?client_id=" .. clientId.. "&client_secret=" .. clientSecret .. "&code" .. code, hrs, data, func(statusCode as string, headers as KeyValueList<string,string>, body as buffer) {
+		if body:
+			callback(String.forUTF8Buffer(body))
+		callback(null)
+	})
+	return
+}
