@@ -38,29 +38,53 @@ func getOutputWriter static as Writer
 func getInputBuffer static as buffer:
 	return lang "lua" buffer {{{ _input }}}
 
-func forCode(code as buffer) static as this
+func forThisProgram static as this
 {
-	assert code
+	var interpreter = assert lang "lua" object {{{ _vm:prepare_interpreter(_code) }}}
 	var v = new this()
-	v.setCode(code)
+	v.setInterpreter(interpreter)
 	return v
 }
 
-pvar code as buffer
-
-func start(input as buffer) as bool
+func forCode(code as buffer) static as this
 {
-	var code = this.code
-	var v = lang "lua" int {{{ _os:start_thread(code, input, 0) }}}
-	if v != 0:
+	assert code
+	var interpreter = assert lang "lua" object {{{ _vm:prepare_interpreter(code) }}}
+	var v = new this()
+	v.setInterpreter(interpreter)
+	return v
+}
+
+pvar interpreter as object
+pvar reuseInterpreter = false
+
+func start(fname as string, input as buffer) as bool
+{
+	var interpreter = assert this.interpreter
+	var ff = fname
+	if String.isEmpty(ff):
+		ff = "_main()"
+	var reuse = 0
+	if reuseInterpreter:
+		reuse = 1
+	var v = lang "lua" int {{{ _os:execute_in_thread(interpreter, ff, input, 0, reuse) }}}
+	if v < 0:
 		return false
+	if not reuseInterpreter:
+		interpreter = null
 	return true
 }
 
-func startPiped(input as buffer) as Reader
+func startPiped(fname as string, input as buffer) as Reader
 {
-	var code = this.code
-	var v = lang "lua" int {{{ _os:start_thread(code, input, 1) }}}
+	var interpreter = assert this.interpreter
+	var ff = fname
+	if String.isEmpty(ff):
+		ff = "_main()"
+	var reuse = 0
+	if reuseInterpreter:
+		reuse = 1
+	var v = lang "lua" int {{{ _os:execute_in_thread(interpreter, ff, input, 1, reuse) }}}
 	if v < 0:
 		return null
 	var reader = new FileDescriptorReader()

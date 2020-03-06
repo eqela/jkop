@@ -26,12 +26,13 @@
 import jk.fs
 import jk.env
 import jk.http.server
+import jk.worker
 
 class is CommonServer:
 
 class MyHTTPServer is HTTPServer
 {
-	prop myParent as parent
+	pvar myParent as parent
 
 	func onMaintenance override
 	{
@@ -40,12 +41,15 @@ class MyHTTPServer is HTTPServer
 	}
 }
 
-prop enableHttpsForwarder = false
-prop enableRequestLogging = true
-prop enableRateLimit as string
-prop timeoutDelay = 30
-prop debugErrors = false
-prop handler as HTTPServerRequestHandler
+pvar enableHttpsForwarder = false
+pvar enableRequestLogging = true
+pvar enableRateLimit as string
+pvar timeoutDelay = 30
+pvar debugErrors = false
+pvar handler as HTTPServerRequestHandler
+pvar worker as typeinfo
+
+var workers = WorkerPool.forContext(ctx)
 
 ctor
 {
@@ -121,6 +125,10 @@ func initializeServer(server as HTTPServer) virtual as bool
 		addHttpsForwarderHandler(server)
 	if handler:
 		server.pushRequestHandler(handler)
+	if worker:
+		server.pushRequestHandler(func(req as HTTPServerRequest, next as function) {
+			handleRequestWithWorker(req, worker)
+		})
 	return true
 }
 
@@ -143,6 +151,25 @@ func createServer override as NetworkServer
 	server.setMyParent(this)
 	server.setPort(getListenPort())
 	return server
+}
+
+func handleRequestWithWorker(req as HTTPServerRequest, worker as typeinfo)
+{
+	assert req
+	var fulldata as buffer
+	workers.executeWorker(worker, req.toMyPacket(), func(data as buffer) {
+		if not data {
+			if not fulldata {
+				req.sendResponse(HTTPServerResponse.forHTTPInternalError())
+			}
+			else {
+				req.sendResponse(HTTPServerResponse.forMyPacket(fulldata))
+			}
+		}
+		else {
+			fulldata = Buffer.append(fulldata, data)
+		}
+	})
 }
 
 func executeForHandler(handler as HTTPServerRequestHandler, args as array<string>) as int
