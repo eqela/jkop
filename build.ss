@@ -1,4 +1,4 @@
-#! eqela sling-r110
+#! eqela sling-r111
 #
 # This file is part of Jkop
 # Copyright (c) 2016-2018 Job and Esther Technologies Oy
@@ -23,7 +23,7 @@
 # SOFTWARE.
 #
 
-lib sling:r110
+lib sling:r111
 import jk.lang
 import sling.build
 
