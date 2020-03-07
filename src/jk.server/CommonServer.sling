@@ -32,22 +32,39 @@ import jk.env
 
 class abstract:
 
-prop listenPort = 8080
-prop loggingDirectory as File
-prop configFile as File
-prop enableDebugMessages = false
-prop alsoPrintOnConsole = false
-prop maintenanceTimerDelay = 60
+var listenPort as int
+var loggingDirectory as File
+var configFile as File
+var enableDebugMessages as bool
+var duplicateLoggingOnConsole as bool
 var ctx protected as LoggingContext
+var configuration = new map<string,string>
 
 ctor
 {
 	ctx = new ConsoleApplicationContext()
-	envConfigure("maintenanceTimerDelay", EnvironmentVariable.get("SYMPATHY_MAINTENANCE_TIMER_DELAY"))
-	envConfigure("listenPort", EnvironmentVariable.get("SYMPATHY_LISTEN_PORT"))
-	envConfigure("loggingDirectory", EnvironmentVariable.get("SYMPATHY_LOGGING_DIRECTORY"))
-	envConfigure("enableDebugMessages", EnvironmentVariable.get("SYMPATHY_ENABLE_DEBUG_MESSAGES"))
-	envConfigure("alsoPrintOnConsole", EnvironmentVariable.get("SYMPATHY_ALSO_PRINT_ON_CONSOLE"))
+	initConfigValue("LISTEN_PORT", "8080")
+	initConfigValue("LOGGING_DIRECTORY", null)
+	initConfigValue("ENABLE_DEBUG_MESSAGES", "false")
+	initConfigValue("DUPLICATE_LOGGING_ON_CONSOLE", "false")
+}
+
+func getLoggingDirectory as File:
+	return loggingDirectory
+
+func getListenPort as int:
+	return listenPort
+
+func getConfigfromEnvironment(name as string) as string
+{
+	assert name
+	var depvar = "SYMPATHY_" .. name
+	var v = EnvironmentVariable.get(depvar)
+	if v {
+		Log.warning(ctx, "Accepting deprecated configuration variable `" .. depvar .. "'. Use `" .. name .. "' instead.")
+		return v
+	}
+	return EnvironmentVariable.get(name)
 }
 
 func getConfigFileDirectory as File
@@ -61,27 +78,29 @@ func onMaintenance virtual
 {
 }
 
-func envConfigure(key as string, value as string)
+func initConfigValue(key as string, defaultValue as string)
 {
 	assert key
-	assert value
-	configure(key, value, null, null)
+	var vv = getConfigfromEnvironment(key)
+	if not vv:
+		vv = defaultValue
+	doConfigure(key, vv, null)
+}
+
+func setConfigValue(key as string, value as string) as this
+{
+	doConfigure(key, value, null)
+	return this
 }
 
 func configure(key as string, value as string, relativeTo as File, error as Error) virtual as bool
 {
-	if key == "maintenanceTimerDelay" {
-		maintenanceTimerDelay = Integer.asInteger(value)
-		if maintenanceTimerDelay < 0:
-			maintenanceTimerDelay = 0
-		return true
-	}
-	if key == "listenPort" {
+	if key == "LISTEN_PORT" || key == "listenPort" {
 		listenPort = Integer.asInteger(value)
 		return true
 	}
-	if key == "loggingDirectory" {
-		if value {
+	if key == "LOGGING_DIRECTORY" || key == "loggingDirectory" {
+		if String.isNotEmpty(value) {
 			loggingDirectory = File.forRelativePath(value, relativeTo)
 		}
 		else {
@@ -89,12 +108,12 @@ func configure(key as string, value as string, relativeTo as File, error as Erro
 		}
 		return true
 	}
-	if key == "enableDebugMessages" {
+	if key == "ENABLE_DEBUG_MESSAGES" || key == "enableDebugMessages" {
 		enableDebugMessages = Boolean.asBoolean(value)
 		return true
 	}
-	if key == "alsoPrintOnConsole" {
-		alsoPrintOnConsole = Boolean.asBoolean(value)
+	if key == "DUPLICATE_LOGGING_ON_CONSOLE" || key == "duplicateLoggingOnConsole" {
+		duplicateLoggingOnConsole = Boolean.asBoolean(value)
 		return true
 	}
 	return false
@@ -103,10 +122,14 @@ func configure(key as string, value as string, relativeTo as File, error as Erro
 func doConfigure(key as string, value as string, relativeTo as File) private as bool
 {
 	var error = new Error()
-	if configure(key, value, relativeTo, error) == false {
+	var vv = value
+	if not vv:
+		vv = ""
+	if configure(key, vv, relativeTo, error) == false {
 		Log.error(ctx, error.toStringWithDefault("Unsupported configuration option: `" .. key .. "'"))
 		return false
 	}
+	Map.set(configuration, key, vv)
 	return true
 }
 
@@ -131,6 +154,21 @@ func printHeader(stdout as PrintWriter) virtual
 
 func printVersion(stdout as PrintWriter, longFormat as bool) virtual
 {
+}
+
+func logServerConfiguration virtual
+{
+	var sb = new StringBuilder()
+	sb.appendString("Server configuration:")
+	var keys = Map.getKeys(configuration)
+	Vector.sortAsStrings(keys)
+	foreach key in keys {
+		sb.appendString("\n  ")
+		sb.appendString(key)
+		sb.appendString(": ")
+		sb.appendString(Map.get(configuration, key))
+	}
+	Log.info(ctx, sb.toString())
 }
 
 func acceptCommandLineArgument(arg as CommandLineArgument) virtual as bool:
@@ -222,7 +260,7 @@ func execute(args as array<string>) as bool
 		var dlc = DirectoryLoggingContext.create(loggingDirectory)
 		if enableDebugMessages:
 			dlc.setEnableDebugMessages(true)
-		dlc.setAlsoPrintOnConsole(alsoPrintOnConsole)
+		dlc.setAlsoPrintOnConsole(duplicateLoggingOnConsole)
 		ctx = dlc
 	}
 	else {
@@ -249,6 +287,7 @@ func createServer abstract as NetworkServer
 
 func executeServer as bool
 {
+	logServerConfiguration()
 	assert initializeApplication():
 		Log.error(ctx, "Failed to initialize application")
 	var server = assert createServer():

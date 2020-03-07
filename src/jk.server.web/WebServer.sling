@@ -41,74 +41,71 @@ class MyHTTPServer is HTTPServer
 	}
 }
 
-pvar enableHttpsForwarder = false
-pvar enableRequestLogging = true
-pvar enableRateLimit as string
-pvar timeoutDelay = 30
-pvar debugErrors = false
 pvar handler as HTTPServerRequestHandler
 pvar worker as typeinfo
 
+var enableRequestLogging as bool
+var enableRateLimit as string
+var timeoutDelay as int
+var maintenanceTimerDelay as int
 var workers = WorkerPool.forContext(ctx)
 
 ctor
 {
-	envConfigure("enableHttpsForwarder", EnvironmentVariable.get("SYMPATHY_ENABLE_HTTPS_FORWARDER"))
-	envConfigure("enableRequestLogging", EnvironmentVariable.get("SYMPATHY_ENABLE_REQUEST_LOGGING"))
-	envConfigure("enableRateLimit", EnvironmentVariable.get("SYMPATHY_ENABLE_RATE_LIMIT"))
-	envConfigure("timeoutDelay", EnvironmentVariable.get("SYMPATHY_TIMEOUT_DELAY"))
-	envConfigure("debugErrors", EnvironmentVariable.get("SYMPATHY_DEBUG_ERRORS"))
+	initConfigValue("ENABLE_REQUEST_LOGGING", "true")
+	initConfigValue("ENABLE_RATE_LIMIT", null)
+	initConfigValue("TIMEOUT_DELAY", "30")
+	initConfigValue("MAINTENANCE_TIMER_DELAY", "0")
+	initConfigValue("MAX_WORKER_COUNT", "200")
+	initConfigValue("MAX_WORKER_QUEUE", "1000")
 }
 
 func configure(key as string, value as string, relativeTo as File, error as Error) override as bool
 {
-	if key == "enableHttpsForwarder" {
-		enableHttpsForwarder = Boolean.asBoolean(value)
-		return true
-	}
-	if key == "enableRequestLogging" {
+	if key == "ENABLE_REQUEST_LOGGING" || key == "enableRequestLogging" {
 		enableRequestLogging = Boolean.asBoolean(value)
 		return true
 	}
-	if key == "enableRateLimit" {
+	if key == "ENABLE_RATE_LIMIT" || key == "enableRateLimit" {
 		enableRateLimit = value
 		return true
 	}
-	if key == "timeoutDelay" {
+	if key == "TIMEOUT_DELAY" || key == "timeoutDelay" {
 		timeoutDelay = Integer.asInteger(value)
 		if timeoutDelay < 30:
 			timeoutDelay = 30
 		return true
 	}
-	if key == "debugErrors" {
-		debugErrors = Boolean.asBoolean(value)
+	if key == "MAINTENANCE_TIMER_DELAY" || key == "maintenanceTimerDelay" {
+		maintenanceTimerDelay = Integer.asInteger(value)
+		if maintenanceTimerDelay < 0:
+			maintenanceTimerDelay = 0
+		return true
+	}
+	if key == "MAX_WORKER_COUNT" || key == "maxWorkerCount" {
+		workers.setMaxWorkers(Integer.asInteger(value))
+		return true
+	}
+	if key == "MAX_WORKER_QUEUE" || key == "maxWorkerQueue" {
+		workers.setMaxQueue(Integer.asInteger(value))
 		return true
 	}
 	return base.configure(key, value, relativeTo, error)
 }
 
-func addHttpsForwarderHandler(server as HTTPServer)
+func initializeHandlers(server as HTTPServer) virtual
 {
-	server.pushRequestHandler(func(req as HTTPServerRequest, next as function) {
-		var hdr = req.getHeader("x-forwarded-proto")
-		if not String.equals(hdr, "http") {
-			next()
-			return
-		}
-		var host = req.getHeader("host")
-		var path = req.getUrlString()
-		if String.isEmpty(host) || String.isEmpty(path) {
-			next()
-			return
-		}
-		req.sendResponse(HTTPServerResponse.forHTTPTemporaryRedirect("https://" .. host .. path))
-	})
+	if handler:
+		server.pushRequestHandler(handler)
+	if worker:
+		server.pushRequestHandler(func(req as HTTPServerRequest, next as function) {
+			handleRequestWithWorker(req, worker)
+		})
 }
 
 func initializeServer(server as HTTPServer) virtual as bool
 {
-	server.setDebugErrors(debugErrors)
-	if enableRateLimit {
+	if String.isNotEmpty(enableRateLimit) {
 		var limit = new HTTPServerRateLimitHandler()
 		if enableRateLimit == "true" || enableRateLimit == "yes" {
 			nop // all good, use default settings
@@ -121,14 +118,7 @@ func initializeServer(server as HTTPServer) virtual as bool
 		}
 		server.pushRequestHandler(limit)
 	}
-	if enableHttpsForwarder:
-		addHttpsForwarderHandler(server)
-	if handler:
-		server.pushRequestHandler(handler)
-	if worker:
-		server.pushRequestHandler(func(req as HTTPServerRequest, next as function) {
-			handleRequestWithWorker(req, worker)
-		})
+	initializeHandlers(server)
 	return true
 }
 
@@ -147,7 +137,7 @@ func createServer override as NetworkServer
 {
 	var server = new MyHTTPServer()
 	server.setTimeoutDelay(timeoutDelay)
-	server.setMaintenanceTimerDelay(getMaintenanceTimerDelay())
+	server.setMaintenanceTimerDelay(maintenanceTimerDelay)
 	server.setMyParent(this)
 	server.setPort(getListenPort())
 	return server
