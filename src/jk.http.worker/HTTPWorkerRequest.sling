@@ -30,30 +30,77 @@ class:
 
 func instance static as this
 {
-    var v = new this()
-    v.parseWorkerInput()
-    return v
+	var v = new this()
+	v.parseWorkerInput()
+	return v
 }
 
 func parseWorkerInput
 {
-    var parser = MyPacketParser.forBuffer(Worker.getInputBuffer())
-    setMethod(parser.getLengthEncodedString())
-    setPath(parser.getLengthEncodedString())
-    var nheaders = parser.getLengthEncodedInteger()
-    for(var n=0; n<nheaders; n++) {
-        var key = parser.getLengthEncodedString()
-        var val = parser.getLengthEncodedString()
-        if key {
-            if not headers:
-                headers = new KeyValueList<string,string>
-            headers.add(key, val)
-        }
-    }
-    setBody(parser.getLengthEncodedBuffer())
+	var parser = MyPacketParser.forBuffer(Worker.getInputBuffer())
+	setMethod(parser.getLengthEncodedString())
+	setPath(parser.getLengthEncodedString())
+	var nheaders = parser.getLengthEncodedInteger()
+	for(var n=0; n<nheaders; n++) {
+		var key = parser.getLengthEncodedString()
+		var val = parser.getLengthEncodedString()
+		if key {
+			if not headers:
+				headers = new KeyValueList<string,string>
+			headers.add(key, val)
+		}
+	}
+	setBody(parser.getLengthEncodedBuffer())
 }
 
 pvar method as string
 pvar path as string
 pvar headers as KeyValueList<string,string>
 pvar body as buffer
+
+func getBodyString as string:
+	return String.forUTF8Buffer(body)
+
+func addToHeaders(key as string, value as string)
+{
+	assert key
+	var vv = value
+	if not vv:
+		vv = ""
+	if not headers:
+		headers = new KeyValueList<string,string>()
+	headers.add(key, vv)
+}
+
+func removeFromHeaders(key as string)
+{
+	assert headers
+	assert key
+	var n = 0
+	var klow = String.toLowerCase(key)
+	while n < headers.count() {
+		var kk = String.toLowerCase(headers.getKey(n))
+		if kk && kk == klow {
+			headers.remove(n)
+		}
+		else {
+			n++
+		}
+	}
+}
+
+func getHeaderValue(name as string) as string
+{
+	assert name
+	assert headers
+	var nlow = String.toLowerCase(name)
+	var it = headers.iterate()
+	while it {
+		var vv = it.next()
+		if not vv:
+			break
+		if nlow == String.toLowerCase(vv.key):
+			return vv.value
+	}
+	return null
+}

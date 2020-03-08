@@ -23,16 +23,68 @@
  * SOFTWARE.
  */
 
+import jk.log
+import jk.console
 import jk.worker
 
 class is Runnable abstract:
 
+pvar ctx as LoggingContext
+
+ctor
+{
+	// FIXME: Should also be able to log through the "common server mechanism",
+	// in which ever way that may have been configured.
+	ctx = new ConsoleApplicationContext()
+}
+
 func handleRequest(req as HTTPWorkerRequest, resp as HTTPWorkerResponse) abstract
 
-func run
+func onStartRequest virtual:
+	nop
+
+func onEndRequest virtual:
+	nop
+
+func preProcess(req as HTTPWorkerRequest, resp as HTTPWorkerResponse) virtual:
+	nop
+
+func postProcess(req as HTTPWorkerRequest, resp as HTTPWorkerResponse) virtual:
+	nop
+
+func generateNotFound(resp as HTTPWorkerResponse) virtual
 {
-    var req = HTTPWorkerRequest.instance()
-    var resp = new HTTPWorkerResponse()
-    handleRequest(req, resp)
-    resp.send()
+	resp.setStatus("404")
+	resp.setHeaders(null)
+	resp.setContentType("text/plain")
+	resp.setBody(String.toUTF8Buffer("Not found"))
+}
+
+func generateInternalServerError(resp as HTTPWorkerResponse) virtual
+{
+	resp.setStatus("500")
+	resp.setHeaders(null)
+	resp.setContentType("text/plain")
+	resp.setBody(String.toUTF8Buffer("Internal server error"))
+}
+
+func run virtual
+{
+	onStartRequest()
+	var req = HTTPWorkerRequest.instance()
+	var resp = new HTTPWorkerResponse()
+	try {
+		preProcess(req, resp)
+		if String.isEmpty(resp.getStatus()):
+			handleRequest(req, resp)
+	}
+	catch e {
+		Log.error(ctx, "Exception while processing request: " .. String.asString(e))
+		generateInternalServerError(resp)
+	}
+	if String.isEmpty(resp.getStatus()):
+		generateNotFound(resp)
+	postProcess(req, resp)
+	resp.send()
+	onEndRequest()
 }
