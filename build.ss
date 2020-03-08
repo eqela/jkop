@@ -36,7 +36,7 @@ Context.execute(func {
 	Compiler.compileLibrary({
 		"source" : "src",
 		"version" : version,
-        "workdir" : "build/workdir",
-        "destdir" : "build"
+		"workdir" : "build/workdir",
+		"destdir" : "build"
 	})
 })
