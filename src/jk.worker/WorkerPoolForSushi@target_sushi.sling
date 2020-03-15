@@ -35,7 +35,7 @@ class MyTask
 {
 	pvar worker as string
 	pvar input as buffer
-	pvar handler as function<void,buffer>
+	pvar handler as function<void,buffer,int>
 }
 
 var queue = new Queue<MyTask>
@@ -78,7 +78,7 @@ func onWorkerDone(worker as SushiThread)
 	Log.debug(getCtx(), "Released a worker. createdWorkers=" .. String.forInteger(createdWorkers) .. ", workersInStack=" .. String.forInteger(workers.getSize()))
 }
 
-func executeWorker(workertype as typeinfo, input as buffer, handler as function<void,buffer>) as bool
+func executeWorker(workertype as typeinfo, input as buffer, handler as function<void,buffer,int>) as bool
 {
 	assert workertype
 	var typename = lang "lua" string {{{ workertype }}}
@@ -91,7 +91,7 @@ func executeWorker(workertype as typeinfo, input as buffer, handler as function<
 		if queue.getSize() >= maxQueue {
 			Log.error(ctx, "Worker pool ran out of threads and queue is full. Rejecting task.")
 			if handler:
-				handler(null)
+				handler(null, 0)
 			return false
 		}
 		var t = new MyTask()
@@ -108,49 +108,44 @@ func executeWorker(workertype as typeinfo, input as buffer, handler as function<
 	return v
 }
 
-func executeWorkerWithThread(thread as SushiThread, worker as string, input as buffer, handler as function<void,buffer>) private as bool
+func executeWorkerWithThread(thread as SushiThread, worker as string, input as buffer, handler as function<void,buffer,int>) private as bool
 {
 	var iomgr = assert IOManager.getCurrent() {
 		Log.error(getCtx(), "There is no current IO manager. Unable to execute workers.")
 		if handler:
-			handler(null)
+			handler(null, 0)
 	}
 	var reader = assert thread.startPiped(worker, input) {
 		Log.error(getCtx(), "Failed to start piped sushi thread.")
 		if handler:
-			handler(null)
+			handler(null, 0)
 	}
 	var ee = assert iomgr.add(reader) {
 		Log.error(getCtx(), "Failed to register reader with IO manager.")
 		if reader is Closable:
 			(reader as! Closable).close()
 		if handler:
-			handler(null)
+			handler(null, 0)
 	}
+	var buffer = malloc 65536
 	var v = ee.setReadListener(func {
-		var buffer = malloc 8192
 		var r = reader.read(buffer)
 		if r < 1 {
 			if handler:
-				handler(null)
+				handler(null, 0)
 			ee.remove()
 			if reader is Closable:
 				(reader as! Closable).close()
 			onWorkerDone(thread)
 		}
 		else if handler {
-			if r == sizeof buffer {
-				handler(buffer)
-			}
-			else {
-				handler(Buffer.resize(buffer, r))
-			}
+			handler(buffer, r)
 		}
 	})
 	if not v {
 		Log.error(getCtx(), "Failed to set read listener for new thread pipe")
 		if handler:
-			handler(null)
+			handler(null, 0)
 	}
 	return v
 }
