@@ -23,23 +23,34 @@
  * SOFTWARE.
  */
 
-class abstract:
+class is RS256:
 
-func instance static as this
+func generate(data as buffer, key as string) override as buffer
 {
-	IFDEF "target_netcore" {
-		return new RS256ForNetcore()
-	}
-	ELSE IFDEF "target_sushi" {
-		return new RS256ForSushi()
-	}
-	ELSE {
-		ERROR "Not implemented"
-		return null
-	}
+	assert data
+	assert String.isNotEmpty(key)
+	var v as buffer
+	var error as string
+	lang "lua" buffer {{{
+		v, error = _crypto:rs256_sign(data, key)
+	}}}
+	if String.isNotEmpty(error):
+		setLastErrorDescription(error)
+	return v
 }
 
-pvar lastErrorDescription as string
-
-func generate(data as buffer, privateKey as string) abstract as buffer
-func validate(data as buffer, signature as buffer, publicKey as string) abstract as bool
+func validate(data as buffer, signature as buffer, key as string) override as bool
+{
+	assert data
+	assert String.isNotEmpty(key)
+	var result as int
+	var error as string
+	lang "lua" {{{
+		result, error = _crypto:rs256_verify(data, signature, key)
+	}}}
+	if result == 1:
+		return true
+	if String.isNotEmpty(error):
+		setLastErrorDescription(error)
+	return false
+}
