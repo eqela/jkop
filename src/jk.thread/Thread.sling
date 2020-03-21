@@ -1,0 +1,363 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+IFDEF "target_netcore"
+{
+	depend "nuget:System.Threading.Thread@4.3.*"
+
+	class MyThread is RunningThread
+	{
+		prop thread as !"System.Threading.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "cs" bool {{{ thread.IsAlive }}}
+		}
+	}
+}
+
+IFDEF "target_posix"
+{
+	lang "c" {{{
+		#include <pthread.h>
+		#include <signal.h>
+	}}}
+
+	func threadFunction(arg as ptr) static as ptr
+	{
+		lang "c" {{{
+			sigset_t ss;
+			sigset_t os;
+			sigfillset(&ss);
+		}}}
+		IFNDEF "target_nacl" {
+			lang "c" {{{
+				pthread_sigmask(SIG_SETMASK, &ss, &os);
+			}}}
+		}
+		IFDEF "target_apple" {
+			lang "objc" {{{
+				@autoreleasepool {
+			}}}
+		}
+		(arg as Runnable).run()
+		IFDEF "target_apple" {
+			lang "objc" {{{
+				}
+			}}}
+		}
+		lang "c" {{{
+			unref_eq_api_Object((void*)arg);
+		}}}
+		return null
+	}
+}
+
+IFDEF "target_win32"
+{
+	lang "c" {{{
+		#include <windows.h>
+	}}}
+
+	func threadFunction(arg as ptr) static as ptr
+	{
+		(arg as Runnable).run()
+		lang "c" {{{
+			unref_eq_api_Object((void*)arg);
+		}}}
+		return null
+	}
+}
+
+IFDEF "target_java"
+{
+	lang "java" {{{
+		private static class ThreadRunnable implements java.lang.Runnable {
+			private jk.lang.Runnable runnable = null;
+			public ThreadRunnable(jk.lang.Runnable r) {
+				this.runnable = r;
+			}
+			public void run() {
+				this.runnable.run();
+			}
+		}
+	}}}
+
+	class MyThread is RunningThread
+	{
+		prop thread as !"java.lang.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "java" bool {{{ thread.isAlive() }}}
+		}
+	}
+}
+
+IFDEF "target_objc"
+{
+	class MyThread is !"NSThread"
+	{
+		prop runnable as Runnable
+
+		ctor:
+			base()
+
+		func main
+		{
+			if runnable:
+				runnable.run()
+		}
+	}
+
+	class MyRunningThread is RunningThread
+	{
+		prop thread as !"NSThread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "objc" bool {{{ [thread isExecuting] }}}
+		}
+	}
+}
+
+IFDEF "target_swift"
+{
+	class MyThread extends !"Foundation.Thread"
+	{
+		ctor override
+		{
+			lang "swift" {{{
+				super.init()
+			}}}
+		}
+
+		prop runnable as Runnable
+
+		func main override
+		{
+			lang "swift" {{{
+				if runnable != nil {
+					runnable.run()
+				}
+			}}}
+		}
+	}
+
+	class MyRunningThread is RunningThread
+	{
+		prop thread as !"Foundation.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "swift" bool {{{ thread.isExecuting }}}
+		}
+	}
+}
+
+IFDEF "target_kotlin"
+{
+	class MyThread is RunningThread
+	{
+		prop thread as !"java.lang.Thread"
+
+		func isAlive as bool
+		{
+			assert thread
+			return lang "kotlin" bool {{{ thread.isAlive() }}}
+		}
+	}
+}
+
+IFDEF "target_sushi"
+{
+	var localValues static = new map<string,object>
+}
+
+func setLocalValue(id as string, value as object) static
+{
+	meta {
+		description [[
+			Sets a value in the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and can only be accessed from the current thread.
+		]]
+	}
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), value);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			Thread.current.threadDictionary.setObject(value, forKey: id as! NSCopying)
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		if id:
+			localValues[id] = value
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
+
+func getLocalValue(id as string) static as object
+{
+	meta {
+		description [[
+			Gets a value from the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and must have been set by a prior call to setLocalValue in the same thread where this method is called.
+		]]
+	}
+	IFDEF "target_cs" {
+		return lang "cs" object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			return Thread.current.threadDictionary.value(forKey: id) as AnyObject
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		assert id
+		return Map.get(localValues, id)
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
+}
+
+func removeLocalValue(id as string) static
+{
+	meta {
+		description [[
+			Removes a value from the thread local storage (TLS) of the current thread. The value is identified with the
+			given id, and would have been set by a previous call to setLocalValue in the same thread where this method is called.
+		]]
+	}
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), null);
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			Thread.current.threadDictionary.removeObject(forKey: id)
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		if id:
+			Map.remove(localValues, id)
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
+
+func start(runnable as Runnable) static as RunningThread
+{
+	assert runnable
+	IFDEF "target_cs" {
+		IFDEF "target_uwp" {
+			ERROR "Not implemented"
+			return false
+		}
+		ELSE {
+			var th as !"System.Threading.Thread"
+			lang "cs" {{{
+				th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
+				try {
+					th.Start();
+				}
+				catch(Exception e) {
+					return null;
+				}
+			}}}
+			var thread = new MyThread()
+			thread.setThread(th)
+			return thread
+		}
+	}
+	ELSE IFDEF "target_java" {
+		var th as !"java.lang.Thread"
+		lang "java" {{{
+			th = new java.lang.Thread(new ThreadRunnable(runnable));
+			try {
+				th.start();
+			}
+			catch(Exception e) {
+				return null;
+			}
+		}}}
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
+	}
+	ELSE IFDEF "target_objc" {
+		var thread = new MyThread()
+		thread.setRunnable(runnable)
+		lang "objc" {{{
+			[thread start];
+		}}}
+		var rt = new MyRunningThread()
+		rt.setThread(thread)
+		return rt
+	}
+	ELSE IFDEF "target_swift" {
+		var thread = new MyThread()
+		thread.setRunnable(runnable)
+		lang "swift" {{{
+			thread.start()
+		}}}
+		var rt = new MyRunningThread()
+		rt.setThread(thread)
+		return rt
+	}
+	ELSE IFDEF "target_kotlin" {
+		var th as !"java.lang.Thread"
+		lang "kotlin" {{{
+			try {
+				th = kotlin.concurrent.thread() {
+				runnable!!.run()
+			}
+			catch(Exception e) {
+				return null;
+			}
+		}}}
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}

@@ -1,0 +1,168 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func forString(string as string) static as this
+{
+	var v = new this()
+	v.setString(string)
+	return v
+}
+
+IFDEF "target_sushi" {
+	is CharacterDecoder
+	is Duplicateable
+
+	var string as string
+	var stringSize as long
+	var currentPosition = -1
+
+	func moveToPreviousByte override as bool
+	{
+		if currentPosition < 1:
+			return false
+		currentPosition --
+		return true
+	}
+
+	func moveToNextByte override as bool
+	{
+		var n = currentPosition+1
+		if n >= stringSize:
+			return false
+		currentPosition = n
+		return true
+	}
+
+	func getCurrentByte override as int:
+		return lang "lua" int {{{ _util:get_byte_from_string(self.string, self.currentPosition) }}}
+
+	func getCurrentPosition override as int:
+		return currentPosition
+
+	func setCurrentPosition(position as int) override
+	{
+		if position < 0 {
+			current = 0 as char
+			currentPosition = -1
+		}
+		else {
+			currentPosition = position + 1
+			doMoveToPreviousChar()
+		}
+	}
+
+	func duplicate as object
+	{
+		var v = new this()
+		base.copyTo(v)
+		v.string = string
+		v.stringSize = stringSize
+		v.currentPosition = currentPosition
+		return v
+	}
+}
+
+ELSE IFDEF "target_stdlua" {
+	is CharacterIteratorForBuffer
+}
+
+ELSE {
+	is CharacterIterator
+	is Duplicateable
+
+	var characters as array<char>
+	var currentIndex = -1
+
+	func duplicate as object
+	{
+		var v = new this()
+		v.characters = characters
+		v.currentIndex = currentIndex
+		return v
+	}
+
+	func getCurrentChar as char
+	{
+		if currentIndex < 0 || currentIndex >= sizeof characters:
+			return 0 as char
+		return characters[currentIndex]
+	}
+
+	func getNextChar as char
+	{
+		moveToNextChar()
+		return getCurrentChar()
+	}
+
+	func moveToNextChar as bool
+	{
+		var sc = sizeof characters
+		if currentIndex + 1 <= sc:
+			currentIndex ++
+		if currentIndex >= sc:
+			return false
+		return true
+	}
+
+	func moveToPreviousChar as bool
+	{
+		if currentIndex < 1:
+			return false
+		currentIndex --
+		return true
+	}
+
+	func hasEnded as bool
+	{
+		if currentIndex >= sizeof characters:
+			return true
+		return false
+	}
+
+	func getCurrentPosition as int:
+		return currentIndex
+
+	func setCurrentPosition(position as int):
+		currentIndex = position
+}
+
+func setString(string as string)
+{
+	IFDEF "target_sushi" {
+		resetDecoder()
+		this.string = string
+		this.stringSize = lang "lua" long {{{ _util:get_string_length(string) }}}
+		this.currentPosition = -1
+	}
+	ELSE IFDEF "target_stdlua" {
+		setBuffer(String.toUTF8Buffer(string))
+	}
+	ELSE {
+		characters = String.toCharArray(string)
+		currentIndex = -1
+	}
+}

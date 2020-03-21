@@ -1,0 +1,148 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.text
+import jk.process
+
+class:
+
+func printHeader(out as PrintWriter, title as string, version as string, copyright as string = null, license as string = null, platform as string = null, component as string = null) static
+{
+	assert out
+	var sb = new StringBuilder()
+	if String.isEmpty(title) {
+		sb.appendString("Untitled Application")
+	}
+	else {
+		sb.appendString(title)
+	}
+	if String.isNotEmpty(component) {
+		if sb.count() > 0:
+			sb.appendCharacter(' ')
+		sb.appendString(component)
+	}
+	if String.isNotEmpty(version) {
+		sb.appendString(" / ")
+		sb.appendString(version)
+	}
+	if String.isNotEmpty(platform) {
+		sb.appendString(" @ ")
+		sb.appendString(platform)
+	}
+	if sb.count() > 0:
+		sb.appendCharacter('\n')
+	if String.isNotEmpty(copyright) {
+		sb.appendString(copyright)
+		sb.appendCharacter('\n')
+	}
+	if String.isNotEmpty(license) {
+		sb.appendString(license)
+		sb.appendCharacter('\n')
+	}
+	if sb.count() > 0:
+		sb.appendCharacter('\n')
+	if sb.count() > 0:
+		out.print(sb.toString())
+}
+
+func printVersion(out as PrintWriter, version as string, title as string) static
+{
+	assert out
+	if String.isNotEmpty(title) {
+		out.println(title .. "/" .. version)
+	}
+	else {
+		out.println(version)
+	}
+}
+
+func parseCommandLineArguments(args as array<string>) static as vector<CommandLineArgument>
+{
+	var v = new vector<CommandLineArgument>
+	foreach arg in args {
+		if String.startsWith(arg, "-") {
+			if String.getIndexOfCharacter(arg, '=') > 0 {
+				var comps = String.split(arg, '=', 2)
+				var key = String.getEndOfString(comps[0], 1)
+				var val = comps[1]
+				v += new CommandLineArgument(arg, null, null, key, val)
+			}
+			else {
+				v += new CommandLineArgument(arg, null, String.getEndOfString(arg, 1), null, "true")
+			}
+		}
+		else {
+			v += new CommandLineArgument(arg, arg, null, null, arg)
+		}
+	}
+	return v
+}
+
+func getLongestString(strings as array, add as int, ov as int) private static as int
+{
+	var v = ov
+	foreach string as array in strings {
+		var ss = String.getLength(String.asString(string[0])) + add
+		if ss > v:
+			v = ss
+	}
+	return v
+}
+
+func printUsage(stdout as PrintWriter, name as string, parameters as array, flags as array, options as array) static
+{
+	var nn = name
+	if String.isEmpty(nn):
+		nn = CurrentProcess.getProcessName()
+	if String.isEmpty(nn):
+		nn = "(command)"
+	var ll = 0
+	ll = getLongestString(parameters, 0, ll)
+	ll = getLongestString(flags, 1, ll)
+	ll = getLongestString(options, 9, ll)
+	stdout.print("Usage: " .. nn .. " [parameters, flags and options]\n")
+	if Array.isEmpty(parameters) == false {
+		stdout.print("\n")
+		stdout.print("Supported Parameters:\n")
+		stdout.print("\n")
+		foreach parameter as array in parameters:
+			stdout.print("  " .. StringUtil.padToLength(String.asString(parameter[0]), ll) .. " - " .. String.asString(parameter[1]) .. "\n")
+	}
+	if Array.isEmpty(flags) == false {
+		stdout.print("\n")
+		stdout.print("Supported Flags:\n")
+		stdout.print("\n")
+		foreach flag as array in flags:
+			stdout.print("  -" .. StringUtil.padToLength(String.asString(flag[0]), ll) .. " - " .. String.asString(flag[1]) .. "\n")
+	}
+	if Array.isEmpty(options) == false {
+		stdout.print("\n")
+		stdout.print("Supported Options:\n")
+		stdout.print("\n")
+		foreach option as array in options:
+			stdout.print("  -" .. StringUtil.padToLength(String.asString(option[0]) .. "=<value>", ll) .. " - " .. String.asString(option[1]) .. "\n")
+	}
+	stdout.print("\n")
+}

@@ -1,0 +1,98 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+class Slide
+{
+	var resource public as string
+	var delay public as int
+}
+
+prop backgroundColor as Color
+var slides as vector<Slide>
+prop doneHandler as function
+var currentSlide = -1
+var currentImageWidget as ImageWidget
+prop imageWidgetWidth = "80mm"
+prop margin = "5mm"
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	slides = new vector<Slide>
+}
+
+func addSlide(resource as string, delay as int)
+{
+	var slide = new Slide()
+	slide.resource = resource
+	slide.delay = delay
+	slides += slide
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	if backgroundColor:
+		addWidget(CanvasWidget.forColor(context, backgroundColor))
+	nextImage()
+}
+
+func nextImage
+{
+	currentSlide ++
+	var slide = Vector.get(slides, currentSlide)
+	if slide == null {
+		var anim = WidgetAnimation.forDuration(context, 1000)
+		anim.addFadeOut(currentImageWidget, true)
+		anim.setEndListener(func {
+			onEnded()
+		})
+		anim.start()
+		return
+	}
+	var imageWidget = ImageWidget.forImageResource(context, slide.resource)
+	Widget.setAlpha(imageWidget, 0)
+	imageWidget.setWidgetImageWidth(context.getWidthValue(imageWidgetWidth))
+	var align = AlignWidget.forWidget(context, imageWidget, 0.5, 0.5)
+	var sz = context.getWidthValue(margin)
+	if sz > 0:
+		align.setWidgetMargin(sz)
+	addWidget(align)
+	var anim = WidgetAnimation.forDuration(context, 1000)
+	anim.addCrossFade(currentImageWidget, imageWidget, true)
+	anim.start()
+	currentImageWidget = imageWidget
+	context.startTimer(slide.delay, func {
+		nextImage()
+	})
+}
+
+func onEnded
+{
+	if doneHandler:
+		doneHandler()
+}

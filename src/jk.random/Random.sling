@@ -1,0 +1,320 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.math
+
+**
+** The Random class provides means to generate random number of different kinds.
+**
+
+class:
+
+IFDEF "target_cs" {
+	lang "cs" {{{
+		System.Random random;
+	}}}
+}
+
+IFDEF "target_java" {
+	lang "java" {{{
+		java.util.Random random;
+	}}}
+}
+
+IFDEF "target_sushi" {
+	var random as object
+
+	import jk.time
+
+	func getSushiRandom as object
+	{
+		if not random:
+			setSeed(SystemClock.asUTCSeconds())
+		return random
+	}
+}
+
+IFDEF "target_objc" {
+	depend "objc-header-m:<stdlib.h>"
+}
+
+var instance static private as this
+
+**
+** Gets a common, shared instance of a random number generator.
+**
+
+func getSharedInstance static as this
+{
+	if not instance:
+		instance = new this()
+	return instance
+}
+
+**
+** Creates a new random number generator.
+**
+
+ctor
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			random = new System.Random();
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			random = new java.util.Random();
+		}}}
+	}
+}
+
+**
+** Creates a new random number generator, and uses the given integer "seed"
+** as the seed for the generator, if applicable.
+**
+
+ctor(seed as int64)
+{
+	setSeed(seed)
+}
+
+**
+** Initializes the random number generator with the given seed, if applicable.
+** Note that the exact behavior is platform dependent: Not all platforms require
+** nor utilize a seed at all.
+**
+
+func setSeed(seed as int64)
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			random = new System.Random((System.Int32)seed);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			random.setSeed(seed);
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		random = lang "lua" object {{{ _util:create_random_number_generator(seed) }}}
+	}
+}
+
+**
+** Used to retrieve a random boolean value (true or false)
+**
+
+func nextBoolean as bool
+{
+	IFDEF "target_swift" {
+		return lang "swift" bool {{{ Bool.random() }}}
+	}
+	ELSE {
+		if nextInt() % 2 == 0:
+			return false
+	}
+	return true
+}
+
+**
+** Used to retrieve random integer values between -2147483647 (inclusive)
+** and 2147483648 (exclusive).
+**
+
+func nextInt as int32
+{
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next() }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt() }}}
+	}
+	ELSE IFDEF "target_js" {
+		return nextInt(-Math.pow(2, 31) as int32, (Math.pow(2, 31) as int32) - 1)
+	}
+	ELSE IFDEF "target_objc" {
+		return nextInt(-2147483647, 2147483648)
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" int32 {{{ kotlin.random.Random.nextInt() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int32 {{{ Int32.random(in : Int32.min ..< Int32.max) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		var random = getSushiRandom()
+		return lang "lua" int32 {{{ _util:create_random_number(random) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+**
+** Used to retrieve integer values from 0 (inclusive) and "n" (exclusive)
+**
+
+func nextInt(n as int32) as int32
+{
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next(n) }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt(n) }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" int32 {{{ Math.floor((Math.random() * n) + 1) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return nextInt(0, n)
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" int32 {{{ kotlin.random.Random.nextInt(n) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int32 {{{ Int32.random(in : 0 ..< n) }}}
+	}
+	ELSE {
+		return nextInt() % n
+	}
+}
+
+**
+** Used to retrieve integer values between "s" (inclusive) and "e" (exclusive)
+**
+
+func nextInt(s as int32, e as int32) as int32
+{
+	IFDEF "target_cs" {
+		return lang "cs" int32 {{{ random.Next(s, e) }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int32 {{{ random.nextInt(e - s + 1) + s }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" int32 {{{ Math.floor(Math.random() * (e - s) + s) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" int32 {{{ s + arc4random_uniform(e-s) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" int32 {{{ kotlin.random.Random.nextInt(e - s + 1) + s }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int32 {{{ Int32.random(in : s ..< e) }}}
+	}
+	ELSE {
+		return s + nextInt() % (e - s)
+	}
+}
+
+**
+** Used to retrieve an array of random bytes.
+**
+
+func nextBytes(buf as array<int8>)
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			random.NextBytes((byte[])(System.Array)buf);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			random.nextBytes(buf);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var buff = buf
+			var random = java.security.SecureRandom()
+			random.nextBytes(buff)
+		}}}
+	}
+	ELSE {
+		var sz = sizeof buf
+		for(var n=0; n<sz; n++):
+			buf[n] = nextInt(-127, 128) as int8
+	}
+}
+
+**
+** Used to retrieve a random double-precision floating point number with value
+** between 0.0 (inclusive) and 1.0 (exclusive).
+**
+
+func nextDouble as double
+{
+	IFDEF "target_cs" {
+		return lang "cs" double {{{ random.NextDouble() }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" double {{{ random.nextDouble() }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" double {{{ Math.random() }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" double {{{ kotlin.random.Random.nextDouble() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" double {{{ Double.random(in : Double.leastNormalMagnitude ..< Double.greatestFiniteMagnitude) }}}
+	}
+	ELSE {
+		var n = nextInt(2147483647) as double
+		return n / 2147483647.0
+	}
+}
+
+**
+** Used to retrieve a random single-precision floating point number with value
+** between 0.0 (inclusive) and 1.0 (exclusive).
+**
+
+func nextFloat as float
+{
+	IFDEF "target_cs" {
+		return lang "cs" float {{{ (float)random.NextDouble() }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" float {{{ random.nextFloat() }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" float {{{ Math.random().toFixed(8) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" float {{{ kotlin.random.Random.nextFloat() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" float {{{ Float.random(in : Float.leastNormalMagnitude  ..< Float.greatestFiniteMagnitude) }}}
+	}
+	ELSE {
+		var n = nextInt(2147483647) as float
+		return n / (2147483647 as float)
+	}
+}

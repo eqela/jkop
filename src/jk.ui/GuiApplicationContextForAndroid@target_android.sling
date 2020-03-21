@@ -1,0 +1,454 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is GuiApplicationContext is AndroidApplicationContext:
+
+func forActivityContext(ctx as !"android.content.Context") static as this
+{
+	var v = new this()
+	v.setActivityContext(ctx)
+	v.printDeviceInfo()
+	return v
+}
+
+prop activityContext as !"android.content.Context"
+
+func getAndroidActivityContext as !"android.content.Context":
+	return activityContext
+
+func getApplicationDataDirectory override as File
+{
+	var path as string
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.content.Context ctx = activityContext;
+			android.content.pm.PackageManager pkm = ctx.getPackageManager();
+			java.lang.String pkn = ctx.getPackageName();
+			try {
+				android.content.pm.PackageInfo pki = pkm.getPackageInfo(pkn, 0);
+				path = pki.applicationInfo.dataDir;
+			}
+			catch(android.content.pm.PackageManager.NameNotFoundException e) {
+				path = null;
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var ctx : android.content.Context? = activityContext
+			var pkm : android.content.pm.PackageManager = ctx!!.getPackageManager()
+			var pkn = ctx!!.getPackageName()
+			try {
+				var pki : android.content.pm.PackageInfo = pkm.getPackageInfo(pkn, 0)
+				path = pki.applicationInfo.dataDir
+			}
+			catch(e : android.content.pm.PackageManager.NameNotFoundException) {
+				path = null
+			}
+		}}}
+	}
+	if path == null:
+		return new FileInvalid()
+	return File.forPath(path)
+}
+
+func showConfirmDialog(title as string, message as string, okcallback as function, cancelcallback as function) override
+{
+	var activity = activityContext
+	if activity == null:
+		return
+	var okcb final #used = okcallback
+	var clcb final #used = cancelcallback
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.app.AlertDialog.Builder builder1 = new android.app.AlertDialog.Builder(activity);
+			builder1.setTitle(title);
+			builder1.setMessage(message);
+			builder1.setPositiveButton("YES", new android.content.DialogInterface.OnClickListener() {
+				public void onClick(android.content.DialogInterface dialog, int id) {
+					dialog.cancel();
+					if(okcb != null) {
+						okcb.execute();
+					}
+				}
+			});
+			builder1.setNegativeButton("NO", new android.content.DialogInterface.OnClickListener() {
+				public void onClick(android.content.DialogInterface dialog, int id) {
+					dialog.cancel();
+					if(clcb != null) {
+						clcb.execute();
+					}
+				}
+			});
+			builder1.create().show();
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var builder1 : android.app.AlertDialog.Builder = android.app.AlertDialog.Builder(activity)
+			builder1.setTitle(title)
+			builder1.setMessage(message)
+			builder1.setPositiveButton("YES", { dialog, whichButton ->
+				dialog.cancel()
+				if(okcb != null) {
+					okcb!!.invoke()
+				}
+			})
+			builder1.setNegativeButton("NO", { dialog, whichButton ->
+				dialog.cancel()
+				if(clcb != null) {
+					clcb!!.invoke()
+				}
+			})
+			builder1.create().show()
+		}}}
+	}
+}
+
+func showMessageDialog(title as string, message as string, callback as function = null) override
+{
+	var activity = activityContext
+	if activity == null:
+		return
+	var cb final #used = callback
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.app.AlertDialog.Builder builder1 = new android.app.AlertDialog.Builder(activity);
+			builder1.setTitle(title);
+			builder1.setMessage(message);
+			builder1.setPositiveButton("OK", new android.content.DialogInterface.OnClickListener() {
+				public void onClick(android.content.DialogInterface dialog, int id) {
+					dialog.cancel();
+					if(cb != null) {
+						cb.execute();
+					}
+				}
+			});
+			builder1.create().show();
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var builder1 : android.app.AlertDialog.Builder = android.app.AlertDialog.Builder(activity)
+			builder1.setTitle(title)
+			builder1.setMessage(message)
+			builder1.setPositiveButton("OK", { dialog, whichButton ->
+				dialog.cancel()
+				if(cb != null) {
+					cb!!.invoke()
+				}
+			})
+			builder1.create().show()
+		}}}
+	}
+}
+
+func showErrorDialog(message as string, callback as function = null) override
+{
+	var activity = activityContext
+	if activity == null:
+		return
+	var cb final #used = callback
+	IFDEF "target_java" {
+		lang "java" {{{
+			android.app.AlertDialog.Builder builder1 = new android.app.AlertDialog.Builder(activity);
+			builder1.setTitle("Error");
+			builder1.setMessage(message);
+			builder1.setPositiveButton("OK", new android.content.DialogInterface.OnClickListener() {
+				public void onClick(android.content.DialogInterface dialog, int id) {
+					dialog.cancel();
+					if(cb != null) {
+						cb.execute();
+					}
+				}
+			});
+			builder1.create().show();
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			var builder1 : android.app.AlertDialog.Builder = android.app.AlertDialog.Builder(activity)
+			builder1.setTitle("Error")
+			builder1.setMessage(message)
+			builder1.setPositiveButton("OK", { dialog, which ->
+				dialog.cancel()
+				if(cb != null) {
+					cb!!.invoke()
+				}
+			})
+			builder1.create().show()
+		}}}
+	}
+}
+
+func hasPermissions(permissions as array<string>) as bool
+{
+	assert activityContext
+	foreach permission in permissions {
+		IFDEF "target_java" {
+			lang "java" {{{
+				int v;
+				try {
+					v = activityContext.checkSelfPermission(permission);
+				}
+				catch(java.lang.NoSuchMethodError e) {
+					logDebug("checkSelfPermission method does not exist.");
+					return(true);
+				}
+				catch(Exception e) {
+					logError("Permission checking was not succcessful:");
+					logError(e.toString());
+					return(false);
+				}
+				if(v != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+					logError("Permission is NOT granted: " + permission);
+					return(false);
+				}
+				logDebug("Permission IS granted: " + permission);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var v = -1
+				try {
+					v = activityContext!!.checkSelfPermission(permission)
+				}
+				catch(e : java.lang.NoSuchMethodError) {
+					logDebug("checkSelfPermission method does not exist.")
+					return(true)
+				}
+				catch(e : Exception) {
+					logError("Permission checking was not succcessful:")
+					logError(e.toString())
+					return(false)
+				}
+				if(v != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+					logError("Permission is NOT granted: " + permission)
+					return(false)
+				}
+				logDebug("Permission IS granted: " + permission)
+			}}}
+		}
+	}
+	return true
+}
+
+func requestPermissions(permissions as array<string>, callback as function<void,bool>)
+{
+	if hasPermissions(permissions) {
+		if callback != null:
+			callback(true)
+		return
+	}
+	var activity = activityContext as CompatibleAndroidActivity
+	if activity == null {
+		if callback != null:
+			callback(true)
+		return
+	}
+	activity.setPermissionRequestListener(callback)
+	var aa = activity as !"android.app.Activity"
+	var r = false
+	IFDEF "target_java" {
+		lang "java" {{{
+			try {
+				aa.requestPermissions(permissions, 0);
+				return;
+			}
+			catch(java.lang.NoSuchMethodError e) {
+				logDebug("requestPermissions method does not exist.");
+				r = true;
+			}
+			catch(Exception e) {
+				logError("Permission request was not succcessful:");
+				logError(e.toString());
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			try {
+				aa!!.requestPermissions(permissions, 0)
+				return;
+			}
+			catch(e : java.lang.NoSuchMethodError) {
+				logDebug("requestPermissions method does not exist.")
+				r = true
+			}
+			catch(e : Exception) {
+				logError("Permission request was not succcessful:")
+				logError(e.toString())
+			}
+		}}}
+	}
+	if callback != null:
+		callback(r)
+}
+
+func switchActivity(className as string)
+{
+	if String.isEmpty(className):
+		return
+	var intent as !"android.content.Intent"
+	IFDEF "target_java" {
+		lang "java" {{{
+			try {
+				intent = new android.content.Intent(activityContext, java.lang.Class.forName(className));
+			}
+			catch(java.lang.Exception e) {
+				e.printStackTrace();
+				return;
+			}
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			try {
+				intent = android.content.Intent(activityContext, java.lang.Class.forName(className))
+			}
+			catch(e : java.lang.Exception) {
+				e.printStackTrace()
+				return
+			}
+		}}}
+	}
+	activityContext.startActivity(intent)
+}
+
+func getResourceImage(id as string) override as Image:
+	return ImageForAndroid.forResource(id, activityContext)
+
+func getImageForBufferSync(buffer as buffer, mimeType as string) override as Image:
+	return ImageForAndroid.forBuffer(buffer)
+
+func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void, Image>) override
+{
+	assert callback
+	callback(ImageForAndroid.forBuffer(buffer))
+}
+
+func getScreenTopMargin override as int:
+	return 0
+
+func getScreenWidth override as int
+{
+	var activity = activityContext as !"android.app.Activity"
+	if activity == null:
+		return 0
+	var wm = activity.getWindowManager() as! !"android.view.WindowManager"
+	if wm == null:
+		return 0
+	var display = wm.getDefaultDisplay() as! !"android.view.Display"
+	if display == null:
+		return 0
+	var pt = new !"android.graphics.Point"()
+	display.getSize(pt)
+	var v as int
+	IFDEF "target_java" {
+		v = lang "java" int {{{ pt.x }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		v = lang "java" int {{{ pt!!.x }}}
+	}
+	return v
+}
+
+func getScreenHeight override as int
+{
+	var activity = activityContext as !"android.app.Activity"
+	if activity == null:
+		return 0
+	var wm = activity.getWindowManager() as! !"android.view.WindowManager"
+	if wm == null:
+		return 0
+	var display = wm.getDefaultDisplay() as! !"android.view.Display"
+	if display == null:
+		return 0
+	var pt = new !"android.graphics.Point"()
+	display.getSize(pt)
+	var v as int
+	IFDEF "target_java" {
+		v = lang "java" int {{{ pt.y }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		v = lang "java" int {{{ pt!!.y }}}
+	}
+	return v
+}
+
+func getScreenDensity override as int
+{
+	var activity = activityContext as !"android.app.Activity"
+	if activity == null:
+		return 0
+	var wm = activity.getWindowManager() as! !"android.view.WindowManager"
+	if wm == null:
+		return 0
+	var display = wm.getDefaultDisplay() as! !"android.view.Display"
+	if display == null:
+		return 0
+	var metrics = new !"android.util.DisplayMetrics"()
+	display.getMetrics(metrics)
+	var v as int
+	IFDEF "target_java" {
+		v = lang "java" int {{{ (int)metrics.xdpi }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		v = lang "kotlin" int {{{ metrics!!.xdpi.toInt() }}}
+	}
+	return v
+}
+
+func getHeightValue(spec as string) override as int:
+	return jk.gfx.Length.asPoints(spec, getScreenDensity())
+
+func getWidthValue(spec as string) override as int:
+	return jk.gfx.Length.asPoints(spec, getScreenDensity())
+
+class TimerWrapper implements !"java.lang.Runnable"
+{
+	prop callback as function
+	prop timeout as long
+
+	func run implement:
+		callback()
+
+	func execute
+	{
+		var h = new !"android.os.Handler"()
+		h.postDelayed(this, timeout)
+	}
+}
+
+func startTimer(timeout as long, callback as function) override
+{
+	var w = new TimerWrapper()
+	w.setCallback(callback)
+	w.setTimeout(timeout)
+	w.execute()
+}
+
+func printDeviceInfo:
+	logDebug("GuiApplicationContextForAndroid initialized: " .. String.forInteger(getScreenWidth()) .. "x" .. String.forInteger(getScreenHeight()) .. " @ " .. String.forInteger(getScreenDensity()) .. "DPI")

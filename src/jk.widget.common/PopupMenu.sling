@@ -1,0 +1,222 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.ui
+import jk.gfx
+import jk.widget
+
+class:
+
+class MyContainerWidget is ContainerWidget #widget
+{
+	prop widget as Widget
+	prop menuWidth as int
+
+	func onWidgetHeightChanged(height as int #notLiteral) override
+	{
+		foreach child in Widget.getChildren(this):
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+	}
+
+	func computeWidgetLayout(widthConstraint as int #notLiteral) override
+	{
+		var w = menuWidth
+		if w == 0:
+			w = widthConstraint
+		foreach child in Widget.getChildren(this) {
+			Widget.layout(child, w)
+			Widget.move(child, Widget.getAbsoluteX(widget), Widget.getAbsoluteY(widget))
+		}
+		Widget.setLayoutSize(this, widthConstraint, Widget.getHeight(this))
+	}
+}
+
+func showBelow(ctx as GuiApplicationContext, w as Widget, menu as Menu, menuWidth as int #notLiteral = -1, align as int = -1) static
+{
+	assert w
+	assert menu
+	var widget final = w
+	var context final = ctx
+	IFDEF "target_uwp" {
+		lang "cs" {{{
+			var pm = new Windows.UI.Xaml.Controls.MenuFlyout();
+		}}}
+		foreach entry in menu.getEntries() {
+			lang "cs" {{{
+				var i = new Windows.UI.Xaml.Controls.MenuFlyoutItem();
+				i.Text = entry.title;
+				i.Click += (sender, e) => {
+					entry.handler();
+				};
+				pm.Items.Add(i);
+			}}}
+		}
+		lang "cs" {{{
+			pm.ShowAt(widget, new Windows.Foundation.Point(0, Widget.getHeight(widget)));
+		}}}
+	}
+	ELSE {
+		var parentLayer = getParentLayer(context, widget)
+		var vbox final = initializeMenus(context, menu)
+		var container final = new MyContainerWidget(context)
+		container.setWidget(widget)
+		container.setMenuWidth(menuWidth)
+		container.addWidget(vbox)
+		parentLayer.addWidget(container)
+		Widget.setWidgetClickHandler(parentLayer, func {
+			var anim = WidgetAnimation.forDuration(context, 300)
+			anim.addFadeOut(container, true)
+			IFDEF "target_html"
+			{
+				var parent = HTMLDOM.getParentElement(HTMLDOM.getParentElement(container.element))
+				anim.setEndListener(func {
+					HTMLDOM.remove(parent)
+				})
+			}
+			anim.start()
+		})
+		var destX = Widget.getAbsoluteX(widget)
+		if menuWidth > 0 {
+			var mwidth = menuWidth
+			if align == 0 {
+				if mwidth > 0:
+					destX -= mwidth / 2 - Widget.getWidth(widget) / 2
+			}
+			else if align > 0 {
+				if mwidth > 0:
+					destX -= mwidth - Widget.getWidth(widget)
+			}
+			else {
+				nop // default. nothing to change.
+			}
+		}
+		var dx final = destX
+		var animationDestY final = Widget.getAbsoluteY(widget)
+		var ay final = context.getHeightValue("3mm")
+		Widget.move(vbox, destX, (animationDestY + ay) as int)
+		var anim = WidgetAnimation.forDuration(context, 300)
+		anim.addCallback(func(completion as double) {
+			var bgf = completion * 1.5
+			if bgf > 1.0:
+				bgf = 1.0
+			Widget.move(vbox, dx, (animationDestY + ((1.0 - completion) * ay)) as int)
+		})
+		anim.start()
+	}
+}
+
+func showBeside(ctx as GuiApplicationContext, w as Widget, menu as Menu) static
+{
+	assert w
+	assert menu
+	var widget final = w
+	var context final = ctx
+	var parentLayer = getParentLayer(context, widget)
+	var vbox final = initializeMenus(context, menu)
+	var container final = new MyContainerWidget(context)
+	container.setWidget(widget)
+	container.addWidget(vbox)
+	parentLayer.addWidget(container)
+	Widget.setWidgetClickHandler(parentLayer, func {
+		var anim = WidgetAnimation.forDuration(context, 300)
+		anim.addFadeOut(container, true)
+		IFDEF "target_html"
+		{
+			var parent = HTMLDOM.getParentElement(HTMLDOM.getParentElement(container.element))
+			anim.setEndListener(func {
+				HTMLDOM.remove(parent)
+			})
+		}
+		anim.start()
+	})
+	var animationDestY final = Widget.getAbsoluteY(widget) - Widget.getHeight(widget)
+	var ay final = context.getHeightValue("3mm")
+	Widget.move(vbox, Widget.getAbsoluteX(widget), (animationDestY + ay) as int)
+	var anim = WidgetAnimation.forDuration(context, 300)
+	anim.addCallback(func(completion as double) {
+		var bgf = completion * 1.5
+		if bgf > 1.0:
+			bgf = 1.0
+		Widget.move(vbox, Widget.getAbsoluteX(widget) + Widget.getWidth(widget), (animationDestY + ((1.0 - completion) * ay)) as int)
+	})
+	anim.start()
+}
+
+func getParentLayer(context as GuiApplicationContext, widget as Widget) private static as LayerWidget
+{
+	var parentLayer as LayerWidget
+	IFDEF "target_html" {
+		var div = HTMLDOM.createElement("div")
+		HTMLDOM.setStyle(div, "position", "fixed")
+		HTMLDOM.setStyle(div, "bottom", "0px")
+		HTMLDOM.setStyle(div, "top", "0px")
+		HTMLDOM.setStyle(div, "left", "0px")
+		HTMLDOM.setStyle(div, "right", "0px")
+		HTMLDOM.setStyle(div, "width", "100%")
+		HTMLDOM.setStyle(div, "height", "100%")
+		HTMLDOM.setStyle(div, "z-index", "999")
+		HTMLDOM.appendToBody(div)
+		parentLayer = new LayerWidget(context)
+		Widget.addToDomElement(parentLayer, div)
+	}
+	ELSE {
+		var parent = widget
+		while parent {
+			if parent is LayerWidget:
+				parentLayer = parent as! LayerWidget
+			parent = Widget.getParent(parent)
+		}
+		assert parentLayer:
+			ERROR "No LayerWidget was found in the widget tree. Cannot show popup!"
+	}
+	return parentLayer
+}
+
+func initializeMenus(context as GuiApplicationContext, menu as Menu) private static as VerticalBoxWidget
+{
+	var textColor = context.getStyleColor(VALUE "__THIS__", "textColor")
+	if not textColor:
+		textColor = Color.black()
+	var backgroundColor = context.getStyleColor(VALUE "__THIS__", "backgroundColor")
+	if not backgroundColor:
+		backgroundColor = Color.white()
+	var padding = context.getStylePixels(VALUE "__THIS__", "padding")
+	if padding < 1:
+		padding = context.getHeightValue("1000um")
+	var fontSize = context.getStylePixels(VALUE "__THIS__", "fontSize")
+	if fontSize < 1:
+		fontSize = context.getHeightValue("2mm")
+	var vbox final = VerticalBoxWidget.forContext(context)
+	foreach entry in menu.getEntries() {
+		var lbl = LabelWidget.forText(context, entry.title)
+		lbl.setWidgetTextColor(textColor)
+		var layer = new LayerWidget(context)
+		layer.addWidget(CanvasWidget.forColor(context, backgroundColor))
+		layer.addWidget(LayerWidget.forWidget(context, lbl, padding))
+		Widget.setWidgetClickHandler(layer, entry.handler)
+		vbox.addWidget(layer)
+	}
+	return vbox
+}

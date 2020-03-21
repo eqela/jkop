@@ -1,0 +1,238 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func encode(buf as buffer) as string:
+	return stringToHex(toMD5(buf))
+
+func toMD5(input as buffer) as buffer:
+	return binl2rstr(md5(rstr2binl(input), Buffer.getSize(input) * 8))
+
+func stringToHex(input as buffer) as string
+{
+	var hexTab = [char: '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F']
+	var sb = new StringBuilder()
+	for(var i = 0; i < Buffer.getSize(input); i++) {
+		var x = input[i]
+		var value1 = hexTab[((x >> 4) & (0x0F as int)) as int]
+		var value2 = hexTab[((x as int) & (0x0F as int)) as int]
+		sb.appendCharacter(value1)
+		sb.appendCharacter(value2)
+	}
+	return String.toLowerCase(sb.toString())
+}
+
+func md5(input as int32[], len as int) as int32[]
+{
+	assert input
+	var x = new DynamicMap()
+	for(var i = 0; i < sizeof input; i++):
+		x.setInteger(String.forInteger(i), input[i])
+	var lenValue = len % 32
+	var n = 0 as int32
+	var value = n + (0x80 << lenValue)
+	var v =  (unwrap(x.getInteger(String.forInteger(len >> 5)) as int) as int) | value as int
+	x.setInteger(String.forInteger((len >> 5) as int), v)
+	var slen = ((len + 64) >> 9)
+	var index = (slen << 4) + 14
+	x.setInteger(String.forInteger(index), unwrap(x.getInteger(String.forInteger(index)) | len))
+	var a = 1732584193 as int32
+	var b = -271733879 as int32
+	var c = -1732584194 as int32
+	var d = 271733878 as int32
+	var aa as int32
+	var bb as int32
+	var cc as int32
+	var dd as int32
+	for(var i = 0; i < getMaxLength(x); i +=16) {
+		aa = a
+		bb = b
+		cc = c
+		dd = d
+		a = ff(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 0)) as int32), 7 , -680876936)
+		d = ff(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 1)) as int32), 12, -389564586)
+		c = ff(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 2)) as int32), 17,  606105819)
+		b = ff(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 3)) as int32), 22, -1044525330)
+		a = ff(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 4)) as int32), 7 , -176418897)
+		d = ff(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 5)) as int32), 12,  1200080426)
+		c = ff(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 6)) as int32), 17, -1473231341)
+		b = ff(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 7)) as int32), 22, -45705983)
+		a = ff(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 8)) as int32), 7 ,  1770035416)
+		d = ff(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 9)) as int32), 12, -1958414417)
+		c = ff(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 10)) as int32), 17, -42063)
+		b = ff(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 11)) as int32), 22, -1990404162)
+		a = ff(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 12)) as int32), 7 ,  1804603682)
+		d = ff(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 13)) as int32), 12, -40341101)
+		c = ff(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 14)) as int32), 17, -1502002290)
+		b = ff(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 15)) as int32), 22,  1236535329)
+		a = gg(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 1)) as int32), 5 , -165796510)
+		d = gg(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 6)) as int32), 9 , -1069501632)
+		c = gg(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 11)) as int32), 14,  643717713)
+		b = gg(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 0)) as int32), 20, -373897302)
+		a = gg(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 5)) as int32), 5 , -701558691)
+		d = gg(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 10)) as int32), 9 ,  38016083)
+		c = gg(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 15)) as int32), 14, -660478335)
+		b = gg(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 4)) as int32), 20, -405537848)
+		a = gg(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 9)) as int32), 5 ,  568446438)
+		d = gg(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 14)) as int32), 9 , -1019803690)
+		c = gg(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 3)) as int32), 14, -187363961)
+		b = gg(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 8)) as int32), 20,  1163531501)
+		a = gg(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 13)) as int32), 5 , -1444681467)
+		d = gg(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 2)) as int32), 9 , -51403784)
+		c = gg(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 7)) as int32), 14,  1735328473)
+		b = gg(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 12)) as int32), 20, -1926607734)
+		a = hh(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 5)) as int32), 4 , -378558)
+		d = hh(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 8)) as int32), 11, -2022574463)
+		c = hh(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 11)) as int32), 16,  1839030562)
+		b = hh(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 14)) as int32), 23, -35309556)
+		a = hh(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 1)) as int32), 4 , -1530992060)
+		d = hh(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 4)) as int32), 11,  1272893353)
+		c = hh(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 7)) as int32), 16, -155497632)
+		b = hh(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 10)) as int32), 23, -1094730640)
+		a = hh(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 13)) as int32), 4 ,  681279174)
+		d = hh(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 0)) as int32), 11, -358537222)
+		c = hh(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 3)) as int32), 16, -722521979)
+		b = hh(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 6)) as int32), 23,  76029189)
+		a = hh(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 9)) as int32), 4 , -640364487)
+		d = hh(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 12)) as int32), 11, -421815835)
+		c = hh(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 15)) as int32), 16,  530742520)
+		b = hh(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 2)) as int32), 23, -995338651)
+		a = ii(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 0)) as int32), 6 , -198630844)
+		d = ii(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 7)) as int32), 10,  1126891415)
+		c = ii(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 14)) as int32), 15, -1416354905)
+		b = ii(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 5)) as int32), 21, -57434055)
+		a = ii(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 12)) as int32), 6 ,  1700485571)
+		d = ii(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 3)) as int32), 10, -1894986606)
+		c = ii(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 10)) as int32), 15, -1051523)
+		b = ii(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 1)) as int32), 21, -2054922799)
+		a = ii(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 8)) as int32), 6 ,  1873313359)
+		d = ii(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 15)) as int32), 10, -30611744)
+		c = ii(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 6)) as int32), 15, -1560198380)
+		b = ii(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 13)) as int32), 21,  1309151649)
+		a = ii(a, b, c, d, unwrap(x.getInteger(String.forInteger(i + 4)) as int32), 6 , -145523070)
+		d = ii(d, a, b, c, unwrap(x.getInteger(String.forInteger(i + 11)) as int32), 10, -1120210379)
+		c = ii(c, d, a, b, unwrap(x.getInteger(String.forInteger(i + 2)) as int32), 15,  718787259)
+		b = ii(b, c, d, a, unwrap(x.getInteger(String.forInteger(i + 9)) as int32), 21, -343485551)
+		a = addUnsigned(a, aa)
+		b = addUnsigned(b, bb)
+		c = addUnsigned(c, cc)
+		d = addUnsigned(d, dd)
+	}
+	var ret = new int32[4]
+	ret[0] = a
+	ret[1] = b
+	ret[2] = c
+	ret[3] = d
+	return ret
+}
+
+func getMaxLength(dm as DynamicMap) as int
+{
+	var i = 0
+	var keys = dm.getKeys()
+	foreach v in keys {
+		var key = String.toInteger(v)
+		if key > i:
+			i = key
+	}
+	var v =  i + 1
+	return v
+}
+
+func rstr2binl(input as buffer) as int32[]
+{
+	assert input
+	var output = new DynamicMap()
+	for(var i = 0; i < Buffer.getSize(input) * 8; i += 8) {
+		var value = ((input[i/8] & 0xFF) as int32) << ((i % 32) as int32)
+		var x = (i >> 5) as int
+		var y as int
+		if output.containsKey(String.forInteger(x)):
+			y = output.getInteger(String.forInteger(x))
+		output.setInteger(String.forInteger(x), unwrap(y) | value)
+	}
+	return dictionary2array(output)
+}
+
+func binl2rstr(input as int32[]) as buffer
+{
+	var output = new uint8[16]
+	for(var i = 0; i < sizeof (input) * 32; i += 8) {
+		var value = zeroFillRightShift(input[i >> 5], ((i % 32) as int) & 0xFF)
+		output[i/8] = value as uint8
+	}
+	var ret = malloc 16
+	for(var i = 0; i < sizeof output; i++) {
+		ret[i] = output[i]
+	}
+	return ret
+}
+
+func addUnsigned(x as int32, y as int32) as int32:
+	return x + y
+
+func rotateLeft(num as int32, cnt as int32) as int32
+{
+	var value = num << cnt | zeroFillRightShift(num, ((32 as int32) - cnt))
+	return value
+}
+
+func cmn(q as int32, a as int32, b as int32, x as int32, s as int32, t as int32) as int32:
+	return addUnsigned(rotateLeft(addUnsigned(addUnsigned(a, q), addUnsigned(x, t)), s), b)
+
+func ff(a as int32, b as int32, c as int32, d as int32, x as int32, s as int32, t as int32) as int32:
+	return cmn((b & c) | ((~ b) & d), a, b, x, s, t)
+
+func gg(a as int32, b as int32, c as int32, d as int32, x as int32, s as int32, t as int32) as int32:
+	return  cmn((b & d) | (c & (~ d)), a, b, x, s, t)
+
+func hh(a as int32, b as int32, c as int32, d as int32, x as int32, s as int32, t as int32) as int32:
+	return cmn(b ^ c ^ d, a, b, x, s, t)
+
+func ii(a as int32, b as int32, c as int32, d as int32, x as int32, s as int32, t as int32) as int32:
+	return cmn(c ^ (b | (~ d)), a, b, x, s, t)
+
+func dictionary2array(dic as DynamicMap) as int32[]
+{
+	var arr = new int32[dic.getCount()]
+	for(var i = 0; i < dic.getCount(); i++) {
+		arr[i] = unwrap(dic.getInteger(String.forInteger(i)))
+	}
+	return arr
+}
+
+func unwrap(value as int32, fallback as int32 = 0) as int32
+{
+	if value != 0:
+		return value
+	return fallback
+}
+
+func zeroFillRightShift(num as int32, count as int32) as int32
+{
+	var value = ((num as uint32) >> (count as int)) as uint32
+	return value as int32
+}

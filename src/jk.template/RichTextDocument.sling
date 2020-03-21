@@ -1,0 +1,141 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+
+class:
+
+func forWikiMarkupFile(file as File) static as this:
+	return RichTextWikiMarkupParser.parseFile(file)
+
+func forWikiMarkupString(str as string) static as this:
+	return RichTextWikiMarkupParser.parseString(str)
+
+var metadata as DynamicMap
+prop paragraphs as vector<RichTextParagraph>
+
+ctor:
+	metadata = new DynamicMap()
+
+func getTitle as string:
+	return metadata.getString("title")
+
+func setTitle(v as string) as this
+{
+	metadata.setString("title", v)
+	return this
+}
+
+func getAllMetadata as DynamicMap:
+	return metadata
+
+func getMetadata(k as string) as string:
+	return metadata.getString(k)
+
+func setMetadata(k as string, v as string) as this
+{
+	metadata.setString(k,v)
+	return this
+}
+
+func addParagraph(rtp as RichTextParagraph) as this
+{
+	if rtp == null:
+		return this
+	if paragraphs == null:
+		paragraphs = new vector<RichTextParagraph>
+	Vector.append(paragraphs,rtp)
+	if getTitle() == null && rtp is RichTextStyledParagraph && (rtp as RichTextStyledParagraph).getHeading() == 1:
+		setTitle((rtp as RichTextStyledParagraph).getTextContent())
+	return this
+}
+
+func getAllReferences as vector<string>
+{
+	var v = new vector<string>
+	foreach paragraph in paragraphs {
+		if paragraph is RichTextReferenceParagraph {
+			var ref = (paragraph as! RichTextReferenceParagraph).getReference()
+			if String.isEmpty(ref) == false:
+				v += ref
+		}
+		else if paragraph is RichTextStyledParagraph {
+			foreach segment in (paragraph as! RichTextStyledParagraph).getSegments() {
+				var ref = segment.getReference()
+				if String.isEmpty(ref) == false:
+					v += ref
+			}
+		}
+	}
+	return v
+}
+
+func getAllLinks as vector<string>
+{
+	var v = new vector<string>
+	foreach paragraph in paragraphs {
+		if paragraph is RichTextLinkParagraph {
+			var link = (paragraph as! RichTextLinkParagraph).getLink()
+			if String.isEmpty(link) == false:
+				v += link
+		}
+		else if paragraph is RichTextStyledParagraph {
+			foreach segment in (paragraph as! RichTextStyledParagraph).getSegments() {
+				var link = segment.getLink()
+				if String.isEmpty(link) == false:
+					v += link
+			}
+		}
+	}
+	return v
+}
+
+func toJson as DynamicMap
+{
+	var v = new DynamicMap()
+	v.setObject("metadata", metadata)
+	v.setString("title", getTitle())
+	var pp = new vector<object>
+	foreach par as RichTextParagraph in paragraphs {
+		var pj = par.toJson()
+		if pj:
+			Vector.append(pp, pj)
+	}
+	v.setObject("paragraphs", pp)
+	return v
+}
+
+func toHtml(refs as RichTextDocumentReferenceResolver) as string
+{
+	var sb = new StringBuilder()
+	foreach paragraph as RichTextParagraph in getParagraphs() {
+		var html = paragraph.toHtml(refs)
+		if String.isEmpty(html) == false {
+			sb.appendString(html)
+			sb.appendCharacter('\n')
+		}
+	}
+	return sb.toString()
+}

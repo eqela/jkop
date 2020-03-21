@@ -1,0 +1,409 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+func forText(context as GuiApplicationContext, text as string, handler as function) static as this
+{
+	var v = new this(context)
+	v.setWidgetText(text)
+	v.setWidgetClickHandler(handler)
+	return v
+}
+
+IFDEF "target_ios"
+{
+	extend !"UIButton"
+	isAlso Widget
+}
+
+IFDEF "target_macosoc"
+{
+	extend !"NSButton"
+	isAlso Widget
+}
+
+IFDEF "target_android"
+{
+	extend !"android.widget.Button"
+	isAlso Widget
+}
+
+IFDEF "target_html"
+{
+	is Widget
+
+	func createElement override as object:
+		return HTMLDOM.createElement("button")
+
+	func prepareElement(v as object) override
+	{
+		base.prepareElement(v)
+		HTMLDOM.setStyle(v, "font-size", "20px")
+		HTMLDOM.setStyle(v, "padding", "8px")
+		HTMLDOM.setStyle(v, "border", "none")
+		HTMLDOM.setStyle(v, "cursor", "pointer")
+	}
+}
+
+IFDEF "target_uwp"
+{
+	extend !"Windows.UI.Xaml.Controls.Button"
+	isAlso Widget
+}
+
+var widgetContext as GuiApplicationContext
+var widgetText as string
+var widgetTextColor as Color
+var widgetBackgroundColor as Color
+var widgetIcon as Image
+var widgetClickHandler as function
+var widgetFont as string
+var widgetFontSize as double
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF "target_android" {
+		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+	}
+	ELSE IFDEF "target_ios" {
+		IFDEF "target_swift" {
+			lang "swift" {{{
+				super.init(frame: CGRect.zero)
+			}}}
+		}
+	}
+	widgetContext = context
+}
+
+func setWidgetText(text as string)
+{
+	widgetText = text
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self setTitle:text forState:UIControlStateNormal];
+			}}}
+		}
+		ELSE IFDEF "target_swift" {
+			lang "swift" {{{
+				self.setTitle(text, for: .normal)
+			}}}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setText(text);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setText(text)
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		HTMLDOM.setTextContent(element, text)
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Content = text;
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.setTitle(text, for: .normal)
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetText as string:
+	return widgetText
+
+func setWidgetTextColor(color as Color)
+{
+	widgetTextColor = color
+	IFDEF "target_ios" {
+		if color {
+			var highlightColor = color.dup()
+			highlightColor.setAlpha(0.5)
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setTitleColor:[color toUIColor] forState:UIControlStateNormal];
+					[self setTitleColor:[highlightColor toUIColor] forState:UIControlStateHighlighted];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.setTitleColor(color.toUIColor(), for: UIControl.State.normal)
+				}}}
+			}
+		}
+		else {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setTitleColor:nil forState:UIControlStateNormal];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.setTitleColor(nil, for: UIControl.State.normal)
+				}}}
+			}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(color != null) {
+					setTextColor(color.toARGBInt32());
+				}
+				else {
+					setTextColor(0xff000000);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(color != null) {
+					setTextColor(color.toARGBInt32())
+				}
+				else {
+					setTextColor(0xff000000.toInt())
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		if color == null {
+			HTMLDOM.removeStyle(element, "background-color")
+		}
+		else {
+			HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(color))
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetTextColor as Color:
+	return widgetTextColor
+
+func setWidgetBackgroundColor(color as Color)
+{
+	widgetBackgroundColor = color
+	IFDEF "target_ios" {
+		if color {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setBackgroundColor:[color toUIColor]];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = color.toUIColor()
+				}}}
+			}
+		}
+		else {
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setBackgroundColor:nil];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.backgroundColor = nil;
+				}}}
+			}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		IFDEF "target_java" {
+			if color == null {
+				lang "java" {{{
+					setBackgroundColor(0);
+				}}}
+			}
+			else {
+				lang "java" {{{
+					setBackgroundColor(color.toARGBInt32());
+				}}}
+			}
+		}
+		ELSE IFDEF "target_kotlin" {
+			if color == null {
+				lang "kotlin" {{{
+					setBackgroundColor(0)
+				}}}
+			}
+			else {
+				lang "kotlin" {{{
+					setBackgroundColor(color.toARGBInt32())
+				}}}
+			}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		if color == null {
+			HTMLDOM.removeStyle(element, "background-color")
+		}
+		else {
+			HTMLDOM.setStyle(element, "background-color", HTMLDOM.colorToRGBA(color))
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetBackgroundColor as Color:
+	return widgetBackgroundColor
+
+func onWidgetClicked
+{
+	if widgetClickHandler:
+		widgetClickHandler()
+}
+
+func setWidgetClickHandler(handler as function)
+{
+	widgetClickHandler = handler
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self addTarget:self action:@selector(onWidgetClicked) forControlEvents:UIControlEventTouchUpInside];
+			}}}
+		}
+	}
+	ELSE IFDEF "target_android" {
+		var hf final #used = handler
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(handler == null) {
+					setOnClickListener(null);
+				}
+				else {
+					setOnClickListener(new OnClickListener() {
+						public void onClick(android.view.View view) {
+							hf.execute();
+						}
+					});
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(handler == null) {
+					setOnClickListener(null)
+				}
+				else {
+					setOnClickListener({ view ->
+						hf!!.invoke()
+					})
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		lang "js" {{{
+			this.element.onclick = handler;
+		}}}
+	}
+	ELSE IFDEF "target_uwp" {
+		lang "cs" {{{
+			this.Click += (object sender, Windows.UI.Xaml.RoutedEventArgs e) => {
+				handler();
+			};
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			self.addTarget(self, action: #selector(onWidgetClicked), for: .touchUpInside)
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetIcon(icon as Image)
+{
+	widgetIcon = icon
+	IFDEF "target_ios" {
+		ERROR "Not implemented"
+	}
+	ELSE IFDEF "target_android" {
+		ERROR "Not implemented"
+	}
+	ELSE IFDEF "target_html" {
+		ERROR "Not implemented"
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func getWidgetIcon as Image:
+	return widgetIcon
+
+func setWidgetFont(font as string)
+{
+	widgetFont = font
+	IFDEF "target_html" {
+		HTMLDOM.setFontFamily(element, font)
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setWidgetFontSize(fontSize as double #notLiteral)
+{
+	widgetFontSize = fontSize
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)fontSize);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fontSize.toFloat())
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		HTMLDOM.setStyle(element, "font-size", String.forDouble(fontSize) .. "px")
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}

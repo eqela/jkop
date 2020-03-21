@@ -1,0 +1,579 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class abstract:
+
+class StringElement public
+{
+	prop name as string
+	prop params as DynamicMap
+	prop content as string
+}
+
+class Position public
+{
+	prop row as int
+	prop column as int
+}
+
+prop fileName as string
+prop xmlString as string
+var values as vector<MarkupLanguageParser.Value>
+var lines as vector<string>
+prop currentPosition = 0
+prop autoSkipTextAndComments = true
+prop skipCommentsInText = true
+
+func initializeForFile(file as File, fileName as string) as bool
+{
+	assert file
+	var fn = fileName
+	if fn == null:
+		fn = file.getPath()
+	var text = assert file.getContentsWithBOM()
+	return initializeForString(text, fn)
+}
+
+func initializeForString(text as string, fileName as string) as bool
+{
+	assert text
+	var pp = assert XMLParser.forString(text)
+	setFileName(fileName)
+	setXmlString(text)
+	initialize(pp)
+	return true
+}
+
+func executeForFile(ctx as LoggingContext, file as File, fileName as string = null) as bool
+{
+	assert file:
+		Log.error(ctx, "null file")
+	assert initializeForFile(file, fileName):
+		Log.error(ctx, "Failed to process XML file: `" .. file.getPath() .. "'")
+	try {
+		execute()
+	}
+	catch(e as ExceptionWithString) {
+		Log.error(ctx, e.toString())
+		return false
+	}
+	return true
+}
+
+func executeForString(ctx as LoggingContext, text as string, fileName as string = null) as bool
+{
+	assert text:
+		Log.error(ctx, "null text")
+	assert initializeForString(text, fileName):
+		Log.error(ctx, "Failed to process XML string")
+	try {
+		execute()
+	}
+	catch(e as ExceptionWithString) {
+		Log.error(ctx, e.toString())
+		return false
+	}
+	return true
+}
+
+func initialize(parser as XMLParser) private
+{
+	values = new vector<MarkupLanguageParser.Value>
+	if parser {
+		var first = true
+		loop {
+			var vv = parser.next()
+			if not vv:
+				break
+			if first {
+				if vv is MarkupLanguageParser.CharacterData || vv is MarkupLanguageParser.Comment || vv is MarkupLanguageParser.TextData {
+					nop // do nothing
+				}
+				else if vv is MarkupLanguageParser.StartElement && (vv as! MarkupLanguageParser.StartElement).getName() == "?xml" {
+					first = false
+					continue
+				}
+				else {
+					first = false
+				}
+			}
+			values += vv
+		}
+	}
+	currentPosition = 0
+}
+
+func expect(text as string):
+	error("Expecting: " .. text)
+
+func unsupported(element as MarkupLanguageParser.StartElement)
+{
+	if element {
+		error("Unsupported element inside `" .. element.getName() .. "'")
+	}
+	else {
+		error("Unsupported element")
+	}
+}
+
+func error(message as string)
+{
+	var sb = new StringBuilder()
+	var value = parserPeek()
+	if value {
+		var name = getFileName()
+		var token as string
+		if value is MarkupLanguageParser.StartElement {
+			token = (value as! MarkupLanguageParser.StartElement).getName()
+		}
+		else if value is MarkupLanguageParser.EndElement {
+			token = "/" .. (value as! MarkupLanguageParser.EndElement).getName()
+		}
+		else if value is MarkupLanguageParser.CharacterData {
+			token = (value as! MarkupLanguageParser.CharacterData).getData()
+		}
+		else if value is MarkupLanguageParser.TextData {
+			token = (value as! MarkupLanguageParser.TextData).getData()
+		}
+		else if value is MarkupLanguageParser.Comment {
+			token = "<!-- " .. (value as! MarkupLanguageParser.Comment).getText() .. " -->"
+		}
+		else {
+			token = "(unknown)"
+		}
+		var pp = new Position()
+		calculatePosition(value.getPosition(), pp)
+		var lineNumber = pp.getRow()
+		var columnNumber = pp.getColumn()
+		var contentLine = getContentLine(pp.getRow())
+		sb.appendString(name)
+		if lineNumber >= 0 {
+			sb.appendCharacter(':')
+			sb.appendInteger(lineNumber+1)
+			if columnNumber >= 0 {
+				sb.appendCharacter(':')
+				sb.appendInteger(columnNumber+1)
+			}
+		}
+		if String.isEmpty(token) == false {
+			sb.appendString(" (`")
+			sb.appendString(token)
+			sb.appendString("')")
+		}
+		sb.appendString(": ")
+		sb.appendString(message)
+		if contentLine {
+			sb.appendCharacter('\n')
+			var it = String.iterate(contentLine)
+			var c as char
+			while (c = it.getNextChar()) > 0 {
+				if c == '\t' {
+					sb.appendCharacter(' ')
+				}
+				else {
+					sb.appendCharacter(c)
+				}
+			}
+			if columnNumber >= 0 {
+				sb.appendCharacter('\n')
+				var n = 0
+				for(n=0; n<columnNumber; n++):
+					sb.appendCharacter(' ')
+				sb.appendCharacter('^')
+			}
+		}
+		else {
+			sb.appendString("\n\t(no reference content)\n")
+		}
+	}
+	else {
+		sb.appendString(message)
+	}
+	throw ExceptionWithString.forString(sb.toString())
+}
+
+func isEmptyString(string as string) private as bool
+{
+	if String.isEmpty(string):
+		return true
+	var it = String.iterate(string)
+	while it {
+		var c = it.getNextChar()
+		if c < 1:
+			break
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n':
+			continue
+		return false
+	}
+	return true
+}
+
+macro IGNORE_STRING_ELEMENT(name)
+{
+	if acceptStringElement(name):
+		return true
+}
+
+macro IGNORE_SINGLE_ELEMENT(name)
+{
+	if acceptSingleElement(name):
+		return true
+}
+
+macro TRY_ACCEPT(x)
+{
+	if x:
+		return true
+}
+
+func parserPeek as MarkupLanguageParser.Value
+{
+	assert values
+	assert currentPosition >= 0
+	assert currentPosition < Vector.getSize(values)
+	return values[currentPosition]
+}
+
+func parserNext as MarkupLanguageParser.Value
+{
+	var v = parserPeek()
+	if v:
+		currentPosition ++
+	return v
+}
+
+func parserPrev as MarkupLanguageParser.Value
+{
+	if currentPosition < 1:
+		return null
+	currentPosition --
+	return parserPeek()
+}
+
+func acceptStartElement(name as string = null) as MarkupLanguageParser.StartElement
+{
+	var oo = getCurrentPosition()
+	if autoSkipTextAndComments:
+		skipTextAndComments()
+	var nn = assert parserPeek() as MarkupLanguageParser.StartElement
+	if name == null || nn.getName() == name {
+		parserNext()
+		return nn
+	}
+	setCurrentPosition(oo)
+	return null
+}
+
+func parseStartElement(name as string = null) as MarkupLanguageParser.StartElement
+{
+	var v = acceptStartElement(name)
+	if not v {
+		if name {
+			expect("Start element `" .. name .. "'")
+		}
+		else {
+			expect("Start element")
+		}
+	}
+	return v
+}
+
+func acceptAnyEndElement as MarkupLanguageParser.EndElement:
+	return acceptEndElementWithName(null)
+
+func acceptEndElementWithName(name as string) as MarkupLanguageParser.EndElement
+{
+	var oo = getCurrentPosition()
+	if autoSkipTextAndComments:
+		skipTextAndComments()
+	var nn = assert parserPeek() as MarkupLanguageParser.EndElement
+	if name == null || nn.getName() == name {
+		parserNext()
+		return nn
+	}
+	setCurrentPosition(oo)
+	return null
+}
+
+func acceptEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
+{
+	if not element:
+		return acceptEndElementWithName(null)
+	return acceptEndElementWithName(element.getName())
+}
+
+func parseAnyEndElement as MarkupLanguageParser.EndElement:
+	return parseEndElementWithName(null)
+
+func parseEndElementWithName(name as string) as MarkupLanguageParser.EndElement
+{
+	var v = acceptEndElementWithName(name)
+	if not v {
+		if name {
+			expect("End element `" .. name .. "'")
+		}
+		else {
+			expect("End element")
+		}
+	}
+	return v
+}
+
+func parseEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
+{
+	if not element:
+		return parseEndElementWithName(null)
+	return parseEndElementWithName(element.getName())
+}
+
+func acceptSingleElement(name as string = null) as MarkupLanguageParser.StartElement
+{
+	var oo = getCurrentPosition()
+	var element = assert acceptStartElement(name)
+	assert acceptEndElementWithName(name):
+		setCurrentPosition(oo)
+	return element
+}
+
+func parseSingleElement(name as string = null) as MarkupLanguageParser.StartElement
+{
+	var v = acceptSingleElement(name)
+	if not v {
+		if name {
+			expect("Single element: `" .. name .. "'")
+		}
+		else {
+			expect("Single element")
+		}
+	}
+	return v
+}
+
+func acceptStringElement(tagName as string = null) as StringElement
+{
+	var oo = getCurrentPosition()
+	var start = assert acceptStartElement(tagName)
+	var str = acceptText()
+	var end = assert acceptEndElementWithName(start.getName()):
+		setCurrentPosition(oo)
+	if not str:
+		str = ""
+	var v = new StringElement()
+	v.setName(start.getName())
+	v.setParams(start.getParams())
+	v.setContent(str)
+	return v
+}
+
+func parseStringElement(tagName as string = null) as StringElement
+{
+	var v = assert acceptStringElement(tagName):
+		expect("String element")
+	return v
+}
+
+func acceptStringElementData(tagName as string = null) as string
+{
+	var v = assert acceptStringElement(tagName)
+	return v.getContent()
+}
+
+func parseStringElementData(tagName as string = null) as string
+{
+	var v = assert acceptStringElementData(tagName):
+		expect("String element")
+	return v
+}
+
+func acceptElementTree(name as string, startHandler as function<void,MarkupLanguageParser.StartElement>, childHandler as function<bool>) as bool
+{
+	var element = assert acceptStartElement(name)
+	if startHandler:
+		startHandler(element)
+	loop {
+		if childHandler && childHandler():
+			continue
+		if acceptEndElement(element):
+			break
+		unsupported(element)
+	}
+	return true
+}
+
+func acceptText(force as bool = false) as string
+{
+	var sb as StringBuilder
+	loop {
+		var cc = parserPeek()
+		if not cc:
+			break
+		if skipCommentsInText {
+			if cc is MarkupLanguageParser.Comment {
+				parserNext()
+				continue
+			}
+		}
+		if cc is MarkupLanguageParser.CharacterData || cc is MarkupLanguageParser.TextData {
+			var txt = getTextData(cc)
+			if String.isNotEmpty(txt) {
+				if sb == null:
+					sb = new StringBuilder()
+				sb.appendString(txt)
+			}
+			parserNext()
+			continue
+		}
+		break
+	}
+	if sb == null {
+		if force:
+			return ""
+		return null
+	}
+	var v = sb.toString()
+	if v == null && force:
+		return ""
+	return v
+}
+
+func parseText as string
+{
+	var v = acceptText()
+	if not v:
+		v = ""
+	return v
+}
+
+func skipTextAndComments
+{
+	loop {
+		var cc = parserPeek()
+		if not cc:
+			break
+		if cc is MarkupLanguageParser.Comment {
+			parserNext()
+			continue
+		}
+		if cc is MarkupLanguageParser.CharacterData || cc is MarkupLanguageParser.TextData {
+			var txt = getTextData(cc)
+			if isEmptyString(txt) {
+				parserNext()
+				continue
+			}
+		}
+		break
+	}
+}
+
+func acceptKeyValuePair as KeyValuePair<string,string>
+{
+	var oo = getCurrentPosition()
+	var ss = assert acceptStartElement():
+		setCurrentPosition(oo)
+	var tt = assert acceptText():
+		setCurrentPosition(oo)
+	var ee = assert acceptEndElementWithName(ss.getName()):
+		setCurrentPosition(oo)
+	var v = new KeyValuePair<string,string>()
+	v.key = ss.getName()
+	v.value = tt
+	return v
+}
+
+func parseKeyValuePair as KeyValuePair<string,string>
+{
+	var v = acceptKeyValuePair()
+	if not v:
+		expect("Key/value pair")
+	return v
+}
+
+func calculatePosition(pos as int, result as Position)
+{
+	assert result
+	result.setRow(0)
+	result.setColumn(0)
+	var text = getXmlString()
+	if text {
+		var p = 0
+		var nr = 0
+		var nc = 0
+		var it = String.iterate(text)
+		while it {
+			if p == pos {
+				result.setRow(nr)
+				result.setColumn(nc)
+				break
+			}
+			var c = it.getNextChar()
+			if c < 1:
+				break
+			if c == '\n' {
+				nr ++
+				nc = 0
+			}
+			else {
+				nc ++
+			}
+			p ++
+		}
+	}
+}
+
+func getTextData(elem as MarkupLanguageParser.Value) private as string
+{
+	if elem is MarkupLanguageParser.CharacterData:
+		return (elem as! MarkupLanguageParser.CharacterData).getData()
+	if elem is MarkupLanguageParser.TextData:
+		return (elem as! MarkupLanguageParser.TextData).getData()
+	return null
+}
+
+func getLines private as vector<string>
+{
+	if not lines {
+		var text = getXmlString()
+		if text:
+			lines = String.split(text, '\n')
+	}
+	return lines
+}
+
+func getContentLine(n as int) as string
+{
+	if n < 0:
+		return null
+	var lines = getLines()
+	if not lines:
+		return null
+	if n < 0 || n >= Vector.getSize(lines):
+		return null
+	return lines[n]
+}
+
+func execute abstract

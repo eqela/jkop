@@ -1,0 +1,226 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPSocket:
+
+var socket as !"java.nio.channels.SocketChannel"
+var serverSocket as !"java.nio.channels.ServerSocketChannel"
+
+func getJavaClientSocket as !"java.net.Socket"
+{
+	if socket {
+		lang "java" {{{
+			return socket.socket();
+		}}}
+	}
+	return null
+}
+
+func getJavaServerSocket as !"java.net.ServerSocket"
+{
+	if serverSocket {
+		lang "java" {{{
+			return serverSocket.socket();
+		}}}
+	}
+	return null
+}
+
+func getRemoteAddress override as string
+{
+	var socket = assert getJavaClientSocket()
+	var a = assert socket.getInetAddress() as! !"java.net.InetAddress"
+	return a.getHostAddress() as string
+}
+
+func getRemotePort override as int
+{
+	var socket = getJavaClientSocket()
+	if socket == null:
+		return 0
+	return socket.getPort() as int
+}
+
+func getLocalAddress override as string
+{
+	var a as !"java.net.InetAddress"
+	var socket = getJavaClientSocket()
+	if socket:
+		a = socket.getLocalAddress() as! !"java.net.InetAddress"
+	var serverSocket = getJavaServerSocket()
+	if serverSocket:
+		a = serverSocket.getInetAddress() as! !"java.net.InetAddress"
+	assert a
+	return a.getHostAddress() as string
+}
+
+func getLocalPort override as int
+{
+	var socket = getJavaClientSocket()
+	if socket:
+		return socket.getLocalPort() as int
+	var serverSocket = getJavaServerSocket()
+	if serverSocket:
+		return serverSocket.getLocalPort() as int
+	return -1
+}
+
+func connect(address as string, port as int) override as bool
+{
+	var v = true
+	lang "java" {{{
+		try {
+			java.net.InetAddress serverAddress = java.net.InetAddress.getByName(address);
+			socket = java.nio.channels.SocketChannel.open(new java.net.InetSocketAddress(serverAddress, port));
+			socket.socket().setKeepAlive(true);
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = false;
+		}
+	}}}
+	return v
+}
+
+func listen(port as int) override as bool
+{
+	var v = true
+	lang "java" {{{
+		try {
+			serverSocket = java.nio.channels.ServerSocketChannel.open();
+			serverSocket.bind(new java.net.InetSocketAddress(port));
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = false;
+		}
+	}}}
+	return v
+}
+
+func accept override as TCPSocket
+{
+	assert serverSocket
+	var nsocket as !"java.nio.channels.SocketChannel"
+	lang "java" {{{
+		try {
+			nsocket = serverSocket.accept();
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			nsocket = null;
+		}
+	}}}
+	if nsocket {
+		var v = new this()
+		v.socket = nsocket
+		return v
+	}
+	return null
+}
+
+func setBlocking(blocking as bool) override as bool
+{
+	lang "java" {{{
+		try {
+			if(socket != null) {
+				socket.configureBlocking(blocking);
+			}
+			if(serverSocket != null) {
+				serverSocket.configureBlocking(blocking);
+			}
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+		}
+	}}}
+	return true
+}
+
+func getBlocking override as bool:
+	return false // FIXME
+
+func close override
+{
+	lang "java" {{{
+		try {
+			if(socket != null) {
+				socket.close();
+				socket = null;
+			}
+			if(serverSocket != null) {
+				serverSocket.close();
+				serverSocket = null;
+			}
+		}
+		catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
+	}}}
+}
+
+func read(buffer as buffer) override as int
+{
+	if buffer == null:
+		return -1
+	var v = 0
+	lang "java" {{{
+		try {
+			v = socket.read(java.nio.ByteBuffer.wrap(buffer));
+		}
+		catch(java.lang.Exception e) {
+			e.printStackTrace();
+			v = -1;
+		}
+	}}}
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	if buffer == null:
+		return -1
+	var v = 0
+	lang "java" {{{
+		try {
+			socket.write(java.nio.ByteBuffer.wrap(buffer, 0, size));
+			v = size;
+		}
+		catch(java.lang.Exception e)
+		{
+			e.printStackTrace();
+			v = -1;
+		}
+	}}}
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return v
+}

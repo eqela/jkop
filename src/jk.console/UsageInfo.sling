@@ -1,0 +1,201 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.text
+import jk.process
+
+class:
+
+func forCommand(command as string) static as this
+{
+	var v = new this()
+	v.setCommand(command)
+	return v
+}
+
+class Parameter
+{
+	var name public as string
+	var description public as string
+}
+
+class Flag
+{
+	var flag public as string
+	var description public as string
+}
+
+class Option
+{
+	var name public as string
+	var value public as string
+	var description public as string
+}
+
+prop command as string
+prop description as string
+prop paramDesc as string
+var data as vector<object>
+
+ctor
+{
+	data = new vector<object>
+	paramDesc = "[parameters]"
+	command = CurrentProcess.getProcessName()
+	if String.isEmpty(command):
+		command = "(command)"
+}
+
+func ensureSection private
+{
+	if Vector.getSize(data) < 1:
+		addSection("Available parameters")
+}
+
+func addSection(name as string)
+{
+	data += name
+}
+
+func addParameter(name as string, description as string)
+{
+	ensureSection()
+	var p = new Parameter()
+	p.name = name
+	p.description = description
+	data += p
+}
+
+func addFlag(flag as string, description as string)
+{
+	ensureSection()
+	var f = new Flag()
+	f.flag = flag
+	f.description = description
+	data += f
+}
+
+func addOption(name as string, value as string, description as string)
+{
+	ensureSection()
+	var o = new Option()
+	o.name = name
+	o.value = value
+	o.description = description
+	data += o
+}
+
+func toString as string
+{
+	var sb = new StringBuilder()
+	sb.appendString("Usage: ")
+	sb.appendString(command)
+	if String.isEmpty(paramDesc) == false {
+		sb.appendCharacter(' ')
+		sb.appendString(paramDesc)
+	}
+	sb.appendCharacter('\n')
+	sb.appendCharacter('\n')
+	if String.isEmpty(description) == false {
+		sb.appendString(description)
+		sb.appendCharacter('\n')
+		sb.appendCharacter('\n')
+	}
+	var longest = 0
+	var db = true
+	foreach o in data {
+		if o is Parameter {
+			var nn = (o as! Parameter).name
+			if nn != null {
+				var ll = String.getLength(nn)
+				if ll > longest:
+					longest = ll
+			}
+		}
+		else if o is Flag {
+			var ff = (o as! Flag).flag
+			if ff != null {
+				var ll = String.getLength(ff) + 1
+				if ll > longest {
+					longest = ll
+				}
+			}
+		}
+		else if o is Option {
+			var name = (o as! Option).name
+			var value = (o as! Option).value
+			var ll = 1 + String.getLength(name) + 2 + String.getLength(value) + 1
+			if ll > longest:
+				longest = ll
+		}
+	}
+	if longest < 30:
+		longest = 30
+	foreach o in data {
+		if o is string || o is StringObject {
+			if db == false:
+				sb.appendCharacter('\n')
+			sb.appendString(String.asString(o))
+			sb.appendCharacter(':')
+			sb.appendCharacter('\n')
+			sb.appendCharacter('\n')
+			db = true
+		}
+		else if o is Parameter {
+			var p = o as! Parameter
+			sb.appendString("  ")
+			sb.appendString(StringUtil.padToLength(p.name, longest, -1, ' '))
+			if String.isEmpty(p.description) == false {
+				sb.appendString(" - ")
+				sb.appendString(p.description)
+			}
+			sb.appendCharacter('\n')
+			db = false
+		}
+		else if o is Flag {
+			var p = o as! Flag
+			sb.appendString("  -")
+			sb.appendString(StringUtil.padToLength(p.flag, longest-1, -1, ' '))
+			if String.isEmpty(p.description) == false {
+				sb.appendString(" - ")
+				sb.appendString(p.description)
+			}
+			sb.appendCharacter('\n')
+			db = false
+		}
+		else if o is Option {
+			var p = o as! Option
+			sb.appendString("  ")
+			sb.appendString(StringUtil.padToLength("-" .. p.name .. "=[" .. p.value .. "]", longest, -1, ' '))
+			if String.isEmpty(p.description) == false {
+				sb.appendString(" - ")
+				sb.appendString(p.description)
+			}
+			sb.appendCharacter('\n')
+			db = false
+		}
+	}
+	return sb.toString()
+}

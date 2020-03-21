@@ -1,0 +1,348 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.text
+
+class is StringObject:
+
+meta
+{
+	description [[
+		The ProcessLauncher class provides a mechanism for starting and controlling
+		additional processes.
+	]]
+}
+
+class MyStringPipeHandler is BufferDataReceiver
+{
+	prop builder as StringBuilder
+	prop encoding as string
+
+	ctor
+	{
+		encoding = "UTF-8"
+	}
+
+	func onBufferData(data as buffer, size as long) as bool
+	{
+		if builder == null || data == null || size < 1:
+			return false
+		var str = assert String.forBuffer(Buffer.getSubBuffer(data, 0, size), encoding)
+		builder.appendString(str)
+		return true
+	}
+}
+
+class MyBufferPipeHandler is BufferDataReceiver
+{
+	prop data as buffer
+
+	func onBufferData(newData as buffer, size as long) as bool
+	{
+		data = Buffer.append(data, newData, size)
+		return true
+	}
+}
+
+class QuietPipeHandler is BufferDataReceiver
+{
+	func onBufferData(data as buffer, size as long) as bool
+	{
+		return true
+	}
+}
+
+func forSelf static as this
+{
+	var exe = assert CurrentProcess.getExecutableFile()
+	var v = new this()
+	IFDEF "target_uwp" {
+	}
+	ELSE IFDEF "target_netx" {
+		var filename = lang "cs" string {{{ System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName }}}
+		if filename {
+			var ff = File.forPath(filename)
+			var bn = ff.getBasename()
+			if bn && String.startsWith(bn, "mono") {
+				v.setFile(ff)
+				v.addToParams(exe.getPath())
+				return v
+			}
+		}
+	}
+	v.setFile(exe)
+	return v
+}
+
+func forFile(file as File, params as array = null) static as this
+{
+	meta {
+		description [[
+			Creates a launcher for the given executable file. If the file does not exist,
+			this method returns a null object instead.
+		]]
+	}
+	if file == null || file.isFile() == false:
+		return null
+	var v = new this()
+	v.setFile(file)
+	foreach param as string in params:
+		v.addToParams(param)
+	return v
+}
+
+func forCommand(command as string, params as array = null) static as this
+{
+	meta {
+		description [[
+			Creates a process launcher for the given command. The command can either be a full or relative
+			path to an executable file or, if not, a matching executable file will be searched for in
+			the PATH environment variable (or through other applicable standard means on the given
+			platform), and an appropriately configured ProcessLauncher object will be returned.
+			However, if the given command is not found, this method returns null.
+		]]
+	}
+	if String.isEmpty(command):
+		return null
+	var file as File
+	if String.getIndexOfCharacter(command, PathInfo.getPathSeparator()) >= 0 {
+		file = File.forPath(command)
+	}
+	else {
+		file = ExternalCommand.findInPath(command)
+	}
+	return forFile(file, params)
+}
+
+func forString(str as string) static as this
+{
+	meta {
+		description [[
+			Creates a new process launcher object for the given string, which includes a complete
+			command line for executing the process, including the command itself and all the
+			parameters, delimited with spaces. If parameters will need to contain space as part
+			of their value, those parameters can be enclosed in double quotes. This method will
+			return null if the command does not exist and/or is not found.
+		]]
+	}
+	if String.isEmpty(str):
+		return null
+	var arr = StringUtil.quotedStringToVector(str, ' ')
+	if arr == null || Vector.getSize(arr) < 1:
+		return null
+	var vsz = Vector.getSize(arr)
+	var cmd = arr[0]
+	var params as array
+	var paramCount = vsz - 1
+	if paramCount > 0 {
+		params = new object[paramCount]
+		for(var n = 1; n<vsz; n++):
+			params[n-1] = arr[n]
+	}
+	return forCommand(cmd, params)
+}
+
+prop file as File
+prop params as vector<string>
+prop env as map<string,string>
+prop cwd as File
+prop uid = -1
+prop gid = -1
+prop trapSigint = true
+prop replaceSelf = false
+prop pipePty = false
+prop startGroup = false
+prop noCmdWindow = false
+prop errorBuffer as StringBuilder
+
+ctor
+{
+	params = new vector<string>
+	env = new map<string,string>
+}
+
+func appendProperParam(sb as StringBuilder, p as string) private
+{
+	assert String.isNotEmpty(p)
+	sb.appendCharacter(' ')
+	sb.appendCharacter('"')
+	escapeQuotesAndBackSlashes(sb, p)
+	sb.appendCharacter('"')
+}
+
+func escapeQuotesAndBackSlashes(sb as StringBuilder, param as string) private
+{
+	var it = String.iterate(param)
+	while it {
+		var c = it.getNextChar()
+		if Character.isEOF(c):
+			break
+		if c == '"' || c == '\\':
+			sb.appendCharacter('\\')
+		sb.appendCharacter(c)
+	}
+}
+
+func getFullCommandString(includeEnv as bool) as string
+{
+	meta {
+		description [[
+			Produces a string representation of this command with the command itself, parameters
+			and environment variables included.
+		]]
+	}
+	var sb = new StringBuilder()
+	if includeEnv {
+		var keys as vector<string> #force = Map.getKeys(env)
+		foreach key in keys {
+			sb.appendString(key)
+			sb.appendCharacter('=')
+			sb.appendString(env[key])
+			sb.appendCharacter(' ')
+		}
+	}
+	sb.appendCharacter('"')
+	if file:
+		escapeQuotesAndBackSlashes(sb, file.getPath())
+	sb.appendCharacter('"')
+	foreach p in params:
+		appendProperParam(sb, p)
+	return sb.toString()
+}
+
+func toString as string:
+	return getFullCommandString(true)
+
+func addToParams(arg as string) as this
+{
+	if arg {
+		if params == null:
+			params = new vector<string>
+		params += arg
+	}
+	return this
+}
+
+func addFileToParams(file as File) as this
+{
+	if file:
+		addToParams(file.getPath())
+	return this
+}
+
+func addStringsToParams(params as vector<string>) as this
+{
+	foreach s in params:
+		addToParams(s)
+	return this
+}
+
+func setEnvVariable(key as string, val as string)
+{
+	if key {
+		if env == null:
+			env = new map<string,string>
+		env[key] = val
+	}
+}
+
+func startProcess(wait as bool, pipeHandler as BufferDataReceiver, withIO as bool = false) private as Process
+{
+	IFDEF "target_uwp" {
+		return null
+	}
+	ELSE IFDEF "target_netx" {
+		return ProcessLauncherDotNet.startProcess(this, wait, pipeHandler, withIO, errorBuffer)
+	}
+	ELSE IFDEF "target_java" {
+		return ProcessLauncherJava.startProcess(this, wait, pipeHandler)
+	}
+	ELSE IFDEF "target_sushi" {
+		return ProcessLauncherSushi.startProcess(this, wait, pipeHandler, withIO, errorBuffer)
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func start as Process:
+	return startProcess(false, null)
+
+func startWithIO as ProcessWithIO:
+	return startProcess(false, null, true) as ProcessWithIO
+
+func execute as int
+{
+	var cp = startProcess(true, null)
+	if cp == null:
+		return -1
+	return cp.getExitStatus()
+}
+
+func executeSilent as int
+{
+	var cp = startProcess(true, new QuietPipeHandler())
+	if cp == null:
+		return -1
+	return cp.getExitStatus()
+}
+
+func executeToStringBuilder(output as StringBuilder) as int
+{
+	var msp = new MyStringPipeHandler()
+	msp.setBuilder(output)
+	var cp = startProcess(true, msp)
+	if cp == null:
+		return -1
+	return cp.getExitStatus()
+}
+
+func executeToString as string
+{
+	var sb = new StringBuilder()
+	if executeToStringBuilder(sb) < 0:
+		return null
+	return sb.toString()
+}
+
+func executeToBuffer as buffer
+{
+	var ph = new MyBufferPipeHandler()
+	var cp = startProcess(true, ph)
+	if cp == null:
+		return null
+	return ph.getData()
+}
+
+func executeToPipe(pipeHandler as BufferDataReceiver) as int
+{
+	var cp = startProcess(true, pipeHandler)
+	if cp == null:
+		return -1
+	return cp.getExitStatus()
+}

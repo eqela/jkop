@@ -1,0 +1,299 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.io
+import jk.text
+
+class:
+
+func parseFile(file as File) static as RichTextDocument:
+	return new this().setFile(file).parse()
+
+func parseString(data as string) static as RichTextDocument:
+	return new this().setData(data).parse()
+
+prop file as File
+prop data as string
+prop allowInclude = true
+
+func skipEmptyLines(pr as LineReader) as string
+{
+	var line as string
+	while (line = pr.readLine()) != null {
+		line = String.strip(line)
+		if line && String.startsWith(line, "#"):
+			continue
+		if String.isEmpty(line) == false:
+			break
+	}
+	return line
+}
+
+func readPreformattedParagraph(id as string, pr as LineReader) as RichTextPreformattedParagraph
+{
+	var sb = new StringBuilder()
+	var line as string
+	while (line  = pr.readLine()) != null {
+		if String.startsWith(line,"---") && String.endsWith(line, "---") {
+			var lid = String.strip(String.getSubString(line, 3, String.getLength(line)-6))
+			if String.isEmpty(id) {
+				if String.isEmpty(lid):
+					break
+			}
+			else if String.equals(id, lid) {
+				break
+			}
+		}
+		sb.appendString(line)
+		sb.appendCharacter('\n')
+	}
+	return new RichTextPreformattedParagraph().setId(id).setText(sb.toString())
+}
+
+func readBlockParagraph(id as string, pr as LineReader) as RichTextBlockParagraph
+{
+	var sb = new StringBuilder()
+	var line as string
+	while (line = pr.readLine()) != null {
+		if String.startsWith(line, "--") && String.endsWith(line, "--") {
+			var lid = String.strip(String.getSubString(line, 2, String.getLength(line)-4))
+			if String.isEmpty(id) {
+				if String.isEmpty(lid):
+					break
+			}
+			else if String.equals(id, lid) {
+				break
+			}
+		}
+		sb.appendString(line)
+		sb.appendCharacter('\n')
+	}
+	return new RichTextBlockParagraph().setId(id).setText(sb.toString())
+}
+
+func readListParagraph(type as string, l as string, pr as LineReader) as RichTextListParagraph
+{
+	var line = l
+	var prefix = String.getSubString(line, 0, 2)
+	var list = new vector<string>
+	var sb = new StringBuilder()
+	do {
+		line = String.strip(line)
+		if String.startsWith(line, prefix) == false:
+			break
+		line = String.getEndOfString(line, 2)
+		var it = String.iterate(line)
+		var c as char
+		var pc = 0 as char
+		while (c = it.getNextChar()) > 0 {
+			if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+				if pc == ' ':
+					continue
+				c = ' '
+			}
+			sb.appendCharacter(c)
+			pc = c
+		}
+		if sb.count() > 0 {
+			list += sb.toString()
+			sb.clear()
+		}
+	}
+	while (line = pr.readLine()) != null
+	return new RichTextListParagraph().setList(list).setType(type)
+}
+
+func processInput(pr as LineReader, cwd as File, doc as RichTextDocument) as bool
+{
+	var line = assert skipEmptyLines(pr)
+	if line == "-" {
+		doc.addParagraph(new RichTextSeparatorParagraph())
+		return true
+	}
+	if String.startsWith(line, "@content ") {
+		var id = String.strip(String.getEndOfString(line, 9))
+		doc.addParagraph(new RichTextContentParagraph().setContentId(id))
+		return true
+	}
+	if String.startsWith(line, "@image ") {
+		var ref = String.strip(String.getEndOfString(line, 7))
+		doc.addParagraph(new RichTextImageParagraph().setFilename(ref))
+		return true
+	}
+	if String.startsWith(line, "@image100 ") {
+		var ref = String.strip(String.getEndOfString(line, 10))
+		doc.addParagraph(new RichTextImageParagraph().setFilename(ref))
+		return true
+	}
+	if String.startsWith(line, "@image75 ") {
+		var ref = String.strip(String.getEndOfString(line, 9))
+		doc.addParagraph(new RichTextImageParagraph().setFilename(ref).setWidth(75))
+		return true
+	}
+	if String.startsWith(line, "@image50 ") {
+		var ref = String.strip(String.getEndOfString(line, 9))
+		doc.addParagraph(new RichTextImageParagraph().setFilename(ref).setWidth(50))
+		return true
+	}
+	if String.startsWith(line, "@image25 ") {
+		var ref = String.strip(String.getEndOfString(line, 9))
+		doc.addParagraph(new RichTextImageParagraph().setFilename(ref).setWidth(25))
+		return true
+	}
+	if String.startsWith(line, "@reference ") {
+		var ref = String.strip(String.getEndOfString(line, 11))
+		var sq = StringUtil.quotedStringToVector(ref, ' ')
+		var rrf = Vector.getAt(sq, 0)
+		var txt = Vector.getAt(sq, 1)
+		doc.addParagraph(new RichTextReferenceParagraph().setReference(rrf).setText(txt))
+		return true
+	}
+	if String.startsWith(line, "@set ") {
+		var link = String.strip(String.getEndOfString(line, 5))
+		var sq = StringUtil.quotedStringToVector(link, ' ')
+		var key = Vector.getAt(sq, 0)
+		var val = Vector.getAt(sq, 1)
+		if String.isEmpty(key):
+			return true
+		doc.setMetadata(key, val)
+		return true
+	}
+	if String.startsWith(line, "@link ") {
+		var link = String.strip(String.getEndOfString(line, 6))
+		var sq = StringUtil.quotedStringToVector(link, ' ')
+		var url = Vector.getAt(sq, 0)
+		var txt = Vector.getAt(sq, 1)
+		var flags = Vector.getAt(sq, 2)
+		if String.isEmpty(txt):
+			txt = url
+		var v = new RichTextLinkParagraph()
+		v.setLink(url)
+		v.setText(txt)
+		if String.equals("internal", flags) {
+			v.setPopup(false)
+		}
+		else {
+			v.setPopup(true)
+		}
+		doc.addParagraph(v)
+		return true
+	}
+	if String.startsWith(line, "@include ") {
+		var filename = String.getEndOfString(line, 9)
+		if String.isEmpty(filename):
+			return true
+		if cwd && allowInclude {
+			var ff = cwd
+			foreach comp in String.split(String.replaceCharacter(filename, '\\', '/'), '/') {
+				if comp == "." || String.startsWith(comp, ".."):
+					continue
+				ff = ff.entry(comp)
+			}
+			var prx = PrintReader.forReader(ff.read())
+			if prx {
+				parseToDocument(prx, ff.getParent(), doc)
+				prx.close()
+			}
+		}
+		return true
+	}
+	if String.startsWith(line,"---") && String.endsWith(line, "---") {
+		var id = String.strip(String.getSubString(line, 3, String.getLength(line)-6))
+		if String.isEmpty(id):
+			id = null
+		doc.addParagraph(readPreformattedParagraph(id, pr))
+		return true
+	}
+	if String.startsWith(line,"--") && String.endsWith(line, "--") {
+		var id = String.strip(String.getSubString(line, 2, String.getLength(line) - 4))
+		if String.isEmpty(id):
+			id = null
+		doc.addParagraph(readBlockParagraph(id, pr))
+		return true
+	}
+	if String.startsWith(line, "* ") {
+		doc.addParagraph(readListParagraph("unordered", line, pr))
+		return true
+	}
+	if String.startsWith(line, "+ ") {
+		doc.addParagraph(readListParagraph("ordered", line, pr))
+		return true
+	}
+	var sb = new StringBuilder()
+	var pc = 0 as char
+	do {
+		line = String.strip(line)
+		if String.isEmpty(line):
+			break
+		if String.startsWith(line,"#") == false {
+			var it = String.iterate(line)
+			var c as char
+			if sb.count() > 0 && pc != ' ' {
+				sb.appendCharacter(' ')
+				pc = ' '
+			}
+			while (c = it.getNextChar()) > 0 {
+				if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+					if pc == ' ':
+						continue
+					c = ' '
+				}
+				sb.appendCharacter(c)
+				pc = c
+			}
+		}
+	}
+	while (line = pr.readLine()) != null
+	var s = sb.toString()
+	if String.isEmpty(s):
+		return false
+	doc.addParagraph(RichTextStyledParagraph.forString(s))
+	return true
+}
+
+func parseToDocument(pr as LineReader, cwd as File, v as RichTextDocument)
+{
+	assert pr
+	while processInput(pr, cwd, v):
+		nop // continue
+}
+
+func parse as RichTextDocument
+{
+	var pr as LineReader
+	var cwd as File
+	if file {
+		pr = PrintReader.forReader(file.read())
+		cwd = file.getParent()
+	}
+	else if data {
+		pr = new StringLineReader(data)
+		cwd = null
+	}
+	var v = new RichTextDocument()
+	parseToDocument(pr, cwd, v)
+	return v
+}

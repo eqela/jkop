@@ -1,0 +1,97 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+prop autohideToolbar = false
+prop widgetContent as Widget
+prop widgetToolbar as ToolbarWidget
+var shown = true
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	var scroller = VerticalScrollerWidget.forWidget(context, widgetContent)
+	scroller.setOnScrolledHandler(func(direction as int) {
+		if autohideToolbar {
+			if direction == 0 && shown == true {
+				hideToolbar()
+				shown = false
+			}
+			else if direction == 1 && shown == false {
+				showToolbar()
+				shown = true
+			}
+		}
+	})
+	if autohideToolbar {
+		addWidget(scroller)
+		var align = new AlignWidget(context)
+		align.addWidget(widgetToolbar, 0, 1.0, true)
+		addWidget(align)
+	}
+	else {
+		var vbox = VerticalBoxWidget.forContext(context)
+		vbox.addWidget(scroller, 1.0)
+		vbox.addWidget(widgetToolbar)
+		addWidget(vbox)
+	}
+}
+
+func showToolbar
+{
+	var sy final = Widget.getHeight(widgetToolbar)
+	var y final = Widget.getY(widgetToolbar)
+	var targety final = Widget.getHeight(this) - sy
+	var anim = WidgetAnimation.forDuration(context, 250)
+	anim.addCallback(func(completion as double) {
+		var dy = y - (completion * sy) as int
+		if dy < targety:
+			dy = targety
+		Widget.move(widgetToolbar, 0 , dy)
+	})
+	anim.setEndListener(func {
+		shown = true
+	})
+	anim.start()
+}
+
+func hideToolbar
+{
+	var sy final = Widget.getHeight(widgetToolbar)
+	var y final = Widget.getY(widgetToolbar)
+	var targety final = Widget.getHeight(this)
+	var anim = WidgetAnimation.forDuration(context, 250)
+	anim.addCallback(func(completion as double) {
+		var dy = y + (completion * sy) as int
+		if dy > targety:
+			dy = targety
+		Widget.move(widgetToolbar, 0 , dy)
+	})
+	anim.setEndListener(func {
+		shown = false
+	})
+	anim.start()
+}

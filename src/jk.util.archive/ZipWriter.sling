@@ -1,0 +1,107 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class abstract:
+
+func forOutputFile(file as File) static as this
+{
+	IFDEF "target_sushi" {
+		return ZipWriterForSushi.forFile(file)
+	}
+	ELSE IFDEF "target_cs" {
+		return new ZipWriterForDotNet().setFile(file).initialize()
+	}
+	return null
+}
+
+func writeToZipRecursive(ctx as LoggingContext, dest as File, source as File, truncateDirectoryName as bool) static as bool
+{
+	assert dest:
+		Log.error(ctx, "No destination file specified for ZIP writer")
+	assert source:
+		Log.error(ctx, "No source file specified for ZIP writer")
+	var zip = assert forOutputFile(dest):
+		Log.error(ctx, "Failed to create ZIP writer for file: `" .. dest.getPath() .. "'")
+	var pd = assert source.getParent():
+		Log.error(ctx, "Directory has no parent: `" .. source.getPath() .. "'")
+	var parentPath = pd.getPath()
+	assert String.isNotEmpty(parentPath):
+		Log.error(ctx, "Parent path is empty: `" .. source.getPath() .. "'")
+	var parentPathLength = String.getLength(parentPath)
+	if truncateDirectoryName:
+		parentPathLength = String.getLength(source.getPath())
+	if source.isFile() {
+		assert zip.addFile(source, source.getBasename()) {
+			Log.error(ctx, "Failed to add to ZIP file: `" .. source.getPath() .. "'")
+			zip.close()
+			dest.remove()
+		}
+		zip.close()
+		return true
+	}
+	var root = source
+	if truncateDirectoryName:
+		root = null
+	var ff = FileFinder.forRoot(source)
+	ff.setIncludeDirectories(true)
+	loop {
+		var file as File
+		if root {
+			file = root
+			root = null
+		}
+		else {
+			file = ff.next()
+		}
+		if not file:
+			break
+		var isFile = file.isFile()
+		var isDirectory = file.isDirectory()
+		if isFile == false && isDirectory == false:
+			continue
+		var fpath = file.getPath()
+		if String.isEmpty(fpath):
+			continue
+		var partialPath = String.getEndOfString(fpath, parentPathLength + 1)
+		if String.isEmpty(partialPath):
+			continue
+		partialPath = String.replaceCharacter(partialPath, '\\', '/')
+		if isDirectory:
+			partialPath = partialPath .. "/"
+		assert zip.addFile(file, partialPath) {
+			Log.error(ctx, "Failed to add to ZIP file: `" .. file.getPath() .. "'")
+			zip.close()
+			dest.remove()
+		}
+	}
+	zip.close()
+	return true
+}
+
+func addFile(file as File, filename as string) abstract as bool
+func close abstract

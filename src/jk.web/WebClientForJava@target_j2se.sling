@@ -1,0 +1,194 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient:
+
+func query(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) override
+{
+	if String.isEmpty(method) || String.isEmpty(url) {
+		callback(null, null, null)
+		return
+	}
+	if String.startsWith(url, "http://") == false && String.startsWith(url, "https://") == false {
+		callback(null, null, null)
+		return
+	}
+	var conn as !"java.net.HttpURLConnection" = null
+	lang "java" {{{
+		try {
+			conn = (java.net.HttpURLConnection)new java.net.URL(url).openConnection();
+			conn.setReadTimeout(30000);
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+			conn = null;
+		}
+	}}}
+	assert conn:
+		callback(null, null, null)
+	if requestHeaders {
+		var iter = requestHeaders.iterate()
+		loop {
+			var nh as KeyValuePair<string,string> #force = iter.next()
+			if not nh:
+				break
+			var key #used = nh.key
+			var value #used = nh.value
+			lang "java" {{{
+				conn.setRequestProperty(key, value);
+			}}}
+		}
+	}
+	lang "java" {{{
+		try {
+			conn.setRequestMethod(method);
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+			conn = null;
+		}
+	}}}
+	assert conn:
+		callback(null, null, null)
+	lang "java" {{{
+		if(method.equalsIgnoreCase("POST") || method.equalsIgnoreCase("PUT")) {
+			conn.setDoOutput(true);
+			java.io.OutputStream writer = null;
+			try {
+				writer = conn.getOutputStream();
+				writer.write(body);
+				writer.flush();
+			}
+			catch(Exception e) {
+				e.printStackTrace();
+				conn = null;
+			}
+			finally {
+				try {
+					writer.close();
+				}
+				catch(Exception e) {
+					e.printStackTrace();
+				}
+			}
+		}
+	}}}
+	assert conn:
+		callback(null, null, null)
+	var responseHeaders = new KeyValueList<string,string>()
+	var responseCode as int #used
+	lang "java" {{{
+		try {
+			java.util.Map<String, java.util.List<String>> respHeaders = conn.getHeaderFields();
+			for(java.util.Map.Entry<String, java.util.List<String>> rh : respHeaders.entrySet()) {
+	}}}
+	var key = lang "java" string {{{ rh.getKey() }}}
+	if String.isEmpty(key):
+		continue
+	key = String.toLowerCase(key)
+	var val as string #used = null
+	lang "java" {{{
+		for(String s : rh.getValue()) {
+			val = s;
+		}
+	}}}
+	responseHeaders.add(key, val)
+	lang "java" {{{
+			}
+			responseCode = conn.getResponseCode();
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+		}
+	}}}
+	var reader as !"java.io.InputStream"
+	lang "java" {{{
+		try {
+			reader = conn.getInputStream();
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+			reader = null;
+		}
+	}}}
+	if reader == null {
+		lang "java" {{{
+			try {
+				reader = conn.getErrorStream();
+			}
+			catch(Exception e) {
+				e.printStackTrace();
+				reader = null;
+			}
+		}}}
+	}
+	assert reader:
+		callback(null, null, null)
+	lang "java" {{{
+		byte[] buf = new byte[1024*32];
+	}}}
+	var responseBuffer #used = malloc 1024 * 1024 * 10
+	var length #used = 0
+	loop {
+		lang "java" {{{
+			try {
+				int r = reader.read(buf);
+				if(r < 1) {
+					break;
+				}
+				System.arraycopy(buf, 0, responseBuffer, length, r);
+				length += r;
+			}
+			catch(Exception e) {
+				e.printStackTrace();
+				break;
+			}
+		}}}
+	}
+	var bb = malloc length
+	var i = 0
+	loop {
+		if i > length-1:
+			break
+		var c = lang "java" int {{{ (int)(responseBuffer[i] & 0xFF) }}}
+		Buffer.setByte(bb, i, c)
+		i++
+	}
+	lang "java" {{{
+		conn.disconnect();
+		conn = null;
+	}}}
+	if responseCode == 0:
+		responseCode = 404
+	lang "java" {{{
+		try {
+			reader.close();
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+		}
+	}}}
+	callback(String.forInteger(responseCode), responseHeaders, bb)
+}

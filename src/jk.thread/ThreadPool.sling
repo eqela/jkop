@@ -1,0 +1,104 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func forMaxPoolSize(maximumPoolSize as int) static as this
+{
+	var v = new this()
+	v.maximumPoolSize = maximumPoolSize
+	return v
+}
+
+ctor
+{
+	queue = new vector<Runnable>
+	mutex = Mutex.create()
+}
+
+var maximumPoolSize as int
+var queue as vector<Runnable>
+var runningThreadsCount as int
+var mutex as Mutex
+
+func getRunningThreadsCount as int:
+	return runningThreadsCount
+
+func submitTask(task as Runnable):
+	execute(task)
+
+func submitTasks(tasks as vector<Runnable>)
+{
+	foreach task in tasks:
+		execute(task)
+}
+
+func execute(task as Runnable)
+{
+	assert task
+	mutex.lockMutex()
+	if runningThreadsCount < maximumPoolSize {
+		var runner = new TaskRunner()
+		runner.setMyParent(this)
+		runner.setRunnable(task)
+		if Thread.start(runner) != null {
+			runningThreadsCount ++
+		}
+		else {
+			queue += task
+		}
+	}
+	else {
+		queue += task
+	}
+	mutex.unlockMutex()
+}
+
+func getTaskFromQueue as Runnable
+{
+	mutex.lockMutex()
+	var item = Vector.popFirst(queue) as Runnable
+	if not item:
+		runningThreadsCount --
+	mutex.unlockMutex()
+	return item
+}
+
+class TaskRunner is Runnable public
+{
+	prop runnable as Runnable
+	prop myParent as parent
+
+	func run
+	{
+		loop {
+			runnable.run()
+			var next = myParent.getTaskFromQueue()
+			if not next:
+				break
+			runnable = next
+		}
+	}
+}

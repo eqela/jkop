@@ -1,0 +1,866 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Backend:
+
+depend "objc-header-m:<SpriteKit/SpriteKit.h>"
+depend "objc-framework:SpriteKit"
+
+class MySprite is Sprite abstract
+{
+	var context protected as GuiApplicationContext
+	var layer protected as MySpriteLayer
+	var spriteNode public as !"SKNode"
+	var myx protected = 0.0
+	var myy protected = 0.0
+	var myWidth protected = 0.0
+	var myHeight protected = 0.0
+	var myRotation protected = 0.0
+
+	func setContext(ctx as GuiApplicationContext):
+		context = ctx
+
+	func setLayer(value as MySpriteLayer):
+		layer = value
+
+	func move(x as double, y as double)
+	{
+		var xf #used = x * layer.layerWidthFactor
+		var yf #used = - (y * layer.layerHeightFactor)
+		lang "objc" {{{
+			[spriteNode setPosition:CGPointMake(xf - layer->backendWidth/2 + (myWidth * layer->layerWidthFactor)/2, yf + layer->backendHeight/2 - (myHeight * layer->layerHeightFactor)/2)];
+		}}}
+		myx = x
+		myy = y
+	}
+
+	func scale(scalex as double, scaley as double)
+	{
+		lang "objc" {{{
+			spriteNode.xScale = scalex;
+			spriteNode.yScale = scaley;
+		}}}
+	}
+
+	func setRotation(angle as double)
+	{
+		lang "objc" {{{
+			spriteNode.zRotation = -angle;
+		}}}
+		myRotation = angle
+	}
+
+	func setAlpha(alpha as double)
+	{
+		lang "objc" {{{
+			spriteNode.alpha = alpha;
+		}}}
+	}
+
+	func getX as double:
+		return myx
+
+	func getY as double:
+		return myy
+
+	func getWidth as double:
+		return myWidth
+
+	func getHeight as double:
+		return myHeight
+
+	func getRotation as double:
+		return myRotation
+
+	func getAlpha as double:
+		return lang "objc" double {{{ spriteNode.alpha }}}
+
+	func getScaleX as double:
+		return lang "objc" double {{{ spriteNode.xScale }}}
+
+	func getScaleY as double:
+		return lang "objc" double {{{ spriteNode.yScale }}}
+
+	func removeFromContainer
+	{
+		var nn = spriteNode
+		if nn {
+			lang "objc" {{{
+				[nn removeFromParent];
+			}}}
+			spriteNode = null
+		}
+	}
+}
+
+class MyTextureSprite is MySprite is TextureSprite
+{
+	func initializeForParent(parent as !"SKNode")
+	{
+		var sp as !"SKSpriteNode"
+		lang "objc" {{{
+			sp = [[SKSpriteNode alloc] init];
+			sp.anchorPoint = CGPointMake(0.5, 0.5);
+			[parent addChild:sp];
+		}}}
+		spriteNode = sp
+	}
+
+	func resize(width as double, height as double)
+	{
+		var sp = assert spriteNode as !"SKSpriteNode"
+		var xf #used = width * layer.layerWidthFactor
+		var yf #used = height * layer.layerHeightFactor
+		lang "objc" {{{
+			sp.size = CGSizeMake(xf, yf);
+		}}}
+		myWidth = width
+		myHeight = height
+	}
+
+	func setTexture(texture as Texture):
+		setTextureWithSize(texture, getWidth(), getHeight())
+
+	func setTextureWithSize(texture as Texture, width as double, height as double)
+	{
+		var sp = assert spriteNode as !"SKSpriteNode"
+		var w = SpriteUtil.getAspectWidth(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		var h = SpriteUtil.getAspectHeight(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		if w <= 0.0:
+			w = height
+		if h <= 0.0:
+			h = width
+		resize(w, h)
+		if texture == null {
+			lang "objc" {{{
+				sp.texture = nil;
+				sp.color = nil;
+			}}}
+		}
+		else if texture is MyImageTexture {
+			var tt = (texture as! MyImageTexture).skTexture
+			lang "objc" {{{
+				sp.color = nil;
+				sp.texture = tt;
+			}}}
+		}
+		else if texture is MyColorTexture {
+			var cc = (texture as! MyColorTexture).color
+			lang "objc" {{{
+				sp.texture = nil;
+			}}}
+			if cc == null {
+				lang "objc" {{{
+					sp.color = nil;
+				}}}
+			}
+			else {
+				IFDEF "target_ios_objc" {
+					lang "objc" {{{
+						sp.color = [cc toUIColor];
+					}}}
+				}
+				ELSE IFDEF "target_macosoc" {
+					lang "objc" {{{
+						sp.color = [cc toNSColor];
+					}}}
+				}
+				ELSE {
+					lang "objc" {{{
+						sp.color = nil;
+					}}}
+				}
+			}
+		}
+		else {
+			lang "objc" {{{
+				sp.texture = nil;
+				sp.color = nil;
+			}}}
+		}
+	}
+}
+
+class MyTextSprite is MySprite is TextSprite
+{
+	var labelNode as !"SKLabelNode"
+	var backgroundNode as !"SKSpriteNode"
+
+	func initializeForParent(parent as !"SKNode")
+	{
+		var myColor #used = Color.forRGBADouble(0.0, 0.0, 0.0, 0.0)
+		lang "objc" {{{
+			labelNode = [SKLabelNode labelNodeWithText:@""];
+			labelNode.verticalAlignmentMode = SKLabelVerticalAlignmentModeTop;
+			labelNode.horizontalAlignmentMode = SKLabelHorizontalAlignmentModeLeft;
+			labelNode.position = CGPointMake(0, 0);
+			backgroundNode = [SKSpriteNode spriteNodeWithColor:[myColor toAppleColor] size:CGSizeMake(labelNode.frame.size.width, labelNode.frame.size.height)];
+			backgroundNode.anchorPoint = CGPointMake(0.5, 0.5);
+			[backgroundNode addChild:labelNode];
+			[parent addChild:backgroundNode];
+		}}}
+		spriteNode = backgroundNode
+		updateMySize()
+	}
+
+	func updateMySize
+	{
+		lang "objc" {{{
+			myWidth = labelNode.frame.size.width / layer->layerWidthFactor;
+			myHeight = labelNode.frame.size.height / layer->layerHeightFactor;
+		}}}
+	}
+
+	func createFontName(original as string, bold as bool, italic as bool) as string
+	{
+		var v = original
+		if String.isEmpty(v):
+			v = "Arial"
+		if bold || italic {
+			IFDEF "target_ios_objc" {
+				lang "objc" {{{
+					UIFontDescriptor* ud = [UIFontDescriptor fontDescriptorWithName:v size:18];
+					int traits = 0;
+					if(bold) {
+						traits |= UIFontDescriptorTraitBold;
+					}
+					if(italic) {
+						traits |= UIFontDescriptorTraitItalic;
+					}
+					ud = [ud fontDescriptorWithSymbolicTraits:traits];
+					UIFont* uf = [UIFont fontWithDescriptor:ud size:18];
+					if(uf) {
+						v = uf.fontName;
+					}
+				}}}
+			}
+			ELSE IFDEF "target_macosoc" {
+				lang "objc" {{{
+					NSFontManager *fontManager = [NSFontManager sharedFontManager];
+					int traits = 0;
+					if(bold) {
+						traits |= NSBoldFontMask;
+					}
+					if(italic) {
+						traits |= NSItalicFontMask;
+					}
+					NSFont* uf = [fontManager fontWithFamily:v traits:traits weight:0 size:18];
+					if(uf) {
+						v = uf.fontName;
+					}
+				}}}
+			}
+		}
+		return v
+	}
+
+	func setText(text as TextProperties)
+	{
+		var label = labelNode as !"SKLabelNode"
+
+		// Handle the case of null parameter
+
+		if text == null {
+			lang "objc" {{{
+				label.text = @"";
+			}}}
+			return
+		}
+
+		// Set the actual text content
+
+		lang "objc" {{{
+			label.text = [text getText];
+		}}}
+
+		// Text (font) color
+
+		var textColor = text.getTextColor()
+		if textColor == null:
+			textColor = Color.black()
+		lang "objc" {{{
+			label.fontColor = [textColor toAppleColor];
+		}}}
+
+		// Font size
+
+		var hsz = 0.0
+		var fsDesc = text.getFontSizeDescription()
+		if String.isEmpty(fsDesc) == false {
+			var density = 0
+			var gc = context as GuiApplicationContext
+			if gc:
+				density = gc.getScreenDensity()
+			if density < 1:
+				density = 96
+			hsz = jk.gfx.Length.asPoints(fsDesc, density)
+		}
+		else {
+			var fsRelative = text.getFontSizeRelative()
+			if fsRelative > 0.0 {
+				hsz = layer.layerHeightFactor * fsRelative
+			}
+			else {
+				hsz = text.getFontSizeAbsolute() * 18
+			}
+		}
+		if hsz < 1:
+			hsz = 18
+		lang "objc" {{{
+			label.fontSize = hsz;
+		}}}
+
+		// Font family
+
+		var fontFamily #used = createFontName(text.getFontFamily(), text.getFontIsBold(), text.getFontIsItalic())
+		lang "objc" {{{
+			label.fontName = fontFamily;
+		}}}
+		var fontResource = text.getFontResource()
+		if String.isEmpty(fontResource) == false:
+			ERROR "Not implemented: font resource support"
+		var fontFile = text.getFontFile()
+		if fontFile:
+			ERROR "Not implemented: font file support"
+
+		// Background color
+
+		var bgc = text.getBackgroundColor()
+		if bgc == null:
+			bgc = Color.forRGBADouble(0.0, 0.0, 0.0, 0.0)
+		lang "objc" {{{
+			backgroundNode.color = [bgc toAppleColor];
+		}}}
+
+		// Update the size of the background to match the text
+
+		setRotation(0.0)
+		lang "objc" {{{
+			backgroundNode.size = CGSizeMake(labelNode.frame.size.width, labelNode.frame.size.height);
+			labelNode.position = CGPointMake(-labelNode.frame.size.width/2, labelNode.frame.size.height/2);
+		}}}
+		updateMySize()
+	}
+}
+
+class MySpriteLayer is SpriteLayer
+{
+	var node public as !"SKNode"
+	var referenceWidth = 1.0
+	var referenceHeight = 0.0
+	var realReferenceHeight = 0.0
+	var backendWidth public as int
+	var backendHeight public as int
+	var layerWidthFactor public = 0.0
+	var layerHeightFactor public = 0.0
+	var context as GuiApplicationContext
+	var ppi = -1
+
+	ctor
+	{
+		node = lang "objc" !"SKNode*" {{{ [SKNode node] }}}
+	}
+
+	func setContext(ctx as GuiApplicationContext):
+		context = ctx
+
+	func onMetricsChanged
+	{
+		if referenceWidth == 0.0 {
+			layerWidthFactor = 0.0
+		}
+		else {
+			layerWidthFactor = (backendWidth as double) / referenceWidth
+		}
+		var rh = referenceHeight
+		if rh <= 0.0:
+			rh = backendHeight * referenceWidth / backendWidth
+		if rh == 0.0 {
+			layerHeightFactor = 0.0
+		}
+		else {
+			layerHeightFactor = (backendHeight as double) / rh
+		}
+		realReferenceHeight = rh
+	}
+
+	func setBackendSize(width as int, height as int)
+	{
+		backendWidth = width
+		backendHeight = height
+		onMetricsChanged()
+	}
+
+	func addTextureSpriteForSize(texture as Texture, width as double, height as double) as TextureSprite
+	{
+		var v = new MyTextureSprite()
+		v.setContext(context)
+		v.setLayer(this)
+		v.initializeForParent(node)
+		v.setTextureWithSize(texture, width, height)
+		return v
+	}
+
+	func addTextSprite(text as TextProperties) as TextSprite
+	{
+		var v = new MyTextSprite()
+		v.setContext(context)
+		v.setLayer(this)
+		v.initializeForParent(node)
+		v.setText(text)
+		return v
+	}
+
+	func addContainerSprite(width as double, height as double) as ContainerSprite
+	{
+		ERROR "Not implemented"
+		return null // FIXME
+	}
+
+	func removeSprite(sprite as Sprite)
+	{
+		assert sprite
+		sprite.removeFromContainer()
+	}
+
+	func removeAllSprites
+	{
+		lang "objc" {{{
+			[node removeAllChildren];
+		}}}
+	}
+
+	func setReferenceWidth(referenceWidth as double)
+	{
+		this.referenceWidth = referenceWidth
+		onMetricsChanged()
+	}
+
+	func setReferenceHeight(referenceHeight as double)
+	{
+		this.referenceHeight = referenceHeight
+		onMetricsChanged()
+	}
+
+	func getReferenceWidth as double:
+		return referenceWidth
+
+	func getReferenceHeight as double:
+		return realReferenceHeight
+
+	func getPPI private as int
+	{
+		if ppi < 0 {
+			if context:
+				ppi = context.getScreenDensity()
+			if ppi < 0:
+				ppi = 96
+		}
+		return ppi
+	}
+
+	func getHeightValue(spec as string) as double:
+		return jk.gfx.Length.asPoints(spec, getPPI()) / layerHeightFactor
+
+	func getWidthValue(spec as string) as double:
+		return jk.gfx.Length.asPoints(spec, getPPI()) / layerWidthFactor
+}
+
+class MyImageTexture is Texture
+{
+	func forImage(image as Image) static as this
+	{
+		assert image
+		IFDEF "target_macosoc" {
+			var ii = assert image as ImageForMacOS
+			var nsi = ii.nsImage
+			var texture as !"SKTexture*"
+			lang "objc" {{{
+				texture = [SKTexture textureWithImage:nsi];
+			}}}
+			assert texture
+			var v = new this()
+			v.pixelWidth = image.getPixelWidth()
+			v.pixelHeight = image.getPixelHeight()
+			v.skTexture = texture
+			return v
+		}
+		ELSE IFDEF "target_ios_objc" {
+			var ii = assert image as ImageForIOS
+			var uii = ii.uiImage
+			var texture as !"SKTexture*"
+			lang "objc" {{{
+				texture = [SKTexture textureWithImage:uii];
+			}}}
+			assert texture
+			var v = new this()
+			v.pixelWidth = image.getPixelWidth()
+			v.pixelHeight = image.getPixelHeight()
+			v.skTexture = texture
+			return v
+		}
+		ELSE {
+			return null
+		}
+	}
+
+	var skTexture public as !"SKTexture*"
+	var pixelWidth as int
+	var pixelHeight as int
+
+	func getPixelWidth as int:
+		return pixelWidth
+
+	func getPixelHeight as int:
+		return pixelHeight
+}
+
+class MyColorTexture is Texture
+{
+	func forColor(color as Color) static as this
+	{
+		var v = new this()
+		v.color = color
+		return v
+	}
+
+	var color public as Color
+
+	func getPixelWidth as int:
+		return 0
+
+	func getPixelHeight as int:
+		return 0
+}
+
+class MyScene is !"SKScene"
+{
+	var lastFrame = 0.0
+	var parent public weak as parent
+	var keyEvent as KeyEvent
+	var pointerEvent as PointerEvent
+
+	func initWithSize(size as !"CGSize!") as object
+	{
+		keyEvent = new KeyEvent()
+		pointerEvent = new PointerEvent()
+		lang "objc" {{{
+			if(self = [super initWithSize:size]) {
+				self.backgroundColor = [SKColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:1.0];
+				self.scaleMode = SKSceneScaleModeAspectFit;
+				self.anchorPoint = CGPointMake(0.5, 0.5);
+			}
+		}}}
+		return this
+	}
+
+	func update(currentTime as !"NSTimeInterval!")
+	{
+		var thisDouble = currentTime as double
+		var thisFrame = (thisDouble * 1000.0) as long
+		parent.onTick(thisFrame, thisDouble - lastFrame)
+		lastFrame = thisDouble
+	}
+
+	IFDEF "target_macosoc" {
+		func updateKeyEvent(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSString* str = [event characters];
+				NSString* strw = [event charactersIgnoringModifiers];
+				if([str length] == 1) {
+					unichar cc = [str characterAtIndex:0];
+					if(cc >= 0xF700 && cc <= 0xF8FF) {
+						str = nil;
+					}
+				}
+				int flag = [event modifierFlags];
+				if(flag & NSEventModifierFlagShift) {
+					[keyEvent setShift:YES];
+				}
+				if(flag & NSEventModifierFlagControl) {
+					str = strw;
+					[keyEvent setControl:YES];
+				}
+				if(flag & NSEventModifierFlagCommand) {
+					[keyEvent setCommand:YES];
+				}
+				if(flag & NSEventModifierFlagOption) {
+					[keyEvent setAlt:YES];
+				}
+				[keyEvent setKeyCode:[event keyCode]];
+				[keyEvent setStringValue:str];
+			}}}
+		}
+
+		func keyDown(event as !"NSEvent*")
+		{
+			keyEvent.clear()
+			keyEvent.setAction(KeyEvent.ACTION_DOWN)
+			parent.onKeyEvent(keyEvent)
+		}
+
+		func keyUp(event as !"NSEvent*")
+		{
+			keyEvent.clear()
+			keyEvent.setAction(KeyEvent.ACTION_UP)
+			parent.onKeyEvent(keyEvent)
+		}
+
+		func mouseDown(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.DOWN
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
+		func mouseUp(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.UP
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
+		func mouseExited(event as !"NSEvent*")
+		{
+		}
+
+		func mouseMoved(event as !"NSEvent*")
+		{
+			lang "objc" {{{
+				NSPoint cp = [event locationInWindow];
+			}}}
+			pointerEvent.pointerId = 0
+			pointerEvent.action = PointerEvent.MOVE
+			pointerEvent.x = lang "objc" int {{{ cp.x }}}
+			pointerEvent.y = lang "objc" int {{{ cp.y }}}
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+	}
+
+	IFDEF "target_ios_objc" {
+		func onTouchEvent(id as int, action as int, x as int, y as int)
+		{
+			pointerEvent.pointerId = id
+			if action == 0 {
+				pointerEvent.action = PointerEvent.MOVE
+			}
+			else if action == 1 {
+				pointerEvent.action = PointerEvent.DOWN
+			}
+			else if action == 2 {
+				pointerEvent.action = PointerEvent.UP
+			}
+			pointerEvent.x = x
+			pointerEvent.y = y
+			pointerEvent.isConsumed = false
+			parent.onPointerEvent(pointerEvent)
+		}
+
+		lang "objc" {{{
+			- (void)touchesBegan:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:1 x:tapPoint.x y:tapPoint.y];
+				}
+			}
+			- (void)touchesMoved:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:0 x:tapPoint.x y:tapPoint.y];
+				}
+			}
+			- (void)touchesEnded:(NSSet *)touches withEvent:(UIEvent *)event {
+				for(UITouch* touch in touches) {
+					CGPoint tapPoint = [touch locationInView:self.view];
+					[self onTouchEvent:(int)touch action:2 x:tapPoint.x y:tapPoint.y];
+				}
+			}
+		}}}
+	}
+}
+
+var context as GuiApplicationContext
+var view as !"SKView*"
+var skScene as MyScene
+var gameTime as TimeValue
+var sceneManager as SceneManager
+
+func getView as !"SKView*":
+	return view
+
+func initialize(context as GuiApplicationContext, view as !"SKView*", scene as Scene, debug as bool)
+{
+	this.context = context
+	this.view = view
+	if debug {
+		lang "objc" {{{
+			view.showsFPS = YES;
+			view.showsNodeCount = YES;
+		}}}
+	}
+	lang "objc" {{{
+		skScene = [[MotionBackendForSpriteKitMyScene alloc] initWithSize:view.frame.size];
+		[view presentScene:skScene];
+	}}}
+	skScene.parent = this
+	sceneManager = new SceneManager()
+	sceneManager.setContext(context)
+	sceneManager.setBackend(this)
+	sceneManager.pushScene(scene)
+	sceneManager.initialize()
+}
+
+func onPointerEvent(event as PointerEvent)
+{
+	assert event
+	var bew = 0
+	var beh = 0
+	if skScene {
+		lang "objc" {{{
+			bew = skScene.size.width;
+			beh = skScene.size.height;
+		}}}
+	}
+	IFDEF "target_macosoc" {
+		event.y = beh - event.y
+	}
+	event.x = event.x / (bew as double)
+	event.y = event.y / (beh as double)
+	var scene = sceneManager.getCurrentScene()
+	if scene:
+		scene.onPointerEvent(event)
+}
+
+func onKeyEvent(event as KeyEvent)
+{
+	var scene = sceneManager.getCurrentScene()
+	if scene:
+		scene.onKeyEvent(event)
+}
+
+func cleanup
+{
+	if sceneManager {
+		sceneManager.cleanup()
+		sceneManager = null
+	}
+	var vv = view
+	if vv {
+		lang "objc" {{{
+			[vv removeFromSuperview];
+		}}}
+		view = null
+	}
+	skScene = null
+}
+
+func start
+{
+	var ss = skScene
+	if ss {
+		lang "objc" {{{
+			[ss setPaused:NO];
+		}}}
+	}
+	sceneManager.start()
+}
+
+func stop
+{
+	sceneManager.stop()
+	var ss = skScene
+	if ss {
+		lang "objc" {{{
+			[ss setPaused:YES];
+		}}}
+	}
+}
+
+func onTick(totalTime as long, deltaTime as double)
+{
+	if gameTime == null:
+		gameTime = new TimeValue()
+	gameTime.setMilliSeconds(totalTime)
+	// FIXME: Too slow
+	var skScene = sceneManager.getCurrentScene()
+	if skScene:
+		skScene.tick(gameTime, deltaTime)
+}
+
+func createSpriteLayer override as SpriteLayer
+{
+	var v = new MySpriteLayer()
+	v.setContext(context)
+	var node = v.node
+	var bew = 0
+	var beh = 0
+	lang "objc" {{{
+		[skScene addChild:node];
+		bew = skScene.size.width;
+		beh = skScene.size.height;
+	}}}
+	v.setBackendSize(bew, beh)
+	return v
+}
+
+func createImageFromResource(name as string) override as Image:
+	return context.getResourceImage(name)
+
+func createTextureForImage(image as Image) override as Texture:
+	return MyImageTexture.forImage(image)
+
+func createTextureForColor(color as Color) override as Texture:
+	return MyColorTexture.forColor(color)
+
+func deleteSpriteLayer(layer as SpriteLayer) override
+{
+	var msl = assert layer as MySpriteLayer
+	var node = assert msl.node
+	lang "objc" {{{
+		[node removeFromParent];
+	}}}
+	msl.node = null
+}
+
+func deleteTexture(texture as Texture) override
+{
+	assert texture
+	if texture is MyImageTexture:
+		(texture as! MyImageTexture).skTexture = null
+}

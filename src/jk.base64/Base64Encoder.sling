@@ -1,0 +1,117 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.lang
+
+class:
+
+func toUrlSafeFormat(str as string) static as string
+{
+	var v = assert str
+	v = String.replaceString(v, "=", "")
+	v = String.replaceCharacter(v, '+', '-')
+	v = String.replaceCharacter(v, '/', '_')
+	return v
+}
+
+func encodeString(str as string) static as string
+{
+	assert str
+	return encode(String.toUTF8Buffer(str))
+}
+
+func encode(buffer as buffer) static as string
+{
+	assert buffer
+	IFDEF "target_android_java" {
+		return lang "java" string {{{ android.util.Base64.encodeToString(buffer, android.util.Base64.NO_WRAP) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" string {{{ [buffer base64EncodedStringWithOptions:0] }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" string {{{ (buffer! as Foundation.Data).base64EncodedString() }}}
+	}
+	ELSE {
+		var length = Buffer.getSize(buffer)
+		var dst = Buffer.allocate((length + 2) / 3 * 4)
+		var x = 0
+		var dstIndex = 0
+		var state = 0
+		var old = 0
+		for (var srcIndex = 0; srcIndex < length; srcIndex++) {
+			x = buffer[srcIndex]
+			switch ++state {
+				case 1 {
+					dst[dstIndex++] = toASCIIChar((x>>2) & 0x3f) as int
+				}
+				case 2 {
+					dst[dstIndex++] = toASCIIChar(((old<<4)&0x30) | ((x>>4)&0xf)) as int
+				}
+				case 3 {
+					dst[dstIndex++] = toASCIIChar(((old<<2)&0x3C) | ((x>>6)&0x3)) as int
+					dst[dstIndex++] = toASCIIChar(x&0x3F) as int
+					state = 0
+				}
+			}
+			old = x
+		}
+		switch state {
+			case 1 {
+				dst[dstIndex++] = toASCIIChar((old<<4) & 0x30) as int
+				dst[dstIndex++] = '=' as int
+				dst[dstIndex++] = '=' as int
+			}
+			case 2 {
+				dst[dstIndex++] = toASCIIChar((old<<2) & 0x3c) as int
+				dst[dstIndex++] = '=' as int
+			}
+		}
+		return String.forBuffer(dst, "ASCII")
+	}
+}
+
+func toASCIIChar(lookup as int) static as char
+{
+	var c = 0
+	if lookup < 0 || lookup > 63:
+		return c as char
+	if lookup <= 25 {
+		c = lookup + 65
+	}
+	else if lookup <= 51 {
+		c = lookup + 71
+	}
+	else if lookup <= 61 {
+		c = lookup - 4
+	}
+	else if lookup == 62 {
+		c = '+' as int
+	}
+	else if lookup == 63 {
+		c = '/' as int
+	}
+	return c as char
+}

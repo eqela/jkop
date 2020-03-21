@@ -1,0 +1,332 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.common
+
+class abstract #widget:
+
+class DefaultPageItemWidget is LayerWithBackgroundColorWidget is PageItemWidget #widget
+{
+	ui
+	{
+		margin = context.getHeightValue("2mm")
+		AlignWidget {
+			LabelWidget pageNumber {
+				textColor = Color.black()
+			}
+		}
+	}
+
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		forceCreateWidget()
+	}
+
+	func setPageNumber(page as int):
+		pageNumber.setWidgetText(String.forInteger(page))
+
+	func setPageTracker(pageTracker as PageTrackerWidget):
+		;
+
+	func setAsCurrentPage(isCurrent as bool)
+	{
+		if isCurrent {
+			setWidgetColor(Color.instance("blue"))
+		}
+		else {
+			setWidgetColor(Color.white())
+		}
+	}
+}
+
+interface PageItemWidget is Widget public
+{
+	func setPageNumber(page as int)
+	func setAsCurrentPage(isCurrent as bool)
+	func setPageTracker(pageTracker as PageTrackerWidget)
+}
+
+class PageTrackerWidget public #widget
+{
+	ui LayerWithBackgroundColorWidget
+	{
+		AlignWidget pageAlign {
+			HorizontalBoxWidget pageContainer {
+				id #common = "paginationContainer"
+				ImageButtonWidget prevButton {
+					id #common = "prevPageButton"
+					widthRequest = context.getHeightValue("6mm")
+					heightRequest = context.getHeightValue("6mm")
+					clickHandler = func {
+						onPrevButtonClicked()
+					}
+				}
+				HorizontalBoxWidget pages {
+					id #common = "pageNumbersContainer"
+				}
+				ImageButtonWidget nextButton {
+					id #common = "nextPageButton"
+					widthRequest = context.getHeightValue("6mm")
+					heightRequest = context.getHeightValue("6mm")
+					clickHandler = func {
+						onNextButtonClicked()
+					}
+				}
+			}
+		}
+	}
+
+	prop widgetParent as parent
+	var currentPage as int
+	var pageCollection as vector<PageItemWidget>
+
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		forceCreateWidget()
+		pageCollection = new vector<PageItemWidget>
+	}
+
+	func setWidgetPreviousImageResource(resource as string):
+		prevButton.setWidgetImageResource(resource)
+
+	func setWidgetNextImageResource(resource as string):
+		nextButton.setWidgetImageResource(resource)
+
+	func setWidgetPageSpacing(spacing as int):
+		pages.setWidgetSpacing(spacing)
+
+	func updatePages(pageCount as int, currentPage as int)
+	{
+		setupPages(pageCount)
+		moveTo(currentPage)
+	}
+
+	func setupPages(pageCount as int)
+	{
+		Vector.clear(pageCollection)
+		for(var i = 0; i < pageCount; i++) {
+			var pi = widgetParent.createPageItemWidget()
+			if not pi:
+				pi = new DefaultPageItemWidget(context)
+			pi.setPageNumber(i + 1)
+			pi.setPageTracker(this)
+			pageCollection += pi
+		}
+	}
+
+	func onPrevButtonClicked
+	{
+		moveTo(currentPage - 1)
+		widgetParent.onPreviousPage(currentPage)
+	}
+
+	func onNextButtonClicked
+	{
+		moveTo(currentPage + 1)
+		widgetParent.onNextPage(currentPage)
+	}
+
+	func moveTo(page as int)
+	{
+		var s = Vector.getSize(pageCollection)
+		assert page > 0 && page <= s
+		Widget.removeChildrenOf(pages)
+		currentPage = page
+		var p = page - 1
+		var o = 0
+		var l = 5
+		if s > 5 {
+			o = p - 2
+			if p >= (s - 2):
+				o = s - 5
+			if o < 0:
+				o = 0
+			l = p + 3
+			if l < 5:
+				l = 5
+			if l > s:
+				l = s
+		}
+		if p > 0 {
+			Widget.setVisible(prevButton, true)
+		}
+		else {
+			Widget.setVisible(prevButton, false)
+		}
+		if p < s-1 {
+			Widget.setVisible(nextButton, true)
+		}
+		else {
+			Widget.setVisible(nextButton, false)
+		}
+		for(var i = 0; o < l; o++) {
+			var pw = Vector.get(pageCollection, o)
+			if not pw:
+				break
+			pw.setAsCurrentPage(o == p)
+			pages.addWidget(pw)
+		}
+	}
+}
+
+ui LayerWidget
+{
+	VerticalBoxWidget box {
+		LayerWithBackgroundColorWidget listLayer {
+			color = Color.black()
+			VerticalBoxWidget list {
+				spacing = context.getHeightValue("200um")
+			}
+		}
+		LayerWidget pageBox {
+		}
+	}
+}
+
+var pageTracker as PageTrackerWidget
+var failedLayer as Widget
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+	pageTracker = new PageTrackerWidget(context)
+	pageTracker.setWidgetParent(this)
+}
+
+func getListCount as int:
+	return sizeof Widget.getChildren(list)
+
+func setWidgetPreviousImageResource(resource as string) as this
+{
+	pageTracker.setWidgetPreviousImageResource(resource)
+	return this
+}
+
+func setWidgetNextImageResource(resource as string) as this
+{
+	pageTracker.setWidgetNextImageResource(resource)
+	return this
+}
+
+func setWidgetPageTrackerSpacing(spacing as int) as this
+{
+	pageTracker.setWidgetPageSpacing(spacing)
+	return this
+}
+
+func setWidgetListSpacing(spacing as int) as this
+{
+	list.setWidgetSpacing(spacing)
+	return this
+}
+
+func setWidgetListBackgroundColor(color as Color) as this
+{
+	listLayer.setWidgetColor(color)
+	return this
+}
+
+func doGetData(page as int, resetTracker as bool = false)
+{
+	var rt final = resetTracker
+	startQuery(page, func(response as DynamicMap) {
+		assert response:
+			onNoDataReceived()
+		var records = assert response.getDynamicVector("records"):
+			onNoDataReceived()
+		assert records.getSize() > 0:
+			onNoDataReceived()
+		if rt:
+			updatePageTracker(response.getInteger("pageCount"), response.getInteger("currentPage"))
+		populateList(records)
+	}, func(error as Error) {
+		onQueryFailed(error)
+	})
+}
+
+func updatePageTracker(pageCount as int, currentPage as int) private
+{
+	if pageCount < 2 {
+		if Widget.hasParent(pageTracker):
+			Widget.removeFromParent(pageTracker)
+		return
+	}
+	pageTracker.updatePages(pageCount, currentPage)
+	if not Widget.hasParent(pageTracker):
+		pageBox.addWidget(pageTracker)
+}
+
+func onPreviousPage(page as int)
+{
+	doGetData(page)
+}
+
+func onNextPage(page as int)
+{
+	doGetData(page)
+}
+
+func onNoDataReceived virtual
+{
+	clearList()
+	Widget.removeFromParent(pageTracker)
+	if not failedLayer:
+		failedLayer = AlignWidget.forWidget(context, LabelWidget.forText(context, "No data found"), 0.5, 0.5)
+	if Widget.hasParent(failedLayer) == false:
+		addWidget(failedLayer)
+}
+
+func clearList
+{
+	Widget.removeChildrenOf(list)
+	Widget.removeFromParent(failedLayer)
+}
+
+func populateList(records as DynamicVector)
+{
+	clearList()
+	foreach item as DynamicMap in records.toVector() {
+		if not item:
+			continue
+		var w = createListItemWidget(item)
+		if not w:
+			continue
+		list.addWidget(w)
+	}
+	onDonePopulatingList()
+}
+
+func onDonePopulatingList virtual:
+	;
+
+func onQueryFailed(error as Error) virtual:
+	;
+
+func createPageItemWidget abstract as PageItemWidget
+func createListItemWidget(data as DynamicMap) abstract as Widget
+func startQuery(page as int, callback as function<void, DynamicMap>, errorCallback as function<void, Error>) abstract

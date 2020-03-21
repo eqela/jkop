@@ -1,0 +1,204 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.base64
+import jk.json
+import jk.time
+
+class:
+
+func decode(token as string, keys as map) static as this
+{
+	assert token
+	var comps = String.split(token, '.', 3)
+	assert Vector.getSize(comps) == 3
+	var headerBuffer = assert Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 0)))
+	var headerJson = assert String.forUTF8Buffer(headerBuffer)
+	var header = assert JSONParser.parseString(headerJson) as DynamicMap
+	assert String.equalsIgnoreCase(header.getString("typ"), "jwt")
+	var claimsBuffer = assert Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 1)))
+	var claimsJson = assert String.forUTF8Buffer(claimsBuffer)
+	var claims = assert JSONParser.parseString(claimsJson) as DynamicMap
+	var signature = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 2)))
+	var alg = header.getString("alg")
+	if String.isEmpty(alg) || String.equalsIgnoreCase(alg, "none") {
+		nop // token was not signed, so no need to check.
+	}
+	else if keys {
+		if String.equalsIgnoreCase(alg, "HS256") {
+			var key = assert String.asString(Map.get(keys, "hs256"))
+			// FIXME: Not supported
+			return null
+		}
+		else if String.equalsIgnoreCase(alg, "RS256") {
+			var rsa = assert RS256.instance()
+			var key = assert String.asString(Map.get(keys, "rs256"))
+			var data = Vector.get(comps, 0) .. "." .. Vector.get(comps, 1)
+			assert rsa.validate(String.toUTF8Buffer(data), signature, key)
+		}
+		else {
+			return null
+		}
+	}
+	else {
+		nop // explicitly requested NOT to check the signature
+	}
+	var v = new this()
+	v.setClaims(claims)
+	return v
+}
+
+var claims = new DynamicMap()
+
+func setClaims(v as DynamicMap)
+{
+	if not v {
+		claims = new DynamicMap()
+	}
+	else {
+		claims = v
+	}
+}
+
+func getClaims as DynamicMap:
+	return claims
+
+func setIssuer(v as string):
+	claims.setString("iss", v)
+
+func getIssuer as string:
+	return claims.getString("iss")
+
+func setSubject(v as string):
+	claims.setString("sub", v)
+
+func getSubject as string:
+	return claims.getString("sub")
+
+func setAudience(v as string):
+	claims.setString("aud", v)
+
+func getAudience as string:
+	return claims.getString("aud")
+
+func setExpirationTime(v as long):
+	claims.setString("exp", String.forLongInteger(v))
+
+func getExpirationTime as long:
+	return claims.getLongInteger("exp", 0)
+
+func setNotBefore(v as long):
+	claims.setString("nbf", String.forLongInteger(v))
+
+func getNotBefore as long:
+	return claims.getLongInteger("nbf", 0)
+
+func setIssuedAt(v as long):
+	claims.setString("iat", String.forLongInteger(v))
+
+func getIssuedAt as long:
+	return claims.getLongInteger("iat", 0)
+
+func setJwtId(v as string):
+	claims.setString("jti", v)
+
+func getJwtId as string:
+	return claims.getString("jti")
+
+func setClaim(key as string, value as string):
+	claims.setString(key, value)
+
+func getClaim(key as string) as string:
+	return claims.getString(key)
+
+func validate(issuer as string, audience as string) as bool
+{
+	assert isActive()
+	if issuer:
+		assert isIssuer(issuer)
+	if audience:
+		assert isAudience(audience)
+	return true
+}
+
+func isIssuer(value as string) as bool:
+	return String.equals(claims.getString("iss"), value)
+
+func isAudience(value as string) as bool:
+	return String.equals(claims.getString("aud"), value)
+
+func isActive as bool
+{
+	assert isExpired() == false
+	var nbf = claims.getLongInteger("nbf", 0)
+	if nbf < 1:
+		return true
+	if SystemClock.asUTCSeconds() < nbf:
+		return false
+	return true
+}
+
+func isExpired private as bool
+{
+	var exp = claims.getLongInteger("exp", 0)
+	if exp < 1:
+		return false
+	if SystemClock.asUTCSeconds() < exp:
+		return false
+	return true
+}
+
+func encodeUrlSafe(buff as buffer) as string
+{
+	assert buff
+	return Base64Encoder.toUrlSafeFormat(Base64Encoder.encode(buff))
+}
+
+func generateHeaderContent(alg as string) as string
+{
+	var v = new DynamicMap()
+	v.setString("alg", alg)
+	v.setString("typ", "JWT")
+	return JSONEncoder.encode(v, false)
+}
+
+func generateClaimsContent as string:
+	return JSONEncoder.encode(claims, false)
+
+func generateTokenWithRS256(privateKey as string) as string
+{
+	var rsa = assert RS256.instance()
+	var sb = new StringBuilder()
+	sb.appendString(encodeUrlSafe(String.toUTF8Buffer(generateHeaderContent("RS256"))))
+	sb.appendCharacter('.')
+	sb.appendString(encodeUrlSafe(String.toUTF8Buffer(generateClaimsContent())))
+	var data = sb.toString()
+	var sigdata = rsa.generate(String.toUTF8Buffer(data), privateKey)
+	var sb2 = new StringBuilder()
+	sb2.appendString(data)
+	sb2.appendCharacter('.')
+	sb2.appendString(encodeUrlSafe(sigdata))
+	return sb2.toString()
+}

@@ -1,0 +1,95 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.math
+
+class is ContainerWidget #widget:
+
+func forContext(context as GuiApplicationContext) static as this:
+	return new this(context)
+
+prop widgetCellSize #notLiteral = -1
+prop minimumCols = 2
+prop maximumCols = 0
+prop widgetSpacing #notLiteral = 0
+prop widgetMargin #notLiteral = 0
+
+func computeWidgetLayout(widthConstraint as int #notLiteral) override
+{
+	var rows as int
+	var cols as int
+	var children = Widget.getChildren(this)
+	if children == null:
+		return
+	var childCount = Vector.getSize(children)
+	if childCount < 1:
+		return
+	var wcs = widgetCellSize
+	if wcs < 1:
+		wcs = context.getWidthValue("25mm")
+	var adjustWcs = false
+	var mywidth = widthConstraint - widgetMargin - widgetMargin
+	if widthConstraint < 0 {
+		cols = childCount
+	}
+	else {
+		cols = Math.floor((mywidth + widgetSpacing) / (wcs + widgetSpacing)) as int
+		if minimumCols > 0 && cols < minimumCols {
+			cols = minimumCols
+			adjustWcs = true
+		}
+		else if childCount >= cols {
+			adjustWcs = true
+		}
+	}
+	if adjustWcs:
+		wcs = ((mywidth + widgetSpacing) / cols) - widgetSpacing
+	if maximumCols > 0 && cols > maximumCols:
+		cols = maximumCols
+	rows = Math.floor(childCount / cols) as int
+	if childCount % cols > 0:
+		rows ++
+	Widget.setLayoutSize(this,
+		widgetMargin + cols * wcs + (cols - 1) * widgetSpacing + widgetMargin,
+		widgetMargin + rows * wcs + (rows - 1) * widgetSpacing + widgetMargin
+	)
+	var cx = 0
+	var x = widgetMargin
+	var y = widgetMargin
+	foreach child in children {
+		Widget.move(child, x, y)
+		Widget.layout(child, wcs)
+		Widget.resizeHeight(child, wcs)
+		x += wcs
+		x += widgetSpacing
+		cx ++
+		if cx >= cols {
+			cx = 0
+			y += wcs
+			y += widgetSpacing
+			x = widgetMargin
+		}
+	}
+}

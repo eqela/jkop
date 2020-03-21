@@ -1,0 +1,430 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WidgetWithValue #widget:
+
+func forGroup(context as GuiApplicationContext, group as string, items as vector<string>, orientation as int = HORIZONTAL) static as this
+{
+	var v = new this(context)
+	v.setWidgetName(group)
+	v.setWidgetOrientation(orientation)
+	for(var i = 0; i < Vector.getSize(items); i++):
+		v.addWidgetItem(Vector.get(items, i), i)
+	return v
+}
+
+IFDEF "target_reactjs"
+{
+	extend !"React.Component"
+	isAlso Widget
+
+	lang "js" {{{
+		render() {
+			return(<div>FIXME: RadioButtonGroupWidget</div>);
+		}
+	}}}
+}
+
+ELSE IFDEF "target_html"
+{
+	is Widget
+
+	var radiobuttons as vector<object>
+
+	func createElement override as object:
+		return HTMLDOM.createElement("div")
+}
+
+ELSE IFDEF "target_android"
+{
+	isAlso Widget
+	extend !"android.widget.RadioGroup"
+	implement !"android.widget.RadioGroup.OnCheckedChangeListener"
+
+	func onCheckedChanged(group as !"android.widget.RadioGroup", checkedId as int) override
+	{
+		widgetSelectedValue = Vector.get(widgetItems, checkedId)
+		onChangeSelectedItem()
+	}
+}
+
+ELSE IFDEF "target_macosoc"
+{
+	is Widget
+	// FIXME
+}
+
+ELSE IFDEF "target_uwp"
+{
+	// FIXME
+	extend !"Windows.UI.Xaml.Controls.Control"
+	isAlso Widget
+}
+
+ELSE
+{
+	extend LayerWidget
+
+	class MyRadioButtonWidget #widget
+	{
+		ui HorizontalBoxWidget
+		{
+			spacing = context.getHeightValue("2000um")
+			AlignWidget {
+				LayerWidget radio {
+					heightRequest = context.getHeightValue("4000um")
+					widthRequest = context.getHeightValue("4000um")
+					CanvasWidget outline {
+						color = Color.black()
+						roundingRadius = context.getHeightValue("2000um")
+					}
+					LayerWidget {
+						margin = context.getHeightValue("500um")
+						CanvasWidget canvas {
+							color = Color.white()
+							roundingRadius = context.getHeightValue("1500um")
+						}
+					}
+				}
+			}
+			LabelWidget label {
+				fontSize = context.getHeightValue("3000um")
+			}
+		}
+
+		prop widgetIndex as int
+		prop widgetContainer as parent
+		prop widgetText as string
+
+		func initializeWidget override
+		{
+			base.initializeWidget()
+			label.setWidgetText(widgetText)
+			Widget.setWidgetClickHandler(radio, func {
+				widgetContainer.updateSelectedWidget(widgetIndex)
+			})
+			Widget.setWidgetClickHandler(label, func {
+				widgetContainer.updateSelectedWidget(widgetIndex)
+			})
+		}
+
+		func onSelected
+		{
+			canvas.setWidgetColor(Color.black())
+			canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+		}
+
+		func onDeSelected
+		{
+			canvas.setWidgetColor(Color.white())
+			canvas.setWidgetRoundingRadius(context.getHeightValue("1500um"))
+		}
+
+		func getWidgetLabel as string:
+			return label.getWidgetText()
+	}
+
+	var vrb as vector<MyRadioButtonWidget>
+	var box as ContainerWidget
+
+	func updateSelectedWidget(index as int)
+	{
+		if selectedWidgetIndex > -1 {
+			var widget = Vector.get(vrb, selectedWidgetIndex)
+			if widget:
+				widget.onDeSelected()
+		}
+		var v as object
+		var ww = Vector.get(vrb, index)
+		if ww {
+			ww.onSelected()
+			v = ww.getWidgetLabel()
+		}
+		selectedWidgetIndex = index
+		widgetSelectedValue = String.asString(v)
+		onChangeSelectedItem()
+	}
+
+	func findIndexForWidgetValue(id as int) private as int
+	{
+		var v = -1
+		if widgetItems {
+			var n = 0
+			foreach item in widgetItems {
+				if n == id {
+					v = n
+					break
+				}
+				n ++
+			}
+		}
+		return v
+	}
+}
+
+const HORIZONTAL = 0
+const VERTICAL = 1
+
+var widgetContext as GuiApplicationContext
+var widgetName as string
+var widgetSelectedValue as string
+var widgetItems as vector<string>
+var selectedWidgetIndex #used = -1
+prop widgetChangeHandler as function
+
+ctor(context as GuiApplicationContext)
+{
+	IFDEF "target_android" {
+		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+		IFDEF "target_java" {
+			lang "java" {{{
+				setOnCheckedChangeListener(this);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setOnCheckedChangeListener(this)
+			}}}
+		}
+	}
+	ELSE IFDEF "target_ios" {
+		base(context)
+		vrb = new vector<MyRadioButtonWidget>
+	}
+	widgetContext = context
+}
+
+func addWidgetItem(text as string, index as int)
+{
+	if not widgetItems:
+		widgetItems = new vector<string>
+	widgetItems += text
+	IFDEF "target_android" {
+		var v = new !"android.widget.RadioButton"((widgetContext as! GuiApplicationContextForAndroid).getActivityContext())
+		IFDEF "target_java" {
+			lang "java" {{{
+				v.setText(text);
+				v.setTextColor(jk.ui.Color.black().toARGBInt32());
+				android.content.res.ColorStateList cl = new android.content.res.ColorStateList(
+					new int[][]{
+						new int[]{-android.R.attr.state_enabled},
+						new int[]{android.R.attr.state_enabled}
+					},
+					new int[] {
+						android.graphics.Color.DKGRAY,
+						android.graphics.Color.DKGRAY
+					}
+				);
+				if(android.os.Build.VERSION.SDK_INT > 20) {
+					v.setButtonTintList(cl);
+				}
+				v.setId(index);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				v!!.setText(text)
+				v.setTextColor(jk.ui.Color.black()!!.toARGBInt32())
+				val states = arrayOf(
+					intArrayOf(-android.R.attr.state_enabled),
+					intArrayOf(android.R.attr.state_enabled)
+				)
+				val cl = android.content.res.ColorStateList(
+					states,
+					intArrayOf(android.graphics.Color.DKGRAY, android.graphics.Color.DKGRAY)
+				)
+				if(android.os.Build.VERSION.SDK_INT > 20) {
+					v.setButtonTintList(cl)
+				}
+				v.setId(index)
+			}}}
+		}
+		Widget.addChild(this, v as Widget)
+	}
+	ELSE IFDEF "target_html" {
+		var input = HTMLDOM.createElement("input")
+		HTMLDOM.setAttribute(input, "type", "radio")
+		HTMLDOM.setAttribute(input, "value", text)
+		if String.isEmpty(widgetName) == false:
+			HTMLDOM.setAttribute(input, "name", widgetName)
+		HTMLDOM.addEventListener(input, "click", func {
+			widgetSelectedValue = HTMLDOM.getValue(input)
+			onChangeSelectedItem()
+		})
+		var label = HTMLDOM.createElement("label")
+		HTMLDOM.setTextContent(label, text)
+		HTMLDOM.setStyle(label, "margin-left", "5px")
+		HTMLDOM.setStyle(label, "margin-right", "8px")
+		var d = HTMLDOM.createElement("div")
+		HTMLDOM.appendChild(d, input)
+		HTMLDOM.appendChild(d, label)
+		HTMLDOM.appendChild(element, d)
+		if radiobuttons == null:
+			radiobuttons = new vector<object>
+		radiobuttons += input
+	}
+	ELSE {
+		var rb = new MyRadioButtonWidget(widgetContext)
+		rb.setWidgetText(text)
+		rb.setWidgetIndex(index)
+		rb.setWidgetContainer(this)
+		vrb += rb
+		if box:
+			box.addWidget(rb)
+	}
+}
+
+func setWidgetSelectedValue(indx as int)
+{
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				if(indx < 0) {
+					clearCheck();
+				}
+				else {
+					check(indx);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				if(indx < 0) {
+					clearCheck()
+				}
+				else {
+					check(indx)
+				}
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		widgetSelectedValue = null
+		var n = 0
+		foreach button in radiobuttons {
+			if indx == n {
+				lang "js" {{{
+					button.checked = true;
+				}}}
+				widgetSelectedValue = HTMLDOM.getValue(button)
+			}
+			else {
+				lang "js" {{{
+					button.checked = false;
+				}}}
+			}
+			n ++
+		}
+	}
+	ELSE {
+		updateSelectedWidget(findIndexForWidgetValue(indx))
+	}
+}
+
+func setWidgetName(name as string)
+{
+	widgetName = name
+	IFDEF "target_html" {
+		foreach o in radiobuttons:
+			HTMLDOM.setAttribute(o, "name", name)
+	}
+}
+
+func setWidgetOrientation(orientation as int)
+{
+	if orientation == HORIZONTAL {
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					setOrientation(android.widget.LinearLayout.HORIZONTAL);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					setOrientation(android.widget.LinearLayout.HORIZONTAL);
+				}}}
+			}
+		}
+		ELSE IFDEF "target_html" {
+			var p as object
+			foreach rb in radiobuttons {
+				p = HTMLDOM.getParentElement(rb)
+				HTMLDOM.setStyle(p, "display", "inline-block")
+			}
+		}
+		ELSE {
+			box = HorizontalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
+			addWidget(box)
+		}
+	}
+	else if orientation == VERTICAL {
+		IFDEF "target_android" {
+			IFDEF "target_java" {
+				lang "java" {{{
+					setOrientation(android.widget.LinearLayout.VERTICAL);
+				}}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				lang "kotlin" {{{
+					setOrientation(android.widget.LinearLayout.VERTICAL);
+				}}}
+			}
+		}
+		ELSE IFDEF "target_html" {
+			var p as object
+			foreach rb in radiobuttons {
+				p = HTMLDOM.getParentElement(rb)
+				HTMLDOM.setStyle(p, "display", "block")
+			}
+		}
+		ELSE {
+			box = VerticalBoxWidget.forContext(context, context.getHeightValue("2500um"), context.getHeightValue("1500um"))
+			addWidget(box)
+		}
+	}
+}
+
+func getWidgetSelectedValue as string:
+	return widgetSelectedValue
+
+func onChangeSelectedItem
+{
+	if widgetChangeHandler != null:
+		widgetChangeHandler()
+}
+
+func setWidgetValue(value as object)
+{
+	var io = value as IntegerObject
+	if io {
+		setWidgetSelectedValue(io.toInteger())
+	}
+	else {
+		setWidgetSelectedValue(-1)
+	}
+}
+
+func getWidgetValue as object:
+	return getWidgetSelectedValue()

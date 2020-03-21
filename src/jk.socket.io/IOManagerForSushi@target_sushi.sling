@@ -1,0 +1,204 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.io
+
+class is IOManager:
+
+class MyEntry is IOManagerEntry
+{
+	prop mgrfd as object
+	prop fd as int
+	var objref = 0
+	var rrl as function
+	var wrl as function
+
+	func onReadReady
+	{
+		var rrl = this.rrl
+		assert rrl
+		rrl()
+	}
+
+	func onWriteReady
+	{
+		var wrl = this.wrl
+		assert wrl
+		wrl()
+	}
+
+	func onReadWriteReady
+	{
+		var rrl = this.rrl
+		var wrl = this.wrl
+		if rrl:
+			rrl()
+		if wrl:
+			wrl()
+	}
+
+	func setListeners(rrl as function, wrl as function) as bool
+	{
+		this.rrl = rrl
+		this.wrl = wrl
+		return update()
+	}
+
+	func setReadListener(rrl as function) as bool
+	{
+		this.rrl = rrl
+		return update()
+	}
+
+	func setWriteListener(wrl as function) as bool
+	{
+		this.wrl = wrl
+		return update()
+	}
+
+	func update as bool
+	{
+		var mgrfd = this.mgrfd
+		var fd = this.fd
+		var myself = this
+		var mode = -1
+		if rrl && wrl {
+			mode = 2
+		}
+		else if wrl {
+			mode = 1
+		}
+		else if rrl {
+			mode = 0
+		}
+		var v = true
+		if mode < 0 {
+			v = remove()
+		}
+		else {
+			if objref > 0 {
+				var objref = this.objref
+				var r = lang "lua" int {{{
+					_net:update_io_listener(mgrfd, fd, mode, objref)
+				}}}
+				if r != 0:
+					v = false
+			}
+			else {
+				var objref = 0
+				lang "lua" {{{
+					objref = _net:register_io_listener(mgrfd, fd, mode, myself)
+				}}}
+				this.objref = objref
+				if objref < 1:
+					v = false
+			}
+		}
+		return v
+	}
+
+	func remove as bool
+	{
+		assert objref > 0
+		var mgrfd = this.mgrfd
+		var fd = this.fd
+		var objref = this.objref
+		var r = lang "lua" int {{{
+			_net:remove_io_listener(mgrfd, fd, objref)
+		}}}
+		this.objref = 0
+		if r != 0:
+			return false
+		return true
+	}
+}
+
+var exitflag as bool
+var running = false
+var mgrfd as object = null
+
+ctor:
+	mgrfd = lang "lua" int {{{ _net:create_io_manager() }}}
+
+dtor:
+	close()
+
+func close
+{
+	var mgrfd = this.mgrfd
+	if mgrfd {
+		lang "lua" {{{
+			_net:close_io_manager(mgrfd)
+		}}}
+		mgrfd = null
+	}
+}
+
+func doExecute(ctx as LoggingContext) override as bool
+{
+	var mgrfd = this.mgrfd
+	assert mgrfd:
+		Log.error(ctx, VALUE "__THIS__" .. ": Failed to initialize IO manager file descriptor")
+	exitflag = false
+	running = true
+	Log.debug(ctx, VALUE "__THIS__" .. " started")
+	while exitflag == false {
+		var r = lang "lua" int {{{
+			_net:execute_io_manager(mgrfd, -1)
+		}}}
+		if r < 0 {
+			Log.error(ctx, "_net:execute_io_manager returned error status " .. String.forInteger(r) .. ". Exiting loop.")
+			break
+		}
+	}
+	running = false
+	Log.debug(ctx, VALUE "__THIS__" .. " ended")
+	return true
+}
+
+func stop override:
+	exitflag = true
+
+func isRunning as bool:
+	return running
+
+func add(o as object) override as IOManagerEntry
+{
+	assert mgrfd
+	var fdo = assert o as FileDescriptor
+	var fd = fdo.getFileDescriptor()
+	assert fd >= 0
+	var v = new MyEntry()
+	v.setMgrfd(mgrfd)
+	v.setFd(fd)
+	return v
+}
+
+func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer
+{
+	ERROR "Not implemented"
+	return null
+}

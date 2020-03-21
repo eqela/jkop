@@ -1,0 +1,714 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func asVector <T> (obj as dynamic) static as vector<T>
+{
+	var vo = assert obj as VectorObject<T>
+	return vo.toVector()
+}
+
+func forIterator <T> (iterator as Iterator<T>) static as vector<T>
+{
+	assert iterator
+	var v = new vector<T>
+	loop {
+		var o = iterator.next()
+		if o == null:
+			break
+		v += o
+	}
+	return v
+}
+
+func forArray <T> (array as array<T>) static as vector<T>
+{
+	assert array
+	var v = new vector<T>
+	for(var n = 0; n<sizeof array; n++):
+		v += array[n]
+	return v
+}
+
+func toVectorOfObject <T> (collection as vector<T>) static as vector
+{
+	assert collection
+	var nvec = new vector
+	foreach item in collection:
+		nvec += item as! object
+	return nvec
+}
+
+func dupObjectVector(vector as vector) static as vector
+{
+	assert vector
+	var v = new vector
+	foreach o in vector:
+		v += o
+	return v
+}
+
+/*
+// FIXME: Must have compiler support for expanding runtime generics for Java
+func toArray<T> (vector as vector<T>) static as array<T>
+{
+	return Array.forVector(vector)
+}
+*/
+
+func contains <T> (vector as vector<T> #used, object as T #used) static as bool
+{
+	assert vector
+	IFDEF "target_cs" {
+		return lang "cs" bool {{{ vector.Contains(@object) }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" bool {{{ vector.contains(object) }}}
+	}
+	ELSE IFDEF "target_html" {
+		return lang "js" bool {{{ vector.includes(object) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" bool {{{ vector.contains(_object) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" bool {{{ vector.contains(object) }}}
+	}
+	ELSE {
+		foreach oo in vector {
+			if object == oo:
+				return true
+		}
+		return false
+	}
+}
+
+func append <T> (vector as vector<T> #used, object as T #used) static
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.Add(@object);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.add(object);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector addObject:object];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.push(object);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.add(_object)
+		}}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{
+			local sz = vector["n"] or 0
+			vector[sz + 1] = object
+			vector["n"] = sz + 1
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector.add(object) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func prepend <T> (vector as vector<T>, object as T) static:
+	insert(vector, object, 0)
+
+func insert <T> (vector as vector<T> #used, object as T #used, index as int #used) static
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.Insert(index, @object);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.add(index, object);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector insertObject:object atIndex:index];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(index, 0, object);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.add(index, _object)
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector.insert(object, at: index) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			local sz = vector["n"] or 0
+			_vm:insert_to_indexed_table(vector, index + 1, object)
+			vector["n"] = sz + 1
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func setCapacity <T> (vector as vector<T> #used, capacity as int) static
+{
+	assert vector
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.Capacity = capacity;
+		}}}
+	}
+}
+
+func setSize <T> (vector as vector<T> #used, newSize as int) static as vector<T>
+{
+	assert vector
+	var sz = newSize
+	if sz < 0:
+		sz = 0
+	var osz = getSize(vector)
+	if sz == osz:
+		return
+	if sz < osz {
+		for(var n = osz - 1; n >= sz; n--):
+			remove(vector, n)
+	}
+	else {
+		for(var n = osz; n < sz; n++) {
+			IFDEF "target_cs" {
+				vector += lang "cs" T {{{ default(T) }}}
+			}
+			ELSE {
+				vector += null
+			}
+		}
+	}
+	return vector
+}
+
+func getSize <T> (vector as vector<T> #used) static as int
+{
+	if vector == null:
+		return 0
+	IFDEF "target_cs" {
+		return lang "cs" int {{{ vector.Count }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" int {{{ vector.size() }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" int {{{ [vector count] }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" int {{{ vector.length }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" int {{{ vector["n"] or 0 }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" int {{{ vector.count() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" int {{{ vector.count }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0
+	}
+}
+
+func getAt <T> (vector as vector<T>, index as int) static as T:
+	return get(vector, index)
+
+func get <T> (vector as vector<T> #used, index as int #used) static as T
+{
+	if index < 0 || index >= getSize(vector):
+		return defaultvalue T
+	IFDEF "target_cs" {
+		return lang "cs" T {{{ vector[index] }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" T {{{ vector.get(index) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" T {{{ [vector objectAtIndex:index] }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" T {{{ vector[index] }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" T {{{ vector[index + 1] }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" T {{{ vector!!.get(index) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" T {{{ vector![index] }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func getFirst <T> (vector as vector<T>) static as T:
+	return get(vector, 0)
+
+func getLast <T> (vector as vector<T>) static as T:
+	return get(vector, getSize(vector) - 1)
+
+func set <T> (vector as vector<T> #used, index as int #used, val as T #used) static
+{
+	if index < 0 || index >= getSize(vector):
+		return
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector[index] = val;
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.set(index, val);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector replaceObjectAtIndex:index withObject:val];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(index, 1, val);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.set(index, _val)
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector![index] = val }}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{ vector[index + 1]  = val }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func remove <T> (vector as vector<T>, index as int) static as T
+{
+	var sz = getSize(vector)
+	if index < 0 || index >= sz:
+		return defaultvalue T
+	IFDEF "target_cs" {
+		var t = lang "cs" T {{{ vector[index] }}}
+		lang "cs" {{{
+			vector.RemoveAt(index);
+		}}}
+		return t
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" T {{{ vector.remove(index) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		var t = vector[index]
+		lang "objc" {{{
+			[vector removeObjectAtIndex:index];
+		}}}
+		return t
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" T {{{ vector.splice(index, 1) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		var t = get(vector, index)
+		lang "kotlin" {{{
+			vector!!.remove(t)
+		}}}
+		return t
+	}
+	ELSE IFDEF "target_stdlua" {
+		lang "lua" {{{
+			table.remove(vector, index)
+			vector["n"] = sz - 1
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_vm:remove_from_indexed_table(vector, index+1)
+			vector["n"] = sz - 1
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		var v = get(vector, index)
+		lang "swift" {{{ vector.removeObject(at: index) }}}
+		return v
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return defaultvalue T
+	}
+}
+
+func popFirst <T> (vector as vector<T>) static as T
+{
+	if vector == null || getSize(vector) < 1:
+		return defaultvalue T
+	var v = get(vector, 0)
+	removeFirst(vector)
+	return v
+}
+
+func removeFirst <T> (vector as vector<T>) static
+{
+	if vector == null || getSize(vector) < 1:
+		return
+	remove(vector, 0)
+}
+
+func popLast <T> (vector as vector<T>) static as T
+{
+	var sz = getSize(vector)
+	if vector == null || sz < 1:
+		return defaultvalue T
+	var v = get(vector, sz-1)
+	removeLast(vector)
+	return v
+}
+
+func removeLast <T> (vector as vector<T>) static
+{
+	if vector == null:
+		return
+	var sz = getSize(vector)
+	if sz < 1:
+		return
+	remove(vector, sz - 1)
+}
+
+func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
+{
+	var n as int #used
+	for(n = 0; n < sizeof vector; n++) {
+		IFDEF "target_cs" {
+			lang "cs" {{{
+				if(object.Equals(vector[n], value)) {
+					remove(vector, n);
+					return(n);
+				}
+			}}}
+		}
+		ELSE IFDEF "target_js" {
+			lang "js" {{{
+				if (!Object.is) {
+					if(vector[n] === value) {
+						this.remove(vector, n);
+						return(n);
+					}
+				}
+				else {
+					if(Object.is(vector[n], value)) {
+						this.remove(vector, n);
+						return(n);
+					}
+				}
+			}}}
+		}
+		ELSE {
+			if vector[n] == value {
+				remove(vector, n)
+				return n
+			}
+		}
+	}
+	return -1
+}
+
+func clear <T> (vector as vector<T> #used) static
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.Clear();
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.clear();
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(0, vector.length);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector removeAllObjects];
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.clear()
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector.removeAllObjects() }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{ _vm:clear_table(vector) vector["n"] = 0 }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func isEmpty <T> (vector as vector<T> #used) static as bool
+{
+	IFDEF "target_java" {
+		return vector == null || lang "java" bool {{{ vector.isEmpty() }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return vector == null || lang "kotlin" bool {{{ vector!!.isEmpty() }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		if vector == null:
+			return true
+		var v = false
+		lang "lua" {{{
+			local sz = vector["n"]
+			if sz == nil or sz < 1 then
+				v = true
+			end
+		}}}
+		return v
+	}
+	ELSE {
+		return getSize(vector) < 1
+	}
+}
+
+func isNotEmpty <T> (vector as vector<T>) static as bool:
+	return !isEmpty(vector)
+
+func removeRange <T> (vector as vector<T> #used, index as int #used, count as int #used) static
+{
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.RemoveRange(index, count);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.subList(index, index+count).clear();
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(index, count);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		var range = index+count
+		var i = index
+		while i <= range {
+			remove(vector, i)
+			i += 1
+		}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector.removeObjects(in: NSMakeRange(index, count)) }}}
+	}
+	ELSE {
+		for(var n=0; n<count; n++):
+			remove(vector, index)
+	}
+}
+
+class VectorIterator <T> is Iterator<T>
+{
+	var vector public as vector<T>
+	var index = 0
+	var increment = 1
+
+	ctor(vector as vector<T>, increment as int)
+	{
+		this.vector = vector
+		this.increment = increment
+		if increment < 0 && vector:
+			index = sizeof vector - 1
+	}
+
+	func next as T
+	{
+		if vector == null:
+			return defaultvalue T
+		if index < 0 || index >= sizeof vector:
+			return defaultvalue T
+		var v = vector[index]
+		index += increment
+		return v
+	}
+
+	func hasNext as bool
+	{
+		assert vector
+		assert index < (sizeof vector) - 1
+		return true
+	}
+}
+
+func iterate <T> (vector as vector<T>) static as Iterator<T>:
+	return new VectorIterator<T>(vector, 1)
+
+func iterateReverse <T> (vector as vector<T>) static as Iterator<T>:
+	return new VectorIterator<T>(vector, -1)
+
+func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
+{
+	assert vector
+	IFDEF "target_cs" {
+		lang "cs" {{{
+			vector.Sort((a,b) => { return(comparer(a,b)); });
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		var comp final #used = comparer
+		IFDEF "target_java8" {
+			lang "java" {{{
+				java.util.Collections.sort(vector, new java.util.Comparator<T>() {
+					public int compare(T a, T b) {
+						return comp.apply(a, b);
+					}
+				});
+			}}}
+		}
+		ELSE {
+			lang "java" {{{
+				java.util.Collections.sort(vector, new java.util.Comparator<T>() {
+					public int compare(T a, T b) {
+						return comp.execute(a, b);
+					}
+				});
+			}}}
+		}
+	}
+	ELSE IFDEF "target_html" {
+		lang "js" {{{
+			vector.sort(function(a, b) {
+				return(comparer(a, b));
+			});
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.sortWith(kotlin.Comparator {
+				a: T?, b: T? -> comparer!!.invoke(a, b)
+			})
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			vector!.sort(comparator: { (_ a: Any, _ b: Any) -> ComparisonResult in
+				let c = comparer(a as! T, b as! T)
+				if c == 1 {
+					return ComparisonResult.orderedDescending
+				}
+				else if c == 0 {
+					return ComparisonResult.orderedSame
+				}
+				else {
+					return ComparisonResult.orderedAscending
+				}
+			})
+		}}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			_vm:sort_table(vector, comparer)
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+}
+
+func sortReverse <T> (vector as vector<T>, comparer as function<int,T,T>) static
+{
+	var cc final = comparer
+	sort(vector, func(a as T, b as T) as int {
+		return -cc(a,b)
+	})
+}
+
+func sortAsStrings <T> (vector as vector<T>) static
+{
+	sort(vector, func(a as T, b as T) as int {
+		return String.compare(String.asString(a), String.asString(b))
+	})
+}
+
+func sortAsStringsReverse <T> (vector as vector<T>) static
+{
+	sortReverse(vector, func(a as T, b as T) as int {
+		return String.compare(String.asString(a), String.asString(b))
+	})
+}
+
+func reverse <T> (vector as vector<T>) static
+{
+	assert vector
+	var a = 0
+	var b = getSize(vector)-1
+	while a < b {
+		var t = getAt(vector, b)
+		set(vector, b, getAt(vector, a))
+		set(vector, a, t)
+		a ++
+		b --
+	}
+}

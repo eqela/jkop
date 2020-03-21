@@ -1,0 +1,216 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.os
+import jk.fs
+
+class:
+
+func getTemporaryDirectory static as File
+{
+	IFDEF "target_cs" {
+		return File.forPath(lang "cs" string {{{ System.IO.Path.GetTempPath() }}})
+	}
+	ELSE IFDEF "target_objc" {
+		return File.forPath("/tmp")
+	}
+	ELSE IFDEF "target_swift" {
+		return File.forPath("/tmp")
+	}
+	ELSE {
+		if OS.isLinux() || OS.isMacOS():
+			return File.forPath("/tmp")
+		ERROR "Not implemented"
+		return new FileInvalid()
+	}
+	/* FIXME: Android implementation
+	func forTemporaryDirectory(context as !"android.content.Context") static as File
+	{
+		var v = new this()
+		lang "java" {{{
+			v.path = context.getCacheDir().getPath();
+		}}}
+		return v
+	}
+	*/
+}
+
+func getHomeDirectory static as File
+{
+	IFDEF "target_cs" {
+		var v as string = null
+		lang "cs" {{{
+			var hd = System.Environment.GetEnvironmentVariable("HOMEDRIVE");
+			if(hd != null) {
+				var hp = System.Environment.GetEnvironmentVariable("HOMEPATH");
+				if(hp != null) {
+					v = hd + System.IO.Path.DirectorySeparatorChar + hp;
+				}
+			}
+		}}}
+		if v == null {
+			lang "cs" {{{
+				var h = System.Environment.GetEnvironmentVariable("HOME");
+				if(h != null) {
+					v = h;
+				}
+			}}}
+		}
+		IFDEF "target_dotnet4cs" {
+			if v == null {
+				lang "cs" {{{
+					v = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
+				}}}
+			}
+		}
+		return File.forPath(v)
+	}
+	ELSE IFDEF "target_objc" {
+		return File.forPath("~")
+	}
+	ELSE IFDEF "target_swift" {
+		return File.forPath("~")
+	}
+	ELSE {
+		var dirname = EnvironmentVariable.get("HOME")
+		if String.isNotEmpty(dirname):
+			return File.forPath(dirname)
+		return null
+	}
+	/* FIXME: Android implementation
+	func forHomeDirectory(context as !"android.content.Context") static as File
+	{
+		var v = new this()
+		lang "java" {{{
+			v.path = context.getFilesDir().getPath();
+		}}}
+		return v
+	}
+	*/
+}
+
+func getAppDirectory static as File
+{
+	IFDEF "target_dotnet4cs" {
+		return File.forPath(lang "cs" string {{{ System.AppDomain.CurrentDomain.BaseDirectory }}})
+	}
+	ELSE IFDEF "target_sushi" {
+		var program = lang "lua" string {{{ _vm:get_program_path() }}}
+		assert String.isNotEmpty(program)
+		var pf = assert File.forPath(program)
+		return pf.getParent()
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return new FileInvalid()
+	}
+}
+
+func getCodeFileForObject(oo as object) static as File
+{
+	assert oo
+	IFDEF "target_cs" {
+		var path as string
+		lang "cs" {{{
+			var type = oo.GetType();
+			if(type != null) {
+				var assembly = type.Assembly;
+				if(assembly != null) {
+					path = assembly.Location;
+				}
+			}
+		}}}
+		if path:
+			return File.forPath(path)
+		return null
+	}
+	ELSE IFDEF "target_sushi" {
+		return null
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func getProgramFilesDirectory static as File
+{
+	IFDEF "target_dotnet4cs" {
+		if OS.isWindows() {
+			var dirName = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFiles) }}}
+			if String.isEmpty(dirName):
+				dirName = "C:\\Program Files"
+			var v = File.forPath(dirName)
+			if v.isDirectory() == false:
+				v = null
+			return v
+		}
+	}
+	return null
+}
+
+func getProgramFilesX86Directory static as File
+{
+	IFDEF "target_dotnet4cs" {
+		if OS.isWindows() {
+			var dirName = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86) }}}
+			if String.isEmpty(dirName):
+				dirName = "C:\\Program Files (x86)"
+			var v = File.forPath(dirName)
+			if v.isDirectory() == false:
+				v = null
+			return v
+		}
+	}
+	return null
+}
+
+func getApplicationsDirectory static as File
+{
+	IFDEF "target_browser" {
+		return null
+	}
+	ELSE IFDEF "target_android" {
+		return null
+	}
+	ELSE IFDEF "target_darwin" {
+		var v = File.forPath("/Applications")
+		if v.isDirectory() == false:
+			v = null
+		return v
+	}
+	ELSE IFDEF "target_windows" {
+		return null
+	}
+	ELSE {
+		if OS.isMacOS() {
+			var v = File.forPath("/Applications")
+			if v.isDirectory() == false:
+				v = null
+			return v
+		}
+		return null
+	}
+}

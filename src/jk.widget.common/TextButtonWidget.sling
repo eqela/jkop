@@ -1,0 +1,145 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is LayerWidget #widget:
+
+func forText(context as GuiApplicationContext, text as string, handler as function = null) static as this
+{
+	var v = new this(context)
+	v.setWidgetText(text)
+	if handler {
+		v.setWidgetClickHandler(handler)
+	}
+	return v
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	widgetContext = ctx
+	setWidgetStyle(VALUE "__THIS__")
+}
+
+var widgetContext as GuiApplicationContext
+var widgetClickHandler as function
+prop widgetText as string
+prop widgetRoundingRadius as double #notLiteral
+prop widgetBackgroundColor as Color
+prop widgetPressedBackgroundColor as Color
+prop widgetTextColor as Color
+prop widgetFontSize as int #notLiteral
+prop widgetFontFamily = "Arial"
+prop widgetFontResource as string
+prop widgetPadding #notLiteral = -1
+prop widgetPaddingHorizontal #notLiteral = -1
+
+func setWidgetClickHandler(handler as function) as this
+{
+	widgetClickHandler = handler
+	return this
+}
+
+func getWidgetClickHandler as function
+{
+	return widgetClickHandler
+}
+
+func setWidgetStyle(style as string) as this
+{
+	widgetRoundingRadius = context.getStylePixels(style, "roundingRadius")
+	widgetBackgroundColor = context.getStyleColor(style, "backgroundColor")
+	widgetPressedBackgroundColor = context.getStyleColor(style, "pressedColor")
+	widgetTextColor = context.getStyleColor(style, "textColor")
+	widgetFontSize = context.getStylePixels(style, "fontSize")
+	widgetFontFamily = context.getStyleString(style, "fontFamily")
+	widgetFontResource = context.getStyleString(style, "fontResource")
+	widgetPadding = context.getStylePixels(style, "padding")
+	return this
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	var bgc = widgetBackgroundColor
+	if not bgc:
+		bgc = Color.forRGBDouble(0.6, 0.6, 0.6)
+	var canvas = CanvasWidget.forColor(context, bgc)
+	canvas.setWidgetRoundingRadius(widgetRoundingRadius)
+	addWidget(canvas)
+	var pbgc = widgetPressedBackgroundColor
+	if not pbgc:
+		pbgc = createDefaultPressColor(bgc)
+	var cvn final = canvas
+	var c1 final = bgc
+	var c2 final = pbgc
+	var thisWidget final = this
+	Widget.setWidgetPointerHandlers(this,
+		func(x as double, y as double) {
+			cvn.setWidgetColor(c2)
+		},
+		null,
+		func(x as double, y as double) {
+			if widgetClickHandler && x <= Widget.getWidth(thisWidget) && y <= Widget.getHeight(thisWidget) && x >= 0 && y >= 0:
+				widgetClickHandler()
+			cvn.setWidgetColor(c1)
+		})
+	var fgc = widgetTextColor
+	if not fgc {
+		if bgc.isLightColor() {
+			fgc = Color.forRGB(0, 0, 0)
+		}
+		else {
+			fgc = Color.forRGB(0xff, 0xff, 0xff)
+		}
+	}
+	var padding = this.widgetPadding
+	if padding < 0:
+		padding = context.getHeightValue("2mm")
+	var label = LabelWidget.forText(context, widgetText)
+	label.setWidgetTextColor(fgc)
+	if widgetFontResource:
+		label.setWidgetFontResource(widgetFontResource)
+	label.setWidgetFontFamily(widgetFontFamily)
+	if widgetFontSize > 0:
+		label.setWidgetFontSize(widgetFontSize)
+	var aw = AlignWidget.forWidget(context, label, 0.5, 0.5, padding)
+	if widgetPaddingHorizontal >= 0 {
+		aw.setWidgetMarginLeft(widgetPaddingHorizontal)
+		aw.setWidgetMarginRight(widgetPaddingHorizontal)
+	}
+	addWidget(aw)
+	IFDEF "target_html" {
+		HTMLDOM.setStyle(element, "cursor", "pointer")
+	}
+}
+
+func createDefaultPressColor(bg as Color) private as Color
+{
+	assert bg
+	var r = bg.getRedInt() * (1 - 0.25) as int
+	var g = bg.getGreenInt() * (1 - 0.25) as int
+	var b = bg.getBlueInt() * (1 - 0.25) as int
+	return Color.forRGB(r, g, b)
+}

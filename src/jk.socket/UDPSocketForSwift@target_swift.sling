@@ -1,0 +1,217 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is UDPSocket is FileDescriptor:
+
+depend "swift-import:Foundation"
+
+var fileDescriptor = -1
+
+ctor
+{
+	IFDEF "target_swift" {
+		lang "swift" {{{
+			fileDescriptor = Swift.Int(socket(PF_INET, SOCK_DGRAM, 0))
+		}}}
+	}
+}
+
+dtor
+{
+	close()
+}
+
+func getFileDescriptor as int:
+	return fileDescriptor
+
+func close override
+{
+	if fileDescriptor >= 0 {
+		lang "swift" {{{
+			Darwin.close(Swift.Int32(fileDescriptor))
+		}}}
+		fileDescriptor = -1
+	}
+}
+
+func send(message as buffer, address as string, port as int) override as int
+{
+	if address == null:
+		return -1
+	if message == null || fileDescriptor < 0:
+		return 0
+	var v = 0
+	lang "swift" {{{
+		var server_addr = sockaddr_in()
+		server_addr.sin_family = sa_family_t(AF_INET)
+		server_addr.sin_addr.s_addr = inet_addr(address)
+		server_addr.sin_port = CFSwapInt16HostToBig(UInt16(port))
+		withUnsafeMutablePointer(to: &server_addr) {
+			v = sendto(Swift.Int32(fileDescriptor), message.mutableBytes, message.length, 0, UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self), socklen_t(MemoryLayout<sockaddr_in>.size))
+		}
+	}}}
+	return v
+}
+
+func sendBroadcast(message as buffer, address as string, port as int) override as int
+{
+	var v = 0
+	var flag = 1
+	lang "swift" {{{
+		setsockopt(Swift.Int32(fileDescriptor), SOL_SOCKET, SO_BROADCAST, &flag, socklen_t(MemoryLayout<Int>.size))
+	}}}
+	v = send(message, address, port)
+	flag = 0
+	lang "swift" {{{
+		setsockopt(Swift.Int32(fileDescriptor), SOL_SOCKET, SO_BROADCAST, &flag, socklen_t(MemoryLayout<UInt32>.size))
+	}}}
+	return v
+}
+
+func waitForData(timeout as int) as bool
+{
+	var v = false
+	if fileDescriptor < 0:
+		return false
+	lang "swift" {{{
+		var fs = fd_set()
+		CapexNetIOManagerForSwift.fdZero(&fs)
+		CapexNetIOManagerForSwift.fdSet(Swift.Int32(fileDescriptor), set: &fs)
+	}}}
+	var r = -1
+	if timeout < 0 {
+		lang "swift" {{{
+			select(Swift.Int32(fileDescriptor+1), &fs, nil, nil, nil)
+		}}}
+	}
+	else {
+		lang "swift" {{{
+			var tv = timeval()
+			tv.tv_sec = __darwin_time_t(timeout / 1000000)
+			tv.tv_usec = __darwin_suseconds_t(timeout % 1000000)
+			r = Swift.Int(select(Swift.Int32(fileDescriptor+1), &fs, nil, nil, &tv))
+		}}}
+	}
+	if r > 0 {
+		lang "swift" {{{
+			if(CapexNetIOManagerForSwift.fdIsSet(Swift.Int32(fileDescriptor), set: &fs)) {
+				v = true
+			}
+		}}}
+	}
+	if r < 0 {
+		var err as string
+		lang "swift" {{{
+			if(errno != EINTR) {
+				let ep = strerror(errno)
+				if(ep != nil) {
+					err = Swift.String(cString: ep!)
+				}
+			}
+		}}}
+		if err:
+			println "select() returned error status " .. String.forInteger(r) .. ": " .. err
+	}
+	return v
+}
+
+func receive(buffer as buffer, timeout as int) override as int
+{
+	if buffer == null || fileDescriptor < 0:
+		return 0
+	var v = 0
+	if waitForData(timeout) {
+		lang "swift" {{{
+			var l: socklen_t = socklen_t(MemoryLayout<sockaddr_in>.size)
+			var client_addr = sockaddr_in()
+			withUnsafeMutablePointer(to: &client_addr) {
+				v = recvfrom(Swift.Int32(fileDescriptor), buffer.mutableBytes, buffer.length, 0, UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self), &l)
+			}
+		}}}
+	}
+	return v
+}
+
+func bind(port as int) override as bool
+{
+	if fileDescriptor < 0:
+		return false
+	var v = 0
+	lang "swift" {{{
+		var server_addr = sockaddr_in()
+		memset(&server_addr, 0, MemoryLayout<sockaddr_in>.size)
+		server_addr.sin_family = sa_family_t(AF_INET)
+		server_addr.sin_addr.s_addr = CFSwapInt32HostToBig(INADDR_ANY)
+		server_addr.sin_port = CFSwapInt16HostToBig(UInt16(port))
+		withUnsafeMutablePointer(to: &server_addr) {
+			v = Swift.Int(Darwin.bind(Swift.Int32(fileDescriptor), UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self), socklen_t(MemoryLayout<sockaddr_in>.size)))
+		}
+	}}}
+	if v != 0 {
+		close()
+		return false
+	}
+	return true
+}
+
+func getLocalAddress override as string
+{
+	var r as int
+	lang "swift" {{{
+		var s: socklen_t = socklen_t(MemoryLayout<sockaddr_in>.size)
+		var new_addr = sockaddr_in()
+		withUnsafeMutablePointer(to: &new_addr) {
+			r = Swift.Int(getsockname(Swift.Int32(fileDescriptor), UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self), &s))
+		}
+	}}}
+	if r < 0:
+		return null
+	var v as string = null
+	lang "swift" {{{
+		let adds = inet_ntoa(new_addr.sin_addr)
+		if(adds != nil) {
+			v = Swift.String(cString: adds!)
+		}
+	}}}
+	return v
+}
+
+func getLocalPort override as int
+{
+	var r as int
+	lang "swift" {{{
+		var s: socklen_t = socklen_t(MemoryLayout<sockaddr_in>.size)
+		var new_addr = sockaddr_in()
+		withUnsafeMutablePointer(to: &new_addr) {
+			r = Swift.Int(getsockname(Swift.Int32(fileDescriptor), UnsafeMutableRawPointer($0).assumingMemoryBound(to: sockaddr.self), &s))
+		}
+	}}}
+	if r < 0:
+		return 0
+	lang "swift" {{{
+		r = Int(CFSwapInt16HostToBig(UInt16(new_addr.sin_port)))
+	}}}
+	return r
+}

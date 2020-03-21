@@ -1,0 +1,311 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2019 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.ui
+
+class is LoginProvider:
+
+class AuthResult public
+{
+	prop accessToken as string
+	prop idToken as string
+	prop state as string
+	prop refreshToken as string
+	prop idTokenPayload as string
+}
+
+IFDEF "target_browser"
+{
+	class MyActiveSessionForWeb is ActiveSession
+	{
+		prop context as GuiApplicationContext
+		prop lock as object
+		prop accessToken as string
+		prop refreshInterval as int
+
+		func initialize
+		{
+			scheduleRefresh()
+		}
+
+		func scheduleRefresh
+		{
+			if context {
+				Log.debug(context, "Scheduling next token refresh. Interval " .. String.forInteger(refreshInterval) .. " seconds")
+				Log.debug(context, "Current is `" .. accessToken .. "'")
+				var self = this
+				context.startTimer(refreshInterval * 1000, func {
+					self.updateAccessToken()
+					self.scheduleRefresh()
+				})
+			}
+		}
+
+		func updateAccessToken
+		{
+			assert lock
+			Log.debug(context, "Refreshing access token..")
+			var ll #used = lock
+			var self #used = this
+			lang "js" {{{
+				ll.checkSession({}, function(err, authResult) {
+					if(err) {
+						self.accessToken = null;
+					}
+					else {
+						self.accessToken = authResult.accessToken;
+					}
+				});
+			}}}
+		}
+
+		func terminateSession(callback as function)
+		{
+			var ll = lock
+			if ll {
+				lang "js" {{{
+					ll.logout(null)
+				}}}
+			}
+			lock = null
+			if callback:
+				callback()
+		}
+	}
+}
+
+func instance(context as GuiApplicationContext, clientId as string, domain as string) static as this
+{
+	var v = new this()
+	v.setContext(context)
+	v.setClientId(clientId)
+	v.setDomain(domain)
+	return v
+}
+
+func initialize static
+{
+	IFDEF "target_browser" {
+		assert isInitialized == false
+		IFDEF "target_browser" {
+			var ss = HTMLDOM.createElement("script")
+			HTMLDOM.setAttribute(ss, "src", "https://cdn.auth0.com/js/lock/11.14/lock.min.js")
+			HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), ss)
+		}
+		isInitialized = true
+	}
+}
+
+prop context as GuiApplicationContext
+prop onShow as function
+prop onHide as function
+prop onUnrecoverableError as function<void,string>
+prop onAuthenticated as function<void,AuthResult>
+prop onAuthorizationError as function<void,string>
+prop onForgotPasswordReady as function
+prop onForgotPasswordSubmit as function
+prop onSigninReady as function
+prop onSignupReady as function
+prop onSigninSubmit as function
+prop onSignupSubmit as function
+prop onFederatedLogin as function
+prop onResult as function<void,ActiveSession>
+prop lastError as string
+prop clientId as string
+prop logoUrl as string
+prop primaryColor as string
+prop title as string
+prop domain as string
+prop refreshInterval = 60
+
+ctor
+{
+	initialize()
+}
+
+IFDEF "target_browser"
+{
+	var isInitialized static = false
+
+	func toAuthResult(result as object) private as AuthResult
+	{
+		var v = new AuthResult()
+		lang "js" {{{
+			v.setAccessToken(result.accessToken);
+			v.setIdToken(result.idToken);
+			v.setState(result.state);
+			v.setRefreshToken(result.refreshToken);
+			v.setIdTokenPayload(result.idTokenPayload);
+		}}}
+		return v
+	}
+
+	func toActiveSession(lock as object, token as string) private as MyActiveSessionForWeb
+	{
+		var v = new MyActiveSessionForWeb()
+		v.setContext(context)
+		v.setLock(lock)
+		v.setAccessToken(token)
+		v.setRefreshInterval(refreshInterval)
+		v.initialize()
+		return v
+	}
+
+	var lock as object
+}
+
+func executeLogin(callback as function<void,ActiveSession>)
+{
+	IFDEF "target_browser" {
+		setOnResult(callback)
+		var ll = lock
+		if not ll {
+			var id #used = clientId
+			var dd #used = domain
+			var self #used = this
+			var lurl #used = logoUrl
+			var pcolor #used = primaryColor
+			var titlestr #used = title
+			if String.isEmpty(titlestr):
+				titlestr = "Log In"
+			lang "js" {{{
+				try {
+					ll = new Auth0Lock(id, dd, {
+						languageDictionary: {
+							title: titlestr
+						},
+						responseType: 'token',
+						avatar: null,
+						auth: {
+							redirect: false,
+							sso: false
+						},
+						theme: {
+							logo: lurl,
+							primaryColor : pcolor
+						}
+					});
+				}
+				catch(error) {
+					var errtxt = "Library not ready";
+					self.setLastError(errtxt);
+					if(self.onUnrecoverableError) {
+						self.onUnrecoverableError(errtxt);
+					}
+					if(self.onResult) {
+						self.onResult(null);
+					}
+					return;
+				}
+				ll.on('show', function() {
+					if(self.onShow) {
+						self.onShow();
+					}
+				});
+				ll.on('hide', function() {
+					if(self.onHide) {
+						self.onHide();
+					}
+				});
+				ll.on('unrecoverable_error', function(error) {
+					if(error) {
+						self.setLastError(error.error_description);
+					}
+					if(self.onUnrecoverableError && error) {
+						self.onUnrecoverableError(error.error_description);
+					}
+					if(self.onResult) {
+						self.onResult(null);
+						self.setOnResult(null);
+					}
+				});
+				ll.on('authenticated', function(result) {
+					if(self.onAuthenticated) {
+						self.onAuthenticated(self.toAuthResult(result));
+					}
+					if(self.onResult) {
+						self.onResult(self.toActiveSession(ll, result.accessToken));
+						self.setOnResult(null);
+					}
+					ll.hide();
+				});
+				ll.on('authorization_error', function(error) {
+					if(error) {
+						self.setLastError(error.error_description);
+					}
+					if(self.onAuthorizationError && error) {
+						self.onAuthorizationError(error.error_description);
+					}
+					if(self.onResult) {
+						self.onResult(null);
+						self.setOnResult(null);
+					}
+				});
+				ll.on('forgot_password ready', function() {
+					if(self.onForgotPasswordReady) {
+						self.onForgotPasswordReady();
+					}
+				});
+				ll.on('forgot_password submit', function() {
+					if(self.onForgotPasswordSubmit) {
+						self.onForgotPasswordSubmit();
+					}
+				});
+				ll.on('signin ready', function() {
+					if(self.onSigninReady) {
+						self.onSigninReady();
+					}
+				});
+				ll.on('signup ready', function() {
+					if(self.onSignupReady) {
+						self.onSignupReady();
+					}
+				});
+				ll.on('signin submit', function() {
+					if(self.onSigninSubmit) {
+						self.onSigninSubmit();
+					}
+				});
+				ll.on('signup submit', function() {
+					if(self.onSignupSubmit) {
+						self.onSignupSubmit();
+					}
+				});
+				ll.on('federated login', function() {
+					if(self.onFederatedLogin) {
+						self.onFederatedLogin();
+					}
+				});
+			}}}
+			lock = ll
+		}
+		lang "js" {{{
+			ll.show();
+		}}}
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
