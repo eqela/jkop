@@ -25,6 +25,7 @@
 
 import jk.io
 import jk.env
+import jk.posix
 
 class:
 
@@ -244,7 +245,10 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 	var fdin = -1
 	var fdout = -1
 	var fderr = -1
-	// FIXME: Support uid, gid, trapSigInt, pipePty
+	// FIXME: Support uid, gid, pipePty
+	var sigintWasTrapped = false
+	if launcher.getTrapSigint():
+		sigintWasTrapped = PosixSignal.trapSignal(PosixSignal.SIGINT, true)
 	if launcher.getReplaceSelf() {
 		lang "lua" {{{
 			_os:replace_process(filepath, params, env, cwdpath)
@@ -260,32 +264,35 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 			pid = _os:start_process(filepath, params, env, cwdpath)
 		}}}
 	}
-	if pid < 0:
-		return null
-	var v = new MyProcess()
-	v.setPid(pid)
-	v.setInWriter(FDWriter.forFd(fdin))
-	v.setOutReader(FDReader.forFd(fdout))
-	v.setErrReader(FDReader.forFd(fderr))
-	if wait {
-		if pipeHandler {
-			var or = v.getOutReader()
-			var buffer = malloc 4096
-			loop {
-				var r = or.read(buffer)
-				if r < 1:
-					break
-				pipeHandler.onBufferData(buffer, r)
+	var v as Process
+	if pid >= 0 {
+		var v = new MyProcess()
+		v.setPid(pid)
+		v.setInWriter(FDWriter.forFd(fdin))
+		v.setOutReader(FDReader.forFd(fdout))
+		v.setErrReader(FDReader.forFd(fderr))
+		if wait {
+			if pipeHandler {
+				var or = v.getOutReader()
+				var buffer = malloc 4096
+				loop {
+					var r = or.read(buffer)
+					if r < 1:
+						break
+					pipeHandler.onBufferData(buffer, r)
+				}
+				var er = v.getErrReader()
+				loop {
+					var r = er.read(buffer)
+					if r < 1:
+						break
+					pipeHandler.onBufferData(buffer, r)
+				}
 			}
-			var er = v.getErrReader()
-			loop {
-				var r = er.read(buffer)
-				if r < 1:
-					break
-				pipeHandler.onBufferData(buffer, r)
-			}
+			v.waitForExit()
 		}
-		v.waitForExit()
 	}
+	if launcher.getTrapSigint() && sigintWasTrapped == false:
+		PosixSignal.trapSignal(PosixSignal.SIGINT, sigintWasTrapped)
 	return v
 }
