@@ -1,4 +1,4 @@
-#! eqela sling-r116
+#! eqela sling-r117
 #
 # This file is part of Jkop
 # Copyright (c) 2016-2018 Job and Esther Technologies Oy
@@ -23,20 +23,28 @@
 # SOFTWARE.
 #
 
-lib sling:r116
+lib sling:r117
+import jk.fs
 import jk.lang
-import sling.build
+import jk.script
+import sling.compiler
 
-Context.execute(func {
-	var version = args[0]
-	if String.isEmpty(version) {
-		Context.info("Usage: build.ss <version>")
-		return
-	}
-	Compiler.compileLibrary({
+var script = new Script()
+var compiler = new SlingCompilerKit(script.ctx)
+var file = new FileKit(script.ctx)
+
+script.command("release", func(args) {
+	var version = script.requireParameter(args, 0, "version")
+	compiler.compileLibrary({
 		"source" : "src",
 		"version" : version,
-		"workdir" : "build/workdir",
+		"workdir" : "build/workdir-" .. version,
 		"destdir" : "build"
 	})
 })
+
+script.command("clean", func(args) {
+	file.remove("build")
+})
+
+script.main(args)

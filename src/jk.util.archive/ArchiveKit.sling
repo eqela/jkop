@@ -23,31 +23,42 @@
  * SOFTWARE.
  */
 
-class is Exception is StringObject:
+import jk.fs
+import jk.log
 
-func forError(error as Error) static as this
+class:
+
+var ctx as LoggingContext
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func compressZip(src as dynamic, output as dynamic) as File
 {
-	var v = new this()
-	v.setError(error)
-	return v
+	var srcfile = File.asFile(src)
+    if not srcfile:
+		Error.throw("invalidParameter", String.asString(src))
+	var outputfile = File.asFile(output)
+	if not outputfile:
+		outputfile = srcfile.getSibling(srcfile.getBasename() .. ".zip")
+	Log.status(ctx, "Compressing files ..")
+	if not ZipWriter.writeToZipRecursive(ctx, outputfile, srcfile, true):
+		Error.throw("failedToWrite", outputfile.getPath())
+	Log.status(ctx, null)
+	return outputfile
 }
 
-func forCode(code as string, detail as dynamic = null) static as this:
-	return forError(Error.forCode(code, detail))
-
-prop error as Error
-
-func getErrorCode as string
+func compressTarball(src as dynamic, output as dynamic) static as File
 {
-	assert error
-	return error.getCode()
+	var srcfile = File.asFile(src)
+    if not srcfile:
+		Error.throw("invalidParameter", String.asString(src))
+	var outputfile = File.asFile(output)
+	if not outputfile:
+		outputfile = srcfile.getSibling(srcfile.getBasename() .. ".tar.gz")
+	Log.status(ctx, "Compressing files ..")
+	if not TarGZipWriter.writeToTarballRecursive(ctx, outputfile, srcfile, true):
+		Error.throw("failedToWrite", outputfile.getPath())
+	Log.status(ctx, null)
+	return outputfile
 }
-
-func getErrorDetail as dynamic
-{
-	assert error
-	return error.getDetail()
-}
-
-func toString as string:
-	return Error.asString(error)
