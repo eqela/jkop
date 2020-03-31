@@ -24,75 +24,63 @@
  */
 
 import jk.fs
+import jk.log
+import jk.process
 
 class:
 
-func asFile(o as dynamic) static as File
-{
-	assert o
-	if o is File:
-		return o as! File
-	if o is string:
-		return File.forPath(o as! string)
-	if o is object {
-		var ss = String.forObject(o as! object)
-		if ss:
-			return File.forPath(ss)
-	}
-	return null
-}
+var ctx as LoggingContext
 
-func asBoolean(o as dynamic, default as bool = false) static as bool
-{
-	if o && o is bool:
-		return o as! bool
-	if o && o is string:
-		return Boolean.asBoolean(o as! string)
-	if o && o is object:
-		return Boolean.asBoolean(o as! object)
-	return default
-}
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
 
-func asString(o as dynamic) static as string
-{
-	if o && o is string:
-		return o as! string
-    if o && o is File:
-        return (o as! File).getPath()
-	if o && o is object:
-		return String.forObject(o as! object)
-	return null
-}
-
-func asDynamicMap(o as dynamic) static as DynamicMap
-{
-	return null
-}
-
-func asObjectVector(o as dynamic) static as vector
+func asStringVector(o as dynamic) as vector<string>
 {
 	var it = assert DynamicObject.iterate(o)
-	var v = new vector
+	var v = new vector<string>
 	loop {
 		var oo = it.next()
 		if not oo:
 			break
-		v += oo
+		var s = String.asString(oo)
+		if s:
+			v += s
 	}
 	return v
 }
 
-func asFileVector(o as dynamic) static as vector<File>
+func executeBuffer(code as buffer, args as dynamic) as int
 {
-	var it = assert DynamicObject.iterate(o)
-	var v = new vector<File>
-	loop {
-		var oo = it.next()
-		if not oo:
-			break
-		var ff = asFile(oo)
-		if ff:
-			v += ff
+	var code = SushiCode.forBuffer(code)
+	if not code:
+		Error.throw("failedToInitialize", "SushiCode")
+	return code.execute(asStringVector(args))
+}
+
+func executeFile(file as dynamic, args as dynamic) as int
+{
+	var file = new FileKit(ctx).asFile(file)
+	var code = SushiCode.forFile(file)
+	if not code:
+		Error.throw("failedToRead", file.getPath())
+	return code.execute(asStringVector(args))
+}
+
+func executeFileProcess(file as dynamic, args as dynamic) as int
+{
+	var file = new FileKit(ctx).asFile(file)
+	var pl as ProcessLauncher
+	IFDEF "target_sushi" {
+		pl = ProcessLauncher.forSelf()
 	}
-	return v
+	if not pl:
+		pl = ProcessLauncher.forCommand("eqela")
+	if not pl:
+		pl = ProcessLauncher.forCommand("sushi")
+	if not pl:
+		Error.throw("failedToFindSushiVm", null)
+	pl.addToParams(file.getPath())
+	foreach arg in asStringVector(args):
+		pl.addToParams(arg)
+	return pl.execute()
 }

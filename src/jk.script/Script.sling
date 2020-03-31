@@ -28,46 +28,45 @@ import jk.console
 
 class:
 
-var entryPoints static as map<string,function<int,vector<string>>>
+var entryPoints as map<string,function<int,vector<string>>>
 
-var ctx public static as LoggingContext
+var ctx public as LoggingContext
 
-func initialize static
-{
+ctor:
 	ctx = new ConsoleApplicationContext()
-}
 
-func print(message as dynamic) static
+func print(message as dynamic):
+	println String.asString(message)
+
+func status(message as dynamic):
+	Log.status(ctx, String.asString(message))
+
+func debug(message as dynamic):
+	Log.debug(ctx, String.asString(message))
+
+func info(message as dynamic):
+	Log.info(ctx, String.asString(message))
+
+func warning(message as dynamic):
+	Log.warning(ctx, String.asString(message))
+
+func error(message as dynamic):
+	throw ExceptionWithString.forString(String.asString(message), false)
+
+func initialize virtual:
+	nop
+
+func requireParameter(args as array<string>, index as int, name as string) as string
 {
-	println Convert.asString(message)
+	var v as string
+	if args && index < sizeof args:
+		v = args[index]
+	if String.isEmpty(v):
+		error("Missing parameter: <" .. name .. ">")
+	return v
 }
 
-func status(message as dynamic) static
-{
-	Log.status(ctx, Convert.asString(message))
-}
-
-func debug(message as dynamic) static
-{
-	Log.debug(ctx, Convert.asString(message))
-}
-
-func info(message as dynamic) static
-{
-	Log.info(ctx, Convert.asString(message))
-}
-
-func warning(message as dynamic) static
-{
-	Log.warning(ctx, Convert.asString(message))
-}
-
-func error(message as dynamic) static
-{
-	throw ExceptionWithString.forString(Convert.asString(message), false)
-}
-
-func execute(script as function) static as int
+func executeFunction(script as function) as int
 {
 	assert script
 	initialize()
@@ -75,44 +74,58 @@ func execute(script as function) static as int
 		script()
 	}
 	catch e {
-		Log.error(ctx, String.asString(e))
+		Log.error(ctx, Log.asString(ctx, e))
 		return 1
 	}
 	return 0
 }
 
-func entry(name as dynamic, handler as function<int,vector<string>>) static
+func command(name as dynamic, handler as function<int,vector<string>>)
 {
-	var sname = assert Convert.asString(name)
+	var sname = assert String.asString(name)
 	if not entryPoints:
 		entryPoints = new map<string,function<void,vector<string>>>
 	entryPoints[sname] = handler
 }
 
-func main(args as array<string>) static as int
+func main(args as array<string>) virtual as int
 {
 	initialize()
-	if args && sizeof args > 0 {
-		var cmd = args[0]
-		if cmd && entryPoints {
-			var handler = Map.get(entryPoints, cmd)
-			if handler {
-				var v = new vector<string>
-				var nargs = sizeof args
-				for(var n=1; n<nargs; n++):
-					v += args[n]
-				var r = -1
-				try {
-					r = handler(v)
-				}
-				catch e {
-					Log.error(ctx, String.asString(e))
-					r = -1
-				}
-				return r
+	var cmd as string
+	if args && sizeof args > 0:
+		cmd = args[0]
+	if String.isEmpty(cmd) {
+		var sb = new StringBuilder()
+		sb.appendString("Missing command parameter: <")
+		var first = true
+		foreach cc in Map.getKeys(entryPoints) {
+			if not first:
+				sb.appendCharacter('|')
+			sb.appendString(cc)
+			first = false
+		}
+		sb.appendCharacter('>')
+		Log.error(ctx, sb.toString())
+		return -1
+	}
+	if entryPoints {
+		var handler = Map.get(entryPoints, cmd)
+		if handler {
+			var v = new vector<string>
+			var nargs = sizeof args
+			for(var n=1; n<nargs; n++):
+				v += args[n]
+			var r = -1
+			try {
+				r = handler(v)
 			}
+			catch e {
+				Log.error(ctx, Log.asString(ctx, e))
+				r = -1
+			}
+			return r
 		}
 	}
-	Log.error(ctx, "Invalid parameters")
+	Log.error(ctx, "Unsupported command: `" .. cmd .. "'")
 	return -1
 }
