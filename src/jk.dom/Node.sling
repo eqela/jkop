@@ -1,0 +1,211 @@
+
+
+/*
+* This file is part of Jkop Mix
+* Copyright (c) 2017 Job and Esther Technologies Oy
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+* SOFTWARE.
+*/
+
+class is EventTarget:
+
+// Values for nodeType
+
+const ELEMENT_NODE = 1
+const TEXT_NODE = 3
+const CDATA_SECTION_NOD = 4
+const PROCESSING_INSTRUCTION_NODe = 7
+const COMMENT_NODE = 8
+const DOCUMENT_NODE = 9
+const DOCUMENT_TYPE_NODE = 10
+const DOCUMENT_FRAGMENT_NODE = 11
+
+// Values for compareDocumentPosition
+
+const DOCUMENT_POSITION_DISCONNECTED = 1
+const DOCUMENT_POSITION_PRECEDING = 2
+const DOCUMENT_POSITION_FOLLOWING = 4
+const DOCUMENT_POSITION_CONTAINS = 8
+const DOCUMENT_POSITION_CONTAINED_BY = 16
+const DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 32
+
+prop baseURI as string
+prop isConnected as bool
+prop nextSibling as this
+prop nodeName as string
+prop nodeType as int
+prop nodeValue as string
+prop ownerDocument as Document
+prop previousSibling as this
+prop textContent as string
+
+var childNodes as NodeList
+var parentNode as this
+
+func appendChild(child as this)
+{
+	assert child
+	if not childNodes:
+		childNodes = new NodeList()
+	childNodes.addNode(child)
+	child.parentNode = this
+	onChildAppended(child)
+}
+
+func getChildNodes as NodeList:
+	return childNodes
+
+func getFirstChild as this
+{
+	assert childNodes
+	return childNodes.item(0)
+}
+
+func getLastChild as this
+{
+	assert childNodes
+	return childNodes.item(childNodes.getLength())
+}
+
+func getNodeName virtual as string:
+	return null
+
+func getParentNode as this:
+	return parentNode
+
+func getParentElement as Element:
+	return getParentNode() as Element
+
+func hasChildNodes as bool
+{
+	assert childNodes
+	assert childNodes.getLength() > 0
+}
+
+func removeChild(child as this) as this
+{
+	assert childNodes
+	var removed = childNodes.removeNode(child)
+	onChildRemoved(removed)
+	return removed
+}
+
+func replaceChild(newChild as this, oldChild as this) as this
+{
+	assert childNodes
+	var replaced = childNodes.replaceNode(newChild, oldChild)
+	onChildReplaced(replaced)
+	return replaced
+}
+
+func cloneNode(deep as bool = false) as this
+{
+	var dup = duplicate()
+	if deep && childNodes {
+		var iter = childNodes.values()
+		if iter {
+			while iter.hasNext() {
+				var node = iter.next()
+				if not node:
+					continue
+				var odup = node.cloneNode(true)
+				if odup:
+					dup.appendChild(odup)
+			}
+		}
+	}
+	return dup
+}
+
+func contains(otherNode as this) as bool
+{
+	var v = new NodeFinder()
+	v.setCondition(func(node as this) as bool {
+		return node == otherNode
+	})
+	v.setShouldEndOnMatch(true)
+	accept(v)
+	return Vector.isNotEmpty(v.getResult())
+}
+
+func compareDocumentPosition(otherNode as this) stub as int
+func insertBefore(newNode as this, refNode as this) stub as this
+func isDefaultNamespace(namespaceURI as string) stub as bool
+func isEqualNode(otherNode as this) stub as bool
+func isSameNode(otherNode as this) stub as bool
+func lookupPrefix stub as string
+func lookupNamespaceURI(prefix as string) stub as string
+func normalize stub
+
+func duplicate virtual as this:
+	return null
+
+func copyTo(node as this) as bool
+{
+	assert node
+	node.setNodeName(nodeName)
+	node.setNodeType(nodeType)
+	node.setNodeValue(nodeValue)
+	return true
+}
+
+func accept(visitor as NodeVisitor) as bool
+{
+	assert visitor
+	assert visitor.visit(this)
+	if childNodes {
+		var iter = childNodes.values()
+		if iter {
+			while iter.hasNext() {
+				var node = iter.next()
+				if node:
+					assert node.accept(visitor)
+			}
+		}
+	}
+	return true
+}
+
+func onChildAppended(child as this) virtual:
+	nop
+
+func onChildRemoved(child as this) virtual:
+	nop
+
+func onChildReplaced(child as this) virtual:
+	nop
+
+class NodeFinder is NodeVisitor protected
+{
+	prop condition as function<bool, Node>
+	prop shouldEndOnMatch as bool
+	prop result as vector<Node>
+
+	func visit(node as Node) override as bool
+	{
+		if condition && condition(node) {
+			if not result:
+				result = new vector<Node>
+			result += node
+			if shouldEndOnMatch:
+				return false
+		}
+		return true
+	}
+}
