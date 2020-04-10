@@ -23,9 +23,67 @@
  * SOFTWARE.
  */
 
-class abstract:
+import jk.ui
 
-prop followRedirects = true
-prop credentialsEnabled = false
+class:
 
-func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) abstract
+func getInstance static as this
+{
+	if not instance:
+		instance = new this()
+	return instance
+}
+
+var instance static as this
+prop screen as ScreenForWidget
+var routes private as map<string, function<Widget>>
+
+func initializeRoutes(rs as array) as bool
+{
+	assert rs
+	foreach m as map in rs {
+		var route = Map.getValue(m, "route") as string
+		var widget = Map.getValue(m, "widget") as function<Widget>
+		addRoute(route, widget)
+	}
+	return true
+}
+
+func addRoute(route as string, callback as function<Widget>)
+{
+	if not routes:
+		routes = new map<string, function<Widget>>
+	routes[route] = callback
+}
+
+func getWidget(route as string) as Widget
+{
+	var w = Map.getValue(routes, route) as function<Widget>
+	if not w:
+		w = Map.getValue(routes, "*") as function<Widget>
+	assert w
+	return w()
+}
+
+func push(route as string)
+{
+	IFDEF "target_html" {
+		var r #used = route
+		lang "js" {{{
+			window.location.hash = "#" + r;
+		}}}
+		assert screen
+		screen.onRouteChanged(r)
+	}
+}
+
+func pop
+{
+	IFDEF "target_html" {
+		lang "js" {{{
+			history.go(-1);
+		}}}
+		assert screen
+		screen.onRoutePop()
+	}
+}

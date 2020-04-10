@@ -578,6 +578,12 @@ IFDEF "target_android"
 IFDEF "target_html"
 {
 	is Screen
+
+	func onHashChanged
+	{
+		var hash = WebBrowserContext.getPageHash()
+		onRouteChanged(String.getSubString(hash, 1, String.getLength(hash)))
+	}
 }
 
 IFDEF "target_uwp"
@@ -815,11 +821,12 @@ func initialize virtual
 		HTMLDOM.setStyle(body, "overflow", "hidden")
 		lang "js" {{{
 			var myObject = this;
-			history.pushState({}, "", "#app");
 			window.onpopstate = function(event) {
 				myObject.onBackKeyPressEvent();
-				history.pushState({}, "", "#app");
 			};
+			window.onhashchange = function(event) {
+				myObject.onHashChanged();
+			}
 		}}}
 	}
 }
@@ -877,6 +884,7 @@ func setWidget(widget as ContainerWidget)
 			widget.element.screenObject = this;
 		}}}
 		Widget.addToDomElement(widget, HTMLDOM.getDocumentBody())
+		onHashChanged()
 	}
 	ELSE IFDEF "target_uwp" {
 		lang "cs" {{{
@@ -889,4 +897,21 @@ func setWidget(widget as ContainerWidget)
 		ERROR "Not implemented"
 	}
 	Widget.notifyOnAddedToScreen(widget, this)
+}
+
+func onRouteChanged(route as string)
+{
+	var r = route
+	if String.isEmpty(route):
+		r = "/"
+	var w = myWidget
+	if w is WidgetRouterListener:
+		(w as! WidgetRouterListener).onRoutePushed(r)
+}
+
+func onRoutePop
+{
+	var w = myWidget
+	if w is WidgetRouterListener:
+		(w as! WidgetRouterListener).onRoutePop()
 }
