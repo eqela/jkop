@@ -23,7 +23,7 @@
  * SOFTWARE.
  */
 
-class is LayerWidget is TitleContainerWidget is KeyListener is WidgetRouterListener #widget:
+class is LayerWidget is TitleContainerWidget is KeyListener is RouterListener #widget:
 
 func switchToContainer(widget as Widget, newWidget as Widget) static as bool
 {
@@ -90,6 +90,8 @@ var sidebarSlotLeft as LayerWidget
 var sidebarIsFixed = false
 var sidebarIsDisplayed = false
 var contentWidget as Widget
+var routes private as map<string, function<Widget>>
+prop widgetRoutingEnabled = true
 prop widgetEnableSidebar = true
 prop widgetEnableActionBar = true
 prop widgetActionBarIsFloating = false
@@ -326,11 +328,16 @@ func initializeWidget override
 	addWidget(superMainContainer)
 	sidebarWidget = createSidebarWidget()
 	updateMenuButton()
-	var main = contentWidget
-	if not main:
-		main = createMainWidget()
-	if main:
-		pushWidget(main)
+	if widgetRoutingEnabled {
+		Router.initRoute()
+	}
+	else {
+		var main = contentWidget
+		if not main:
+			main = createMainWidget()
+		if main:
+			pushWidget(main)
+	}
 }
 
 func updateWidgetTitle(title as string)
@@ -421,10 +428,36 @@ func peekWidget as Widget:
 
 func onRoutePushed(route as string)
 {
-	assert router
-	var w = assert router.getWidget(route)
+	var w = assert getWidget(route)
 	pushWidget(w)
 }
 
 func onRoutePop:
 	popWidget()
+
+func initializeRoutes(rs as array) as bool
+{
+	assert rs
+	foreach m as map in rs {
+		var route = Map.getValue(m, "route") as string
+		var widget = Map.getValue(m, "widget") as function<Widget>
+		addRoute(route, widget)
+	}
+	return true
+}
+
+func addRoute(route as string, callback as function<Widget>)
+{
+	if not routes:
+		routes = new map<string, function<Widget>>
+	routes[route] = callback
+}
+
+func getWidget(route as string) as Widget
+{
+	var w = Map.getValue(routes, route) as function<Widget>
+	if not w:
+		w = Map.getValue(routes, "*") as function<Widget>
+	assert w
+	return w()
+}

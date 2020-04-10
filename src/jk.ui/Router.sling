@@ -23,67 +23,62 @@
  * SOFTWARE.
  */
 
-import jk.ui
-
 class:
 
-func getInstance static as this
+IFDEF "target_html"
 {
-	if not instance:
-		instance = new this()
-	return instance
-}
-
-var instance static as this
-prop screen as ScreenForWidget
-var routes private as map<string, function<Widget>>
-
-func initializeRoutes(rs as array) as bool
-{
-	assert rs
-	foreach m as map in rs {
-		var route = Map.getValue(m, "route") as string
-		var widget = Map.getValue(m, "widget") as function<Widget>
-		addRoute(route, widget)
+	func onHashChanged static
+	{
+		var hash = WebBrowserContext.getPageHash()
+		var route = String.getSubString(hash, 1, String.getLength(hash) - 1)
+		if String.isEmpty(route):
+			route = "/"
+		assert listener
+		listener.onRoutePushed(route)
 	}
-	return true
 }
 
-func addRoute(route as string, callback as function<Widget>)
+var listener private static as RouterListener
+
+func forListener(l as RouterListener) static
 {
-	if not routes:
-		routes = new map<string, function<Widget>>
-	routes[route] = callback
+	assert l
+	listener = l
+	IFDEF "target_html" {
+		lang "js" {{{
+			window.onhashchange = function(event) {
+				JkUiRouter.onHashChanged();
+			}
+		}}}
+	}
 }
 
-func getWidget(route as string) as Widget
+func initRoute static
 {
-	var w = Map.getValue(routes, route) as function<Widget>
-	if not w:
-		w = Map.getValue(routes, "*") as function<Widget>
-	assert w
-	return w()
+	IFDEF "target_html" {
+		onHashChanged()
+	}
 }
 
-func push(route as string)
+func push(route as string) static
 {
 	IFDEF "target_html" {
 		var r #used = route
 		lang "js" {{{
 			window.location.hash = "#" + r;
 		}}}
-		assert screen
-		screen.onRouteChanged(r)
 	}
+	assert listener
+	listener.onRoutePushed(route)
 }
 
-func pop
+func pop static
 {
 	IFDEF "target_html" {
 		lang "js" {{{
 			history.go(-1);
 		}}}
-		assert screen
-		screen.onRoutePop()
 	}
+	assert listener
+	listener.onRoutePop()
 }
