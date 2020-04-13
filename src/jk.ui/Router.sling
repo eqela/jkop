@@ -23,9 +23,56 @@
  * SOFTWARE.
  */
 
-class abstract:
+class:
 
-prop followRedirects = true
-prop credentialsEnabled = false
+IFDEF "target_html"
+{
+	func onHashChanged static
+	{
+		var hash = WebBrowserContext.getPageHash()
+		var route = String.getSubString(hash, 1, String.getLength(hash) - 1)
+		if String.isEmpty(route):
+			route = "/"
+		assert listener
+		listener.onRouteChanged(route)
+	}
+}
 
-func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) abstract
+var listener private static as RouterListener
+
+func initialize(l as RouterListener) static
+{
+	assert l
+	listener = l
+	IFDEF "target_html" {
+		lang "js" {{{
+			window.onhashchange = function(event) {
+				JkUiRouter.onHashChanged();
+			}
+		}}}
+	}
+}
+
+func goToDefault static
+{
+	IFDEF "target_html" {
+		onHashChanged()
+	}
+	ELSE {
+		if listener:
+			listener.onRouteChanged("/")
+	}
+
+}
+
+func go(route as string) static
+{
+	IFDEF "target_html" {
+		var r #used = route
+		lang "js" {{{
+			window.location.hash = "#" + r;
+		}}}
+	}
+	assert listener
+	listener.onRouteChanged(route)
+}
