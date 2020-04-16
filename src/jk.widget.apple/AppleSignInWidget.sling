@@ -1,0 +1,144 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.lang
+import jk.ui
+import jk.widget
+
+class implements !"ASAuthorizationControllerPresentationContextProviding" implements !"ASAuthorizationControllerDelegate" #widget:
+
+basetype !"ASAuthorizationAppleIDButton" type extends
+basetype Widget type isAlso
+
+IFDEF "target_objc" {
+	depend "ldflags:-ObjC"
+	depend "objc-header-h:<AuthenticationServices/AuthenticationServices.h>"
+	depend "objc-framework:AuthenticationServices"
+	depend "objc-framework:UIKit"
+
+	lang "objc" {{{
+		- (void)authorizationController:(ASAuthorizationController *)controller didCompleteWithAuthorization:(ASAuthorization *)authorization  API_AVAILABLE(ios(13.0)){
+			if ([authorization.credential isKindOfClass:[ASAuthorizationAppleIDCredential class]]) {
+				ASAuthorizationAppleIDCredential *appleIDCredential = authorization.credential;
+				user = appleIDCredential.user;
+				familyName = appleIDCredential.fullName.familyName;
+				givenName = appleIDCredential.fullName.givenName;
+				email = appleIDCredential.email;
+				idToken = [[NSString alloc] initWithData:appleIDCredential.identityToken
+					encoding:NSUTF8StringEncoding];
+				if (idToken == nil) {
+					NSLog(@"Unable to serialize id token from data: %@", appleIDCredential.identityToken);
+				}
+			}
+			if (callback != nil) {
+				callback(self->givenName, self->familyName, self->email, self->user, self->idToken, nil);
+			}
+		}
+
+		- (void)authorizationController:(ASAuthorizationController *)controller didCompleteWithError:(NSError *)error  API_AVAILABLE(ios(13.0)){
+			JkLangError *err = nil;
+			switch (error.code) {
+				case ASAuthorizationErrorCanceled:
+					err = [JkLangError forCode:@"ASAuthorizationErrorCanceled" detail:nil];
+					break;
+				case ASAuthorizationErrorFailed:
+					err = [JkLangError forCode:@"ASAuthorizationErrorFailed" detail:nil];
+					break;
+				case ASAuthorizationErrorInvalidResponse:
+					err = [JkLangError forCode:@"ASAuthorizationErrorInvalidResponse" detail:nil];
+					break;
+				case ASAuthorizationErrorNotHandled:
+					err = [JkLangError forCode:@"ASAuthorizationErrorNotHandled" detail:nil];
+					break;
+				case ASAuthorizationErrorUnknown:
+					err = [JkLangError forCode:@"ASAuthorizationErrorUnknown" detail:nil];
+					break;
+			}
+			callback(nil, nil, nil, nil, nil, err);
+		}
+
+		- (ASPresentationAnchor)presentationAnchorForAuthorizationController:(ASAuthorizationController *)controller  API_AVAILABLE(ios(13.0)){
+			return self.window;
+		}
+
+		- (void)dealloc {
+			if (@available(iOS 13.0, *)) {
+				[[NSNotificationCenter defaultCenter] removeObserver:self name:ASAuthorizationAppleIDProviderCredentialRevokedNotification object:nil];
+			}
+		}
+	}}}
+}
+
+prop givenName as string
+prop user as string
+prop familyName as string
+prop email as string
+prop idToken as string
+
+ctor(context as GuiApplicationContext)
+{
+	this.context = context
+}
+
+var callback as function<void,string, string, string, string, string, jk.lang.Error>
+var widgetClickHandler as function
+var context as GuiApplicationContext
+
+func onWidgetClicked
+{
+	if widgetClickHandler:
+		widgetClickHandler()
+}
+
+func setWidgetClickHandler(handler as function)
+{
+	widgetClickHandler = handler
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				[self addTarget:self action:@selector(onWidgetClicked) forControlEvents:UIControlEventTouchUpInside];
+			}}}
+		}
+	}
+}
+
+func handleAuthorization(callback as function<void, string, string, string, string, string, jk.lang.Error>)
+{
+	this.callback = callback
+	IFDEF "target_ios" {
+		IFDEF "target_objc" {
+			lang "objc" {{{
+				if (@available(iOS 13.0, *)) {
+					ASAuthorizationAppleIDProvider *appleIDProvider = [ASAuthorizationAppleIDProvider new];
+					ASAuthorizationAppleIDRequest *request = appleIDProvider.createRequest;
+					request.requestedScopes = @[ASAuthorizationScopeFullName, ASAuthorizationScopeEmail];
+					ASAuthorizationController *controller = [[ASAuthorizationController alloc] initWithAuthorizationRequests:@[request]];
+					controller.delegate = self;
+					controller.presentationContextProvider = self;
+					[controller performRequests];
+				}
+			}}}
+		}
+	}
+}

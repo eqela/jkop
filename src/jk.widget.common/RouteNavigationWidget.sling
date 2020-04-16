@@ -23,9 +23,55 @@
  * SOFTWARE.
  */
 
-class abstract:
+class is NavigationFrameWidget is RouterListener #widget:
 
-prop followRedirects = true
-prop credentialsEnabled = false
+var routes private as map<string, function<Widget>>
 
-func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) abstract
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	routes = new map<string, function<Widget>>
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	Router.goToDefault()
+}
+
+func onRouteChanged(route as string)
+{
+	var w = assert getWidget(route)
+	Widget.removeChildrenOf(contentArea)
+	contentArea.addWidget(w)
+	if w is DisplayAwareWidget:
+		(w as! DisplayAwareWidget).onWidgetDisplayed()
+}
+
+func initializeRoutes(rs as array) as bool
+{
+	assert rs
+	foreach m as map in rs {
+		var route = Map.getValue(m, "route") as string
+		var widget = Map.getValue(m, "widget") as function<Widget>
+		addRoute(route, widget)
+	}
+	return true
+}
+
+func addRoute(route as string, callback as function<Widget>)
+{
+	if not routes:
+		routes = new map<string, function<Widget>>
+	routes[route] = callback
+}
+
+func getWidget(route as string) as Widget
+{
+	var w = Map.getValue(routes, route) as function<Widget>
+	if not w:
+		w = Map.getValue(routes, "*") as function<Widget>
+	assert w
+	return w()
+}
+

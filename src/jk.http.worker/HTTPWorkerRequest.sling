@@ -45,20 +45,19 @@ func parseWorkerInput
 	for(var n=0; n<nheaders; n++) {
 		var key = parser.getLengthEncodedString()
 		var val = parser.getLengthEncodedString()
-		if key {
-			if not headers:
-				headers = new KeyValueList<string,string>
-			headers.add(key, val)
-		}
+		if key:
+			addToHeaders(key, val)
 	}
 	setBody(parser.getLengthEncodedBuffer())
 }
 
 pvar method as string
 pvar path as string
-pvar headers as KeyValueList<string,string>
 pvar body as buffer
+var rawHeaders as KeyValueList<string,string>
+var headers as map<string, string>
 var url as URL
+var cookies as map<string, string>
 
 func getBodyString as string:
 	return String.forUTF8Buffer(body)
@@ -69,42 +68,44 @@ func addToHeaders(key as string, value as string)
 	var vv = value
 	if not vv:
 		vv = ""
+	if not rawHeaders:
+		rawHeaders = new KeyValueList<string,string>()
 	if not headers:
-		headers = new KeyValueList<string,string>()
-	headers.add(key, vv)
+		headers = new map<string,string>
+	rawHeaders.add(key, vv)
+	headers[String.toLowerCase(key)] = value
 }
+
+func getRawHeaders as KeyValueList<string, string>:
+	return rawHeaders
+
+func getHeaders as map<string, string>:
+	return headers
 
 func removeFromHeaders(key as string)
 {
-	assert headers
+	assert rawHeaders
 	assert key
 	var n = 0
 	var klow = String.toLowerCase(key)
-	while n < headers.count() {
-		var kk = String.toLowerCase(headers.getKey(n))
+	while n < rawHeaders.count() {
+		var kk = String.toLowerCase(rawHeaders.getKey(n))
 		if kk && kk == klow {
-			headers.remove(n)
+			rawHeaders.remove(n)
 		}
 		else {
 			n++
 		}
 	}
+	if headers:
+		Map.remove(headers, key)
 }
 
 func getHeaderValue(name as string) as string
 {
-	assert name
+	assert String.isNotEmpty(name)
 	assert headers
-	var nlow = String.toLowerCase(name)
-	var it = headers.iterate()
-	while it {
-		var vv = it.next()
-		if not vv:
-			break
-		if nlow == String.toLowerCase(vv.key):
-			return vv.value
-	}
-	return null
+	return Map.get(headers, name)
 }
 
 func getURL as URL
@@ -130,4 +131,35 @@ func getURLPath as string
 {
 	var url = assert getURL()
 	return url.getPath()
+}
+
+func getCookieValues as map<string,string>
+{
+	if not cookies  {
+		var v = new map<string, string>
+		var cvals = getHeaderValue("cookie")
+		if cvals {
+			var sp = String.split(cvals, ';')
+			foreach ck in sp {
+				ck = String.strip(ck)
+				if String.isEmpty(ck):
+					continue
+				var e = String.getIndexOfCharacter(ck, '=')
+				if e < 0 {
+					Map.set(v, ck, "")
+				}
+				else {
+					Map.set(v, String.getSubString(ck, 0, e), String.getEndOfString(ck, e + 1))
+				}
+			}
+		}
+		cookies = v
+	}
+	return cookies
+}
+
+func getCookieValue(name as string) as string
+{
+	var c = assert getCookieValues()
+	return Map.get(c, name)
 }
