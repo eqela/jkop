@@ -27,16 +27,19 @@ class is File private:
 class MyFileReader is Reader is FileReader
 {
 	prop key as string
+	var buffReader as BufferReader
 
 	func read(buffer as buffer) as int
 	{
 		var data as string
-		lang "js" {{{
-			data = window.localStorage.getItem(this.key);
-		}}}
-		var buf = String.toUTF8Buffer(data)
-		Buffer.copyFrom(buffer, buf , 0, 0, Buffer.getSize(buf))
-		return Buffer.getSize(buffer)
+		if not buffReader {
+			lang "js" {{{
+				data = window.localStorage.getItem(this.key);
+			}}}
+			var buf = String.toUTF8Buffer(data)
+			buffReader = BufferReader.forBuffer(buf)
+		}
+		return buffReader.read(buffer)
 	}
 }
 
@@ -44,22 +47,29 @@ class MyFileWriter is Writer is FileWriter
 {
 	prop key as string
 	prop isAppend as bool
+	var buffWriter as BufferWriter
 
 	func write(buf as buffer, size as int) as int
 	{
 		var v = -1
+		if not buffWriter:
+			buffWriter = new BufferWriter()
+		return buffWriter.write(buf, size)
+	}
+
+	func close
+	{
+		assert buffWriter
 		lang "js" {{{
 			if(this.isAppend == true) {
 				var data = window.localStorage.getItem(this.key);
-				var buffer = CapeBuffer.append(CapeString.toUTF8Buffer(data), buf);
+				var buffer = CapeBuffer.append(CapeString.toUTF8Buffer(data), this.buffWriter.getBuffer());
 				window.localStorage.setItem(this.key, CapeString.forUTF8Buffer(buffer));
 			}
 			else {
-				window.localStorage.setItem(this.key, CapeString.forUTF8Buffer(buf));
+				window.localStorage.setItem(this.key, this.buffWriter.getBuffer());
 			}
-			v = CapeBuffer.getSize(buf)
 		}}}
-		return v
 	}
 }
 
