@@ -1,4 +1,4 @@
-#! eqela sling-r119
+#! eqela sling-r121
 #
 # This file is part of Jkop
 # Copyright (c) 2016-2018 Job and Esther Technologies Oy
@@ -23,14 +23,14 @@
 # SOFTWARE.
 #
 
-lib scf:r119
+lib scf:r121
 import jk.fs
 import jk.lang
 import jk.script
-import scf.sling.compiler
+import scf.sling.sushi
 
 var script = new Script()
-var compiler = new SlingCompilerKit(script.ctx)
+var compiler = new SlingToSushiCompilerKit(script.ctx)
 var file = new FileKit(script.ctx)
 
 script.command("build", func(args) {
