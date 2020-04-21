@@ -23,54 +23,63 @@
  * SOFTWARE.
  */
 
+import jk.url
+
 class:
 
-func createClassInstance(qualifiedName as string) static as object
+IFDEF "target_html"
 {
-	ERROR "Not implemented."
-	// FIXME
-	return null
+	func onHashChanged static
+	{
+		var hash = WebBrowserContext.getPageHash()
+		var route = String.getSubString(hash, 1, String.getLength(hash) - 1)
+		if String.isEmpty(route):
+			route = "/"
+		var url = URL.forString(route)
+		if url:
+			route = url.getPath()
+		assert listener
+		listener.onRouteChanged(route)
+	}
 }
 
-func callMethod(object as object, methodName as string, arguments as array<dynamic>) static as dynamic
-{
-	ERROR "Not implemented."
-	// FIXME
-	return null
-}
+var listener private static as RouterListener
 
-func getDataTypeInfo(variable as dynamic) static as typeinfo:
-	return typeof variable
-
-func isSameType(primary as object, other as object) static as bool
+func initialize(l as RouterListener) static
 {
-	if primary == null && other == null:
-		return true
-	if primary == null || other == null:
-		return false
-	var ta = typeof primary
-	var tb = typeof other
-	if ta == tb:
-		return true
-	return false
-}
-
-func isInstanceOf(object as object, type as typeinfo) static as bool
-{
-	assert object
-	IFDEF "target_cs" {
-		lang "cs" {{{
-			if(type == null) {
-				return false;
+	assert l
+	listener = l
+	IFDEF "target_html" {
+		lang "js" {{{
+			window.onhashchange = function(event) {
+				JkUiRouter.onHashChanged();
 			}
 		}}}
-		return lang "cs" bool {{{ type.IsAssignableFrom(@object.GetType()) }}}
 	}
-	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _vm:is_instance_of(object, type) }}}
+}
+
+func goToDefault static
+{
+	IFDEF "target_html" {
+		onHashChanged()
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return false
+		if listener:
+			listener.onRouteChanged("/")
+	}
+
+}
+
+func go(route as string) static
+{
+	IFDEF "target_html" {
+		var r #used = route
+		lang "js" {{{
+			window.location.hash = "#" + r;
+		}}}
+	}
+	ELSE {
+		if listener:
+			listener.onRouteChanged(route)
 	}
 }

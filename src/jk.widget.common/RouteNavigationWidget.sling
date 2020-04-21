@@ -23,54 +23,55 @@
  * SOFTWARE.
  */
 
-class:
+class is NavigationFrameWidget is RouterListener #widget:
 
-func createClassInstance(qualifiedName as string) static as object
+var routes private as map<string, function<Widget>>
+
+ctor(ctx as GuiApplicationContext)
 {
-	ERROR "Not implemented."
-	// FIXME
-	return null
+	base(ctx)
+	routes = new map<string, function<Widget>>
 }
 
-func callMethod(object as object, methodName as string, arguments as array<dynamic>) static as dynamic
+func initializeWidget override
 {
-	ERROR "Not implemented."
-	// FIXME
-	return null
+	base.initializeWidget()
+	Router.goToDefault()
 }
 
-func getDataTypeInfo(variable as dynamic) static as typeinfo:
-	return typeof variable
-
-func isSameType(primary as object, other as object) static as bool
+func onRouteChanged(route as string)
 {
-	if primary == null && other == null:
-		return true
-	if primary == null || other == null:
-		return false
-	var ta = typeof primary
-	var tb = typeof other
-	if ta == tb:
-		return true
-	return false
+	var w = assert getWidget(route)
+	Widget.removeChildrenOf(contentArea)
+	contentArea.addWidget(w)
+	if w is DisplayAwareWidget:
+		(w as! DisplayAwareWidget).onWidgetDisplayed()
 }
 
-func isInstanceOf(object as object, type as typeinfo) static as bool
+func initializeRoutes(rs as array) as bool
 {
-	assert object
-	IFDEF "target_cs" {
-		lang "cs" {{{
-			if(type == null) {
-				return false;
-			}
-		}}}
-		return lang "cs" bool {{{ type.IsAssignableFrom(@object.GetType()) }}}
+	assert rs
+	foreach m as map in rs {
+		var route = Map.getValue(m, "route") as string
+		var widget = Map.getValue(m, "widget") as function<Widget>
+		addRoute(route, widget)
 	}
-	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _vm:is_instance_of(object, type) }}}
-	}
-	ELSE {
-		ERROR "Not implemented"
-		return false
-	}
+	return true
 }
+
+func addRoute(route as string, callback as function<Widget>)
+{
+	if not routes:
+		routes = new map<string, function<Widget>>
+	routes[route] = callback
+}
+
+func getWidget(route as string) as Widget
+{
+	var w = Map.getValue(routes, route) as function<Widget>
+	if not w:
+		w = Map.getValue(routes, "*") as function<Widget>
+	assert w
+	return w()
+}
+
