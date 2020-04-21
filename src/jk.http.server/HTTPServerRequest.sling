@@ -27,6 +27,8 @@ import jk.io
 import jk.url
 import jk.fs
 import jk.json
+import jk.mypacket
+import jk.http.server.cookie
 
 class is DataStreamSource:
 
@@ -160,6 +162,9 @@ func iterateHeaders as Iterator<KeyValuePair<string,string>>
 	return rawHeaders.iterate()
 }
 
+func getHeaders as map<string, string>:
+	return headers
+
 func getURL as URL
 {
 	if url == null:
@@ -270,7 +275,7 @@ func getBodyString as string
 }
 
 func getBodyJSONObject as object:
-	return JSONParser.parse(getBodyString())
+	return JSONParser.parseString(getBodyString())
 
 func getBodyJSONVector as DynamicVector:
 	return getBodyJSONObject() as DynamicVector
@@ -692,4 +697,27 @@ func startResponseWorker(worker as HTTPServerResponseWorker) as bool
 	var rs = assert startResponse(HTTPServerResponse.forOk(worker.getMimeType()))
 	worker.setSession(rs)
 	return server.startResponseWorker(worker)
+}
+
+func toMyPacket as buffer
+{
+	var builder = new MyPacketBuilder()
+	builder.appendLengthEncodedString(getMethod())
+	builder.appendLengthEncodedString(getUrlString())
+	var nheaders = 0
+	if rawHeaders:
+		nheaders = rawHeaders.count()
+	builder.appendLengthEncodedInteger(nheaders)
+	for(var n=0; n<nheaders; n++) {
+		var key = rawHeaders.getKey(n)
+		var val = rawHeaders.getValue(n)
+		if not key:
+			key = ""
+		if not val:
+			val = ""
+		builder.appendLengthEncodedString(key)
+		builder.appendLengthEncodedString(val)
+	}
+	builder.appendLengthEncodedBuffer(getBodyBuffer())
+	return builder.finalize()
 }

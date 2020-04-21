@@ -55,7 +55,7 @@ func asObject(buffer as buffer) static as BufferObject
 	return v
 }
 
-func asBuffer(obj as object) static as buffer
+func asBuffer(obj as dynamic) static as buffer
 {
 	assert obj
 	if obj is buffer:
@@ -64,6 +64,12 @@ func asBuffer(obj as object) static as buffer
 		var bo = obj as! BufferObject
 		return bo.toBuffer()
 	}
+	if obj is int:
+		return forInt32BE(obj as int)
+	if obj is long:
+		return forInt64BE(obj as long)
+	if obj is double:
+		return forDouble64BE(obj as double)
 	return null
 }
 
@@ -485,9 +491,21 @@ func getInt32BE(buffer as buffer, offset as long) static as uint32
 
 func getInt64LE(buffer as buffer, offset as long) static as uint64
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0L
+	IFDEF "target_sushi" {
+		var b1 = buffer[offset] as uint8
+		var b2 = buffer[offset+1] as uint8
+		var b3 = buffer[offset+2] as uint8
+		var b4 = buffer[offset+3] as uint8
+		var b5 = buffer[offset+4] as uint8
+		var b6 = buffer[offset+5] as uint8
+		var b7 = buffer[offset+6] as uint8
+		var b8 = buffer[offset+7] as uint8
+		return lang "lua" uint64 {{{ _util:network_bytes_to_host64(b8, b7, b6, b5, b4, b3, b2, b1) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0L
+	}
 }
 
 func getInt64BE(buffer as buffer, offset as long) static as uint64
@@ -724,6 +742,8 @@ func allocate(size as long) static as buffer:
 
 func resize(buffer as buffer, newSize as long) static as buffer
 {
+	if newSize < 1:
+		return null
 	if not buffer:
 		return allocate(newSize)
 	if sizeof buffer == newSize:
@@ -779,13 +799,12 @@ func resize(buffer as buffer, newSize as long) static as buffer
 		if buffer:
 			oldSize = sizeof buffer
 		var v = malloc newSize
-		for(var n=0; n<newSize; n++) {
-			if n < oldSize {
-				v[n] = buffer[n]
-			}
-			else {
-				v[n] = 0
-			}
+		if newSize >= oldSize {
+			if oldSize > 0:
+				copyFrom(v, buffer, 0, 0, oldSize)
+		}
+		else {
+			copyFrom(v, buffer, 0, 0, newSize)
 		}
 		return v
 	}

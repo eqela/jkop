@@ -29,6 +29,7 @@ import jk.url
 
 class:
 
+prop credentialsEnabled = false
 prop redirectionEnabled = false
 prop redirectionLimit = 5
 prop apiUrl as string
@@ -133,9 +134,14 @@ func toError(response as DynamicMap) as Error
 		return Error.forCode("noServerResponse")
 	if response.getString("status") == "error" {
 		var v = new Error()
-		v.setCode(response.getString("code"))
-		v.setMessage(response.getString("message"))
-		v.setDetail(response.getString("detail"))
+		var code = response.getString("code")
+		if String.isEmpty(code):
+			code = response.getString("error")
+		v.setCode(code)
+		var detail = response.getString("detail")
+		if String.isEmpty(detail):
+			detail = response.getString("message")
+		v.setDetail(detail)
 		return v
 	}
 	return null
@@ -182,7 +188,7 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 		var responseString = String.forUTF8Buffer(body)
 		if debugCallback:
 			debugCallback("Received response: `" .. responseString .. "'")
-		var jsonResponseBody = assert JSONParser.parse(responseString) as DynamicMap:
+		var jsonResponseBody = assert JSONParser.parseString(responseString) as DynamicMap:
 			onError(Error.forCode("invalidServerResponse"), ecb)
 		if not handleAsError(jsonResponseBody, ecb):
 			ll(jsonResponseBody)
@@ -201,7 +207,7 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 {
 	assert callback
 	assert redirectCount <= redirectionLimit:
-		onError(Error.instance("tooManyRedirections", "Too many redirections."), errorCallback)
+		onError(Error.forCode("tooManyRedirections"), errorCallback)
 	var hrs = headers
 	if not hrs {
 		hrs = new KeyValueList<string,string>()
@@ -211,6 +217,7 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 		webClient = NativeWebClient.instance()
 	assert webClient:
 		onError(Error.forCode("noWebClient"), errorCallback)
+	webClient.setCredentialsEnabled(credentialsEnabled)
 	customizeRequestHeaders(hrs)
 	var hrsf final = hrs
 	var cb final = callback
@@ -250,7 +257,7 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 			}
 		}
 		assert body && Buffer.getSize(body) > 0:
-			onError(Error.instance("failedToConnect", "Failed to connect to server. Please check your internet connection and then try again."), ecb)
+			onError(Error.forCode("failedToConnect"), ecb)
 		cb(responseHeaders, body)
 	})
 }

@@ -30,6 +30,7 @@ import jk.time
 import jk.thread
 import jk.socket
 import jk.socket.ssl
+import jk.mypacket
 
 class is MySQLDatabase:
 
@@ -143,7 +144,7 @@ class MyStatement is SQLStatement
 	func close
 	{
 		if db:
-			db.closeStatement(this)
+			db.closeStatementSync(this)
 		db = null
 		id = -1L
 		params = null
@@ -247,389 +248,6 @@ class FieldType
 	const MYSQL_TYPE_GEOMETRY = 255
 }
 
-class BufferWalker
-{
-	func forBuffer(buffer as buffer) static as this
-	{
-		var v = new this()
-		v.setBuffer(buffer)
-		return v
-	}
-
-	prop buffer as buffer
-	prop position = 0
-
-	func isValid(length as int) as bool
-	{
-		assert buffer
-		var sz = sizeof buffer
-		assert position + length <= sz
-		return true
-	}
-	
-	func skipBytes(count as int):
-		position += count
-
-	func getInt8 as int
-	{
-		assert isValid(1)
-		return buffer[position++] as int
-	}
-
-	func getFloat as float
-	{
-		assert isValid(4)
-		var bb = malloc 4
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		bb[2] = buffer[position++]
-		bb[3] = buffer[position++]
-		return Buffer.getFloatLE(bb, 0)
-	}
-
-	func getDouble as double
-	{
-		assert isValid(8)
-		var bb = malloc 8
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		bb[2] = buffer[position++]
-		bb[3] = buffer[position++]
-		bb[4] = buffer[position++]
-		bb[5] = buffer[position++]
-		bb[6] = buffer[position++]
-		bb[7] = buffer[position++]
-		return Buffer.getDoubleLE(bb, 0)
-	}
-
-	func getInt16 as int
-	{
-		assert isValid(2)
-		var bb = malloc 2
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		return Buffer.getInt16LE(bb, 0)
-	}
-
-	func getInt24 as int
-	{
-		assert isValid(3)
-		var bb = malloc 4
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		bb[2] = buffer[position++]
-		bb[3] = 0
-		return Buffer.getInt32LE(bb, 0)
-	}
-
-	func getInt32 as int
-	{
-		assert isValid(4)
-		var bb = malloc 4
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		bb[2] = buffer[position++]
-		bb[3] = buffer[position++]
-		return Buffer.getInt32LE(bb, 0)
-	}
-
-	func getInt64 as int
-	{
-		assert isValid(8)
-		var bb = malloc 8
-		bb[0] = buffer[position++]
-		bb[1] = buffer[position++]
-		bb[2] = buffer[position++]
-		bb[3] = buffer[position++]
-		bb[4] = buffer[position++]
-		bb[5] = buffer[position++]
-		bb[6] = buffer[position++]
-		bb[7] = buffer[position++]
-		return Buffer.getInt64LE(bb, 0)
-	}
-
-	func getLengthEncodedInteger as long
-	{
-		assert isValid(1)
-		var first = buffer[position]
-		if first < 0xfb {
-			position ++
-			return first as long
-		}
-		if first == 0xfc {
-			assert isValid(3)
-			position++
-			var bb = malloc 2
-			bb[0] = buffer[position++]
-			bb[1] = buffer[position++]
-			return Buffer.getInt16LE(bb, 0)
-		}
-		if first == 0xfd {
-			assert isValid(4)
-			position ++
-			var bb = malloc 4
-			bb[0] = buffer[position++]
-			bb[1] = buffer[position++]
-			bb[2] = buffer[position++]
-			bb[3] = 0x00
-			return Buffer.getInt32LE(bb, 0)
-		}
-		if first == 0xfe {
-			assert isValid(9)
-			position ++
-			var bb = malloc 8
-			bb[0] = buffer[position++]
-			bb[1] = buffer[position++]
-			bb[2] = buffer[position++]
-			bb[3] = buffer[position++]
-			bb[4] = buffer[position++]
-			bb[5] = buffer[position++]
-			bb[6] = buffer[position++]
-			bb[7] = buffer[position++]
-			return Buffer.getInt64LE(bb, 0)
-		}
-		logWarning("Invalid byte as first byte of length encoded integer: " .. String.forInteger(first))
-		return 0L
-	}
-
-	func getNullTerminatedString as string
-	{
-		assert buffer
-		var sb = new StringBuilder()
-		var sz = sizeof buffer
-		while position < sz {
-			var c = buffer[position++]
-			if c < 1:
-				break
-			sb.appendCharacter(c as char)
-		}
-		return sb.toString()
-	}
-
-	func getEofTerminatedString as string
-	{
-		assert buffer
-		var sb = new StringBuilder()
-		var sz = sizeof buffer
-		while position < sz {
-			var c = buffer[position++]
-			sb.appendCharacter(c as char)
-		}
-		return sb.toString()
-	}
-
-	func getStaticLengthString(length as int) as string
-	{
-		assert length > 0
-		assert isValid(length)
-		var sb = new StringBuilder()
-		for(var n=0; n<length; n++):
-			sb.appendCharacter(buffer[position++] as char)
-		return sb.toString()
-	}
-
-	func getLengthEncodedString as string
-	{
-		var length = getLengthEncodedInteger()
-		if length < 1:
-			return ""
-		return getStaticLengthString(length)
-	}
-	
-	func getLengthEncodedBuffer as buffer
-	{
-		var length = getLengthEncodedInteger()
-		if length < 1:
-			return null
-		return getBuffer(length)
-	}
-
-	func getBuffer(length as long) as buffer
-	{
-		assert isValid(length)
-		var v = malloc length
-		Buffer.copyFrom(v, buffer, position, 0, length)
-		position += length
-		return v
-	}
-}
-
-class PacketMaker
-{
-	var buffer as buffer
-	var position = 0
-
-	ctor
-	{
-		buffer = malloc 4
-		position = 4
-	}
-
-	func ensureAvailablesize(count as int)
-	{
-		if not buffer || sizeof buffer < position + count:
-			buffer = Buffer.resize(buffer, sizeof buffer + 1024)
-	}
-
-	func appendByte(byte as int)
-	{
-		ensureAvailablesize(1)
-		buffer[position] = byte & 0xff
-		position++
-	}
-
-	func appendMultipleBytes(byte as int, count as int)
-	{
-		assert count > 0
-		ensureAvailablesize(count)
-		for(var n=0; n<count; n++):
-			buffer[position++] = byte & 0xff
-	}
-
-	func appendBuffer(newdata as buffer)
-	{
-		assert newdata
-		var nds = sizeof newdata
-		ensureAvailablesize(nds)
-		Buffer.copyFrom(buffer, newdata, 0, position, nds)
-		position += nds
-	}
-
-	func appendInt16(number as int)
-	{
-		ensureAvailablesize(2)
-		var bb = Buffer.forInt16LE(number)
-		Buffer.copyFrom(buffer, bb, 0, position, 2)
-		position += 2
-	}
-
-	func appendInt24(number as int)
-	{
-		ensureAvailablesize(3)
-		var bb = Buffer.forInt32LE(number)
-		Buffer.copyFrom(buffer, bb, 0, position, 3)
-		position += 3
-	}
-
-	func appendInt32(number as uint32)
-	{
-		ensureAvailablesize(4)
-		var bb = Buffer.forInt32LE(number)
-		Buffer.copyFrom(buffer, bb, 0, position, 4)
-		position += 4
-	}
-
-	func appendInt64(number as uint64)
-	{
-		ensureAvailablesize(8)
-		var bb = Buffer.forInt64LE(number)
-		Buffer.copyFrom(buffer, bb, 0, position, 8)
-		position += 8
-	}
-
-	func appendDouble(number as double)
-	{
-		ensureAvailablesize(8)
-		var bb = Buffer.forDouble64LE(number)
-		Buffer.copyFrom(buffer, bb, 0, position, 8)
-		position += 8
-	}
-
-	func appendNullTerminatedString(string as string)
-	{
-		if not string {
-			appendByte(0)
-			return
-		}
-		var it = String.iterate(string)
-		while it {
-			var c = it.getNextChar()
-			if Character.isEOF(c) {
-				appendByte(0)
-				break
-			}
-			appendByte(c as int)
-		}
-	}
-
-	func appendFixedLengthString(string as string, length as int)
-	{
-		assert length > 0
-		var it = String.iterate(string)
-		for(var n=0; n<length; n++) {
-			var c = it.getNextChar()
-			if Character.isEOF(c) {
-				appendByte(0)
-			}
-			else {
-				appendByte(c as int)
-			}
-		}
-	}
-
-	func appendNonTerminatedString(string as string)
-	{
-		if not string:
-			return
-		var it = String.iterate(string)
-		while it {
-			var c = it.getNextChar()
-			if Character.isEOF(c):
-				break
-			appendByte(c as int)
-		}
-	}
-
-	func appendLengthEncodedInteger(value as long)
-	{
-		if value < 251 {
-			appendByte(value as int8)
-		}
-		else if value < 65536 {
-			appendByte(0xfc)
-			appendInt16(value)
-		}
-		else if value < 16777216 {
-			appendByte(0xfd)
-			appendInt24(value)
-		}
-		else {
-			appendByte(0xfe)
-			appendInt64(value)
-		}
-	}
-
-	func appendLengthEncodedString(value as string)
-	{
-		assert value
-		var bb = assert String.toUTF8Buffer(value)
-		var sz = sizeof bb
-		if sz > 0 {
-			appendLengthEncodedInteger(sz)
-			appendBuffer(bb)
-		}
-	}
-
-	func appendLengthEncodedBuffer(value as buffer)
-	{
-		assert value
-		var sz = sizeof value
-		if sz > 0 {
-			appendLengthEncodedInteger(sz)
-			appendBuffer(value)
-		}
-	}
-
-	func finalize(seqnum as int) as buffer
-	{
-		assert buffer
-		var v = Buffer.getSubBuffer(buffer, 0, position)
-		Buffer.copyFrom(v, Buffer.forInt32LE(sizeof v - 4), 0, 0, 4)
-		v[3] = seqnum & 0xff
-		return v
-	}
-}
-
 class ProtocolHandshake private
 {
 	prop protocolVersion as int
@@ -658,7 +276,7 @@ var password as string
 var database as string
 var sslMode as string
 var protocol as string
-var enableUTF8 as string
+var enableUTF8 = true
 var serverCapabilityFlags = 0
 var sslEnabled = false
 var overflowBuffer as buffer
@@ -669,11 +287,27 @@ func isSecureConnection as bool:
 func getMyCapabilityFlags as int
 {
 	var v = 0
-	if isSecureConnection():
+	if serverSupportsSSL():
 		v |= CapabilityFlags.CLIENT_SSL
 	v |= CapabilityFlags.CLIENT_PROTOCOL_41
 	v |= CapabilityFlags.CLIENT_SECURE_CONNECTION
 	v |= CapabilityFlags.CLIENT_PLUGIN_AUTH
+	return v
+}
+
+func createPacket as MyPacketBuilder
+{
+	var v = new MyPacketBuilder()
+	v.appendMultipleBytes(0, 4)
+	return v
+}
+
+func finalizePacket(packet as MyPacketBuilder, seqnum as int) as buffer
+{
+	assert packet
+	var v = packet.finalize()
+	Buffer.copyFrom(v, Buffer.forInt32LE(sizeof v - 4), 0, 0, 4)
+	v[3] = seqnum & 0xff
 	return v
 }
 
@@ -724,7 +358,7 @@ func getHostName(address as string) as string
 func parseProtocolHandshake(buffer as buffer) private as ProtocolHandshake
 {
 	assert buffer
-	var walker = BufferWalker.forBuffer(buffer)
+	var walker = MyPacketParser.forBuffer(buffer)
 	var v = new ProtocolHandshake()
 	v.setProtocolVersion(walker.getInt8())
 	v.setServerVersion(walker.getNullTerminatedString())
@@ -768,7 +402,7 @@ func parseOkPacket(packet as buffer) private as OkPacket
 {
 	assert packet
 	var v = new OkPacket()
-	var walker = BufferWalker.forBuffer(packet)
+	var walker = MyPacketParser.forBuffer(packet)
 	var header = walker.getInt8()
 	v.setAffectedRows(walker.getLengthEncodedInteger())
 	v.setLastInsertId(walker.getLengthEncodedInteger())
@@ -795,7 +429,7 @@ func handleAsErrorPacket(packet as buffer) private as bool
 
 func logErrorPacket(packet as buffer) private
 {
-	var walker = BufferWalker.forBuffer(packet)
+	var walker = MyPacketParser.forBuffer(packet)
 	var header = walker.getInt8()
 	var errorCode = walker.getInt16()
 	var sqlStateMarker = walker.getStaticLengthString(1)
@@ -859,7 +493,7 @@ func reconnectSync private as bool
 		logError("Authentication failed.")
 		closeSocket()
 	}
-	if not executeSync(createComInitDb(database)) {
+	if not executePacketSync(createComInitDb(database)) {
 		closeSocket()
 		return false
 	}
@@ -888,40 +522,40 @@ func onSequenceReceived(number as int)
 
 func createSSLRequest as buffer
 {
-	var pm = new PacketMaker()
+	var pm = createPacket()
 	pm.appendInt32(getMyCapabilityFlags())
 	pm.appendInt32(0xffffffff)
 	pm.appendByte(0xff)
 	pm.appendMultipleBytes(0, 23)
-	return pm.finalize(getNextSequence())
+	return finalizePacket(pm, getNextSequence())
 }
 
 func createComQuit as buffer
 {
-	var pm = new PacketMaker()
+	var pm = createPacket()
 	pm.appendByte(0x01)
-	return pm.finalize(getNextSequence())
+	return finalizePacket(pm, getNextSequence())
 }
 
 func createComInitDb(dbname as string) as buffer
 {
-	var pm = new PacketMaker()
+	var pm = createPacket()
 	pm.appendByte(0x02)
-	pm.appendNonTerminatedString(dbname)
-	return pm.finalize(getNextSequence())
+	pm.appendEofTerminatedString(dbname)
+	return finalizePacket(pm, getNextSequence())
 }
 
 func createComQuery(query as string) as buffer
 {
-	var pm = new PacketMaker()
+	var pm = createPacket()
 	pm.appendByte(0x03)
-	pm.appendNonTerminatedString(query)
-	return pm.finalize(getNextSequence())
+	pm.appendEofTerminatedString(query)
+	return finalizePacket(pm, getNextSequence())
 }
 
 func createAuthenticationPacket(authPlugin as string, authData as string, forAuthSwitch as bool = false) private as buffer
 {
-	var pm = new PacketMaker()
+	var pm = createPacket()
 	if not forAuthSwitch {
 		pm.appendInt32(getMyCapabilityFlags())
 		pm.appendInt32(0xffffffff)
@@ -989,7 +623,7 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 		logError("Unsupported authentication plugin requested by server: `" .. authPlugin .. "'")
 		return null
 	}
-	return pm.finalize(getNextSequence())
+	return finalizePacket(pm, getNextSequence())
 }
 
 func handleAuthenticationSync(authPlugin as string, authData as string, forAuthSwitch as bool = false) as bool
@@ -1000,9 +634,9 @@ func handleAuthenticationSync(authPlugin as string, authData as string, forAuthS
 	if authPlugin == "caching_sha2_password" {
 		if sizeof response == 2 && response[0] == 0x01 && response[1] == 0x04 {
 			if isSecureConnection() {
-				var pm = new PacketMaker()
+				var pm = createPacket()
 				pm.appendNullTerminatedString(password)
-				response = sendAndReceive(pm.finalize(getNextSequence()))
+				response = sendAndReceive(finalizePacket(pm, getNextSequence()))
 			}
 			else {
 				logError("Using caching_sha2_password over unsecure connection is not supported.")
@@ -1024,7 +658,7 @@ func handleAuthenticationSync(authPlugin as string, authData as string, forAuthS
 		return true
 	}
 	if response[0] == 0xfe {
-		var walker = BufferWalker.forBuffer(response)
+		var walker = MyPacketParser.forBuffer(response)
 		walker.getInt8()
 		var pluginName = walker.getNullTerminatedString()
 		var authPluginData = walker.getEofTerminatedString()
@@ -1148,7 +782,7 @@ func sendAndReceive(packet as buffer) as buffer
 	return receivePacketDataSync()
 }
 
-func executeSync(packet as buffer) as bool
+func executePacketSync(packet as buffer) as bool
 {
 	var result = assert sendAndReceive(packet)
 	if isOkPacket(result) {
@@ -1173,7 +807,7 @@ func closeSocket private
 	}
 }
 
-func close override
+func closeSync override
 {
 	connectionState = ConnectionState.DISCONNECTING
 	sendAndReceive(createComQuit())
@@ -1208,18 +842,18 @@ func receiveColumnsSync(numColumns as long) private as vector<ColumnDefinition>
 	return columns
 }
 
-func prepare(sql as string) override as SQLStatement
+func prepareSync(sql as string) override as SQLStatement
 {
 	assert String.isNotEmpty(sql):
 		logWarning("Empty string given as statement to prepare")
-	var prep = new PacketMaker()
+	var prep = createPacket()
 	prep.appendByte(0x16)
-	prep.appendNonTerminatedString(sql)
+	prep.appendEofTerminatedString(sql)
 	logDebug("Preparing query: `" .. sql .. "'")
-	var prepresp = sendAndReceive(prep.finalize(getNextSequence()))
+	var prepresp = sendAndReceive(finalizePacket(prep, getNextSequence()))
 	if handleAsErrorPacket(prepresp):
 		return null
-	var walker = BufferWalker.forBuffer(prepresp)
+	var walker = MyPacketParser.forBuffer(prepresp)
 	var status = walker.getInt8()
 	if status != 0 {
 		logError("Prepare statement returned non-zero status")
@@ -1277,7 +911,7 @@ class ColumnDefinition private
 func parseColumnDefinition(packet as buffer) private as ColumnDefinition
 {
 	assert packet
-	var walker = BufferWalker.forBuffer(packet)
+	var walker = MyPacketParser.forBuffer(packet)
 	var v = new ColumnDefinition()
 	v.setCatalog(walker.getLengthEncodedString())
 	v.setSchema(walker.getLengthEncodedString())
@@ -1476,7 +1110,7 @@ class ExecuteStatementSyncResponse private
 	}
 }
 
-func execute(stmt as SQLStatement) override as bool
+func executeSync(stmt as SQLStatement) override as bool
 {
 	var v = assert executeStatementSync(stmt):
 		return false
@@ -1484,7 +1118,7 @@ func execute(stmt as SQLStatement) override as bool
 	return v.getStatus()
 }
 
-func executeUpdateDelete(stmt as SQLStatement) override as int
+func executeUpdateDeleteSync(stmt as SQLStatement) override as int
 {
 	var v = assert executeStatementSync(stmt):
 		return 0
@@ -1492,22 +1126,22 @@ func executeUpdateDelete(stmt as SQLStatement) override as int
 	return v.getAffectedRows()
 }
 
-func query(stmt as SQLStatement) override as SQLResultSetIterator
+func querySync(stmt as SQLStatement) override as SQLResultSetIterator
 {
 	var v = assert executeStatementSync(stmt):
 		return null
 	return v.getResults()
 }
 
-func closeStatement(statement as MyStatement) private
+func closeStatementSync(statement as MyStatement) private
 {
 	assert statement
 	var id = statement.getId()
 	logDebug("Closing statement " .. String.forLongInteger(id))
-	var close = new PacketMaker()
+	var close = createPacket()
 	close.appendByte(0x19)
 	close.appendInt32(id)
-	sendSync(close.finalize(getNextSequence()))
+	sendSync(finalizePacket(close, getNextSequence()))
 }
 
 func resetStatement(statement as MyStatement) private as bool
@@ -1515,10 +1149,10 @@ func resetStatement(statement as MyStatement) private as bool
 	assert statement
 	var id = statement.getId()
 	logDebug("Resetting statement " .. String.forLongInteger(id))
-	var close = new PacketMaker()
+	var close = createPacket()
 	close.appendByte(0x1A)
 	close.appendInt32(id)
-	var resp = sendAndReceive(close.finalize(getNextSequence()))
+	var resp = sendAndReceive(finalizePacket(close, getNextSequence()))
 	if handleAsErrorPacket(resp):
 		return false
 	if isOkPacket(resp) {
@@ -1548,7 +1182,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 {
 	assert packet:
 		logWarning("Null packet given to parseRecord")
-	var walker = BufferWalker.forBuffer(packet)
+	var walker = MyPacketParser.forBuffer(packet)
 	assert walker.getInt8() == 0x00:
 		logWarning("Record buffer has invalid header")
 	var columnCount = Vector.getSize(columns)
@@ -1707,11 +1341,11 @@ func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) pr
 		logWarning("null statement given to fetchNext")
 	var statementId = statement.getId()
 	logDebug("Fetching next record for statement " .. String.forLongInteger(statementId))
-	var req = new PacketMaker()
+	var req = createPacket()
 	req.appendByte(0x1c)
 	req.appendInt32(statementId)
 	req.appendInt32(1)
-	sendSync(req.finalize(getNextSequence()))
+	sendSync(finalizePacket(req, getNextSequence()))
 	var v as vector<object>
 	loop {
 		var resp = receivePacketDataSync()
@@ -1735,7 +1369,7 @@ func executeStatementSync(stmt as SQLStatement) private as ExecuteStatementSyncR
 		logError("Invalid statement object given to executeStatementSync")
 	var statementId = ms.getId()
 	logDebug("Executing prepared statement with id " .. String.forLongInteger(statementId))
-	var xx = new PacketMaker()
+	var xx = createPacket()
 	xx.appendByte(0x17)
 	xx.appendInt32(statementId)
 	xx.appendByte(0x01)
@@ -1814,7 +1448,7 @@ func executeStatementSync(stmt as SQLStatement) private as ExecuteStatementSyncR
 			}
 		}
 	}
-	var execresp = sendAndReceive(xx.finalize(getNextSequence()))
+	var execresp = sendAndReceive(finalizePacket(xx, getNextSequence()))
 	var v as ExecuteStatementSyncResponse
 	if handleAsErrorPacket(execresp) {
 		v = null
@@ -1830,7 +1464,7 @@ func executeStatementSync(stmt as SQLStatement) private as ExecuteStatementSyncR
 		}
 	}
 	else {
-		var walker = BufferWalker.forBuffer(execresp)
+		var walker = MyPacketParser.forBuffer(execresp)
 		var numColumns = walker.getLengthEncodedInteger()
 		var columns = receiveColumnsSync(numColumns)
 		var rs = new SyncFetchResultSet()
@@ -1845,7 +1479,7 @@ func executeStatementSync(stmt as SQLStatement) private as ExecuteStatementSyncR
 func close(callback as function) override
 {
 	// FIXME: Make truly asynchronous
-	close()
+	closeSync()
 	if callback:
 		callback()
 }
@@ -1853,7 +1487,7 @@ func close(callback as function) override
 func execute(stmt as SQLStatement, callback as function<void, bool>) override
 {
 	// FIXME: Make truly asynchronous
-	var v = execute(stmt)
+	var v = executeSync(stmt)
 	if callback:
 		callback(v)
 }
@@ -1861,7 +1495,7 @@ func execute(stmt as SQLStatement, callback as function<void, bool>) override
 func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override
 {
 	// FIXME: Make truly asynchronous
-	var v = executeUpdateDelete(stmt)
+	var v = executeUpdateDeleteSync(stmt)
 	if callback:
 		callback(v)
 }
@@ -1869,7 +1503,7 @@ func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) 
 func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override
 {
 	// FIXME: Make truly asynchronous
-	var v = query(stmt)
+	var v = querySync(stmt)
 	if callback:
 		callback(v)
 }
@@ -1877,7 +1511,7 @@ func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator
 func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override
 {
 	// FIXME: Make truly asynchronous
-	var v = querySingleRow(stmt)
+	var v = querySingleRowSync(stmt)
 	if callback:
 		callback(v)
 }

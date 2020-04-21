@@ -177,3 +177,26 @@ func send(msg as SMTPMessage, listener as SMTPSenderListener = null)
 	}
 	onSendStart()
 }
+
+func sendSync(msg as SMTPMessage) as SMTPClientResult
+{
+	if not msg:
+		return SMTPClientResult.forError("No message was given to SMTPClientTask", msg)
+	if maxSenderCount > 0 && senderCount > maxSenderCount {
+		Log.warning(ctx, "Reached maximum sender count " .. String.forInteger(maxSenderCount))
+		return SMTPClientResult.forError("Maximum number of SMTP senders has been exceeded.")
+	}
+	if String.isNotEmpty(myName):
+		msg.setMyName(myName)
+	if String.isNotEmpty(myAddress):
+		msg.setMyAddress(myAddress)
+	var sct = new SMTPClientTask()
+	if String.isEmpty(server) == false:
+		sct.setServer(URL.forString(server))
+	onSendStart()
+	var r = SMTPClient.sendMessage(msg, URL.forString(server), thisServerAddress, ctx, acceptInvalidCertificate)
+	if not r:
+		r = SMTPClientResult.forError("Unknown error", msg)
+	onSendEnd()
+	return r
+}
