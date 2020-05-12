@@ -60,27 +60,38 @@ IFDEF "target_android"
 
 IFDEF "target_ios_objc"
 {
-	extend !"UIWebView"
-	implement !"UIWebViewDelegate"
+	depend "objc-header-h:<WebKit/WebKit.h>"
+	extend !"WKWebView"
+	implement !"WKNavigationDelegate"
 	isAlso Widget
 
 	lang "objc" {{{
-		- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType
-		{
-			return(![self overrideWidgetUrlLoading:[[request URL] absoluteString]]);
+		- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+			if(navigationAction.navigationType == WKNavigationTypeLinkActivated) {
+				decisionHandler(WKNavigationActionPolicyCancel);
+			} else {
+				decisionHandler(WKNavigationActionPolicyAllow);
+			}
+			[self overrideWidgetUrlLoading:[[[navigationAction request] URL] absoluteString]];
 		}
 	}}}
 }
 
 IFDEF "target_swift"
 {
-	extend !"UIWebView"
-	implement !"UIWebViewDelegate"
+	depend "objc-header-h:<WebKit/WebKit.h>"
+	extend !"WKWebView"
+	implement !"WKNavigationDelegate"
 	isAlso Widget
 
 	lang "swift" {{{
-		func webView(_ webView: UIWebView, shouldStartLoadWith request: URLRequest, navigationType: UIWebView.NavigationType) -> Bool {
-			return self.overrideWidgetUrlLoading(request.url!.absoluteString)
+		func func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+			if(navigationAction.navigationType == WKNavigationTypeLinkActivated) {
+				decisionHandler(WKNavigationActionPolicyCancel);
+			} else {
+				decisionHandler(WKNavigationActionPolicyAllow);
+			}
+			self.overrideWidgetUrlLoading(navigationAction.request.url!.absoluteString);
 		}
 	}}}
 }
@@ -125,7 +136,7 @@ ctor(context as GuiApplicationContext)
 	}
 	IFDEF "target_ios_objc" {
 		lang "objc" {{{
-			[self setDelegate:self];
+			[self setNavigationDelegate:self];
 		}}}
 	}
 	IFDEF "target_swift" {
@@ -192,7 +203,7 @@ func updateWidgetContent private
 		}
 		ELSE IFDEF "target_swift" {
 			lang "swift" {{{
-				self.loadRequest(URLRequest(url: URL(string: url!)!))
+				self.load(URLRequest(url: URL(string: url!)!))
 			}}}
 		}
 		ELSE IFDEF "target_html" {
