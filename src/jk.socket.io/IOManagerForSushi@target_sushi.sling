@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,13 +25,14 @@
 
 import jk.log
 import jk.io
+import jk.posix
 
 class is IOManager:
 
 class MyEntry is IOManagerEntry
 {
-	prop mgrfd as object
-	prop fd as int
+	pvar mgrfd as object
+	pvar fd as int
 	var objref = 0
 	var rrl as function
 	var wrl as function
@@ -60,26 +61,26 @@ class MyEntry is IOManagerEntry
 			wrl()
 	}
 
-	func setListeners(rrl as function, wrl as function)
+	func setListeners(rrl as function, wrl as function) as bool
 	{
 		this.rrl = rrl
 		this.wrl = wrl
-		update()
+		return update()
 	}
 
-	func setReadListener(rrl as function)
+	func setReadListener(rrl as function) as bool
 	{
 		this.rrl = rrl
-		update()
+		return update()
 	}
 
-	func setWriteListener(wrl as function)
+	func setWriteListener(wrl as function) as bool
 	{
 		this.wrl = wrl
-		update()
+		return update()
 	}
 
-	func update
+	func update as bool
 	{
 		var mgrfd = this.mgrfd
 		var fd = this.fd
@@ -94,15 +95,18 @@ class MyEntry is IOManagerEntry
 		else if rrl {
 			mode = 0
 		}
+		var v = true
 		if mode < 0 {
-			remove()
+			v = remove()
 		}
 		else {
 			if objref > 0 {
 				var objref = this.objref
-				lang "lua" {{{
+				var r = lang "lua" int {{{
 					_net:update_io_listener(mgrfd, fd, mode, objref)
 				}}}
+				if r != 0:
+					v = false
 			}
 			else {
 				var objref = 0
@@ -110,20 +114,26 @@ class MyEntry is IOManagerEntry
 					objref = _net:register_io_listener(mgrfd, fd, mode, myself)
 				}}}
 				this.objref = objref
+				if objref < 1:
+					v = false
 			}
 		}
+		return v
 	}
 
-	func remove
+	func remove as bool
 	{
 		assert objref > 0
 		var mgrfd = this.mgrfd
 		var fd = this.fd
 		var objref = this.objref
-		lang "lua" {{{
+		var r = lang "lua" int {{{
 			_net:remove_io_listener(mgrfd, fd, objref)
 		}}}
 		this.objref = 0
+		if r != 0:
+			return false
+		return true
 	}
 }
 
@@ -131,21 +141,21 @@ var exitflag as bool
 var running = false
 var mgrfd as object = null
 
-ctor
-{
-	mgrfd = lang "lua" int {{{ _net:create_io_manager() }}}
-}
+ctor:
+	mgrfd = lang "lua" object {{{ _net:create_io_manager() }}}
 
-dtor
-{
+dtor:
 	close()
-}
 
 func close
 {
-	lang "lua" {{{
-		_net:close_io_manager()
-	}}}
+	var mgrfd = this.mgrfd
+	if mgrfd {
+		lang "lua" {{{
+			_net:close_io_manager(mgrfd)
+		}}}
+		mgrfd = null
+	}
 }
 
 func doExecute(ctx as LoggingContext) override as bool
@@ -156,20 +166,28 @@ func doExecute(ctx as LoggingContext) override as bool
 	exitflag = false
 	running = true
 	Log.debug(ctx, VALUE "__THIS__" .. " started")
+	var trap2 = PosixSignal.trapSignal(PosixSignal.SIGINT, true)
+	var trap15 = PosixSignal.trapSignal(PosixSignal.SIGTERM, true)
 	while exitflag == false {
-		lang "lua" {{{
-			_net:execute_io_manager(mgrfd, -1)
-		}}}
+		var r = lang "lua" int {{{ _net:execute_io_manager(mgrfd, -1) }}}
+		if r < 0 {
+			Log.error(ctx, "_net:execute_io_manager returned error status " .. String.forInteger(r) .. ". Exiting loop.")
+			break
+		}
+		if PosixSignal.checkSignalState(PosixSignal.SIGINT) || PosixSignal.checkSignalState(PosixSignal.SIGTERM) {
+			Log.debug(ctx, "Signal received. Exiting IOManager.")
+			break
+		}
 	}
 	running = false
 	Log.debug(ctx, VALUE "__THIS__" .. " ended")
+	PosixSignal.trapSignal(PosixSignal.SIGINT, trap2)
+	PosixSignal.trapSignal(PosixSignal.SIGTERM, trap15)
 	return true
 }
 
-func stop override
-{
+func stop override:
 	exitflag = true
-}
 
 func isRunning as bool:
 	return running
@@ -184,4 +202,10 @@ func add(o as object) override as IOManagerEntry
 	v.setMgrfd(mgrfd)
 	v.setFd(fd)
 	return v
+}
+
+func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer
+{
+	ERROR "Not implemented"
+	return null
 }

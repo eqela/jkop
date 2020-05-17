@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,7 +27,7 @@ class is IOManager private:
 
 depend "dll:Mono.Posix.dll"
 
-prop epollfd = -1
+pvar epollfd = -1
 var exitflag as bool
 var running = false
 var commpipewritefd = -1
@@ -36,8 +36,8 @@ var writelist as vector<IOManagerEntry> = null
 
 class MyEntry is IOManagerEntry is FileDescriptor
 {
-	prop fdObject as FileDescriptor
-	prop master as parent
+	pvar fdObject as FileDescriptor
+	pvar master as parent
 	var rrl as function
 	var wrl as function
 	var added = false
@@ -63,32 +63,33 @@ class MyEntry is IOManagerEntry is FileDescriptor
 			wrl()
 	}
 
-	func setListeners(rrl as function, wrl as function)
+	func setListeners(rrl as function, wrl as function) as bool
 	{
 		this.rrl = rrl
 		this.wrl = wrl
-		update()
+		return update()
 	}
 
-	func setReadListener(rrl as function)
+	func setReadListener(rrl as function) as bool
 	{
 		this.rrl = rrl
-		update()
+		return update()
 	}
 
-	func setWriteListener(wrl as function)
+	func setWriteListener(wrl as function) as bool
 	{
 		this.wrl = wrl
-		update()
+		return update()
 	}
 
-	func update
+	func update as bool
 	{
 		remove()
 		if fdObject == null || master == null:
-			return
+			return false
 		if rrl == null && wrl == null:
-			return
+			return true
+		var v = true
 		var fd #used = getFileDescriptor()
 		var epollfd #used = master.getEpollfd()
 		lang "cs" {{{
@@ -99,6 +100,7 @@ class MyEntry is IOManagerEntry is FileDescriptor
 			if(Mono.Unix.Native.Syscall.epoll_ctl(epollfd, Mono.Unix.Native.EpollOp.EPOLL_CTL_ADD, fd, ref ev) == -1) {
 		}}}
 		println "IOManagerMonoEpoll: Failed to add to epoll"
+		v = false
 		lang "cs" {{{
 				added = false;
 			}
@@ -112,18 +114,21 @@ class MyEntry is IOManagerEntry is FileDescriptor
 			if wrl != null:
 				Vector.append(master.writelist, this)
 		}
+		return v
 	}
 
-	func remove
+	func remove as bool
 	{
 		if added == false || fdObject == null || master == null:
-			return
+			return false
 		var fd #used = getFileDescriptor()
 		var epollfd #used = master.getEpollfd()
+		var v = true
 		lang "cs" {{{
 			if(Mono.Unix.Native.Syscall.epoll_ctl(epollfd, Mono.Unix.Native.EpollOp.EPOLL_CTL_DEL, fd, 0) == -1) {
 		}}}
 		println "IOManagerMonoEpoll: Failed to delete from epoll"
+		v = false
 		lang "cs" {{{
 			}
 			else {
@@ -132,6 +137,7 @@ class MyEntry is IOManagerEntry is FileDescriptor
 		}}}
 		Vector.removeValue(master.readlist, this)
 		Vector.removeValue(master.writelist, this)
+		return v
 	}
 }
 

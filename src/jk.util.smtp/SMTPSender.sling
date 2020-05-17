@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -54,13 +54,13 @@ func forServerAddress(name as string, ctx as LoggingContext) static as this:
 func forConfiguration(config as DynamicMap, ctx as LoggingContext = null) static as this:
 	return new this().setCtx(ctx).configure(config)
 
-prop thisServerAddress as string
-prop server as string
-prop myName as string
-prop myAddress as string
-prop ctx as LoggingContext
-prop maxSenderCount = 0
-prop acceptInvalidCertificate = false
+pvar thisServerAddress as string
+pvar server as string
+pvar myName as string
+pvar myAddress as string
+pvar ctx as LoggingContext
+pvar maxSenderCount = 0
+pvar acceptInvalidCertificate = false
 var serverInternal as string
 var senderCount = 0
 
@@ -176,4 +176,27 @@ func send(msg as SMTPMessage, listener as SMTPSenderListener = null)
 		return
 	}
 	onSendStart()
+}
+
+func sendSync(msg as SMTPMessage) as SMTPClientResult
+{
+	if not msg:
+		return SMTPClientResult.forError("No message was given to SMTPClientTask", msg)
+	if maxSenderCount > 0 && senderCount > maxSenderCount {
+		Log.warning(ctx, "Reached maximum sender count " .. String.forInteger(maxSenderCount))
+		return SMTPClientResult.forError("Maximum number of SMTP senders has been exceeded.")
+	}
+	if String.isNotEmpty(myName):
+		msg.setMyName(myName)
+	if String.isNotEmpty(myAddress):
+		msg.setMyAddress(myAddress)
+	var sct = new SMTPClientTask()
+	if String.isEmpty(server) == false:
+		sct.setServer(URL.forString(server))
+	onSendStart()
+	var r = SMTPClient.sendMessage(msg, URL.forString(server), thisServerAddress, ctx, acceptInvalidCertificate)
+	if not r:
+		r = SMTPClientResult.forError("Unknown error", msg)
+	onSendEnd()
+	return r
 }

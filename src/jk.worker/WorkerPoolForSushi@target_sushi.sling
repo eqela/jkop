@@ -1,0 +1,151 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2020 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.log
+import jk.thread
+import jk.socket.io
+
+class is WorkerPool:
+
+class MyTask
+{
+	pvar worker as string
+	pvar input as buffer
+	pvar handler as function<void,buffer,int>
+}
+
+var queue = new Queue<MyTask>
+var workers = new Stack<SushiThread>
+var createdWorkers = 0
+
+func getWorker as SushiThread
+{
+	var v = workers.pop()
+	if not v {
+		if createdWorkers < maxWorkers {
+			v = SushiThread.forThisProgram()
+			v.setReuseInterpreter(true)
+			createdWorkers ++
+			Log.debug(getCtx(), "Created a new worker. createdWorkers=" .. String.forInteger(createdWorkers) .. ", maxWorkers=" .. String.forInteger(maxWorkers))
+		}
+	}
+	else {
+			Log.debug(getCtx(), "Reused a worker. createdWorkers=" .. String.forInteger(createdWorkers) .. ", maxWorkers=" .. String.forInteger(maxWorkers))
+	}
+	return v
+}
+
+func onWorkerDone(worker as SushiThread)
+{
+	Log.debug(getCtx(), "Worker done. createdWorkers=" .. String.forInteger(createdWorkers) .. ", workersInStack=" ..
+		String.forInteger(workers.getSize()) .. ", queueSize=" .. String.forInteger(queue.getSize()))
+	loop {
+		var task = queue.pop()
+		if not task:
+			break
+		Log.debug(getCtx(), "Reusing worker to execute a task from queue. queueSize=" .. String.forInteger(queue.getSize()))
+		var v = executeWorkerWithThread(worker, task.getWorker(), task.getInput(), task.getHandler())
+		if v:
+			return
+		
+		Log.debug(getCtx(), "Failed to start queued task.")
+	}
+	workers.push(worker)
+	Log.debug(getCtx(), "Released a worker. createdWorkers=" .. String.forInteger(createdWorkers) .. ", workersInStack=" .. String.forInteger(workers.getSize()))
+}
+
+func executeWorker(workertype as typeinfo, input as buffer, handler as function<void,buffer,int>) as bool
+{
+	assert workertype
+	var typename = lang "lua" string {{{ workertype }}}
+	assert String.startsWith(typename, "class:")
+	typename = String.getEndOfString(typename, 6)
+	assert String.isNotEmpty(typename)
+	var code = "_g." .. typename .. "._construct0(_g." .. typename .. "._create()):run()"
+	var thread = getWorker()
+	if not thread {
+		if queue.getSize() >= maxQueue {
+			Log.error(ctx, "Worker pool ran out of threads and queue is full. Rejecting task.")
+			if handler:
+				handler(null, 0)
+			return false
+		}
+		var t = new MyTask()
+		t.setWorker(code)
+		t.setInput(input)
+		t.setHandler(handler)
+		queue.push(t)
+		Log.debug(getCtx(), "Added a task to queue. queueSize=" .. String.forInteger(queue.getSize()))
+		return true
+	}
+	var v = executeWorkerWithThread(thread, code, input, handler)
+	if not v:
+		onWorkerDone(thread)
+	return v
+}
+
+func executeWorkerWithThread(thread as SushiThread, worker as string, input as buffer, handler as function<void,buffer,int>) private as bool
+{
+	var iomgr = assert IOManager.getCurrent() {
+		Log.error(getCtx(), "There is no current IO manager. Unable to execute workers.")
+		if handler:
+			handler(null, 0)
+	}
+	var reader = assert thread.startPiped(worker, input) {
+		Log.error(getCtx(), "Failed to start piped sushi thread.")
+		if handler:
+			handler(null, 0)
+	}
+	var ee = assert iomgr.add(reader) {
+		Log.error(getCtx(), "Failed to register reader with IO manager.")
+		if reader is Closable:
+			(reader as! Closable).close()
+		if handler:
+			handler(null, 0)
+	}
+	var buffer = malloc 65536
+	var v = ee.setReadListener(func {
+		var r = reader.read(buffer)
+		if r < 1 {
+			if handler:
+				handler(null, 0)
+			ee.remove()
+			if reader is Closable:
+				(reader as! Closable).close()
+			onWorkerDone(thread)
+		}
+		else if handler {
+			handler(buffer, r)
+		}
+	})
+	if not v {
+		Log.error(getCtx(), "Failed to set read listener for new thread pipe")
+		if handler:
+			handler(null, 0)
+	}
+	return v
+}

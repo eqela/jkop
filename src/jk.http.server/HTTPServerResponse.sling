@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -29,8 +29,28 @@ import jk.mime
 import jk.time.format
 import jk.md5
 import jk.json
+import jk.mypacket
+import jk.http.server.cookie
 
 class:
+
+func forMyPacket(packet as buffer) static as this
+{
+	assert packet
+	var parser = MyPacketParser.forBuffer(packet)
+	var v = new this()
+	v.setStatus(parser.getLengthEncodedString())
+	var nheaders = parser.getLengthEncodedInteger()
+	for(var n=0; n<nheaders; n++) {
+		var key = parser.getLengthEncodedString()
+		var val = parser.getLengthEncodedString()
+		if not key:
+			key = ""
+		v.addHeader(key, val)
+	}
+	v.setBody(parser.getLengthEncodedBuffer())
+	return v
+}
 
 func parseBuffer(data as buffer) static as this
 {
@@ -135,14 +155,14 @@ func forFile(file as File, maxCachedSize as int = -1) static as this
 	var bodyset = false
 	var resp = new this()
 	resp.setStatus("200")
-	resp.addHeader("Content-Type", MimeTypeRegistry.typeForFile(file))
+	resp.addHeader("Content-Type", MimeTypeRegistry.getSharedInstance().getTypeForFile(file))
 	var st = file.stat()
 	if st {
 		var lm = st.getModifyTimeUTC()
 		if lm > 0 {
 			var dts = VerboseDateTimeString.forDateTime(DateTime.forSeconds(lm))
 			resp.addHeader("Last-Modified", dts)
-			resp.setETag(MD5Encoder.encode(dts))
+			resp.setETag(MD5Encoder.encodeString(dts))
 		}
 		var mcs = maxCachedSize
 		if mcs < 0:
@@ -373,8 +393,8 @@ func forException(e as exception) static as this
 	return v
 }
 
-prop headers as KeyValueList<string,string>
-prop message as string
+pvar headers as KeyValueList<string,string>
+pvar message as string
 var status as string
 var statusIsOk = false
 var body as Reader

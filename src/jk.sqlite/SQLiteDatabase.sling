@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -107,9 +107,9 @@ func initialize(file as File, create as bool) virtual as bool:
 ** SQLStatement class.
 **
 
-func querySingleRow(stmt as SQLStatement) override as DynamicMap
+func querySingleRowSync(stmt as SQLStatement) override as DynamicMap
 {
-	var it = assert query(stmt)
+	var it = assert querySync(stmt)
 	var v as DynamicMap #force = it.next()
 	return v
 }
@@ -119,12 +119,12 @@ func querySingleRow(stmt as SQLStatement) override as DynamicMap
 ** supplied table name exists in the database.
 **
 
-func tableExists(table as string) override as bool
+func tableExistsSync(table as string) override as bool
 {
 	assert table
-	var stmt = assert prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?;")
+	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table' AND name=?;")
 	stmt.addParamString(table)
-	var sr = assert querySingleRow(stmt)
+	var sr = assert querySingleRowSync(stmt)
 	assert String.equals(table, sr.getString("name"))
 	return true
 }
@@ -137,7 +137,7 @@ func tableExists(table as string) override as bool
 
 func queryAllTableNames(callback as function<void, vector>) override
 {
-	var v = queryAllTableNames()
+	var v = queryAllTableNamesSync()
 	if callback:
 		callback(v)
 }
@@ -146,10 +146,10 @@ func queryAllTableNames(callback as function<void, vector>) override
 ** Returns a list of all table names in the database as vector object.
 **
 
-func queryAllTableNames override as vector
+func queryAllTableNamesSync override as vector
 {
-	var stmt = assert prepare("SELECT name FROM sqlite_master WHERE type='table';")
-	var it = assert query(stmt)
+	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table';")
+	var it = assert querySync(stmt)
 	var v = new vector
 	loop {
 		var o = it.next()
@@ -215,7 +215,7 @@ func columnToCreateString(cc as SQLTableColumnInfo) virtual as string
 ** column.
 **
 
-func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
 {
 	assert table
 	assert columns
@@ -232,7 +232,7 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 		first = false
 	}
 	sb.appendString(" );")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
 **
@@ -240,14 +240,14 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 ** with the supplied table name.
 **
 
-func prepareDeleteTableStatement(table as string) override as SQLStatement
+func prepareDeleteTableStatementSync(table as string) override as SQLStatement
 {
 	assert table
 	var sb = new StringBuilder()
 	sb.appendString("DROP TABLE ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
 **
@@ -257,7 +257,7 @@ func prepareDeleteTableStatement(table as string) override as SQLStatement
 ** indicates if it is a unique index.
 **
 
-func prepareCreateIndexStatement(table as string, column as string, unique as bool) override as SQLStatement
+func prepareCreateIndexStatementSync(table as string, column as string, unique as bool) override as SQLStatement
 {
 	assert table
 	assert column
@@ -265,7 +265,7 @@ func prepareCreateIndexStatement(table as string, column as string, unique as bo
 	if unique:
 		unq = "UNIQUE "
 	var sql = "CREATE " .. unq .. "INDEX " .. table .. "_" .. column .. " ON " .. table .. " (" .. column .. ")"
-	return prepare(sql)
+	return prepareSync(sql)
 }
 
 **
@@ -273,15 +273,15 @@ func prepareCreateIndexStatement(table as string, column as string, unique as bo
 ** integer with the supplied table name.
 **
 
-func getLastInsertId(table as string) override as long
+func getLastInsertIdSync(table as string) override as long
 {
-	var v = assert querySingleRow(prepare("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
+	var v = assert querySingleRowSync(prepareSync("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
 	return v.getLongInteger("id")
 }
 
-func getIdentityColumnName(table as string) stub override as string
-func getPrimaryKeyColumnName(table as string) stub override as string
-func columnExists(table as string, name as string) stub override as bool
-func isColumnTypeSame(table as string, column as SQLTableColumnInfo) stub override as bool
-func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
-func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
+func getIdentityColumnNameSync(table as string) stub override as string
+func getPrimaryKeyColumnNameSync(table as string) stub override as string
+func columnExistsSync(table as string, name as string) stub override as bool
+func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) stub override as bool
+func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
+func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement

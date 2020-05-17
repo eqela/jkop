@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,39 +28,27 @@ import jk.io
 
 class:
 
-var myInstance static as this
+var sharedInstance private static as this
 
-func instance static as this
+func getSharedInstance static as this
 {
-	if not myInstance:
-		myInstance = new this()
-	return myInstance
+	if not sharedInstance:
+		sharedInstance = new this()
+	return sharedInstance
 }
 
-func typeForFile(f as File) static as string #deprecated:
-	return determineTypeForFile(f)
-
-func determineTypeForFile(f as File) static as string
-{
-	if not f:
-		return "application/unknown"
-	var mtr = instance()
-	var v = mtr.getMimeType(f.getBasename())
-	if String.isEmpty(v):
-		return "application/unknown"
-	return v
-}
-
-func determineExtensionForMimeType(mimeType as string) static as string:
-	return instance().getExtension(mimeType)
-
-var htMime private static as map<string,string> = null
-var htExt private static as map<string,string> = null
+var htMime private as map<string,string> = null
+var htExt private as map<string,string> = null
 
 ctor
 {
 	htMime = new map<string,string>
 	htExt = new map<string,string>
+	addBuiltinTypes()
+}
+
+func addBuiltinTypes virtual
+{
 	add("*.cpp", "text/x-c++src")
 	add("*.ogm", "video/x-ogm+ogg")
 	add("*.epsf", "image/x-eps")
@@ -862,6 +850,19 @@ ctor
 	add("*.sbt", "application/x-scala-sbt")
 }
 
+func getTypeForExtension(ext as string) as string
+{
+	assert ext
+	return Map.get(htMime, String.toLowerCase(ext))
+}
+
+func getTypeForFile(f as File) as string
+{
+	if not f:
+		return "application/unknown"
+	return getMimeType(f.getBasename())
+}
+
 func getMimeType(str as string) as string
 {
 	var v as string = null
@@ -874,7 +875,7 @@ func getMimeType(str as string) as string
 		if String.isEmpty(v):
 			v = Map.get(htMime, String.toLowerCase(str))
 	}
-	if v == null || String.getLength(v) < 1:
+	if String.isEmpty(v):
 		v = "application/unknown"
 	return v
 }

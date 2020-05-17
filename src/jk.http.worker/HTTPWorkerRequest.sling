@@ -1,0 +1,165 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2020 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.worker
+import jk.mypacket
+import jk.url
+
+class:
+
+func instance static as this
+{
+	var v = new this()
+	v.parseWorkerInput()
+	return v
+}
+
+func parseWorkerInput
+{
+	var parser = MyPacketParser.forBuffer(Worker.getInputBuffer())
+	setMethod(parser.getLengthEncodedString())
+	setPath(parser.getLengthEncodedString())
+	var nheaders = parser.getLengthEncodedInteger()
+	for(var n=0; n<nheaders; n++) {
+		var key = parser.getLengthEncodedString()
+		var val = parser.getLengthEncodedString()
+		if key:
+			addToHeaders(key, val)
+	}
+	setBody(parser.getLengthEncodedBuffer())
+}
+
+pvar method as string
+pvar path as string
+pvar body as buffer
+var rawHeaders as KeyValueList<string,string>
+var headers as map<string, string>
+var url as URL
+var cookies as map<string, string>
+
+func getBodyString as string:
+	return String.forUTF8Buffer(body)
+
+func addToHeaders(key as string, value as string)
+{
+	assert key
+	var vv = value
+	if not vv:
+		vv = ""
+	if not rawHeaders:
+		rawHeaders = new KeyValueList<string,string>()
+	if not headers:
+		headers = new map<string,string>
+	rawHeaders.add(key, vv)
+	headers[String.toLowerCase(key)] = value
+}
+
+func getRawHeaders as KeyValueList<string, string>:
+	return rawHeaders
+
+func getHeaders as map<string, string>:
+	return headers
+
+func removeFromHeaders(key as string)
+{
+	assert rawHeaders
+	assert key
+	var n = 0
+	var klow = String.toLowerCase(key)
+	while n < rawHeaders.count() {
+		var kk = String.toLowerCase(rawHeaders.getKey(n))
+		if kk && kk == klow {
+			rawHeaders.remove(n)
+		}
+		else {
+			n++
+		}
+	}
+	if headers:
+		Map.remove(headers, key)
+}
+
+func getHeaderValue(name as string) as string
+{
+	assert String.isNotEmpty(name)
+	assert headers
+	return Map.get(headers, name)
+}
+
+func getURL as URL
+{
+	if not url:
+		url = URL.forString(path, true)
+	return url
+}
+
+func getQueryParameters as map<string,string>
+{
+	var url = assert getURL()
+	return url.getQueryParameters()
+}
+
+func getQueryParameter(key as string) as string
+{
+	var url = assert getURL()
+	return url.getQueryParameter(key)
+}
+
+func getURLPath as string
+{
+	var url = assert getURL()
+	return url.getPath()
+}
+
+func getCookieValues as map<string,string>
+{
+	if not cookies  {
+		var v = new map<string, string>
+		var cvals = getHeaderValue("cookie")
+		if cvals {
+			var sp = String.split(cvals, ';')
+			foreach ck in sp {
+				ck = String.strip(ck)
+				if String.isEmpty(ck):
+					continue
+				var e = String.getIndexOfCharacter(ck, '=')
+				if e < 0 {
+					Map.set(v, ck, "")
+				}
+				else {
+					Map.set(v, String.getSubString(ck, 0, e), String.getEndOfString(ck, e + 1))
+				}
+			}
+		}
+		cookies = v
+	}
+	return cookies
+}
+
+func getCookieValue(name as string) as string
+{
+	var c = assert getCookieValues()
+	return Map.get(c, name)
+}

@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -336,7 +336,6 @@ class SHA
 	{
 		assert input
 		var inputBitLength = Buffer.getSize(input) * 8
-		var len = Buffer.getSize(input) / 32
 		var newBuf = Buffer.resize(input, Buffer.getSize(input) + 1)
 		Buffer.setByte(newBuf, Buffer.getSize(newBuf) - 1, 0x80)
 		var mod = (inputBitLength % blockBitSize) as int
@@ -348,8 +347,11 @@ class SHA
 			else {
 				bitsToAppend = (blockBitSize + block64 - mod - 1) as int
 			}
-			var nbuf = malloc (bitsToAppend - 7) / 8
-			newBuf = Buffer.resize(newBuf, Buffer.getSize(nbuf) + Buffer.getSize(newBuf))
+			var osz = Buffer.getSize(newBuf)
+			var asz = (bitsToAppend - 7) / 8
+			newBuf = Buffer.resize(newBuf, osz + asz)
+			for(var n=0; n<asz; n++):
+				newBuf[osz+n] = 0
 		}
 		else {
 			if mod < block128 {
@@ -358,27 +360,22 @@ class SHA
 			else {
 				bitsToAppend = (blockBitSize + block128 - mod - 1) as int
 			}
-			var nbuf = malloc ((bitsToAppend - 7) + 64) / 8
-			newBuf = Buffer.resize(newBuf, Buffer.getSize(nbuf) + Buffer.getSize(newBuf))
+			var osz = Buffer.getSize(newBuf)
+			var asz = ((bitsToAppend - 7) + 64) / 8
+			newBuf = Buffer.resize(newBuf, osz + asz)
+			for(var n=0; n<asz; n++):
+				newBuf[osz+n] = 0
 		}
-		var p1 = (((inputBitLength as uint64) & 0xFF00000000000000) >> 56) as uint8
-		var p2 = (((inputBitLength as uint64) & 0x00FF000000000000) >> 48) as uint8
-		var p3 = (((inputBitLength as uint64) & 0x0000FF0000000000) >> 40) as uint8
-		var p4 = (((inputBitLength as uint64) & 0x000000FF00000000) >> 32) as uint8
-		var p5 = (((inputBitLength as uint64) & 0x00000000FF000000) >> 24) as uint8
-		var p6 = (((inputBitLength as uint64) & 0x0000000000FF0000) >> 16) as uint8
-		var p7 = (((inputBitLength as uint64) & 0x000000000000FF00) >> 8) as uint8
-		var p8 = ((inputBitLength as uint64) & 0x00000000000000FF) as uint8
 		newBuf = Buffer.resize(newBuf, Buffer.getSize(newBuf) + 8)
 		var sz = Buffer.getSize(newBuf) as int
-		newBuf[sz - 8] = p1
-		newBuf[sz - 7] = p2
-		newBuf[sz - 6] = p3
-		newBuf[sz - 5] = p4
-		newBuf[sz - 4] = p5
-		newBuf[sz - 3] = p6
-		newBuf[sz - 2] = (p7 + len) as uint8
-		newBuf[sz - 1] = p8
+		newBuf[sz - 8] = (((inputBitLength as uint64) & 0xFF00000000000000) >> 56) as uint8
+		newBuf[sz - 7] = (((inputBitLength as uint64) & 0x00FF000000000000) >> 48) as uint8
+		newBuf[sz - 6] = (((inputBitLength as uint64) & 0x0000FF0000000000) >> 40) as uint8
+		newBuf[sz - 5] = (((inputBitLength as uint64) & 0x000000FF00000000) >> 32) as uint8
+		newBuf[sz - 4] = (((inputBitLength as uint64) & 0x00000000FF000000) >> 24) as uint8
+		newBuf[sz - 3] = (((inputBitLength as uint64) & 0x0000000000FF0000) >> 16) as uint8
+		newBuf[sz - 2] = (((inputBitLength as uint64) & 0x000000000000FF00) >> 8) as uint8
+		newBuf[sz - 1] = ((inputBitLength as uint64) & 0x00000000000000FF) as uint8
 		return newBuf
 	}
 
@@ -394,11 +391,11 @@ class SHA
 	}
 
 	func rotateRight32(num as uint32, cnt as int) as uint32:
-		return forUint32(num >> cnt) | forUint32(num << (32 - cnt)) as uint32
+		return forUint32(forUint32(num) >> cnt) | forUint32(forUint32(num) << (32 - cnt))
 
 	func rotateRight64(num as uint64, cnt as int) as uint64:
 		return ((num >> cnt) | (num << (64 - cnt))) as uint64
 
 	func rotateLeft(num as uint32, cnt as int) as uint32:
-		return forUint32(num << cnt) | forUint32(num >> (32 - cnt)) as uint32
+		return forUint32(forUint32(num) << cnt) | forUint32(forUint32(num) >> (32 - cnt)) as uint32
 }

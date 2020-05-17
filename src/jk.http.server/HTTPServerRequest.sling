@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,6 +27,8 @@ import jk.io
 import jk.url
 import jk.fs
 import jk.json
+import jk.mypacket
+import jk.http.server.cookie
 
 class is DataStreamSource:
 
@@ -40,18 +42,18 @@ func forDetails(method as string, url as string, version as string, headers as K
 	return v
 }
 
-prop method as string
-prop urlString as string
-prop version as string
+pvar method as string
+pvar urlString as string
+pvar version as string
 var rawHeaders as KeyValueList<string,string>
 var headers as map<string,string>
 var url as URL
-prop connection as HTTPServerConnection
-prop server as HTTPServerBase
-prop data as object
-prop session as object
+pvar connection as HTTPServerConnection
+pvar server as HTTPServerBase
+pvar data as object
+pvar session as object
 var cookies as map<string,string>
-prop bodyBuffer as buffer
+pvar bodyBuffer as buffer
 var bodyString as string
 var postParameters as map<string,string>
 var resources as vector<string>
@@ -159,6 +161,9 @@ func iterateHeaders as Iterator<KeyValuePair<string,string>>
 	assert rawHeaders
 	return rawHeaders.iterate()
 }
+
+func getHeaders as map<string, string>:
+	return headers
 
 func getURL as URL
 {
@@ -270,7 +275,7 @@ func getBodyString as string
 }
 
 func getBodyJSONObject as object:
-	return JSONParser.parse(getBodyString())
+	return JSONParser.parseString(getBodyString())
 
 func getBodyJSONVector as DynamicVector:
 	return getBodyJSONObject() as DynamicVector
@@ -692,4 +697,27 @@ func startResponseWorker(worker as HTTPServerResponseWorker) as bool
 	var rs = assert startResponse(HTTPServerResponse.forOk(worker.getMimeType()))
 	worker.setSession(rs)
 	return server.startResponseWorker(worker)
+}
+
+func toMyPacket as buffer
+{
+	var builder = new MyPacketBuilder()
+	builder.appendLengthEncodedString(getMethod())
+	builder.appendLengthEncodedString(getUrlString())
+	var nheaders = 0
+	if rawHeaders:
+		nheaders = rawHeaders.count()
+	builder.appendLengthEncodedInteger(nheaders)
+	for(var n=0; n<nheaders; n++) {
+		var key = rawHeaders.getKey(n)
+		var val = rawHeaders.getValue(n)
+		if not key:
+			key = ""
+		if not val:
+			val = ""
+		builder.appendLengthEncodedString(key)
+		builder.appendLengthEncodedString(val)
+	}
+	builder.appendLengthEncodedBuffer(getBodyBuffer())
+	return builder.finalize()
 }

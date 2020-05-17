@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -39,7 +39,7 @@ const PROTOCOL_UNIX = "unix"
 const PROTOCOL_PIPE = "pipe"
 const PROCOL_MEMORY = "memory"
 
-prop databaseName as string
+pvar databaseName as string
 
 func instance private static as this
 {
@@ -51,7 +51,7 @@ func instance private static as this
 	}
 }
 
-func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
+func forConnectionStringSync(ctx as LoggingContext, connectionString as string) static as this
 {
 	assert String.isNotEmpty(connectionString):
 		Log.error(ctx, "Empty connection string given to MySQLDatabase")
@@ -80,15 +80,15 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 			enableUTF8 = true
 		}
 	}
-	return connect(ctx, address, username, password, database, sslMode, enableUTF8)
+	return connectSync(ctx, address, username, password, database, sslMode, enableUTF8)
 }
 
-func connect(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, enableUTF8 as bool) static as this
+func connectSync(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, enableUTF8 as bool) static as this
 {
 	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database) && String.isNotEmpty(sslMode)
 	var v = assert instance()
 	v.setLogger(ctx)
-	assert v.initialize(serverAddress, username, password, database, sslMode, PROTOCOL_SOCKET, enableUTF8)
+	assert v.initializeSync(serverAddress, username, password, database, sslMode, PROTOCOL_SOCKET, enableUTF8)
 	return v
 }
 
@@ -108,14 +108,14 @@ func forConfig(logContext as LoggingContext, config as DynamicMap) static as thi
 		protocol = PROTOCOL_SOCKET
 	var v = assert instance()
 	v.setLogger(logContext)
-	assert v.initialize(serverAddress, username, password, database, sslMode, protocol, enableUTF8)
+	assert v.initializeSync(serverAddress, username, password, database, sslMode, protocol, enableUTF8)
 	return v
 }
 
 func getDatabaseTypeId override as string:
 	return "mysql"
 
-func initialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) virtual as bool
+func initializeSync(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) virtual as bool
 {
 	logDebug("MySQLDatabase: Connecting to database host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', sslMode=`" .. sslMode .. "', protocol=`" .. protocol .. "'")
 	assert doInitialize(serverAddress, username, password, database, sslMode, protocol, enableUTF8)
@@ -126,21 +126,21 @@ func initialize(serverAddress as string, username as string, password as string,
 func doInitialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) virtual as bool:
 	return true
 
-func querySingleRow(stmt as SQLStatement) override as DynamicMap
+func querySingleRowSync(stmt as SQLStatement) override as DynamicMap
 {
-	var it = assert query(stmt)
+	var it = assert querySync(stmt)
 	var v as DynamicMap #force = it.next()
 	it.close()
 	return v
 }
 
-func tableExists(table as string) override as bool
+func tableExistsSync(table as string) override as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
-	var sr = assert querySingleRow(stmt)
+	var sr = assert querySingleRowSync(stmt)
 	return String.equalsIgnoreCase(table, sr.getString("TABLE_NAME"))
 }
 
@@ -148,7 +148,7 @@ func tableExists(table as string, callback as function<void, bool>) override
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName):
 		callback(false)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;"):
+	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;"):
 		callback(false)
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
@@ -161,9 +161,8 @@ func tableExists(table as string, callback as function<void, bool>) override
 
 func queryAllTableNames(callback as function<void, vector>) override
 {
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;") {
+	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;"):
 		callback(null)
-	}
 	stmt.addParamString(databaseName)
 	query(stmt, func(it as SQLResultSetIterator) {
 		assert it {
@@ -180,12 +179,12 @@ func queryAllTableNames(callback as function<void, vector>) override
 	})
 }
 
-func queryAllTableNames override as vector
+func queryAllTableNamesSync override as vector
 {
 	assert String.isNotEmpty(databaseName)
-	var stmt = assert prepare("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
+	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
 	stmt.addParamString(databaseName)
-	var it = assert query(stmt)
+	var it = assert querySync(stmt)
 	var v = new vector
 	loop {
 		var vv = it.next()
@@ -246,7 +245,7 @@ func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as
 	return "UNKNOWN"
 }
 
-func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
 {
 	assert String.isNotEmpty(table) && columns
 	var sb = new StringBuilder()
@@ -262,80 +261,80 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 		first = false
 	}
 	sb.appendString(" );")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
-func prepareDeleteTableStatement(table as string) override as SQLStatement
+func prepareDeleteTableStatementSync(table as string) override as SQLStatement
 {
 	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.appendString("DROP TABLE ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepare(sb.toString())
+	return prepareSync(sb.toString())
 }
 
-func prepareCreateIndexStatement(table as string, column as string, unique as bool) override as SQLStatement
+func prepareCreateIndexStatementSync(table as string, column as string, unique as bool) override as SQLStatement
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var unq = ""
 	if unique:
 		unq = "UNIQUE "
 	var sql = "CREATE " .. unq .. "INDEX " .. table .. "_" .. column .. " ON " .. table .. " (" .. column .. ")"
-	return prepare(sql)
+	return prepareSync(sql)
 }
 
-func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) override as SQLStatement
+func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) override as SQLStatement
 {
 	assert String.isNotEmpty(table) && column
 	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName())
-	return prepare(sql)
+	return prepareSync(sql)
 }
 
-func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) override as SQLStatement
+func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) override as SQLStatement
 {
 	assert String.isNotEmpty(table) && column
 	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.getName() .. " " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName(), true)
-	return prepare(sql)
+	return prepareSync(sql)
 }
 
-func getLastInsertId(table as string) override as long
+func getLastInsertIdSync(table as string) override as long
 {
 	// FIXME: Parameter table is ignored.
-	var v = assert querySingleRow(prepare("SELECT LAST_INSERT_ID() AS id;"))
+	var v = assert querySingleRowSync(prepareSync("SELECT LAST_INSERT_ID() AS id;"))
 	return v.getLongInteger("id")
 }
 
-func getPrimaryKeyColumnName(table as string) override as string
+func getPrimaryKeyColumnNameSync(table as string) override as string
 {
-	var v = assert querySingleRow(prepare("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
+	var v = assert querySingleRowSync(prepareSync("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
 	return v.getString("COLUMN_NAME")
 }
 
-func getIdentityColumnName(table as string) override as string
+func getIdentityColumnNameSync(table as string) override as string
 {
-	var v = assert querySingleRow(prepare("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
+	var v = assert querySingleRowSync(prepareSync("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
 	return v.getString("COLUMN_NAME")
 }
 
-func columnExists(table as string, column as string) override as bool
+func columnExistsSync(table as string, column as string) override as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && String.isNotEmpty(column)
-	var stmt = assert prepare("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = assert prepareSync("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	stmt.addParamString(column)
-	var sr = assert querySingleRow(stmt)
+	var sr = assert querySingleRowSync(stmt)
 	return String.equalsIgnoreCase(column, sr.getString("COLUMN_NAME"))
 }
 
-func isColumnTypeSame(table as string, column as SQLTableColumnInfo) override as bool
+func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) override as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && column
-	var stmt = assert prepare("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = assert prepareSync("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	stmt.addParamString(column.getName())
-	var sr = assert querySingleRow(stmt)
+	var sr = assert querySingleRowSync(stmt)
 	return String.equalsIgnoreCase(prepareTypeAsString(column.getType(), column.getName(), true), sr.getString("COLUMN_TYPE"))
 }

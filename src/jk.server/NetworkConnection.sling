@@ -2,7 +2,7 @@
 /*
  * This file is part of Jkop
  * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2019 Eqela Oy
+ * Copyright (c) 2018-2020 Eqela Oy
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,7 +30,7 @@ import jk.time
 
 class abstract:
 
-prop storageIndex as int
+pvar storageIndex as int
 var ioEntry as IOManagerEntry
 var id as long
 var logContext protected as LoggingContext
@@ -40,7 +40,7 @@ var lastActivity protected as long
 var remoteAddress as string
 var currentListenMode = -1
 var manager as NetworkConnectionManager
-prop defaultListenMode = 1
+pvar defaultListenMode = 1
 
 ctor:
 	id = idcounter ++
@@ -109,12 +109,14 @@ func doInitialize(logContext as LoggingContext, socket as ConnectedSocket, manag
 func getIoEntry as IOManagerEntry:
 	return ioEntry
 
-func setIoEntry(entry as IOManagerEntry)
+func setIoEntry(entry as IOManagerEntry) as bool
 {
+	var v = false
 	this.ioEntry = entry
 	this.currentListenMode = -1
 	if entry:
-		setListenMode(getDefaultListenMode())
+		v = setListenMode(getDefaultListenMode())
+	return v
 }
 
 func sendData(data as buffer, size as int) as int
@@ -174,39 +176,43 @@ func onWriteReady virtual
 {
 }
 
-func enableIdleMode:
-	setListenMode(0)
+func enableIdleMode as bool:
+	return setListenMode(0)
 
-func enableReadMode:
-	setListenMode(1)
+func enableReadMode as bool:
+	return setListenMode(1)
 
-func enableWriteMode:
-	setListenMode(2)
+func enableWriteMode as bool:
+	return setListenMode(2)
 
-func enableReadWriteMode:
-	setListenMode(3)
+func enableReadWriteMode as bool:
+	return setListenMode(3)
 
-func setListenMode(n as int) private
+func setListenMode(n as int) private as bool
 {
 	if ioEntry == null {
 		defaultListenMode = n
-		return
+		return true
 	}
 	if n == currentListenMode:
-		return
+		return true
 	currentListenMode = n
+	var v = false
 	if n == 0 {
-		ioEntry.setListeners(null, null)
+		v = ioEntry.setListeners(null, null)
 	}
 	else if n == 1 {
-		ioEntry.setListeners(onReadReady, null)
+		v = ioEntry.setListeners(onReadReady, null)
 	}
 	else if n == 2 {
-		ioEntry.setListeners(null, onWriteReady)
+		v = ioEntry.setListeners(null, onWriteReady)
 	}
 	else if n == 3 {
-		ioEntry.setListeners(onReadReady, onWriteReady)
+		v = ioEntry.setListeners(onReadReady, onWriteReady)
 	}
+	if not v:
+		Log.error(logContext, "Failed to set socket listening mode to " .. String.forInteger(n))
+	return v
 }
 
 func onOpened abstract

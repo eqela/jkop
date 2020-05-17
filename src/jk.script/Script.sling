@@ -1,0 +1,131 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ * Copyright (c) 2018-2020 Eqela Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.console
+
+class:
+
+var entryPoints as map<string,function<int,vector<string>>>
+
+var ctx public as LoggingContext
+
+ctor:
+	ctx = new ConsoleApplicationContext()
+
+func print(message as dynamic):
+	println String.asString(message)
+
+func status(message as dynamic):
+	Log.status(ctx, String.asString(message))
+
+func debug(message as dynamic):
+	Log.debug(ctx, String.asString(message))
+
+func info(message as dynamic):
+	Log.info(ctx, String.asString(message))
+
+func warning(message as dynamic):
+	Log.warning(ctx, String.asString(message))
+
+func error(message as dynamic):
+	throw ExceptionWithString.forString(String.asString(message), false)
+
+func initialize virtual:
+	nop
+
+func requireParameter(args as array<string>, index as int, name as string) as string
+{
+	var v as string
+	if args && index < sizeof args:
+		v = args[index]
+	if String.isEmpty(v):
+		error("Missing parameter: <" .. name .. ">")
+	return v
+}
+
+func executeFunction(script as function) as int
+{
+	assert script
+	initialize()
+	try {
+		script()
+	}
+	catch e {
+		Log.error(ctx, Log.asString(ctx, e))
+		return 1
+	}
+	return 0
+}
+
+func command(name as dynamic, handler as function<int,vector<string>>)
+{
+	var sname = assert String.asString(name)
+	if not entryPoints:
+		entryPoints = new map<string,function<void,vector<string>>>
+	entryPoints[sname] = handler
+}
+
+func main(args as array<string>) virtual as int
+{
+	initialize()
+	var cmd as string
+	if args && sizeof args > 0:
+		cmd = args[0]
+	if String.isEmpty(cmd) {
+		var sb = new StringBuilder()
+		sb.appendString("Missing command parameter: <")
+		var first = true
+		foreach cc in Map.getKeys(entryPoints) {
+			if not first:
+				sb.appendCharacter('|')
+			sb.appendString(cc)
+			first = false
+		}
+		sb.appendCharacter('>')
+		Log.error(ctx, sb.toString())
+		return -1
+	}
+	if entryPoints {
+		var handler = Map.get(entryPoints, cmd)
+		if handler {
+			var v = new vector<string>
+			var nargs = sizeof args
+			for(var n=1; n<nargs; n++):
+				v += args[n]
+			var r = -1
+			try {
+				r = handler(v)
+			}
+			catch e {
+				Log.error(ctx, Log.asString(ctx, e))
+				r = -1
+			}
+			return r
+		}
+	}
+	Log.error(ctx, "Unsupported command: `" .. cmd .. "'")
+	return -1
+}
