@@ -34,6 +34,7 @@ prop serverName as string
 prop enableCaching = true
 prop allowCORS = true
 prop workerThreadLimit = 32
+prop workerThreadPool as ThreadPool
 var cache as ContentCache
 var timeoutTimer as IOManagerTimer
 var maintenanceTimer as IOManagerTimer
@@ -41,6 +42,7 @@ var maintenanceTimer as IOManagerTimer
 ctor
 {
 	setPort(8080)
+	workerThreadPool = ThreadPool.forMaxPoolSize(workerThreadLimit)
 	setServerName(VALUE "sling_project_title" .. "/" .. VALUE "sling_project_version")
 }
 
@@ -184,12 +186,10 @@ func startResponse(connection as HTTPServerConnection, req as HTTPServerRequest,
 
 class WorkerThread is Runnable
 {
-	var workerThreadCount static public = 0
 	prop worker as HTTPServerResponseWorker
 
 	func run
 	{
-		workerThreadCount ++
 		assert worker
 		worker.onStart()
 		loop {
@@ -197,7 +197,6 @@ class WorkerThread is Runnable
 				break
 		}
 		worker.onEnd()
-		workerThreadCount --
 	}
 }
 
@@ -205,13 +204,14 @@ func startResponseWorker(worker as HTTPServerResponseWorker) as bool
 {
 	assert worker
 	worker.setContext(logContext)
-	if WorkerThread.workerThreadCount + 1 > workerThreadLimit {
-		Log.error(logContext, "Trying to start a response worker, but worker thread limit " .. String.forInteger(workerThreadLimit) .. " has been exceeded! Aborting the worker.")
+	if not workerThreadPool {
+		Log.error(logContext, "Trying to start a response worker, but no thread pool has been initialized")
 		worker.abort()
 		return fail
 	}
-	Log.debug(logContext, VALUE "__THIS__" .. ": Starting a new worker thread. We now have " .. String.forInteger(WorkerThread.workerThreadCount+1) .. " thread(s).")
-	return Thread.start(new WorkerThread().setWorker(worker)) != null
+	workerThreadPool.submit(new WorkerThread().setWorker(worker))
+	Log.debug(logContext, VALUE "__THIS__" .. ": Starting a new worker thread. We now have " .. String.forInteger(workerThreadPool.getRunningThreadsCount()) .. " thread(s).")
+	return true
 }
 
 func onRequestComplete(request as HTTPServerRequest, resp as HTTPServerResponse, bytesSent as int, remoteAddress as string) virtual
