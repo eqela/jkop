@@ -25,6 +25,11 @@
 
 class is GuiApplicationContext is AndroidApplicationContext:
 
+IFDEF "target_android" {
+	depend "androidPermission:android.permission.WAKE_LOCK"
+	depend "androidPermission:android.permission.CALL_PHONE"
+}
+
 func forActivityContext(ctx as !"android.content.Context") static as this
 {
 	var v = new this()
@@ -34,6 +39,7 @@ func forActivityContext(ctx as !"android.content.Context") static as this
 }
 
 pvar activityContext as !"android.content.Context"
+var wakelock as !"android.os.PowerManager.WakeLock"
 
 func getAndroidActivityContext as !"android.content.Context":
 	return activityContext
@@ -448,6 +454,37 @@ func startTimer(timeout as long, callback as function) override
 	w.setCallback(callback)
 	w.setTimeout(timeout)
 	w.execute()
+}
+
+func enableKeepAwakeMode override
+{
+	assert activityContext
+	IFDEF "target_java" {
+		var androidContext final = activityContext
+		requestPermissions(new string[] { "android.permission.WAKE_LOCK" }, func(granted as bool) {
+			if not granted {
+				showErrorDialog("Wake lock not allowed")
+				return
+			}
+			lang "java" {{{
+				android.os.PowerManager pm = (android.os.PowerManager)androidContext.getSystemService(android.content.Context.POWER_SERVICE);
+				wakelock = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "jkop:My_App");
+				wakelock.acquire();
+			}}}
+		})
+	}
+}
+
+func disableKeepAwakeMode override
+{
+	IFDEF "target_java" {
+		lang "java" {{{
+			if(wakelock != null) {
+				wakelock.release();
+				wakelock = null;
+			}
+		}}}
+	}
 }
 
 func printDeviceInfo:
