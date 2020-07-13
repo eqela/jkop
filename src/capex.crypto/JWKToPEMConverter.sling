@@ -1,0 +1,135 @@
+class:
+
+func jwkToPem(dm as DynamicMap) static as string
+{
+	var str as string
+	var n = Base64Decoder.fromUrlSafeFormat(dm.getString("n"))
+	var e = Base64Decoder.fromUrlSafeFormat(dm.getString("e"))
+	lang "cs" {{{
+		System.Security.Cryptography.RSAParameters rsaParams = new System.Security.Cryptography.RSAParameters();
+		rsaParams.Modulus = System.Convert.FromBase64String(n);
+		rsaParams.Exponent = System.Convert.FromBase64String(e);
+		using(System.Security.Cryptography.RSACryptoServiceProvider rsa = new System.Security.Cryptography.RSACryptoServiceProvider()) {
+			rsa.ImportParameters(rsaParams);
+			str = ExportPublicKey(rsa);
+		}
+	}}}
+	return str
+}
+
+IFDEF "target_cs" {
+	lang "cs" {{{
+		private static System.String ExportPublicKey(System.Security.Cryptography.RSACryptoServiceProvider csp)
+		{
+			var parameters = csp.ExportParameters(false);
+			System.IO.TextWriter outputStream = new System.IO.StringWriter();
+			using (var stream = new System.IO.MemoryStream())
+			{
+				var writer = new System.IO.BinaryWriter(stream);
+				writer.Write((byte)0x30); // SEQUENCE
+				using (var innerStream = new System.IO.MemoryStream())
+				{
+					var innerWriter = new System.IO.BinaryWriter(innerStream);
+					innerWriter.Write((byte)0x30); // SEQUENCE
+					EncodeLength(innerWriter, 13);
+					innerWriter.Write((byte)0x06); // OBJECT IDENTIFIER
+					var rsaEncryptionOid = new byte[] { 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01 };
+					EncodeLength(innerWriter, rsaEncryptionOid.Length);
+					innerWriter.Write(rsaEncryptionOid);
+					innerWriter.Write((byte)0x05); // NULL
+					EncodeLength(innerWriter, 0);
+					innerWriter.Write((byte)0x03); // BIT STRING
+					using (var bitStringStream = new System.IO.MemoryStream())
+					{
+						var bitStringWriter = new System.IO.BinaryWriter(bitStringStream);
+						bitStringWriter.Write((byte)0x00); // # of unused bits
+						bitStringWriter.Write((byte)0x30); // SEQUENCE
+						using (var paramsStream = new System.IO.MemoryStream())
+						{
+							var paramsWriter = new System.IO.BinaryWriter(paramsStream);
+							EncodeIntegerBigEndian(paramsWriter, parameters.Modulus); // Modulus
+							EncodeIntegerBigEndian(paramsWriter, parameters.Exponent); // Exponent
+							var paramsLength = (int)paramsStream.Length;
+							EncodeLength(bitStringWriter, paramsLength);
+							bitStringWriter.Write(paramsStream.GetBuffer(), 0, paramsLength);
+						}
+						var bitStringLength = (int)bitStringStream.Length;
+						EncodeLength(innerWriter, bitStringLength);
+						innerWriter.Write(bitStringStream.GetBuffer(), 0, bitStringLength);
+					}
+					var length = (int)innerStream.Length;
+					EncodeLength(writer, length);
+					writer.Write(innerStream.GetBuffer(), 0, length);
+				}
+
+				var base64 = System.Convert.ToBase64String(stream.GetBuffer(), 0, (int)stream.Length).ToCharArray();
+				outputStream.WriteLine("-----BEGIN PUBLIC KEY-----");
+				for (var i = 0; i < base64.Length; i += 64)
+				{
+					outputStream.WriteLine(base64, i, System.Math.Min(64, base64.Length - i));
+				}
+				outputStream.WriteLine("-----END PUBLIC KEY-----");
+				return outputStream.ToString();
+			}
+		}
+
+		private static void EncodeLength(System.IO.BinaryWriter stream, int length)
+		{
+			if (length < 0) throw new System.ArgumentOutOfRangeException("length", "Length must be non-negative");
+			if (length < 0x80)
+			{
+				// Short form
+				stream.Write((byte)length);
+			}
+			else
+			{
+				// Long form
+				var temp = length;
+				var bytesRequired = 0;
+				while (temp > 0)
+				{
+					temp >>= 8;
+					bytesRequired++;
+				}
+				stream.Write((byte)(bytesRequired | 0x80));
+				for (var i = bytesRequired - 1; i >= 0; i--)
+				{
+					stream.Write((byte)(length >> (8 * i) & 0xff));
+				}
+			}
+		}
+
+		private static void EncodeIntegerBigEndian(System.IO.BinaryWriter stream, byte[] value, bool forceUnsigned = true)
+		{
+			stream.Write((byte)0x02); // INTEGER
+			var prefixZeros = 0;
+			for (var i = 0; i < value.Length; i++)
+			{
+				if (value[i] != 0) break;
+				prefixZeros++;
+			}
+			if (value.Length - prefixZeros == 0)
+			{
+				EncodeLength(stream, 1);
+				stream.Write((byte)0);
+			}
+			else
+			{
+				if (forceUnsigned && value[prefixZeros] > 0x7f)
+				{
+					// Add a prefix zero to force unsigned if the MSB is 1
+					EncodeLength(stream, value.Length - prefixZeros + 1);
+					stream.Write((byte)0);
+				}
+				else
+				{
+					EncodeLength(stream, value.Length - prefixZeros);
+				}
+				for (var i = prefixZeros; i < value.Length; i++)
+				{
+					stream.Write(value[i]);
+				}
+			}
+		}
+	}}}
+}
