@@ -1,0 +1,199 @@
+
+/*
+ * This file is part of Jkop
+ * Copyright (c) 2016-2018 Job and Esther Technologies Oy
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+class is LayerWidget #widget:
+
+IFDEF "target_html"
+{
+	var sdkIncluded static = false
+
+	func createElement override as object:
+		return HTMLDOM.createElement("i")
+
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		HTMLDOM.setStyle(element, "font-size", "20px")
+		HTMLDOM.setStyle(element, "text-align", "center")
+		HTMLDOM.addToClassList(element, "bx")
+	}
+
+	func initializeHtmlWidget
+	{
+		if sdkIncluded {
+			PRINT "Boxicons CSS included"
+			return
+		}
+		if HTMLDOM.getElementById(VALUE "__THIS__"):
+			return
+		var link = HTMLDOM.createElement("link")
+		HTMLDOM.setAttribute(link, "id", VALUE "__THIS__")
+		HTMLDOM.setAttribute(link, "rel", "stylesheet")
+		HTMLDOM.setAttribute(link, "href", "https://unpkg.com/boxicons@2.0.5/css/boxicons.min.css")
+		HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), link)
+	}
+}
+
+const SPIN_ANIMATION = 0
+const TADA_ANIMATION = 1
+const FLASHING_ANIMATION = 2
+const BURST_ANIMATION = 3
+const FADE_LEFT_ANIMATION = 4
+const FADE_RIGHT_ANIMATION = 5
+const FADE_UP_ANIMATION = 6
+const FADE_DOWN_ANIMATION = 7
+
+var widgetContext as GuiApplicationContext
+var widgetColor as Color
+var widgetFontSize as double
+var lastResourceString as string
+var lastAnimationAdded as string
+var lastRotateString as string
+
+ctor(ctx as cave.GuiApplicationContext)
+{
+	base(ctx)
+	widgetColor = Color.black()
+}
+
+func setWidgetColor(color as Color)
+{
+	widgetColor = color
+	IFDEF "target_html" {
+		if not widgetColor {
+			HTMLDOM.removeStyle(element, "color")
+		}
+		else {
+			HTMLDOM.setStyle(element, "color", HTMLDOM.colorToRGBA(widgetColor))
+		}
+	}
+}
+
+func setWidgetFontSize(fontSize as double #notLiteral) as this
+{
+	widgetFontSize = fontSize
+	updateWidgetFont(true)
+	return this
+}
+
+func updateWidgetFont(changesLayout as bool) private
+{
+	IFDEF "target_html" {
+		HTMLDOM.setStyle(this.element, "font-size", String.forDouble(widgetFontSize) .. "px")
+	}
+	if changesLayout:
+		Widget.onLayoutChanged(this)
+}
+
+func setWidgetIcon(resource as string) as this
+{
+	assert String.isNotEmpty(resource)
+	IFDEF "target_html" {
+		if String.isNotEmpty(lastResourceString):
+			HTMLDOM.removeFromClassList(this.element, "bx-" .. lastResourceString)
+		HTMLDOM.addToClassList(this.element, "bx-" .. resource)
+	}
+	lastResourceString = resource
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func setWidgetLogo(resource as string) as this
+{
+	assert String.isNotEmpty(resource)
+	IFDEF "target_html" {
+		HTMLDOM.addToClassList(this.element, "bxl-" .. resource)
+	}
+	Widget.onLayoutChanged(this)
+	return this
+}
+
+func setWidgetHoverAnimation(type as int) as this
+{
+	setWidgetAnimation(type, true)
+	return this
+}
+
+func setWidgetAnimation(animation as int, hover as bool = false) as this
+{
+	if animation < 0 {
+		IFDEF "target_html" {
+			if lastAnimationAdded:
+				HTMLDOM.removeFromClassList(this.element, lastAnimationAdded)
+			lastAnimationAdded = null
+		}
+		return this
+	}
+	var sb = StringBuilder.forString("bx-")
+	if animation == SPIN_ANIMATION {
+		sb.append("spin")
+	}
+	else if animation == TADA_ANIMATION {
+		sb.append("tada")
+	}
+	else if animation == FLASHING_ANIMATION {
+		sb.append("flashing")
+	}
+	else if animation == BURST_ANIMATION {
+		sb.append("burst")
+	}
+	else if animation == FADE_LEFT_ANIMATION {
+		sb.append("fade-left")
+	}
+	else if animation == FADE_RIGHT_ANIMATION {
+		sb.append("fade-right")
+	}
+	else if animation == FADE_UP_ANIMATION {
+		sb.append("fade-up")
+	}
+	else if animation == FADE_DOWN_ANIMATION {
+		sb.append("fade-down")
+	}
+	if hover:
+		sb.append("-hover")
+	IFDEF "target_html" {
+		lastAnimationAdded = sb.toString()
+		HTMLDOM.addToClassList(this.element, lastAnimationAdded)
+	}
+	return this
+}
+
+func setWidgetRotate(rotate as int) as this
+{
+	var rotateString = "bx-rotate-" .. String.forInteger(rotate)
+	IFDEF "target_html" {
+		if String.isNotEmpty(lastRotateString):
+			HTMLDOM.removeFromClassList(this.element, lastRotateString)
+		HTMLDOM.addToClassList(this.element, rotateString)
+	}
+	lastRotateString = rotateString
+	return this
+}
+
+func onWidgetAddedToParent override
+{
+	base.onWidgetAddedToParent()
+	IFDEF "target_browser" {
+		initializeHtmlWidget()
+	}
+}
