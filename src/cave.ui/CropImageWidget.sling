@@ -31,7 +31,6 @@ ui LayerWidget
 	}
 	VerticalBoxWidget {
 		LabelWidget title {
-			text = "Update Profile Picture"
 			textAlign = LabelWidget.ALIGN_CENTER
 			fontBold = true
 			padding = context.getStylePixels("jkop-kit", "padding", "2mm")
@@ -81,30 +80,13 @@ ui LayerWidget
 					heightRequest = context.getStylePixels("jkop-kit", "separatorSize", "1px")
 					color = context.getStyleColor("jkop-kit", "separatorColor", "#000000")
 				}
-				HorizontalBoxWidget {
-					margin = context.getStylePixels("jkop-kit", "margin", "2mm")
-					spacing = context.getStylePixels("jkop-kit", "spacing", "2mm")
-					ButtonWidget : 1.0 {
-						text = "CANCEL"
-						clickHandler = func {
-							onCancelClicked()
-						}
-					}
-					ButtonWidget button : 1.0 {
-						text = "SAVE"
-						clickHandler = func {
-							onCropImage()
-						}
-					}
+				LayerWidget blayer {
 				}
-			}
 		}
 	}
 }
 
 pvar image as Image
-pvar doneCroppedHandler as function<void, Image>
-pvar widgetNegativeClickHandler as function
 var originalHeight as int
 var originalWidth as int
 var refX as double
@@ -120,8 +102,12 @@ func initializeWidget override
 {
 	base.initializeWidget()
 	img.setWidgetImage(image)
-	Widget.setWidgetPointerHandlers(reposition, onStartHandler, onTouchHandler, onEndHandler)
-	Widget.setWidgetPointerHandlers(img, onStartHandler, onTouchHandler, onEndHandler)
+	IFDEF "target_html" {
+		Widget.setWidgetPointerHandlers(reposition, onStartHandler, onTouchHandler, onEndHandler)
+	}
+	ELSE {
+		Widget.setWidgetPointerHandlers(img, onStartHandler, onTouchHandler, onEndHandler)
+	}
 	control.setWidgetControlChangeListener(func(val as double) {
 		if originalWidth <= 0:
 			originalWidth = Widget.getWidth(img)
@@ -133,12 +119,18 @@ func initializeWidget override
 	})
 }
 
-func onCancelClicked
+func setWidgetTitle(str as string) as this
 {
-	new PopupDialogManager(context, this).showConfirmDialog("Confirm", "Are you sure you want to discard your edits?", func {
-		assert widgetNegativeClickHandler
-		widgetNegativeClickHandler()
-	}, null)
+	assert title
+	title.setWidgetText(str)
+	return this
+}
+
+func setWidgetButton(widget as Widget) as this
+{
+	assert blayer
+	blayer.addWidget(widget)
+	return this
 }
 
 func onStartHandler(x as double, y as double)
@@ -191,9 +183,9 @@ func onTouchHandler(x as double, y as double)
 }
 
 func onEndHandler(x as double, y as double):
-	nop
+	;
 
-func onCropImage private
+func doneCrop(callback as function<void, Image>)
 {
 	var cheight = Widget.getHeight(canvas)
 	var cwidth = Widget.getWidth(canvas)
@@ -204,8 +196,8 @@ func onCropImage private
 		var xx = Math.abs(Widget.getX(img)) + x
 		var yy = Math.abs(Widget.getY(img)) + y
 		newimage.crop(xx as int, yy as int, radius, radius, func(cimage as Image) {
-			if doneCroppedHandler:
-				doneCroppedHandler(cimage)
+			if callback:
+				callback(cimage)
 		})
 	})
 }
@@ -242,15 +234,22 @@ class CropperLayerWidget is CanvasWidget is ResizeAwareWidget #widget
 	func onWidgetResized
 	{
 		IFDEF "target_html" {
-			var cheight = Widget.getHeight(canvas)
-			var cwidth = Widget.getWidth(canvas)
+			var cheight = Widget.getHeight(this)
+			var cwidth = Widget.getWidth(this)
 			var ee = this.element
 			var parent = assert HTMLDOM.getParentElement(ee)
 			var ecanvas = HTMLDOM.createElement("canvas")
 			HTMLDOM.setStyle(ecanvas, "height", String.asString(cheight))
 			HTMLDOM.setStyle(ecanvas, "width", String.asString(cwidth))
 			HTMLDOM.setStyle(ecanvas, "position", "absolute")
-			HTMLDOM.appendChild(parent, ecanvas)
+			lang "js" {{{
+				console.log(ee.hasChildNodes());
+				var children = ee.children;
+				for (var i = 0; i < children.length; i++) {
+					ee.removeChild(children[i]);
+				}
+			}}}
+			HTMLDOM.appendChild(ee, ecanvas)
 			lang "js" {{{
 				var ctx = ecanvas.getContext('2d');
 				var xc = ecanvas.width / 2;
