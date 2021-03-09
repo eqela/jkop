@@ -92,10 +92,13 @@ ui LayerWidget
 }
 
 pvar image as Image
+pvar moveSpeed as int
 var originalHeight as int
 var originalWidth as int
 var refX as double
 var refY as double
+var afterX as double
+var afterY as double
 
 ctor(ctx as GuiApplicationContext)
 {
@@ -107,12 +110,9 @@ func initializeWidget override
 {
 	base.initializeWidget()
 	img.setWidgetImage(image)
-	IFDEF "target_android" {
-		Widget.setWidgetPointerHandlers(img, onStartHandler, onTouchHandler, onEndHandler)
-	}
-	ELSE {
-		Widget.setWidgetPointerHandlers(ll, onStartHandler, onTouchHandler, onEndHandler)
-	}
+	if moveSpeed <= 0:
+		moveSpeed = 3
+	Widget.setWidgetPointerHandlers(ll, onStartHandler, onTouchHandler, onEndHandler)
 	control.setWidgetControlChangeListener(func(val as double) {
 		if originalWidth <= 0:
 			originalWidth = Widget.getWidth(img)
@@ -146,45 +146,29 @@ func onStartHandler(x as double, y as double)
 
 func onTouchHandler(x as double, y as double)
 {
-	var iy = Widget.getY(img)
-	var ix = Widget.getX(img)
-	var endRight as bool
-	var endLeft as bool
-	var endDown as bool
-	var endUp as bool
-	if refX < x && ix >= 0 {
-		ix = 0
-		endRight = true
-	}
+	var iy2 = Widget.getY(img)
+	var ix2 = Widget.getX(img)
+	if refX > x && afterX > x:
+		ix2 = ix2 - moveSpeed
+	if refX < x && afterX < x:
+		ix2 = ix2 + moveSpeed
+	if refY > y && afterY > y:
+		iy2 = iy2 - moveSpeed
+	if refY < y && afterY < y:
+		iy2 = iy2 + moveSpeed
+	if refX < x && ix2 >= 0:
+		ix2 = 0
 	var maxX = Widget.getWidth(img) - Widget.getWidth(layer)
-	if refX > x && Math.abs(ix) >= maxX {
-		ix = -maxX
-		endLeft = true
-	}
-	if refY < y && iy >= 0 {
-		iy = 0
-		endDown = true
-	}
+	if refX > x && Math.abs(ix2) >= maxX:
+		ix2 = -maxX
+	if refY < y && iy2 >= 0:
+		iy2 = 0
 	var maxY = Widget.getHeight(img) - Widget.getHeight(layer)
-	if refY > y && Math.abs(iy) >= maxY {
-		iy = -maxY
-		endUp = true
-	}
-	var mx as int
-	var my as int
-	if not endRight && not endLeft {
-		mx = ix + (x - refX) as int
-	}
-	else if endLeft {
-		mx = -maxX
-	}
-	if not endUp && not endDown {
-		my = iy + (y - refY) as int
-	}
-	else if endUp {
-		my = -maxY
-	}
-	Widget.move(img, mx, my)
+	if refY > y && Math.abs(iy2) >= maxY:
+		iy2 = -maxY
+	Widget.move(img, ix2, iy2)
+	afterX = x
+	afterY = y
 }
 
 func onEndHandler(x as double, y as double):
