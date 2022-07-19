@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,8 +34,7 @@ func forPlaceholder(context as GuiApplicationContext, placeholder as string, row
 
 IFDEF "target_android"
 {
-	extend !"android.widget.EditText"
-	isAlso Widget
+	extend TextInputBaseWidget
 }
 
 ELSE IFDEF "target_ios_objc"
@@ -298,12 +296,12 @@ var widgetFontSize as double
 ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
-		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+		base(context)
 		IFDEF "target_java" {
 			lang "java" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154).toARGBInt32());
-				setBackgroundColor(jk.ui.Color.forRGB(255,255,255).toARGBInt32());
-				setTextColor(jk.ui.Color.forRGB(0,0,0).toARGBInt32());
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154).toARGBInt32());
+				setBackgroundColor(jk.gfx.Color.forRGB(255,255,255).toARGBInt32());
+				setTextColor(jk.gfx.Color.forRGB(0,0,0).toARGBInt32());
 				setGravity(android.view.Gravity.TOP);
 				addTextChangedListener(new android.text.TextWatcher() {
 					public void onTextChanged(java.lang.CharSequence s, int start, int before, int count) {
@@ -326,13 +324,26 @@ ctor(context as GuiApplicationContext)
 						}
 					}
 				});
+				setOnTouchListener(new android.view.View.OnTouchListener() {
+					public boolean onTouch(android.view.View v,  android.view.MotionEvent event) {
+						if (hasFocus()) {
+							getParent().requestDisallowInterceptTouchEvent(true);
+							switch (event.getAction() &  android.view.MotionEvent.ACTION_MASK){
+								case android.view.MotionEvent.ACTION_SCROLL:
+									getParent().requestDisallowInterceptTouchEvent(false);
+								return true;
+							}
+						}
+						return false;
+					}
+				});
 			}}}
 		}
 		ELSE IFDEF "target_kotlin" {
 			lang "kotlin" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154)!!.toARGBInt32())
-				setBackgroundColor(jk.ui.Color.forRGB(255,255,255)!!.toARGBInt32())
-				setTextColor(jk.ui.Color.forRGB(0,0,0)!!.toARGBInt32())
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154)!!.toARGBInt32())
+				setBackgroundColor(jk.gfx.Color.forRGB(255,255,255)!!.toARGBInt32())
+				setTextColor(jk.gfx.Color.forRGB(0,0,0)!!.toARGBInt32())
 				setGravity(android.view.Gravity.TOP)
 				addTextChangedListener(object : android.text.TextWatcher {
 					override fun onTextChanged(s : kotlin.CharSequence, start : kotlin.Int, before : kotlin.Int, count : kotlin.Int) {
@@ -414,7 +425,7 @@ func updateWidgetColors private
 	IFDEF "target_android" {
 		IFDEF "target_java" {
 			lang "java" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154).toARGBInt32());
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154).toARGBInt32());
 				if(widgetBackgroundColor != null) {
 					setBackgroundColor(widgetBackgroundColor.toARGBInt32());
 				}
@@ -426,7 +437,7 @@ func updateWidgetColors private
 		}
 		ELSE IFDEF "target_kotlin" {
 			lang "kotlin" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154)!!.toARGBInt32())
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154)!!.toARGBInt32())
 				if(widgetBackgroundColor != null) {
 					setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
 				}
@@ -507,7 +518,7 @@ func updateWidgetFont private
 			lang "java" {{{
 				setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, (float)widgetFontSize);
 				if(widgetFontResource != null) {
-					android.content.Context ctx = ((jk.ui.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+					android.content.Context ctx = ((jk.app.ui.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
 					setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), android.graphics.Typeface.NORMAL);
 				}
 				else {
@@ -601,7 +612,16 @@ func setWidgetRows(row as int) as this
 		HTMLDOM.setAttribute(element, "rows", String.forInteger(row))
 	}
 	ELSE IFDEF "target_android" {
-		base.setLines(row)
+		IFDEF "target_java" {
+			lang "java" {{{
+				setLines(row);
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				setLines(row)
+			}}}
+		}
 	}
 	ELSE IFDEF "target_ios_objc" {
 		// iOS implementation simply uses the layoutWidget defined above to do this.
@@ -686,12 +706,12 @@ func setWidgetPlaceholder(placeholder as string) as this
 }
 
 func setWidgetPadding(padding as int #notLiteral) as this:
-	return setWidgetPadding(padding, padding, padding, padding)
+	return setWidgetPaddingAll(padding, padding, padding, padding)
 
-func setWidgetPadding(lr as int #notLiteral, tb as int #notLiteral) as this:
-	return setWidgetPadding(lr, tb, lr, tb)
+func setWidgetPaddingSymmetric(lr as int #notLiteral, tb as int #notLiteral) as this:
+	return setWidgetPaddingAll(lr, tb, lr, tb)
 
-func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
+func setWidgetPaddingAll(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
 {
 	if l < 0 || t < 0 || r < 0 || b < 0:
 		return this

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,26 +22,29 @@
  * SOFTWARE.
  */
 
+import jk.io
+
 class is File private:
+
+var fs as dynamic
+
+ctor:
+	lang "js" {{{ this.fs = require("fs") }}}
 
 class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
 {
 	var fd as int
 	pvar file as File
+	var fs as dynamic
+	var position = 0
 
 	func read(buffer as buffer) as int
 	{
-		var v = -1
-		var sz #used = Buffer.getSize(buffer) as int
-		lang "js" {{{
-			try {
-				v = require("fs").readSync(this.fd, Buffer.from(buffer), 0, sz, null)
-			}
-			catch(e) {
-				this.file.onError("" + e.stack);
-				v = -1;
-			}
+		var sz #used = Buffer.getSize(buffer)
+		var v = lang "js" int {{{
+			this.fs.readSync(this.fd, buffer, 0, sz, this.position)
 		}}}
+		position += sz
 		return v
 	}
 
@@ -57,22 +59,47 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 	{
 		if fd >= 0 {
 			lang "js" {{{
-				require("fs").closeSync(this.fd);
+				this.fs.closeSync(this.fd);
+				this.fd = -1;
 			}}}
-			fd = -1
 		}
 	}
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		ERROR "Not implemented"
-		return false
+		this.position = n as int
+		return true
 	}
 
-	func getCurrentPosition as int64
+	func getCurrentPosition as int64:
+		return this.position as int64
+}
+
+class MyFileWriter is FileWriter
+{
+	var fd as int
+	var fs as dynamic
+
+	func write(buf as buffer, size as int) as int
 	{
-		ERROR "Not implemented"
-		return 0
+		assert buf
+		var sz = size
+		if sz < 0:
+			sz = sizeof buf
+		var v = lang "js" int {{{
+			this.fs.writeSync(this.fd, Buffer.from(buf), 0, sz, null)
+		}}}
+		return v
+	}
+
+	func close
+	{
+		if fd >= 0 {
+			lang "js" {{{
+				this.fs.closeSync(this.fd);
+				this.fd = -1;
+			}}}
+		}
 	}
 }
 
@@ -87,51 +114,93 @@ func forPath(path as string) static as File
 
 func entry(name as string) override as File
 {
-	var pp as string
-	lang "js" {{{
-		pp = require("path").join(this.path, name);
+	var path = getPath()
+	var pp = lang "js" string {{{
+		require("path").join(path, name);
 	}}}
 	return forPath(pp)
 }
 
-func move(dest as File, replace as bool) override stub as bool
-func touch override stub as bool
+func move(dest as File, replace as bool) override
+{
+	if dest.exists() {
+		if replace == false:
+			Error.throw("destinationFileExists", dest)
+		dest.remove()
+	}
+	var path = getPath()
+	lang "js" {{{
+		this.fs.renameSync(path, dest.path);
+	}}}
+}
+
+func touch override
+{
+	var path = getPath()
+	lang "js" {{{
+		this.fs.closeSync(this.fs.openSync(path, 'w'));
+	}}}
+}
 
 func read override as FileReader
 {
-	var fd as int
-	lang "js" {{{
-		try {
-			fd = require("fs").openSync(this.path, "r");
-		}
-		catch(e) {
-			fd = -1;
-		}
+	var path = getPath()
+	var fd = lang "js" int {{{
+		this.fs.openSync(path, "r");
 	}}}
-	assert fd >= 0
-	var v #used = new MyFileReader()
+	if fd < 0:
+		Error.throw("failedToOpenFile", this)
+	var v = new MyFileReader()
 	v.setFile(this)
 	v.fd = fd
+	v.fs = fs
 	return v
 }
 
-func write override stub as FileWriter
-func append override stub as FileWriter
+func write override as FileWriter
+{
+	var path = getPath()
+	var fd = lang "js" int {{{
+		this.fs.openSync(path, "w");
+	}}}
+	if fd < 0:
+		Error.throw("failedToOpenFile", this)
+	var v = new MyFileWriter()
+	v.fd = fd
+	v.fs = fs
+	return v
+}
+
+func append override as FileWriter
+{
+	var path = getPath()
+	var fd = lang "js" int {{{
+		this.fs.openSync(path, "a");
+	}}}
+	if fd < 0:
+		Error.throw("failedToOpenFile", this)
+	var v = new MyFileWriter()
+	v.fd = fd
+	v.fs = fs
+	return v
+}
 
 func stat override as FileInfo
 {
-	lang "js" {{{
-		let ss = require("fs").statSync(this.path);
-		if(!ss) {
-			return(null);
-		}
-	}}}
+	var path = getPath()
 	var v = new FileInfo()
 	v.setFile(this)
+	v.setType(FileInfo.FILE_TYPE_UNKNOWN)
+	var exists = lang "js" bool {{{ this.fs.existsSync(path) }}}
+	if not exists:
+		return v
+	var ss = lang "js" dynamic {{{ this.fs.statSync(path) }}}
+	if not ss:
+		Error.throw("failedToGetFileInformation", this)
 	v.setSize(lang "js" int {{{ ss.size }}})
-	v.setCreateTime(lang "js" long {{{ ss.ctimeMs / 1000.0 }}})
-	v.setAccessTime(lang "js" long {{{ ss.atimeMs / 1000.0 }}})
-	v.setModifyTime(lang "js" long {{{ ss.mtimeMs / 1000.0 }}})
+	v.setCreateTime(lang "js" long {{{ ~~(ss.ctimeMs / 1000) }}})
+	v.setAccessTime(lang "js" long {{{ ~~(ss.atimeMs / 1000) }}})
+	v.setModifyTime(lang "js" long {{{ ~~(ss.mtimeMs / 1000) }}})
 	v.setOwnerUser(lang "js" int {{{ ss.uid }}})
 	v.setOwnerGroup(lang "js" int {{{ ss.gid }}})
 	v.setMode(lang "js" int {{{ ss.mode }}})
@@ -147,21 +216,128 @@ func stat override as FileInfo
 	return v
 }
 
-func isExecutable override stub as bool
-func createDirectory override stub as bool
-func createDirectoryRecursive override stub as bool
-func removeDirectory override stub as bool
-
-func setPath(newPath as string)
+func isExecutable override as bool
 {
+	var path = getPath()
+	var rr as bool
 	lang "js" {{{
-		this.path = require("path").normalize(newPath)
+		try {
+			this.fs.accessSync(path, this.fs.constants.X_OK);
+			rr = true;
+		}
+		catch (err) {
+			rr = false;
+		}
+	}}}
+	return rr
+}
+
+func createDirectory override
+{
+	var path = getPath()
+	lang "js" {{{
+		this.fs.mkdirSync(path);
 	}}}
 }
 
-func getPath override as string:
-	return path
+func createDirectoryRecursive override
+{
+	var path = getPath()
+	lang "js" {{{
+		this.fs.mkdirSync(path, {recursive: true});
+	}}}
+}
 
-func remove override stub as bool
-func makeExecutable override stub as bool
-func entries override stub as Iterator<File>
+func removeDirectory override
+{
+	if exists() {
+		var path = getPath()
+		lang "js" {{{
+			this.fs.rmdirSync(path);
+		}}}
+	}
+}
+
+func setPath(newPath as string)
+{
+	var pp = lang "js" dynamic {{{ require("path") }}}
+	if pp.isAbsolute(newPath) == true {
+		lang "js" {{{
+			this.path = pp.normalize(newPath)
+		}}}
+	}
+	else {
+		var cwd = CurrentDirectory.get().getPath()
+		lang "js" {{{
+			this.path = pp.resolve(cwd, newPath)
+		}}}
+	}
+}
+
+func getPath override as string
+{
+	if not path:
+		Error.throw("noPathForFile", this)
+	return path
+}
+
+func remove override
+{
+	if exists() {
+		var path = getPath()
+		lang "js" {{{
+			this.fs.rmSync(path);
+		}}}
+	}
+}
+
+func makeExecutable override
+{
+	var path = getPath()
+	lang "js" {{{
+		this.fs.openSync(path, this.fs.constants.S_IXUSR);
+	}}}
+}
+
+func entries override as Iterator<File>
+{
+	var path = getPath()
+	var v = new vector<File>
+	if exists() {
+		lang "js" {{{
+			const dir = this.fs.opendirSync(path);
+			let dirent;
+			while ((dirent = dir.readSync()) !== null) {
+				v.push(FileForNodeJS.forPath(path + "/" + dirent.name))
+			}
+			dir.closeSync();
+		}}}
+	}
+	return Vector.iterate(v)
+}
+
+func setMode(mode as int) override
+{
+	var path = getPath()
+	lang "js" {{{
+		this.fs.chmodSync(path, mode);
+	}}}
+}
+
+func setOwnerUser(uid as int) override
+{
+	var path = getPath()
+	var st = stat()
+	lang "js" {{{
+		this.fs.chownSync(path, uid, st.getOwnerGroup());
+	}}}
+}
+
+func setOwnerGroup(gid as int) override
+{
+	var path = getPath()
+	var st = stat()
+	lang "js" {{{
+		this.fs.chownSync(path, st.getOwnerUser(), gid);
+	}}}
+}

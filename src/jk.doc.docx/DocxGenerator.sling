@@ -1,0 +1,428 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2019-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.xml
+import jk.env
+import jk.doc.model
+import jk.archive
+
+class:
+
+pvar styleXml as string
+pvar fontXml as string
+pvar defaultParagraphStyle as string
+pvar defaultListParagraphStyle as string
+pvar defaultTableStyle as string
+
+var numIdCounter = 1
+var bulletNumIds = new vector<string>
+
+func dumpContainer(xml as XMLMaker, stack as Stack<BaseNode>, node as ContainerNode) private
+{
+	assert node
+	foreach child as BaseNode in node.nodes:
+		dumpNode(xml, stack, child)
+}
+
+func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) private
+{
+	assert node
+	stack.push(node)
+	if node is DocumentNode {
+		xml.startWithAttributeMap("w:document", new map {
+			@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+			@{"xmlns:r"} "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+			@{"xmlns:o"} "urn:schemas-microsoft-com:office:office"
+			@{"xmlns:m"} "http://schemas.openxmlformats.org/officeDocument/2006/math"
+			@{"xmlns:v"} "urn:schemas-microsoft-com:vml"
+			@{"xmlns:ve"} "http://schemas.openxmlformats.org/markup-compatibility/2006"
+			@{"xmlns:wp"} "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+			@{"xmlns:w10"} "urn:schemas-microsoft-com:office:word"
+			@{"xmlns:wne"} "http://schemas.microsoft.com/office/word/2006/wordml"
+		})
+		xml.start("w:body")
+		dumpContainer(xml, stack, node as! DocumentNode)
+		xml.end("w:body")
+		xml.end("w:document")
+	}
+	else if node is SectionNode {
+		dumpContainer(xml, stack, node as! SectionNode)
+		var stackdata = stack.getData()
+		var parent = Vector.get(stackdata, Vector.getSize(stackdata)-2)
+		var isTopLevel = parent is DocumentNode
+		if not isTopLevel {
+			xml.start("w:p")
+			// FIXME: This could be configured as no height, no padding,
+			// no margins, etc. So it won't disrupt stuff.
+			xml.start("w:pPr")
+		}
+		xml.start("w:sectPr")
+		// FIXME: Header
+		// FIXME: Footer
+		// FIXME: Page size, margins, etc.
+		xml.end("w:sectPr")
+		if not isTopLevel {
+			xml.end("w:pPr")
+			xml.end("w:p")
+		}
+	}
+	else if node is BoldContainerNode {
+		xml.start("w:r")
+		xml.start("w:rPr")
+		xml.element("w:b", null)
+		xml.end("w:rPr")
+		dumpContainer(xml, stack, node as! BoldContainerNode)
+		xml.end("w:r")
+	}
+	else if node is ItalicContainerNode {
+		xml.start("w:r")
+		xml.start("w:rPr")
+		xml.element("w:i", null)
+		xml.end("w:rPr")
+		dumpContainer(xml, stack, node as! ItalicContainerNode)
+		xml.end("w:r")
+	}
+	else if node is HeadingNode {
+		xml.start("w:p")
+		xml.start("w:pPr")
+		xml.element("w:pStyle", new map {
+			@{"w:val"} "Heading" .. String.forInteger((node as! HeadingNode).level)
+		})
+		xml.end("w:pPr")
+		xml.start("w:r")
+		dumpContainer(xml, stack, node as! HeadingNode)
+		xml.end("w:r")
+		xml.end("w:p")
+	}
+	else if node is ParagraphNode {
+		xml.start("w:p")
+		var style = (node as! ParagraphNode).style
+		if String.isEmpty(style):
+			style = defaultParagraphStyle
+		if String.isNotEmpty(style) {
+			xml.start("w:pPr")
+			xml.element("w:pStyle", new map {
+				@{"w:val"} style
+			})
+			xml.end("w:pPr")
+		}
+		xml.start("w:r")
+		dumpContainer(xml, stack, node as! ParagraphNode)
+		xml.end("w:r")
+		xml.end("w:p")
+	}
+	else if node is TextNode {
+		xml.textElement("w:t", (node as! TextNode).text)
+	}
+	else if node is TableNode {
+		var table = node as! TableNode
+		xml.start("w:tbl")
+		xml.start("w:tblPr")
+		var style = table.style
+		if String.isEmpty(style):
+			style = defaultTableStyle
+		if String.isNotEmpty(style):
+			xml.element("w:tblStyle", new map {
+				@{"w:val"} style
+			})
+		var width = table.width
+		if width <= 0.0 {
+			xml.element("w:tblW", new map {
+				@{"w:type"} "auto"
+			})
+		}
+		else {
+			xml.element("w:tblW", new map {
+				@{"w:type"} "pct"
+				@{"w:w"} String.forInteger(width * 100)
+			})
+		}
+		xml.end("w:tblPr")
+		foreach row as TableRowNode in table.rows:
+			dumpNode(xml, stack, row)
+		xml.end("w:tbl")
+	}
+	else if node is TableRowNode {
+		xml.start("w:tr")
+		foreach cell as BaseNode in (node as! TableRowNode).nodes {
+			xml.start("w:tc")
+			xml.start("w:tcPr")
+			// FIXME: Cell properties
+			xml.end("w:tcPr")
+			xml.start("w:p")
+			xml.start("w:r")
+			dumpNode(xml, stack, cell)
+			xml.end("w:r")
+			xml.end("w:p")
+			xml.end("w:tc")
+		}
+		xml.end("w:tr")
+	}
+	else if node is BulletListNode {
+		var id = String.forInteger(numIdCounter)
+		foreach entry as ParagraphNode in (node as! BulletListNode).entries {
+			stack.push(entry)
+			xml.start("w:p")
+			xml.start("w:pPr")
+			var style = defaultListParagraphStyle
+			if String.isEmpty(style):
+				style = defaultParagraphStyle
+			if String.isNotEmpty(style):
+				xml.element("w:pStyle", new map {
+					@{"w:val"} style
+				})
+			xml.start("w:numPr")
+			xml.element("w:ilvl", new map {
+				@{"w:val"} "0"
+			})
+			xml.element("w:numId", new map {
+				@{"w:val"} id
+			})
+			xml.end("w:numPr")
+			xml.end("w:pPr")
+			xml.start("w:r")
+			dumpContainer(xml, stack, entry)
+			xml.end("w:r")
+			xml.end("w:p")
+			stack.pop()
+		}
+		bulletNumIds += id
+		numIdCounter ++
+	}
+	else {
+		throw ExceptionWithString.forString("Unsupported element encountered in document")
+	}
+	stack.pop()
+}
+
+func addToZip(ctx as LoggingContext, zip as ZipWriter, filename as string, content as string) as bool
+{
+	var tmpf = assert TemporaryFile.create():
+		Log.error(ctx, "Failed to create temporary file")
+	tmpf.setContentsUTF8(content)
+	var v = zip.addFile(tmpf, filename)
+	tmpf.remove()
+	if not v:
+		Log.error(ctx, "Failed to add file: `" .. filename .. "'")
+	return v
+}
+
+func createContentTypesXml as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttribute("Types", "xmlns", "http://schemas.openxmlformats.org/package/2006/content-types")
+	xml.element("Default", new map {
+		Extension "png"
+		ContentType "image/png"
+	})
+	xml.element("Default", new map {
+		Extension "rels"
+		ContentType "application/vnd.openxmlformats-package.relationships+xml"
+	})
+	xml.element("Default", new map {
+		Extension "xml"
+		ContentType "application/xml"
+	})
+	xml.element("Override", new map {
+		PartName "/word/document.xml"
+		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
+	})
+	xml.element("Override", new map {
+		PartName "/word/numbering.xml"
+		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
+	})
+	xml.element("Override", new map {
+		PartName "/word/fontTable.xml"
+		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"
+	})
+	xml.element("Override", new map {
+		PartName "/word/styles.xml"
+		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
+	})
+	xml.end("Types")
+	return xml.toString()
+}
+
+func createTopLevelRels as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttribute("Relationships", "xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")
+	xml.element("Relationship", new map {
+		Id "rId1"
+		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+		Target "word/document.xml"
+	})
+	// xml.element("Relationship", new map {
+	//	Id "rId2"
+	//	Type "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties", "Target" : "docProps/core.xml"
+	// })
+	// xml.element("Relationship", new map {
+	//	Id "rId3"
+	//	Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties", "Target" : "docProps/app.xml"
+	// })
+	xml.end("Relationships")
+	return xml.toString()
+}
+
+func createDocumentRels as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttribute("Relationships", "xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")
+	xml.element("Relationship", new map {
+		Id "rId1"
+		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
+		Target "numbering.xml"
+	})
+	xml.element("Relationship", new map {
+		Id "rId2"
+		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
+		Target "fontTable.xml"
+	})
+	xml.element("Relationship", new map {
+		Id "rId3"
+		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+		Target "styles.xml"
+	})
+	xml.end("Relationships")
+	return xml.toString()
+}
+
+func createDocumentXml(document as DocumentNode) as string
+{
+	var xml = new XMLMaker()
+	var stack = new Stack<BaseNode>()
+	dumpNode(xml, stack, document)
+	return xml.toString()
+}
+
+func createNumberingXml as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttributeMap("w:numbering", new map {
+		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	})
+	var bulletId = "0"
+	{
+		xml.startWithAttributeMap("w:abstractNum", new map { @{"w:abstractNumId"} bulletId })
+		xml.element("w:multiLevelType", new map { @{"w:val"} "multilevel" })
+		xml.startWithAttributeMap("w:lvl", new map { @{"w:ilvl"} "0" })
+		xml.element("w:start", new map { @{"w:val"} "1" })
+		xml.element("w:numFmt", new map { @{"w:val"} "bullet" })
+		xml.element("w:lvlText", new map { @{"w:val"} String.forCharacter(0xf0b7 as char) })
+		xml.element("w:lvlJc", new map { @{"w:val"} "left" })
+		xml.start("w:pPr")
+		xml.start("w:tabs")
+		xml.element("w:tab", new map {
+			@{"w:val"} "num"
+			@{"w:pos"} "720"
+		})
+		xml.end("w:tabs")
+		xml.element("w:ind", new map {
+			@{"w:left"} "720"
+			@{"w:hanging"} "360"
+		})
+		xml.end("w:pPr")
+		xml.start("w:rPr")
+		xml.element("w:rFonts", new map {
+			@{"w:ascii"} "Symbol"
+			@{"w:hAnsi"} "Symbol"
+			@{"w:hint"} "default"
+		})
+		xml.end("w:rPr")
+		xml.end("w:lvl")
+		xml.end("w:abstractNum")
+	}
+	foreach bulletNumId in bulletNumIds {
+		xml.startWithAttributeMap("w:num", new map { @{"w:numId"} bulletNumId })
+		xml.element("w:abstractNumId", new map { @{"w:val"} bulletId })
+		xml.end("w:num")
+	}
+	xml.end("w:numbering")
+	return xml.toString()
+}
+
+func addFont(xml as XMLMaker, name as string, panose as string, charset as string, family as string, pitch as string, usb0 as string, usb1 as string, usb2 as string, usb3 as string, csb0 as string, csb1 as string)
+{
+	xml.startWithAttributeMap("w:font", new map { @{"w:name"} name })
+	xml.element("w:panose1", new map { @{"w:val"} panose })
+	xml.element("w:charset", new map { @{"w:val"} charset })
+	xml.element("w:family", new map { @{"w:val"} family })
+	xml.element("w:pitch", new map { @{"w:val"} pitch })
+	xml.element("w:sig", new map {
+		@{"w:usb0"} usb0
+		@{"w:usb1"} usb1
+		@{"w:usb2"} usb2
+		@{"w:usb3"} usb3
+		@{"w:csb0"} csb0
+		@{"w:csb1"} csb1
+	})
+	xml.end("w:font")
+}
+
+func createFontTable as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttributeMap("w:fonts", new map {
+		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	})
+	addFont(xml, "Symbol", "05050102010706020507", "02", "decorative", "variable", "00000000", "10000000", "00000000", "00000000", "80000000", "00000000")
+	if fontXml:
+		xml.add(new XMLMaker.CustomXML(fontXml))
+	xml.end("w:fonts")
+	return xml.toString()
+}
+
+func createStylesXml as string
+{
+	var xml = new XMLMaker()
+	xml.startWithAttributeMap("w:styles", new map {
+		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+	})
+	if styleXml:
+		xml.add(new XMLMaker.CustomXML(styleXml))
+	xml.end("w:styles")
+	return xml.toString()
+}
+
+func generate(ctx as LoggingContext, document as DocumentNode, file as File) as bool
+{
+	assert document:
+		Log.error(ctx, "Null document")
+	assert file:
+		Log.error(ctx, "Null file")
+	var zip = assert ZipWriter.forOutputFile(file):
+		Log.error(ctx, "Failed to start writing file: `" .. file.getPath() .. "'")
+	assert addToZip(ctx, zip, "[Content_Types].xml", createContentTypesXml())
+	assert addToZip(ctx, zip, "_rels/.rels", createTopLevelRels())
+	// FIXME: docProps/core.xml, docProps/app.xml
+	assert addToZip(ctx, zip, "word/document.xml", createDocumentXml(document))
+	assert addToZip(ctx, zip, "word/numbering.xml", createNumberingXml())
+	assert addToZip(ctx, zip, "word/fontTable.xml", createFontTable())
+	assert addToZip(ctx, zip, "word/styles.xml", createStylesXml())
+	assert addToZip(ctx, zip, "word/_rels/document.xml.rels", createDocumentRels())
+	zip.close()
+	return true
+}

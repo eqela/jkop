@@ -1,0 +1,85 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class is TarGZipWriter:
+
+depend "nuget:sharpcompress@0.21.1"
+
+func tarDir(ctx as LoggingContext, dir as File, output as File, truncateDir as bool) override as bool
+{
+	assert dir:
+		Log.error(ctx, "No directory provided.")
+	assert dir.isDirectory():
+		Log.error(ctx, "Not a directory: `" .. dir.getPath() .. "'")
+	var bn = dir.getBasename()
+	assert String.isEmpty(bn) == false:
+		Log.error(ctx, "Empty basename: `" .. dir.getPath() .. "'")
+	var pd = assert dir.getParent():
+		Log.error(ctx, "Directory has no parent: `" .. dir.getPath() .. "'")
+	var parentPath = pd.getPath()
+	assert String.isNotEmpty(parentPath):
+		Log.error(ctx, "Parent path is empty: `" .. dir.getPath() .. "'")
+	var parentPathLength = String.getLength(parentPath)
+	if truncateDir:
+		parentPathLength = String.getLength(dir.getPath())
+	var of = output
+	if of == null:
+		of = pd.entry(bn .. ".tar.gz")
+	lang "cs" {{{
+		using(System.IO.Stream stream = System.IO.File.OpenWrite(of.getPath()))
+		using(var writer = SharpCompress.Writers.WriterFactory.Open(stream, SharpCompress.Common.ArchiveType.Tar, new SharpCompress.Writers.WriterOptions(SharpCompress.Common.CompressionType.GZip) {
+			LeaveStreamOpen = true
+		}))
+		{
+	}}}
+	Log.status(ctx, "[tgz] " .. of.getPath() .. " ..")
+	var ff = FileFinder.forRoot(dir)
+	loop {
+		var file = ff.next()
+		if not file:
+			break
+		if file.isFile() == false:
+			continue
+		var fpath = file.getPath()
+		if String.isEmpty(fpath):
+			continue
+		var partialPath = String.getEndOfString(fpath, parentPathLength + 1)
+		if String.isEmpty(partialPath):
+			continue
+		partialPath = String.replaceCharacter(partialPath, '\\', '/')
+		Log.status(ctx, "[tgz] " .. file.getPath() .. " ..")
+		lang "cs" {{{
+			using(System.IO.Stream fstream = System.IO.File.OpenRead(file.getPath())) {
+				writer.Write(partialPath, fstream, new System.IO.FileInfo(file.getPath()).LastWriteTime);
+			}
+		}}}
+	}
+	lang "cs" {{{
+		}
+	}}}
+	return true
+}

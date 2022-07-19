@@ -1,0 +1,181 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2021-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #jco #component:
+
+class ContextMenuItem #jco #component
+{
+	prop clickHandler as function
+	prop itemName as string
+	prop parent as ContextMenuPopup
+
+	stylesheet
+	{
+		.item {
+			padding "8px 10px"
+			font-size "15px"
+			color "#eee"
+			cursor "pointer"
+			border-radius "inherit"
+		}
+		.item:hover {
+			background "#343434"
+		}
+	}
+
+	markup
+	{
+		<div var item class="item"> @{itemName}
+		</div>
+	}
+
+	func onRendered override
+	{
+		var cc = item
+		if cc {
+			lang "js" {{{
+				cc.addEventListener('click', (event) => {
+					event.stopPropagation();
+					event.preventDefault();
+					this.onClicked();
+				})
+			}}}
+		}
+	}
+
+	func onClicked
+	{
+		var ch = clickHandler
+		if ch:
+			ch()
+		parent.closePopup()
+	}
+}
+
+class ContextMenuPopup #jco #component
+{
+	prop menuItems as KeyValueList<string, function>
+
+	stylesheet
+	{
+		#context-menu {
+			position "fixed"
+			z-index "10000"
+			width "150px"
+			background "#1b1a1a"
+			border-radius "5px"
+			display "none"
+		}
+		#context-menu.visible {
+			display "block"
+		}
+	}
+
+	markup
+	{
+		<div var options id="context-menu">
+			{
+				var itr = menuItems.iterate()
+				loop {
+					var it = itr.next()
+					if not it:
+						break
+					render createMenuItem(it)
+				}
+			}
+		</div>
+	}
+
+	func createMenuItem(item as KeyValuePair<string, function>) as markup
+	{
+		var name = item.key as string
+		var handler = item.value as function
+		return new markup {
+			<ContextMenuItem itemName=@{name} clickHandler=@{handler} parent=@{this}>
+			</ContextMenuItem>
+		}
+	}
+
+	func showpopup
+	{
+		var celement = options
+		lang "js" {{{
+			celement.classList.add("visible");
+		}}}
+	}
+
+	func closePopup
+	{
+		var celement = options
+		lang "js" {{{
+			celement.classList.remove("visible");
+		}}}
+	}
+}
+
+prop menuItems as KeyValueList<string, function>
+
+stylesheet
+{
+	#relative {
+		position "relative"
+	}
+}
+
+markup
+{
+	<div id="relative">
+		<div var contextMenu>
+		{
+			foreach child in children:
+				render child
+		}
+		</div>
+		<ContextMenuPopup var contextMenuPopup menuItems=@{menuItems}/>
+	</div>
+}
+
+func onRendered override
+{
+	var melement = contextMenu
+	var celement = contextMenuPopup
+	lang "js" {{{
+		melement.addEventListener("contextmenu", (event) => {
+			event.preventDefault();
+			celement.style.position = "absolute";
+			const rect = melement.getBoundingClientRect();
+			const x = event.clientX - rect.left;
+			const y = event.clientY - rect.top;
+			celement.style.top = `${y}px`;
+			celement.style.left = `${x}px`;
+			celement.showpopup();
+		});
+		const body = document.querySelector("body");
+		body.addEventListener("click", (e) => {
+			if (e.target.offsetParent != celement) {
+				celement.closePopup();
+			}
+		});
+	}}}
+}

@@ -1,0 +1,111 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is Screen implements !"NSWindowDelegate":
+
+depend "objc-header-m:<AppKit/AppKit.h>"
+depend "objc-framework:AppKit"
+depend "objc-header-m:<SpriteKit/SpriteKit.h>"
+depend "objc-framework:SpriteKit"
+
+func forScene(scene as Scene, context as GuiApplicationContextForMacOS) static as this
+{
+	var v = new this()
+	var cc = context
+	if cc == null:
+		cc = new GuiApplicationContextForMacOS()
+	v.setContext(cc)
+	v.initialize(scene)
+	return v
+}
+
+func initializeApplicationMenu(appName as string) static
+{
+	lang "objc" {{{
+		[NSApplication sharedApplication];
+		[NSApp setMainMenu:[[NSMenu alloc] initWithTitle:@""]];
+		NSMenu* menubar = [NSApp mainMenu];
+		NSMenu* appmenu = [[NSMenu alloc] initWithTitle:@""];
+		NSMenuItem* appmenuitem = [[NSMenuItem alloc] initWithTitle:@"" action:NULL keyEquivalent:@""];
+		[appmenu addItemWithTitle:[@"Quit " stringByAppendingString:appName] action:@selector(terminate:) keyEquivalent:@"q"];
+		[menubar addItem:appmenuitem];
+		[menubar setSubmenu:appmenu forItem:appmenuitem];
+	}}}
+}
+
+pvar context as GuiApplicationContextForMacOS
+var backend as BackendForSpriteKit
+
+ctor
+{
+	lang "objc" {{{
+		self.delegate = self;
+		NSScreen* screen = [NSScreen mainScreen];
+		NSRect rect = [screen frame];
+		int mask = NSBorderlessWindowMask;
+		[self setContentSize:rect.size];
+		[self setStyleMask:mask];
+		[self setPreferredBackingLocation:NSWindowBackingLocationVideoMemory];
+		[self setReleasedWhenClosed: NO];
+		[self setLevel:NSMainMenuWindowLevel+1];
+		[self setHidesOnDeactivate:YES];
+		[self setFrameOrigin:CGPointMake(0, 0)];
+	}}}
+}
+
+func canBecomeKeyWindow as bool:
+	return true
+
+func initialize(scene as Scene)
+{
+	var view as !"SKView*"
+	lang "objc" {{{
+		view = [[SKView alloc] init];
+		[self setContentView:view];
+	}}}
+	backend = new BackendForSpriteKit()
+	backend.initialize(context, view, scene, EnvironmentVariable.get("MOTION_SK_DEBUG") == "yes")
+}
+
+func windowDidResize(notification as !"NSNotification*")
+{
+}
+
+func windowWillClose(notification as !"NSNotification*")
+{
+	backend.cleanup()
+}
+
+func windowDidChangeOcclusionState(notification as !"NSNotification*")
+{
+	var isVisible = lang "objc" bool {{{ (self.occlusionState & NSWindowOcclusionStateVisible) == NSWindowOcclusionStateVisible ? YES : NO }}}
+	if isVisible {
+		if backend:
+			backend.start()
+	}
+	else {
+		if backend:
+			backend.stop()
+	}
+}

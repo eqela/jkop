@@ -1,0 +1,155 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+import jk.fs
+import jk.os
+
+class:
+
+var name as string
+pvar compressedSize as long
+pvar uncompressedSize as long
+pvar isDirectory as bool
+pvar mode as int
+
+func getName as string:
+	return name
+
+func setName(newName as string) as this
+{
+	name = String.replaceCharacter(newName, '\\', '/')
+	if String.endsWith(name, "/") {
+		isDirectory = true
+		name = String.getSubString(name, 0, String.getLength(name) - 1)
+	}
+	return this
+}
+
+func getContentReader virtual as Reader:
+	return null
+
+func getContentsBuffer as buffer
+{
+	if getIsDirectory():
+		return null
+	var reader = assert getContentReader()
+	var v as buffer
+	var buf = malloc 4096 * 4
+	loop {
+		var n = reader.read(buf)
+		if n == 0:
+			break
+		if n < 0 {
+			v = null
+			break
+		}
+		v = Buffer.append(v, buf, n)
+	}
+	if reader is Closable:
+		(reader as! Closable).close()
+	return v
+}
+
+func getContentsUTF8 as string
+{
+	var v = assert getContentsBuffer()
+	return String.forUTF8Buffer(v)
+}
+
+func writeToFile(file as File) virtual as bool
+{
+	assert file
+	var v = false
+	if getIsDirectory() {
+		file.createDirectoryRecursive()
+		v = true
+	}
+	else {
+		var reader = assert getContentReader()
+		var fp = file.getParent()
+		if fp:
+			fp.createDirectoryRecursive()
+		var writer = assert file.write() {
+			if reader is Closable:
+				(reader as! Closable).close()
+		}
+		var buf = malloc 4096 * 4
+		v = true
+		var n = 0
+		while (n = reader.read(buf)) > 0 {
+			var nr = writer.write(buf, n)
+			if nr != n {
+				v = false
+				break
+			}
+		}
+		if reader && reader is Closable:
+			(reader as! Closable).close()
+		if writer && writer is Closable:
+			(writer as! Closable).close()
+		if not v:
+			file.remove()
+	}
+	if v && mode > 0 && (OS.isLinux() || OS.isMacOS()):
+		file.setMode(mode)
+	return v
+}
+
+func writeToDir(dir as File, fullPath as bool = true, overwrite as bool = true) as File
+{
+	assert dir
+	assert name
+	var path as File
+	if fullPath == false {
+		var nn as string
+		var r = String.getLastIndexOfCharacter(name, '/')
+		if r < 1 {
+			nn = name
+		}
+		else {
+			nn = String.getEndOfString(name, r+1)
+		}
+		if nn == null || String.getLength(nn) < 1:
+			return null
+		path = dir.entry(nn)
+	}
+	else {
+		path = dir
+		foreach x in String.split(name, '/') {
+			if x && String.getLength(x) > 0:
+				path = path.entry(x)
+		}
+		var dd = path.getParent()
+		if not dd.isDirectory():
+			dd.createDirectoryRecursive()
+		assert dd.isDirectory()
+	}
+	if overwrite == false {
+		if path.exists():
+			return null
+	}
+	assert writeToFile(path)
+	return path
+}

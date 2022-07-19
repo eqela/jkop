@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,8 +22,8 @@
  * SOFTWARE.
  */
 
-import jk.web
 import jk.log
+import jk.webclient
 
 class is AsynchronousImageWidget #widget:
 
@@ -50,6 +49,9 @@ func setWidgetImageResource(resName as string)
 	onEndLoading()
 }
 
+func getWidgetImage as Image:
+	return widgetImage
+
 func setWidgetImage(image as Image)
 {
 	var img = onStartLoading(false)
@@ -59,16 +61,10 @@ func setWidgetImage(image as Image)
 	onEndLoading()
 }
 
-func getWidgetImage as Image:
-	return widgetImage
-
-func setWidgetImageUrl(url as string, callback as function<void,Error> = null):
-	setWidgetImageUrl(url, null, null, callback)
-
-func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void,Error>) virtual
+func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, body as buffer) async virtual
 {
 	Log.debug(context, VALUE "__THIS__" .. ": Start loading image: `" .. url .."'")
-	var img final = onStartLoading(widgetUseOverlay)
+	var img = onStartLoading(widgetUseOverlay)
 	IFDEF "target_html" {
 		if not headers {
 			var path #used = url
@@ -84,55 +80,41 @@ func setWidgetImageUrl(url as string, headers as KeyValueList<string,string>, bo
 			return
 		}
 	}
-	doQueryImage(context, url, headers, body, func(imgo as Image) {
-		onEndLoading()
-		img.setWidgetImage(imgo)
-		widgetImage = imgo
-	}, callback)
+	var imgo = await doQueryImage(context, url, headers, body)
+	onEndLoading()
+	widgetImage = imgo
+	img.setWidgetImage(imgo)
 }
 
-func doQueryImage(context as GuiApplicationContext, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, Image>, errorCallback as function<void, Error>) static
+func doQueryImage(context as GuiApplicationContext, url as string, headers as KeyValueList<string,string>, body as buffer) async as Image
 {
-	var client = assert NativeWebClient.instance() {
-		Log.error(context, "Failed to create web client.")
-		if errorCallback:
-			errorCallback(Error.forCode("noWebClient"))
+	var client = WebClient.instance()
+	var response = await client.executeQuery(context, "GET", url, headers, body)
+	var rbody = response.body
+	if rbody == null || Buffer.getSize(rbody) < 1 {
+		Log.error(context, VALUE "__THIS__" .. ": FAILED loading image: `" .. url .."'")
+		Error.throw("failedToDownloadImage", url)
 	}
-	var uu final = url
-	var cb final = callback
-	var ecb final = errorCallback
-	var contextf final = context
-	client.query("GET", url, headers, body, func(rcode as string, rheaders as KeyValueList<string,string>, rbody as buffer) {
-		if rbody == null || Buffer.getSize(rbody) < 1 {
-			Log.error(contextf, VALUE "__THIS__" .. ": FAILED loading image: `" .. uu .."'")
-			if ecb:
-				ecb(Error.forCode("failedToDownload"))
-			return
-		}
-		var mimeType as string
-		var hdrv as vector<KeyValuePair<string,string>> #force = rheaders.asVector()
-		foreach hdr in hdrv {
-			if String.equalsIgnoreCase(hdr.key, "content-type") {
-				var vv = hdr.value
-				if vv {
-					var sc = String.getIndexOfCharacter(vv, ';')
-					if sc < 0 {
-						mimeType = vv
-					}
-					else {
-						mimeType = String.getEndOfString(vv, sc)
-					}
+	var mimeType as string
+	var hdrv = response.headers.asVector()
+	foreach hdr in hdrv {
+		if String.equalsIgnoreCase(hdr.key, "content-type") {
+			var vv = hdr.value
+			if vv {
+				var sc = String.getIndexOfCharacter(vv, ';')
+				if sc < 0 {
+					mimeType = vv
+				}
+				else {
+					mimeType = String.getEndOfString(vv, sc)
 				}
 			}
 		}
-		contextf.getImageForBuffer(rbody, mimeType, func(imgo as Image) {
-			if not imgo {
-				Log.error(contextf, VALUE "__THIS__" .. ": Failed to create image from the returned data")
-				if ecb:
-					ecb(Error.forCode("failedToCreateImage"))
-				return
-			}
-			cb(imgo)
-		})
-	})
+	}
+	var imgo = context.getImageForBufferSync(rbody, mimeType)
+	if not imgo {
+		Log.error(context, VALUE "__THIS__" .. ": Failed to create image from the returned data")
+		Error.throw("failedToCreateImage", null)
+	}
+	return imgo
 }

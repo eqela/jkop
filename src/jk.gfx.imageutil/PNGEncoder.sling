@@ -1,0 +1,55 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func encode(data as buffer, width as int, height as int) static as buffer
+{
+	assert sizeof data > 0
+	var buffer as buffer
+	IFDEF "target_dotnet" {
+		var des = new !"System.IO.MemoryStream"()
+		lang "cs" {{{
+			try {
+				System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(width, height);
+				System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
+					new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
+					System.Drawing.Imaging.ImageLockMode.WriteOnly,
+					bmp.PixelFormat
+				);
+				System.Runtime.InteropServices.Marshal.Copy(data, 0, bmpData.Scan0, data.Length);
+				bmp.UnlockBits(bmpData);
+				bmp.Save(des, System.Drawing.Imaging.ImageFormat.Png);
+			}
+			catch(System.Exception e) {
+				return(null);
+			}
+		}}}
+		buffer = lang "cs" buffer {{{ des.GetBuffer() }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" buffer {{{ _image:encode_png_data(data, width, height) }}}
+	}
+	return buffer
+}

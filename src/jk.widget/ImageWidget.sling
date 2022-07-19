@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -67,6 +66,22 @@ IFDEF "target_html"
 
 	func createElement override as object:
 		return HTMLDOM.createElement("img")
+		
+	func doSetWidgetImage(image as Image)
+	{
+		var src as string
+		var img = image as ImageForBrowser
+		if img {
+			var bm = img.image
+			if bm:
+				src = lang "js" string {{{ bm.src }}}
+			HTMLDOM.removeStyle(element, "display")
+		}
+		else {
+			HTMLDOM.setStyle(element, "display", "none")
+		}
+		HTMLDOM.setAttribute(element, "src", src)
+	}
 }
 
 IFDEF "target_uwp"
@@ -166,7 +181,7 @@ func setWidgetImageScaleMethod(method as int)
 		IFDEF "target_java" {
 			if method == FIT {
 				lang "java" {{{
-					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE);
+					setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
 				}}}
 			}
 			else if method == FILL {
@@ -185,7 +200,7 @@ func setWidgetImageScaleMethod(method as int)
 		ELSE IFDEF "target_kotlin" {
 			if method == FIT {
 				lang "kotlin" {{{
-					setScaleType(android.widget.ImageView.ScaleType.CENTER_INSIDE)
+					setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER)
 				}}}
 			}
 			else if method == FILL {
@@ -209,53 +224,53 @@ func setWidgetImageScaleMethod(method as int)
 
 func setWidgetImage(image as Image)
 {
-	if widgetImageRounded {
-		widgetImage = ImageUtil.createCircularImageSync(image)
-	}
-	else {
-		widgetImage = image
-	}
-	IFDEF "target_android" {
-		var ifa = widgetImage as ImageForAndroid
-		if ifa == null {
-			base.setImageBitmap(null)
+	IFDEF "target_html" {
+		if widgetImageRounded {
+			ImageUtil.createCircularImage(image, func(nimage as Image) {
+				widgetImage = nimage
+				doSetWidgetImage(nimage)
+			})
 		}
 		else {
-			base.setImageBitmap(ifa.getAndroidBitmap())
-		}
-	}
-	ELSE IFDEF "target_html" {
-		var src as string
-		var img = widgetImage as ImageForBrowser
-		if img {
-			var bm = img.image
-			if bm:
-				src = lang "js" string {{{ bm.src }}}
-			HTMLDOM.removeStyle(element, "display")
-		}
-		else {
-			HTMLDOM.setStyle(element, "display", "none")
-		}
-		HTMLDOM.setAttribute(element, "src", src)
-	}
-	ELSE IFDEF "target_ios" {
-		var uiImage as !"UIImage"
-		var img = image as ImageForIOS
-		if img:
-			uiImage = img.uiImage
-		IFDEF "target_objc" {
-			lang "objc" {{{
-				[self setImage:uiImage];
-			}}}
-		}
-		ELSE IFDEF "target_swift" {
-			lang "swift" {{{
-				self.image = uiImage
-			}}}
+			widgetImage = image
+			doSetWidgetImage(widgetImage)
 		}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		if widgetImageRounded {
+			widgetImage = ImageUtil.createCircularImageSync(image)
+		}
+		else {
+			widgetImage = image
+		}
+		IFDEF "target_android" {
+			var ifa = widgetImage as ImageForAndroid
+			if ifa == null {
+				base.setImageBitmap(null)
+			}
+			else {
+				base.setImageBitmap(ifa.getAndroidBitmap())
+			}
+		}
+		ELSE IFDEF "target_ios" {
+			var uiImage as !"UIImage"
+			var img = image as ImageForIOS
+			if img:
+				uiImage = img.uiImage
+			IFDEF "target_objc" {
+				lang "objc" {{{
+					[self setImage:uiImage];
+				}}}
+			}
+			ELSE IFDEF "target_swift" {
+				lang "swift" {{{
+					self.image = uiImage
+				}}}
+			}
+		}
+		ELSE {
+			ERROR "Not implemented"
+		}
 	}
 	Widget.onLayoutChanged(this)
 }

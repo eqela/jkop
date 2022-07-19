@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -47,6 +46,7 @@ func forIOManager(mgr as IOManager) static as this
 var tcpsocket as TCPSocket
 var sslsocket as SSLSocket
 var rcvbuffer as buffer
+var entry as IOManagerEntry
 pvar iomanager as IOManager
 
 ctor:
@@ -73,6 +73,10 @@ func connectSSL(address as string, port as int, callback as function<void,Error>
 		if callback:
 			callback(Error.forCode("sslHandshakeFailed"))
 	}
+	assert addSocketToIOMananger() {
+		if callback:
+			callback(Error.forCode("failedToAddSocketToIOManager"))
+	}
 	if callback:
 		callback(null)
 }
@@ -85,8 +89,20 @@ func connect(address as string, port as int, callback as function<void,Error>) o
 			callback(Error.forCode("failedToConnect"))
 	}
 	sslsocket = null
+	assert addSocketToIOMananger() {
+		if callback:
+			callback(Error.forCode("failedToAddSocketToIOManager"))
+	}
 	if callback:
 		callback(null)
+}
+
+func addSocketToIOMananger private as bool
+{
+	assert iomanager
+	var socket = getSocket()
+	assert entry = iomanager.add(socket)
+	return true
 }
 
 func receive(callback as function<void,buffer,int>) override
@@ -95,10 +111,13 @@ func receive(callback as function<void,buffer,int>) override
 		if callback:
 			callback(null, 0)
 	}
-	var ee final = iomanager.add(tcpsocket)
+	assert entry {
+		if callback:
+			callback(null, 0)
+	}
 	var cc final = callback
-	ee.setReadListener(func {
-		ee.setReadListener(null)
+	entry.setReadListener(func {
+		entry.setReadListener(null)
 		var ss = getSocket()
 		var bb = rcvbuffer
 		var v = 0
@@ -125,6 +144,10 @@ func send(data as buffer, size as int, callback as function<void,Error>) overrid
 		if callback:
 			callback(Error.forCode("notConnected"))
 	}
+	assert entry {
+		if callback:
+			callback(Error.forCode("noIOManagerEntry"))
+	}
 	var mb = new MyBuffer()
 	mb.setData(data)
 	mb.setSize(size)
@@ -139,9 +162,8 @@ func scheduleWrite private
 		return
 	if toWrite.getSize() < 1:
 		return
-	var ee final = iomanager.add(tcpsocket)
-	ee.setWriteListener(func {
-		ee.setWriteListener(null)
+	entry.setWriteListener(func {
+		entry.setWriteListener(null)
 		writeScheduled = false
 		var mb = toWrite.pop()
 		if mb {

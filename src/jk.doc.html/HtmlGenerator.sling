@@ -1,0 +1,132 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2019-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.xml
+import jk.doc.model
+
+class:
+
+pvar css as string
+
+func dumpContainer(xml as XMLMaker, node as ContainerNode) private
+{
+	assert node
+	foreach child as BaseNode in node.nodes:
+		dumpNode(xml, child)
+}
+
+func dumpNode(xml as XMLMaker, node as BaseNode) private
+{
+	assert node
+	if node is DocumentNode {
+		xml.startWithAttribute("div", "class", "document")
+		dumpContainer(xml, node as! DocumentNode)
+		xml.end("div")
+	}
+	else if node is SectionNode {
+		xml.startWithAttribute("div", "class", "section")
+		dumpContainer(xml, node as! SectionNode)
+		xml.end("div")
+	}
+	else if node is BoldContainerNode {
+		xml.start("b")
+		dumpContainer(xml, node as! BoldContainerNode)
+		xml.end("b")
+	}
+	else if node is ItalicContainerNode {
+		xml.start("i")
+		dumpContainer(xml, node as! ItalicContainerNode)
+		xml.end("i")
+	}
+	else if node is HeadingNode {
+		var level = (node as! HeadingNode).level
+		var tag = "h" .. String.forInteger(level)
+		xml.start(tag)
+		dumpContainer(xml, node as! HeadingNode)
+		xml.end(tag)
+	}
+	else if node is ParagraphNode {
+		xml.start("p")
+		dumpContainer(xml, node as! ParagraphNode)
+		xml.end("p")
+	}
+	else if node is TextNode {
+		xml.text((node as! TextNode).text)
+	}
+	else if node is TableNode {
+		var table = node as! TableNode
+		var class = table.style
+		if String.isNotEmpty(class) {
+			xml.startWithAttribute("table", "class", class)
+		}
+		else {
+			xml.start("table")
+		}
+		foreach row as TableRowNode in table.rows:
+			dumpNode(xml, row)
+		xml.end("table")
+	}
+	else if node is TableRowNode {
+		xml.start("tr")
+		foreach cell as BaseNode in (node as! TableRowNode).nodes {
+			xml.start("td")
+			dumpNode(xml, cell)
+			xml.end("td")
+		}
+		xml.end("tr")
+	}
+	else if node is BulletListNode {
+		xml.start("ul")
+		foreach entry as ParagraphNode in (node as! BulletListNode).entries {
+			xml.start("li")
+			dumpContainer(xml, entry)
+			xml.end("li")
+		}
+		xml.end("ul")
+	}
+	else {
+		throw ExceptionWithString.forString("Unsupported element encountered in document")
+	}
+}
+
+func generate(document as DocumentNode) as string
+{
+	assert document
+	var xml = new XMLMaker()
+	xml.start("html")
+	xml.start("head")
+	xml.element("meta", new map {
+		name "viewport"
+		content "initial-scale=1,maximum-scale=1"
+	})
+	xml.textElement("title", document.title)
+	if css:
+		xml.textElement("style", css)
+	xml.end("head")
+	xml.start("body")
+	dumpNode(xml, document)
+	xml.end("body")
+	xml.end("html")
+	return xml.toString()
+}

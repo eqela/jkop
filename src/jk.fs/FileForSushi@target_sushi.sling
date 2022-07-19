@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +23,7 @@
  */
 
 import jk.os
+import jk.io
 
 class is File private:
 
@@ -148,7 +148,14 @@ var path as string
 func forPath(path as string) static as File
 {
 	var v = new this()
-	v.setPath(path)
+	v.setPath(path, true)
+	return v
+}
+
+func forRawPath(path as string) static as File
+{
+	var v = new this()
+	v.setPath(path, false)
 	return v
 }
 
@@ -166,7 +173,39 @@ func entry(name as string) override as File
 	return forPath(pp)
 }
 
-func move(dest as File, replace as bool) override stub as bool
+func rawEntry(name as string) override as File
+{
+	var pp = path
+	if String.isNotEmpty(name) {
+		if pp {
+			pp = pp .. "/" .. name
+		}
+		else {
+			pp = name
+		}
+	}
+	return forRawPath(pp)
+}
+
+func move(dest as File, replace as bool) override as bool
+{
+	var dthis = assert dest as this
+	var opath = path
+	var npath = dthis.getPath()
+	assert String.isNotEmpty(opath)
+	assert String.isNotEmpty(npath)
+	if replace {
+		dthis.removeRecursive()
+	}
+	else {
+		if dthis.exists():
+			return false
+	}
+	var r = lang "lua" int {{{ _io:rename_path(opath, npath) }}}
+	if r != 1:
+		return false
+	return true
+}
 
 func touch override as bool
 {
@@ -327,7 +366,7 @@ func normalizePath(apath as string) private as string
 	return v.toString()
 }
 
-func setPath(v as string)
+func setPath(v as string, useRealPath as bool) private
 {
 	if String.isEmpty(v) {
 		path = null
@@ -350,15 +389,17 @@ func setPath(v as string)
 			return
 		}
 	}
-	var realpath as string
-	lang "lua" {{{
-		realpath = _io:get_real_path(v)
-	}}}
-	if String.isNotEmpty(realpath) {
-		path = realpath
-		if OS.isWindows():
-			path = String.replaceCharacter(path, '\\', '/')
-		return
+	if useRealPath {
+		var realpath as string
+		lang "lua" {{{
+			realpath = _io:get_real_path(v)
+		}}}
+		if String.isNotEmpty(realpath) {
+			path = realpath
+			if OS.isWindows():
+				path = String.replaceCharacter(path, '\\', '/')
+			return
+		}
 	}
 	if PathInfo.isAbsolutePath(v) {
 		path = normalizePath(v)

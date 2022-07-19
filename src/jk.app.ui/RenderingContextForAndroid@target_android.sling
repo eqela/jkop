@@ -1,0 +1,678 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.gfx.render
+import jk.math
+
+class is RenderingContext:
+
+interface AndroidShaderObject
+{
+	func toAndroidShader as !"android.graphics.Shader"
+}
+
+class ColorStop
+{
+	ctor(stop as double, color as Color)
+	{
+		this.stop = stop as float
+		this.color = color
+	}
+
+	var stop public as float
+	var color public as Color
+}
+
+class GradientObject is AndroidShaderObject abstract
+{
+	var colorStops protected as vector<ColorStop>
+
+	func addColorStop(stop as double, color as Color)
+	{
+		if not colorStops:
+			colorStops = new vector<ColorStop>
+		colorStops += new ColorStop(stop, color)
+	}
+
+	func getColors protected as int[]
+	{
+		var size = (sizeof colorStops) as int
+		var colors = new int[size]
+		for(var i = 0; i < size; i++) {
+			var colorStop = colorStops[i]
+			if not colorStop.color {
+				colors[i] = Color.black().toARGBInt32()
+			}
+			else {
+				colors[i] = colorStop.color.toARGBInt32()
+			}
+		}
+		return colors
+	}
+
+	func getStops protected as float[]
+	{
+		var size = (sizeof colorStops) as int
+		var stops = new float[size]
+		for(var i = 0; i < size; i++) {
+			var colorStop = colorStops[i]
+			stops[i] = colorStop.stop
+		}
+		return stops
+	}
+
+	func toAndroidShader abstract as !"android.graphics.Shader"
+}
+
+class LinearGradientObject is GradientObject
+{
+	ctor(x0 as double, y0 as double, x1 as double, y1 as double)
+	{
+		this.x0 = x0 as float
+		this.y0 = y0 as float
+		this.x1 = x1 as float
+		this.y1 = y1 as float
+	}
+
+	var x0 as float
+	var y0 as float
+	var x1 as float
+	var y1 as float
+
+	func toAndroidShader override as !"android.graphics.Shader"
+	{
+		var tm as !"android.graphics.Shader.TileMode"
+		IFDEF "target_java" {
+			tm = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			tm = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+		}
+		var shader = new !"android.graphics.LinearGradient"(
+			x0,
+			y0,
+			x1,
+			y1,
+			getColors(),
+			getStops(),
+			tm
+		)
+		return shader
+	}
+}
+
+class RadialGradientObject is GradientObject
+{
+	ctor(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double)
+	{
+		this.x0 = x0
+		this.y0 = y0
+		this.r0 = r0
+		this.x1 = x1
+		this.y1 = y1
+		this.r1 = r1
+	}
+
+	var x0 as double
+	var y0 as double
+	var r0 as double
+	var x1 as double
+	var y1 as double
+	var r1 as double
+
+	func toAndroidShader override as !"android.graphics.Shader"
+	{
+		var centerX = (x0 + r0) as float
+		var centerY = (y0 + r0) as float
+		var radius = r1 as float
+		var tm as !"android.graphics.Shader.TileMode"
+		IFDEF "target_java" {
+			tm = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			tm = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+		}
+		var shader = new !"android.graphics.RadialGradient"(
+			centerX,
+			centerY,
+			radius,
+			getColors(),
+			getStops(),
+			tm
+		)
+		return shader
+	}
+}
+
+class PatternObject is AndroidShaderObject
+{
+	ctor(image as Image, repeat as int)
+	{
+		this.image = image
+		this.repeat = repeat
+	}
+
+	var image as Image
+	var repeat as int
+
+	func toAndroidShader as !"android.graphics.Shader"
+	{
+		var bitmap = assert (image as! ImageForAndroid).getAndroidBitmap()
+		var tileX as !"android.graphics.Shader.TileMode"
+		var tileY as !"android.graphics.Shader.TileMode"
+		if repeat == RenderingContext.REPEAT_BOTH {
+			IFDEF "target_java" {
+				tileX = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				tileX = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+		}
+		else if repeat == RenderingContext.REPEAT_X {
+			IFDEF "target_java" {
+				tileX = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				tileX = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+			}
+		}
+		else if repeat == RenderingContext.REPEAT_Y {
+			IFDEF "target_java" {
+				tileX = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+				tileY = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				tileX = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.CLAMP }}}
+				tileY = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+		}
+		else {
+			IFDEF "target_java" {
+				tileX = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "java" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+			ELSE IFDEF "target_kotlin" {
+				tileX = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+				tileY = lang "kotlin" !"android.graphics.Shader.TileMode" {{{ android.graphics.Shader.TileMode.REPEAT }}}
+			}
+		}
+		return new !"android.graphics.BitmapShader"(bitmap, tileX, tileY)
+	}
+}
+
+func forCanvas(context as GuiApplicationContext, canvas as !"android.graphics.Canvas") static as this
+{
+	var v = new this()
+	v.setCanvas(canvas)
+	v.setContext(context)
+	return v
+}
+
+pvar context as GuiApplicationContext
+pvar canvas as !"android.graphics.Canvas"
+var fillPaint as !"android.graphics.Paint"
+var strokePaint as !"android.graphics.Paint"
+var rectObject as !"android.graphics.Rect"
+var pathObject as !"android.graphics.Path"
+var fontDescription as FontDescription
+var textAlign = RenderingContext.ALIGN_LEFT
+var lineWidth = 5.0F
+
+func setFillStyle(style as object) override
+{
+	var f as Color
+	if style is string {
+		f = Color.instance(style as! string)
+	}
+	else if style is Color {
+		f = style as! Color
+	}
+	if f {
+		fillPaint = new !"android.graphics.Paint"()
+		fillPaint.setAntiAlias(true)
+		IFDEF "target_java" {
+			fillPaint.setStyle(lang "java" int {{{ android.graphics.Paint.Style.FILL }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			fillPaint.setStyle(lang "kotlin" int {{{ android.graphics.Paint.Style.FILL }}})
+		}
+		fillPaint.setColor(f.toARGBInt32())
+	}
+	else {
+		fillPaint = null
+	}
+}
+
+func setStrokeStyle(style as object) override
+{
+	var f as Color
+	if style is string {
+		f = Color.instance(style as! string)
+	}
+	else if style is Color {
+		f = style as! Color
+	}
+	if f {
+		strokePaint = new !"android.graphics.Paint"()
+		strokePaint.setAntiAlias(true)
+		strokePaint.setStrokeWidth(lineWidth)
+		IFDEF "target_java" {
+			strokePaint.setStyle(lang "java" int {{{ android.graphics.Paint.Style.STROKE }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			strokePaint.setStyle(lang "kotlin" int {{{ android.graphics.Paint.Style.STROKE }}})
+		}
+		strokePaint.setColor(f.toARGBInt32())
+	}
+	else {
+		strokePaint = null
+	}
+}
+
+func setShadowColor(color as Color) stub override
+func setShadowBlur(blur as double) stub override
+func setShadowOffsetX(offset as double) stub override
+func setShadowOffsetY(offset as double) stub override
+
+func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object:
+	return new LinearGradientObject(x0, y0, x1, y1)
+
+func createPattern(image as Image, repeat as int) override as object
+{
+	assert image
+	return new PatternObject(image, repeat)
+}
+
+func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object:
+	return new RadialGradientObject(x0, y0, r0, x1, y1, r1)
+
+func addColorStop(gradient as object, index as double, color as Color) override
+{
+	var gradientObject = assert gradient as GradientObject
+	assert color
+	gradientObject.addColorStop(index, color)
+}
+
+func setLineCap(cap as int) stub override
+func setLineJoin(join as int) stub override
+
+func setLineWidth(width as double) override:
+	lineWidth = width as float
+
+func setMiterLimit(limit as double) stub override
+
+func rect(x as double, y as double, width as double, height as double) override
+{
+	var xx = x as int
+	var yy = y as int
+	var ww = xx + width as int
+	var hh = yy + height as int
+	rectObject = new !"android.graphics.Rect"(xx, yy, ww, hh)
+}
+
+func fillRect(x as double, y as double, width as double, height as double) override
+{
+	assert canvas
+	var xx = x as float
+	var yy = y as float
+	var ww = xx + width as float
+	var hh = yy + height as float
+	canvas.drawRect(xx, yy, ww, hh, fillPaint)
+}
+
+func strokeRect(x as double, y as double, width as double, height as double) override
+{
+	assert canvas
+	var xx = x as float
+	var yy = y as float
+	var ww = xx + width as float
+	var hh = yy + height as float
+	canvas.drawRect(xx, yy, ww, hh, strokePaint)
+}
+
+func clearRect(x as double, y as double, width as double, height as double) stub override
+
+func fill override
+{
+	assert canvas
+	canvas.drawRGB(244, 255, 222)
+}
+
+func stroke override
+{
+	assert canvas
+	canvas.drawPath(pathObject, strokePaint)
+}
+
+func beginPath override:
+	pathObject = new !"android.graphics.Path"()
+
+func moveTo(x as double, y as double) override
+{
+	assert pathObject
+	pathObject.moveTo(x as float, y as float)
+}
+
+func closePath override
+{
+	assert pathObject
+	pathObject.close()
+}
+
+func lineTo(x as double, y as double) override
+{
+	assert pathObject
+	pathObject.lineTo(x as float, y as float)
+}
+
+func clip stub override
+
+func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override
+{
+	assert pathObject
+	pathObject.quadTo(cpx as float, cpy as float, x as float, y as float)
+}
+
+func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override
+{
+	assert pathObject
+	pathObject.cubicTo(cp1x as float, cp1y as float, cp2x as float, cp2y as float, x as float, y as float)
+}
+
+func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override
+{
+	assert pathObject
+	var xx = (x - r)
+	var yy = (y - r)
+	var ww = (xx + r * 2)
+	var hh = (yy + r * 2)
+	var sa = Math.toRadians(sAngle)
+	var ea = Math.toRadians(eAngle)
+	pathObject.arcTo(xx as float, yy as float, ww as float, hh as float, sa as float, ea as float, true)
+}
+
+func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) stub override
+func isPointInPath(x as double, y as double) stub override as bool
+
+func scale(scalewidth as double, scaleheight as double) override
+{
+	assert canvas
+	canvas.scale(scalewidth as float, scaleheight as float)
+}
+
+func rotate(angle as double) override
+{
+	assert canvas
+	canvas.rotate(Math.toRadians(angle) as float)
+}
+
+func translate(x as double, y as double) override
+{
+	assert canvas
+	canvas.translate(x as float, y as float)
+}
+
+func transform(a as double, b as double, c as double, d as double, e as double, f as double) override
+{
+	assert canvas
+	canvas.scale(a as float, c as float)
+	canvas.skew(b as float, d as float)
+	canvas.translate(e as float, f as float)
+}
+
+func setTransform(a as double, b as double, c as double, d as double, e as double, f as double) stub override
+
+func setFont(font as FontDescription) override:
+	fontDescription = font
+
+func setTextAlign(align as int) override:
+	textAlign = align
+
+func setTextBaseline(baseline as int) stub override
+
+func fillText(text as string, x as double, y as double, maxWidth as double) override
+{
+	assert canvas
+	if not fillPaint:
+		createDefaultFillPaint()
+	if not fontDescription:
+		fontDescription = FontDescription.forDefault()
+	setFontDescriptionToPaint(fillPaint)
+	setTextAlignmentToPaint(fillPaint)
+	canvas.drawText(text, x as float, y as float, fillPaint)
+}
+
+func strokeText(text as string, x as double, y as double, maxWidth as double) override
+{
+	assert canvas
+	if not strokePaint:
+		createDefaultStrokePaint()
+	if not fontDescription:
+		fontDescription = FontDescription.forDefault()
+	setFontDescriptionToPaint(strokePaint)
+	setTextAlignmentToPaint(strokePaint)
+	canvas.drawText(text, x as float, y as float, strokePaint)
+}
+
+func measureTextHeight(text as string) stub override as double
+
+func measureTextWidth(text as string) override as double
+{
+	var paint = new !"android.graphics.Paint"()
+	var textw as float
+	IFDEF "target_java" {
+		textw  = lang "java" float {{{ paint.measureText(text) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		textw = lang "kotlin" float {{{ paint!!.measureText(text) }}}
+	}
+	return textw as double
+}
+
+func drawImage(img as Image, x as double, y as double) override
+{
+	assert canvas
+	var aimage = assert img as ImageForAndroid
+	var bitmap = assert aimage.getAndroidBitmap()
+	canvas.drawBitmap(bitmap, x as float, y as float, null)
+}
+
+func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
+{
+	assert canvas
+	assert img
+	var scaled = assert img.scaleToSizeSync(width as int, height as int)
+	var aimage = assert scaled as ImageForAndroid
+	var bitmap = assert aimage.getAndroidBitmap()
+	canvas.drawBitmap(bitmap, x as float, y as float, null)
+}
+
+func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) override
+{
+	assert canvas
+	assert img
+	var croped = assert img.cropSync(sx as int, sy as int, swidth as int, sheight as int)
+	var scaled = assert croped.scaleToSizeSync(width as int, height as int)
+	var aimage = assert scaled as ImageForAndroid
+	var bitmap = assert aimage.getAndroidBitmap()
+	canvas.drawBitmap(bitmap, x as float, y as float, null)
+}
+
+func setGlobalAlpha(alpha as double) stub override
+
+func save override
+{
+	assert canvas
+	canvas.save()
+}
+
+func restore override
+{
+	assert canvas
+	canvas.restore()
+}
+
+func setFontDescriptionToPaint(paint as !"android.graphics.Paint") private
+{
+	assert paint
+	assert fontDescription
+	var name = fontDescription.getName()
+	var bold = fontDescription.getBold()
+	var italic = fontDescription.getItalic()
+	var style as int
+	if bold && italic {
+		IFDEF "target_java" {
+			style = lang "java" int {{{ android.graphics.Typeface.BOLD_ITALIC }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			style = lang "kotlin" int {{{ android.graphics.Typeface.BOLD_ITALIC }}}
+		}
+	}
+	else if bold {
+		IFDEF "target_java" {
+			style = lang "java" int {{{ android.graphics.Typeface.BOLD }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			style = lang "kotlin" int {{{ android.graphics.Typeface.BOLD }}}
+		}
+	}
+	else if italic {
+		IFDEF "target_java" {
+			style = lang "java" int {{{ android.graphics.Typeface.ITALIC }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			style = lang "kotlin" int {{{ android.graphics.Typeface.ITALIC }}}
+		}
+	}
+	else {
+		IFDEF "target_java" {
+			style = lang "java" int {{{ android.graphics.Typeface.NORMAL }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			style = lang "kotlin" int {{{ android.graphics.Typeface.NORMAL }}}
+		}
+	}
+	var typeface as !"android.graphics.Typeface"
+	if String.isEmpty(name) {
+		IFDEF "target_java" {
+			typeface = lang "java" !"android.graphics.Typeface" {{{ android.graphics.Typeface.defaultFromStyle(style) }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			typeface = lang "kotlin" !"android.graphics.Typeface" {{{ android.graphics.Typeface.defaultFromStyle(style) }}}
+		}
+	}
+	else {
+		IFDEF "target_java" {
+			typeface = lang "java" !"android.graphics.Typeface" {{{ android.graphics.Typeface.create(name, style) }}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			typeface = lang "kotlin" !"android.graphics.Typeface" {{{ android.graphics.Typeface.create(name, style) }}}
+		}
+	}
+	paint.setTypeface(typeface)
+	var size = fontDescription.getSize()
+	if size {
+		var pt #used = size.toPoints(context.getScreenDensity())
+		var ac = (context as! GuiApplicationContextForAndroid).getActivityContext()
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.content.res.Resources rs = ac.getResources();
+				paint.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_PX, (float)pt, rs.getDisplayMetrics()));
+			}}}
+		}
+		ELSE IFDEF "target_kotlin" {
+			lang "kotlin" {{{
+				var rs: android.content.res.Resources = ac!!.getResources()
+				paint.setTextSize(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_PX, pt.toFloat(), rs.getDisplayMetrics()))
+			}}}
+		}
+	}
+}
+
+func setTextAlignmentToPaint(paint as !"android.graphics.Paint") private
+{
+	if textAlign == RenderingContext.ALIGN_START || textAlign == RenderingContext.ALIGN_LEFT {
+		IFDEF "target_java" {
+			paint.setTextAlign(lang "java" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.LEFT }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			paint.setTextAlign(lang "kotlin" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.LEFT }}})
+		}
+	}
+	else if textAlign == RenderingContext.ALIGN_END || textAlign == RenderingContext.ALIGN_RIGHT {
+		IFDEF "target_java" {
+			paint.setTextAlign(lang "java" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.RIGHT }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			paint.setTextAlign(lang "kotlin" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.RIGHT }}})
+		}
+	}
+	else if textAlign == RenderingContext.ALIGN_CENTER {
+		IFDEF "target_java" {
+			paint.setTextAlign(lang "java" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.CENTER }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			paint.setTextAlign(lang "kotlin" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.CENTER }}})
+		}
+	}
+	else {
+		IFDEF "target_java" {
+			paint.setTextAlign(lang "java" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.LEFT }}})
+		}
+		ELSE IFDEF "target_kotlin" {
+			paint.setTextAlign(lang "kotlin" !"android.graphics.Paint.Align" {{{ android.graphics.Paint.Align.LEFT }}})
+		}
+	}
+}
+
+func createDefaultFillPaint private
+{
+	fillPaint = new !"android.graphics.Paint"()
+	fillPaint.setAntiAlias(true)
+	IFDEF "target_java" {
+		fillPaint.setStyle(lang "java" int {{{ android.graphics.Paint.Style.FILL }}})
+	}
+	ELSE IFDEF "target_kotlin" {
+		fillPaint.setStyle(lang "kotlin" int {{{ android.graphics.Paint.Style.FILL }}})
+	}
+	fillPaint.setColor(Color.black().toARGBInt32())
+}
+
+func createDefaultStrokePaint private
+{
+	strokePaint = new !"android.graphics.Paint"()
+	strokePaint.setAntiAlias(true)
+	strokePaint.setStrokeWidth(lineWidth)
+	IFDEF "target_java" {
+		strokePaint.setStyle(lang "java" int {{{ android.graphics.Paint.Style.STROKE }}})
+	}
+	ELSE IFDEF "target_kotlin" {
+		strokePaint.setStyle(lang "kotlin" int {{{ android.graphics.Paint.Style.STROKE }}})
+	}
+	strokePaint.setColor(Color.black().toARGBInt32())
+}

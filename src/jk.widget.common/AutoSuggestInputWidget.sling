@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -78,7 +77,7 @@ func setWidgetItems(items as vector<string>):
 func getWidgetItems as vector<string>:
 	return widgetItems
 
-func createWidgetItem(title as string) virtual as Widget
+func createWidgetItem(title as string, isFirst as bool = false, index as int = 0) virtual as Widget
 {
 	var textColor = widgetContext.getStyleColor(VALUE "__THIS__", "textColor")
 	if not textColor:
@@ -86,6 +85,12 @@ func createWidgetItem(title as string) virtual as Widget
 	var backgroundColor = widgetContext.getStyleColor(VALUE "__THIS__", "backgroundColor")
 	if not backgroundColor:
 		backgroundColor = Color.white()
+	var outlineColor = widgetContext.getStyleColor(VALUE "__THIS__", "outlineColor")
+	if not outlineColor:
+		outlineColor = Color.black()
+	var outlineWidth = widgetContext.getStylePixels(VALUE "__THIS__", "outlineWidth")
+	if outlineWidth < 1:
+		outlineWidth = widgetContext.getHeightValue("1px")
 	var padding = widgetContext.getStylePixels(VALUE "__THIS__", "padding")
 	if padding < 1:
 		padding = widgetContext.getHeightValue("1000um")
@@ -99,7 +104,10 @@ func createWidgetItem(title as string) virtual as Widget
 	var lbl = LabelWidget.forText(widgetContext, t)
 	lbl.setWidgetTextColor(textColor)
 	var layer = new LayerWidget(widgetContext)
-	layer.addWidget(CanvasWidget.forColor(widgetContext, backgroundColor))
+	var canvas = CanvasWidget.forColor(widgetContext, backgroundColor)
+	canvas.setWidgetOutlineColor(outlineColor)
+	canvas.setWidgetOutlineWidth(outlineWidth)
+	layer.addWidget(canvas)
 	layer.addWidget(LayerWidget.forWidget(widgetContext, lbl, padding))
 	if String.isNotEmpty(title) {
 		Widget.setWidgetClickHandler(layer, func {
@@ -130,6 +138,11 @@ func showPopup
 	myContainer = new MyContainerWidget(widgetContext)
 	myContainer.setWidget(thisWidget)
 	myContainer.addWidget(container)
+	IFDEF "target_html" {
+		HTMLDOM.addEventListener(HTMLDOM.getDocument(), "click", func {
+			closePopup()
+		})
+	}
 	parentLayer.addWidget(myContainer)
 	var animationDestY final = Widget.getAbsoluteY(thisWidget)
 	var ay final = widgetContext.getHeightValue("3mm")
@@ -178,9 +191,22 @@ func searchStringFromItems(value as string)
 		addItemToList(null)
 }
 
-func addItemToList(item as string)
+func addSuggestedItems
 {
-	var v = createWidgetItem(item)
+	if not widgetItems || Vector.isEmpty(widgetItems):
+		addItemToList(null)
+	var index = 0
+	var isFirst = true
+	foreach item in widgetItems {
+		addItemToList(item, isFirst, index)
+		isFirst = false
+		index++
+	}
+}
+
+func addItemToList(item as string, isFirst as bool = false, index as int = 0)
+{
+	var v = createWidgetItem(item, isFirst, index)
 	if v:
 		container.addWidget(v)
 }

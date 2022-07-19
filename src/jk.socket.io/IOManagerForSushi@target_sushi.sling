@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,6 +27,56 @@ import jk.io
 import jk.posix
 
 class is IOManager:
+
+class MyTimer is FileDescriptor is IOManagerTimer
+{
+	pvar entry as IOManagerEntry
+	pvar handler as function<bool>
+	pvar delay as long
+	var reader as FileDescriptorReader
+
+	func initialize as bool
+	{
+		var osec = delay * 0.000001
+		var nsec = (osec % 1.0) * 1000000 as long
+		var fsec = osec as int
+		var fd = lang "lua" int {{{ _io:start_timer(fsec, nsec) }}}
+		assert fd > -1
+		reader = FileDescriptorReader.forFileDescriptor(fd)
+		return true
+	}
+
+	func getFileDescriptor as int
+	{
+		assert reader
+		return reader.getFileDescriptor()
+	}
+
+	func stop
+	{
+		if entry:
+			entry.remove()
+	}
+
+	func setEntry(entry as IOManagerEntry)
+	{
+		var ee final = entry
+		var cc final = handler
+		var ff final = Boolean.forValue(true)
+		ee.setReadListener(func {
+			var b = malloc 8
+			if reader:
+				reader.read(b)
+			if ff.toBoolean() == true {
+				ff.setValue(false)
+				return
+			}
+			if cc:
+				cc()
+		})
+		this.entry = entry
+	}
+}
 
 class MyEntry is IOManagerEntry
 {
@@ -206,6 +255,11 @@ func add(o as object) override as IOManagerEntry
 
 func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer
 {
-	ERROR "Not implemented"
-	return null
+	var timer = new MyTimer()
+	timer.setHandler(handler)
+	timer.setDelay(delay)
+	assert timer.initialize()
+	var entry = add(timer)
+	timer.setEntry(entry)
+	return timer
 }

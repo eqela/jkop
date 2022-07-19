@@ -1,0 +1,107 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.core
+
+class is InputFieldListener abstract #widget:
+
+ui VerticalBoxWidget
+{
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+pvar required = false
+pvar parentForm as FormKitWidget
+pvar formFieldId as string
+pvar formFieldError as string
+pvar labelDisabled = false
+var errorCache as Error
+var errorContainer as FormFieldBlankContainerWidget
+
+func initializeWidget override
+{
+	base.initializeWidget()
+}
+
+func onValueChange(empty as bool)
+{
+	assert required
+	if empty {
+		renderInvalidFeedback(formFieldError)
+		errorCache = null
+	}
+	else {
+		var error = validateInputValue()
+		if error {
+			if errorCache && String.equals(error.getCode(), errorCache.getCode()) {
+				invalidFeedback()
+			}
+			else {
+				errorCache = error
+				renderInvalidFeedback(String.asString(error.getDetail()))
+			}
+		}
+		else {
+			errorCache = null
+			if parentForm:
+				parentForm.onValidInputs(formFieldId)
+			renderValidFeedback()
+		}
+	}
+	if parentForm:
+		parentForm.notifyFormForFieldState(formFieldId, empty)
+}
+
+func renderValidFeedback private
+{
+	if errorContainer && Widget.hasParent(errorContainer):
+		Widget.removeFromParent(errorContainer)
+	validFeedback()
+}
+
+func renderInvalidFeedback(errorText as string) private
+{
+	assert String.isNotEmpty(errorText)
+	if errorContainer:
+		Widget.removeFromParent(errorContainer)
+	var errorLabel = LabelWidget.forText(context, errorText)
+	errorLabel.setWidgetTextColor(context.getStyleColor("jkop-kit", "formFieldErrorTextColor", "#f46a6a"))
+	errorLabel.setWidgetFontSize(context.getStylePixels("jkop-kit", "formFieldErrorTextFontSize", "2500um"))
+	errorContainer = new FormFieldBlankContainerWidget(context)
+	errorContainer.setWidgetLabelDisabled(labelDisabled)
+	errorContainer.addWidget(errorLabel)
+	addWidget(errorContainer)
+	invalidFeedback()
+}
+
+func validateInputValue virtual as Error:
+	return null
+
+func validFeedback abstract
+func invalidFeedback abstract

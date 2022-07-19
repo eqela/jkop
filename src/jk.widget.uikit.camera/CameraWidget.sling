@@ -1,0 +1,141 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.app.ui
+
+class #widget:
+
+IFDEF "target_html"
+{
+	is Widget
+
+	var cameraStream as object
+
+	func createElement override as object:
+		return HTMLDOM.createElement("video")
+
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		var callback #used = func(stream as object) {
+			cameraStream = stream
+		}
+		lang "js" {{{
+			navigator.mediaDevices.getUserMedia({video: true, audio: false})
+			.then(function(mediaStream) {
+				element.srcObject = mediaStream;
+				element.play();
+				callback(mediaStream);
+			})
+			.catch(function(error) {
+				console.log("An error occured! " + error);
+			})
+		}}}
+	}
+}
+
+ELSE
+{
+	is Widget
+}
+
+ctor(context as GuiApplicationContext):
+	widgetContext = context
+
+var widgetContext as GuiApplicationContext
+
+func takePictureAsImage(callback as function<void, Image, Error>)
+{
+	var cb #used = callback
+	IFDEF "target_html" {
+		lang "js" {{{
+			var canvas = document.createElement('canvas');
+			canvas.width = this.element.videoWidth;
+			canvas.height = this.element.videoHeight;
+			var ctx = canvas.getContext('2d');
+			ctx.drawImage(this.element, 0, 0, this.element.videoWidth, this.element.videoHeight);
+			var data = canvas.toDataURL('image/png');
+			var image = new Image();
+			image.onload = function() {
+				var imgo = JkUiImageForBrowser.NEW();
+				imgo.image = image;
+				cb(imgo, null);
+			};
+			image.onerror = function() {
+				cb(null, Error.forCode("emptyPhoto"));
+			};
+			image.src = data
+		}}}
+		stopStream()
+	}
+}
+
+func takePictureAsBuffer(callback as function<void, buffer, Error>)
+{
+	var cb #used = callback
+	IFDEF "target_html" {
+		lang "js" {{{
+			var canvas = document.createElement('canvas');
+			canvas.width = this.element.videoWidth;
+			canvas.height = this.element.videoHeight;
+			var ctx = canvas.getContext('2d');
+			ctx.drawImage(this.element, 0, 0, this.element.videoWidth, this.element.videoHeight);
+			var reader = new FileReader();
+			reader.onload = function(res) {
+				if(reader.readyState === 2) {
+					var result = res.target.result;
+					if(cb != null) {
+						if(result === null) {
+							cb(null, Error.forCode("noFileData"));
+						}
+						else {
+							cb(result, null);
+						}
+					}
+				}
+			};
+			if(navigator.userAgent.toLowerCase().indexOf("edge") > -1) {
+				var blob = canvas.msToBlob();
+				reader.readAsArrayBuffer(blob);
+			}
+			else {
+				canvas.toBlob(function(blob) {
+					reader.readAsArrayBuffer(blob);
+				});
+			}
+		}}}
+		stopStream()
+	}
+}
+
+func stopStream
+{
+	IFDEF "target_html" {
+		assert cameraStream
+		var c #used = cameraStream
+		lang "js" {{{
+			c.getVideoTracks()[0].stop();
+		}}}
+	}
+}

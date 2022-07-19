@@ -1,0 +1,124 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.data.sql
+import jk.log
+
+class is SQLDatabase abstract:
+
+meta
+{
+	description [[
+		PostgreSQL database driver.
+	]]
+}
+
+func instance private static as this
+{
+	IFDEF "target_nodejs" {
+		return new PostgreSQLForNodeJS()
+	}
+	ELSE {
+		return null
+	}
+}
+
+func forConnectionStringSync(ctx as LoggingContext, connectionString as string) static as this
+{
+	assert String.isNotEmpty(connectionString):
+		Log.error(ctx, "Empty connection string given to MySQLDatabase")
+	var ss = String.split(connectionString, ':')
+	var paramc = Vector.getSize(ss)
+	assert ss && paramc >= 4:
+		Log.error(ctx, "PostgreSQLDatabase connection string has less than 4 fields: `" .. connectionString .. "'")
+	var address = ss[0]
+	var username = ss[1]
+	var password = ss[2]
+	var database = ss[3]
+	var port = 5432
+	var sport = ss[4]
+	if sport:
+		port = sport as int
+	return connectSync(ctx, address, username, password, database, port)
+}
+
+func connectSync(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, port as int) static as this
+{
+	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database) && port > 0
+	var v = assert instance()
+	v.setLogger(ctx)
+	assert v.initializeSync(serverAddress, username, password, database, port)
+	return v
+}
+
+func forConfig(logContext as LoggingContext, config as DynamicMap) static as this
+{
+	assert config
+	var serverAddress = assert config.getString("serverAddress")
+	var username = assert config.getString("username")
+	var password = assert config.getString("password")
+	var database = assert config.getString("database")
+	var port = config.getInteger("enableUTF8", 5432)
+	var v = assert instance()
+	v.setLogger(logContext)
+	assert v.initializeSync(serverAddress, username, password, database, port)
+	return v
+}
+
+func getDatabaseTypeId override as string:
+	return "postgresql"
+
+func initializeSync(serverAddress as string, username as string, password as string, database as string, port as int) virtual as bool
+{
+	logDebug("PostgreSQLDatabase: Connecting to database host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.asString(port) .. "'")
+	assert doInitialize(serverAddress, username, password, database, port)
+	return true
+}
+
+func doInitialize(serverAddress as string, username as string, password as string, database as string, port as int) virtual as bool:
+	return true
+
+func prepareInsertStatementSync(table as string, data as DynamicMap) override as SQLStatement:
+	return base.prepareInsertStatementSync(table, transformKeys(data))
+
+func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as DynamicMap) override as SQLStatement:
+	return base.prepareUpdateStatementSync(table, transformKeys(criteria), transformKeys(data))
+
+func prepareDeleteStatementSync(table as string, criteria as DynamicMap) override as SQLStatement:
+	return base.prepareDeleteStatementSync(table, transformKeys(criteria))
+
+func prepareQueryWithCriteriaStatementSync(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) override as SQLStatement:
+	return base.prepareQueryWithCriteriaStatementSync(table, transformKeys(criteria), limit, offset, columns, order, likeOperator)
+
+func prepareCountRecordsStatementSync(table as string, criteria as DynamicMap, likeOperator as bool = false) override as SQLStatement:
+	return base.prepareCountRecordsStatementSync(table, transformKeys(criteria), likeOperator)
+
+func transformKeys(data as DynamicMap) as DynamicMap
+{
+	var keys = data.getKeys()
+	var newData = new DynamicMap()
+	foreach key in keys:
+		newData.setObject("\"" .. key .. "\"", data.get(key))
+	return newData
+}

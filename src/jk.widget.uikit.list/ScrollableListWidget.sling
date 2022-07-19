@@ -1,0 +1,92 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class abstract #widget:
+
+ui VerticalBoxWidget
+{
+	LayerWidget header {
+	}
+	VerticalScrollerWidget scroller : 1.0 {
+		scrollBarDisabled = false
+		VerticalBoxWidget list {
+		}
+	}
+}
+
+var totalPages as int
+var currentPage as int 
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	assert scroller
+	doGetData()
+	scroller.setOnEndScrollHandler(func {
+		assert currentPage < totalPages
+		doGetData()
+	})
+	var hh = createHeaderWidget()
+	if hh:
+		header.addWidget(hh)
+}
+
+func doGetData
+{
+	currentPage++
+	startQuery(currentPage, func(response as DynamicMap) {
+		assert response:
+			onNoDataReceived()
+		assert response.getCount() > 0:
+			onNoDataReceived()
+		var records = assert response.getDynamicVector("records"):
+			onNoDataReceived()
+		totalPages = response.getInteger("totalPages")
+		populateList(records)
+	}, func(error as Error) {
+		onQueryFailed(error)
+	})
+}
+
+func populateList(records as DynamicVector)
+{
+	foreach item as DynamicMap in records.toVector() {
+		if not item:
+			continue
+		var w = createListItemWidget(item)
+		if not w:
+			continue
+		list.addWidget(w)
+	}
+}
+
+func onNoDataReceived virtual:
+	;
+
+func onQueryFailed(error as Error) virtual:
+	;
+
+func createHeaderWidget abstract as Widget
+func createListItemWidget(item as DynamicMap) abstract as Widget
+func startQuery(page as int, callback as function<void, DynamicMap>, errorCallback as function<void, Error>) abstract

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,28 +24,33 @@
 
 class is Duplicateable is Iterateable<string>:
 
-func asDynamicMap(object as dynamic) static as this
+IFDEF "target_sushi"
 {
-	assert object
-	if object is this:
-		return object as! this
-	if object is map:
-		return forObjectMap(object as! map)
+	var nullObject static as object = "null"
+}
+
+func asDynamicMap(value as dynamic) static as this
+{
+	assert value
+	if value is this:
+		return value as! this
+	if value is map:
+		return forMap(value as! map)
 	return null
 }
 
-func forObjectMap(map as map<object,object>) static as this
+func forMap(map as map) static as this
 {
 	var v = new this()
 	if map {
-		var it as Iterator<object> #force = Map.iterateKeys(map)
+		var it = Map.iterateKeys(map)
 		while it {
 			var key = it.next()
 			if key == null:
 				break
 			if key is string == false:
 				continue
-			v.setObject(key as! string, Map.getValue(map, key as! string))
+			v.setDynamic(key as! string, Map.getValue(map, key as! string))
 		}
 	}
 	return v
@@ -56,7 +60,7 @@ func forStringMap(map as map<string,string>) static as this
 {
 	var v = new this()
 	if map {
-		var it as Iterator<string> #force = Map.iterateKeys(map)
+		var it = Map.iterateKeys(map)
 		while it {
 			var key = it.next()
 			if key == null:
@@ -81,13 +85,28 @@ func forDynamicMap(map as this) static as this
 	return map.duplicateMap()
 }
 
-var map as map<string,object>
+var map as map<string,dynamic>
 
 ctor:
-	map = new map<string,object>
+	map = new map<string,dynamic>
 
-func asMap as map<string,object>:
-	return map
+func asMap as map<string,dynamic>
+{
+	IFDEF "target_sushi" {
+		var v = new map<string,dynamic>
+		var it = iterateKeys()
+		while it {
+			var key = it.next()
+			if not key:
+				break
+			Map.set(v, key, getDynamic(key))
+		}
+		return v
+	}
+	ELSE {
+		return map
+	}
+}
 
 func asStringMap as map<string,string>:
 	return toStringMap()
@@ -105,7 +124,7 @@ func toStringMap as map<string,string>
 	return v
 }
 
-func toObjectMap as map
+func toMap as map
 {
 	var v = new map
 	var it = iterateKeys()
@@ -113,7 +132,7 @@ func toObjectMap as map
 		var key = it.next()
 		if not key:
 			break
-		Map.set(v, key, getString(key))
+		Map.set(v, key, getDynamic(key))
 	}
 	return v
 }
@@ -129,7 +148,7 @@ func duplicateMap as this
 		var key = it.next()
 		if key == null:
 			break
-		v.setObject(key, get(key))
+		v.setDynamic(key, getDynamic(key))
 	}
 	return v
 }
@@ -143,29 +162,59 @@ func mergeFrom(other as this) as this
 		var key = it.next()
 		if key == null:
 			break
-		setObject(key, other.get(key))
+		setDynamic(key, other.getDynamic(key))
 	}
 	return this
 }
 
-func setObject(key as string, value as object) as this
+func setDynamic(key as string, value as dynamic) as this
 {
-	if key:
-		map[key] = value
+	if key {
+		IFDEF "target_sushi" {
+			if value == null {
+				map[key] = nullObject
+			}
+			else {
+				map[key] = value
+			}
+		}
+		ELSE {
+			map[key] = value
+		}
+	}
 	return this
 }
 
+func setObject(key as string, value as object) as this:
+	return setDynamic(key, value)
+
 func setString(key as string, value as string) as this
 {
-	if key:
-		map[key] = value
+	if key {
+		IFDEF "target_sushi" {
+			if value == null {
+				map[key] = nullObject
+			}
+			else {
+				map[key] = value
+			}
+		}
+		ELSE {
+			map[key] = value
+		}
+	}
 	return this
 }
 
 func setBuffer(key as string, value as buffer) as this
 {
-	if not value {
-		map[key] = null
+	if key != null && value == null {
+		IFDEF "target_sushi" {
+			map[key] = nullObject
+		}
+		ELSE {
+			map[key] = null
+		}
 		return this
 	}
 	return setObject(key, Buffer.asObject(value))
@@ -174,7 +223,10 @@ func setBuffer(key as string, value as buffer) as this
 func setInteger(key as string, value as int) as this:
 	return setObject(key, Integer.asObject(value))
 
-func setLong(key as string, value as long) as this:
+func setLong(key as string, value as long) as this #deprecated:
+	return setObject(key, LongInteger.asObject(value))
+
+func setLongInteger(key as string, value as long) as this:
 	return setObject(key, LongInteger.asObject(value))
 
 func setBoolean(key as string, value as bool) as this:
@@ -183,12 +235,25 @@ func setBoolean(key as string, value as bool) as this:
 func setDouble(key as string, value as double) as this:
 	return setObject(key, Double.asObject(value))
 
-func get(key as string) as object:
-	return Map.getValue(map, key)
+func get(key as string) as dynamic:
+	return getDynamic(key)
+
+func getDynamic(key as string) as dynamic
+{
+	var v = Map.getValue(map, key)
+	IFDEF "target_sushi" {
+		if v == nullObject:
+			v = null
+	}
+	return v
+}
+
+func getObject(key as string) as object:
+	return getDynamic(key) as object
 
 func getString(key as string, defval as string = null) as string
 {
-	var v = String.asString(get(key))
+	var v = String.asString(getDynamic(key))
 	if v == null:
 		return defval
 	return v
@@ -196,7 +261,7 @@ func getString(key as string, defval as string = null) as string
 
 func getInteger(key as string, defval as int = 0) as int
 {
-	var vv = get(key)
+	var vv = getDynamic(key)
 	if vv == null:
 		return defval
 	return Integer.asInteger(vv)
@@ -204,7 +269,7 @@ func getInteger(key as string, defval as int = 0) as int
 
 func getLongInteger(key as string, defval as long = 0) as long
 {
-	var vv = get(key)
+	var vv = getDynamic(key)
 	if vv == null:
 		return defval
 	return LongInteger.asLong(vv)
@@ -212,7 +277,7 @@ func getLongInteger(key as string, defval as long = 0) as long
 
 func getBoolean(key as string, defval as bool = false) as bool
 {
-	var vv = get(key)
+	var vv = getDynamic(key)
 	if vv == null:
 		return defval
 	return Boolean.asBoolean(vv)
@@ -220,7 +285,7 @@ func getBoolean(key as string, defval as bool = false) as bool
 
 func getDouble(key as string, defval as double = 0.0) as double
 {
-	var vv = get(key)
+	var vv = getDynamic(key)
 	if vv == null:
 		return defval
 	return Double.asDouble(vv)
@@ -228,66 +293,61 @@ func getDouble(key as string, defval as double = 0.0) as double
 
 func getBuffer(key as string) as buffer
 {
-	var vv = assert get(key)
+	var vv = assert getDynamic(key)
 	return Buffer.asBuffer(vv)
 }
 
 func getDynamicVector(key as string) as DynamicVector
 {
-	var vv = get(key) as DynamicVector
+	var vv = getDynamic(key) as DynamicVector
 	if vv:
 		return vv
 	var v = getVector(key)
 	if v:
-		return DynamicVector.forObjectVector(v)
+		return DynamicVector.forVector(v)
 	return null
 }
 
-func getVector(key as string) as vector<object>
+func getVector(key as string) as vector
 {
-	var val = assert get(key)
+	var val = assert getDynamic(key)
 	if val is vector:
 		return val as! vector
-	if val is VectorObject<object> {
-		var vo = val as! VectorObject<object>
-		var vv as vector<object> #force = vo.toVector()
-		return vv
+	if val is VectorObject<dynamic> {
+		var vo = val as! VectorObject<dynamic>
+		return vo.toVector()
 	}
 	return null
 }
 
 func getDynamicMap(key as string) as this:
-	return get(key) as this
+	return getDynamic(key) as this
 
-func getKeys as vector<string>
-{
-	var v as vector<string> #force = Map.getKeys(map)
-	return v
-}
+func getKeys as vector<string>:
+	return Map.getKeys(map)
 
 func getValues as vector
 {
-	var v as vector #force = Map.getValues(map)
+	var v = Map.getValues(map)
+	IFDEF "target_sushi" {
+		var v2 = new vector
+		foreach o in v {
+			if o != nullObject:
+				v2 += o
+		}
+		v = v2
+	}
 	return v
 }
 
-func iterate as Iterator<string>
-{
-	var v as Iterator<string> #force = Map.iterateKeys(map)
-	return v
-}
+func iterate as Iterator<string>:
+	return Map.iterateKeys(map)
 
-func iterateKeys as Iterator<string>
-{
-	var v as Iterator<string> #force = Map.iterateKeys(map)
-	return v
-}
+func iterateKeys as Iterator<string>:
+	return Map.iterateKeys(map)
 
-func iterateValues as Iterator<object>
-{
-	var v as Iterator<object> #force = Map.iterateValues(map)
-	return v
-}
+func iterateValues as Iterator<dynamic>:
+	return Vector.iterate(getValues())
 
 func remove(key as string):
 	Map.remove(map, key)
@@ -300,3 +360,14 @@ func getCount as int:
 
 func containsKey(key as string) as bool:
 	return Map.containsKey(map, key)
+
+func removeNullValues as this
+{
+	var keys = getKeys()
+	foreach key in keys {
+		var value = getDynamic(key)
+		if value == null:
+			remove(key)
+	}
+	return this
+}

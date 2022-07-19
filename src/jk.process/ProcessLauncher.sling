@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -47,7 +46,7 @@ class MyStringPipeHandler is BufferDataReceiver
 		encoding = "UTF-8"
 	}
 
-	func onBufferData(data as buffer, size as long) as bool
+	func onBufferData(data as buffer, size as int) as bool
 	{
 		if builder == null || data == null || size < 1:
 			return false
@@ -61,7 +60,7 @@ class MyBufferPipeHandler is BufferDataReceiver
 {
 	pvar data as buffer
 
-	func onBufferData(newData as buffer, size as long) as bool
+	func onBufferData(newData as buffer, size as int) as bool
 	{
 		data = Buffer.append(data, newData, size)
 		return true
@@ -70,7 +69,7 @@ class MyBufferPipeHandler is BufferDataReceiver
 
 class QuietPipeHandler is BufferDataReceiver
 {
-	func onBufferData(data as buffer, size as long) as bool
+	func onBufferData(data as buffer, size as int) as bool
 	{
 		return true
 	}
@@ -118,7 +117,7 @@ func forSelf static as this
 	return v
 }
 
-func forFile(file as File, params as array = null) static as this
+func forFile(file as File, parameters as vector<string> = null) static as this
 {
 	meta {
 		description [[
@@ -130,12 +129,12 @@ func forFile(file as File, params as array = null) static as this
 		return null
 	var v = new this()
 	v.setFile(file)
-	foreach param as string in params:
+	foreach param in parameters:
 		v.addToParams(param)
 	return v
 }
 
-func forCommand(command as string, params as array = null) static as this
+func forCommand(command as string, parameters as vector<string> = null) static as this
 {
 	meta {
 		description [[
@@ -149,13 +148,17 @@ func forCommand(command as string, params as array = null) static as this
 	if String.isEmpty(command):
 		return null
 	var file as File
-	if String.getIndexOfCharacter(command, PathInfo.getPathSeparator()) >= 0 {
+	var delim = PathInfo.getPathSeparator()
+	if String.getIndexOfCharacter(command, delim) >= 0 {
+		file = File.forPath(command)
+	}
+	else if delim != '/' && String.getIndexOfCharacter(command, '/') >= 0 {
 		file = File.forPath(command)
 	}
 	else {
 		file = ExternalCommand.findInPath(command)
 	}
-	return forFile(file, params)
+	return forFile(file, parameters)
 }
 
 func forString(str as string) static as this
@@ -176,14 +179,14 @@ func forString(str as string) static as this
 		return null
 	var vsz = Vector.getSize(arr)
 	var cmd = arr[0]
-	var params as array
+	var parameters as vector<string>
 	var paramCount = vsz - 1
 	if paramCount > 0 {
-		params = new object[paramCount]
+		parameters = new vector<string>
 		for(var n = 1; n<vsz; n++):
-			params[n-1] = arr[n]
+			parameters += arr[n]
 	}
-	return forCommand(cmd, params)
+	return forCommand(cmd, parameters)
 }
 
 pvar file as File
@@ -198,6 +201,7 @@ pvar pipePty = false
 pvar startGroup = false
 pvar noCmdWindow = false
 pvar errorBuffer as StringBuilder
+pvar detachFromTerminal = false
 
 ctor
 {
@@ -274,9 +278,9 @@ func addFileToParams(file as File) as this
 	return this
 }
 
-func addStringsToParams(params as vector<string>) as this
+func addStringsToParams(parameters as vector<string>) as this
 {
-	foreach s in params:
+	foreach s in parameters:
 		addToParams(s)
 	return this
 }
@@ -303,6 +307,9 @@ func startProcess(wait as bool, pipeHandler as BufferDataReceiver, withIO as boo
 	}
 	ELSE IFDEF "target_sushi" {
 		return ProcessLauncherSushi.startProcess(this, wait, pipeHandler, withIO, errorBuffer)
+	}
+	ELSE IFDEF "target_nodejs" {
+		return ProcessLauncherForNodeJS.startProcess(this, wait, pipeHandler)
 	}
 	ELSE {
 		ERROR "Not implemented"

@@ -1,0 +1,116 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func decodeUTF8Buffer(buf as buffer) static as string:
+	return String.forUTF8Buffer(buf)
+
+func decodeUTF16LEBuffer(buf as buffer) static as string
+{
+	var sb = new StringBuilder()
+	var n = 0
+	var m = Buffer.getSize(buf)
+	while n < m {
+		sb.appendCharacter(Buffer.getInt16LE(buf, n) as char)
+		n += 2
+	}
+	return sb.toString()
+}
+
+func decodeUTF16BEBuffer(buf as buffer) static as string
+{
+	var sb = new StringBuilder()
+	var n = 0
+	var m = Buffer.getSize(buf)
+	while n < m {
+		var c = Buffer.getInt16BE(buf, n) as char
+		sb.appendCharacter(c)
+		n += 2
+	}
+	return sb.toString()
+}
+
+func decodeUTF32LEBuffer(buf as buffer) static as string
+{
+	var sb = new StringBuilder()
+	var n = 0
+	var m = Buffer.getSize(buf)
+	while n < m {
+		sb.appendCharacter(Buffer.getInt32LE(buf, n) as char)
+		n += 4
+	}
+	return sb.toString()
+}
+
+func decodeUTF32BEBuffer(buf as buffer) static as string
+{
+	var sb = new StringBuilder()
+	var n = 0
+	var m = Buffer.getSize(buf)
+	while n < m {
+		sb.appendCharacter(Buffer.getInt32BE(buf, n) as char)
+		n += 4
+	}
+	return sb.toString()
+}
+
+func decodeBufferWithBOM(buf as buffer, keepBomCharacter as bool) static as string
+{
+	meta {
+		description [[
+			Converts a buffer into a string, taking into account the possible presence of
+			a Byte Order Mark (BOM). Determines the character set of the file based on the BOM and
+			returns the contents as a string object.
+		]]
+	}
+	assert buf
+	if Buffer.getByte(buf, 0) == 0xEF && Buffer.getByte(buf, 1) == 0xBB && Buffer.getByte(buf, 2) == 0xBF {
+		if keepBomCharacter:
+			return decodeUTF8Buffer(buf)
+		return decodeUTF8Buffer(Buffer.getSubBuffer(buf, 3, Buffer.getSize(buf) - 3))
+	}
+	if Buffer.getByte(buf, 0) == 0xFF && Buffer.getByte(buf, 1) == 0xFE {
+		if Buffer.getByte(buf, 2) == 0x00 && Buffer.getByte(buf, 3) == 0x00 {
+			if keepBomCharacter:
+				return decodeUTF32LEBuffer(buf)
+			return decodeUTF32LEBuffer(Buffer.getSubBuffer(buf, 4, Buffer.getSize(buf) - 4))
+		}
+		if keepBomCharacter:
+			return decodeUTF16LEBuffer(buf)
+		return decodeUTF16LEBuffer(Buffer.getSubBuffer(buf, 2, Buffer.getSize(buf) - 2))
+	}
+	if Buffer.getByte(buf, 0) == 0xFE && Buffer.getByte(buf, 1) == 0xFF {
+		if Buffer.getByte(buf, 2) == 0x00 && Buffer.getByte(buf, 3) == 0x00 {
+			if keepBomCharacter:
+				return decodeUTF32BEBuffer(buf)
+			return decodeUTF32BEBuffer(Buffer.getSubBuffer(buf, 4, Buffer.getSize(buf) - 4))
+		}
+		if keepBomCharacter:
+			return decodeUTF16BEBuffer(buf)
+		return decodeUTF16BEBuffer(Buffer.getSubBuffer(buf, 2, Buffer.getSize(buf) - 2))
+	}
+	// If no known BOM was found, let's hope for the best and try to assume UTF8...
+	return String.forUTF8Buffer(buf)
+}

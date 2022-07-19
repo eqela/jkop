@@ -1,0 +1,130 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WebClient:
+
+func query(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) override
+{
+	if String.isEmpty(method) || String.isEmpty(url) {
+		callback(null, null, null)
+		return
+	}
+	if String.startsWith(url, "/") == false && String.startsWith(url, "http://") == false && String.startsWith(url, "https://") == false {
+		callback(null, null, null)
+		return
+	}
+	send(method, url, requestHeaders, body, callback)
+}
+
+func getXMLHttpRequestObject as !"XMLHttpRequest"
+{
+	var xhr as !"XMLHttpRequest" #used
+	lang "js" {{{
+		if(typeof XMLHttpRequest === "undefined") {
+			XMLHttpRequest = function() {
+				try {
+					return new ActiveXObject('Msxml2.XMLHTTP.6.0');
+				}
+				catch(e) {}
+				try {
+					return new ActiveXObject('Msxml2.XMLHTTP.3.0');
+				}
+				catch(e) {}
+				try {
+					return new ActiveXObject('Microsoft.XMLHTTP');
+				}
+				catch(e) {}
+				throw new Error('This browser does not support XMLHttpRequest.');
+			}
+		}
+		xhr = new XMLHttpRequest();
+	}}}
+	return xhr
+}
+
+func onResponseReceived(status as string, responseHeaders as string, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	var nhdrs = new KeyValueList<string,string>()
+	var siter = String.iterate(responseHeaders)
+	var sbldr = new StringBuilder()
+	loop {
+		var c = siter.getNextChar()
+		if c < 1:
+			break
+		if c == '\r':
+			continue
+		if c == '\n' {
+			var str = sbldr.toString()
+			sbldr.clear()
+			var spt = String.split(str, ':', 2)
+			var key = Vector.get(spt, 0)
+			var val = Vector.get(spt, 1)
+			if String.isNotEmpty(key) && String.isNotEmpty(val):
+				nhdrs.add(key, String.strip(val))
+			continue
+		}
+		sbldr.appendCharacter(c)
+	}
+	callback(status, nhdrs, body)
+}
+
+func send(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>)
+{
+	var withCredentials = getCredentialsEnabled()
+	var xhr = getXMLHttpRequestObject()
+	lang "js" {{{
+		xhr.open(method, url, true);
+		xhr.timeout = 30000;
+		xhr.responseType = "arraybuffer";
+		xhr.withCredentials = withCredentials;
+		xhr.onreadystatechange = function() {
+			if(xhr.readyState == 4) {
+				this.onResponseReceived(""+xhr.status, xhr.getAllResponseHeaders(), xhr.response, callback);
+			}
+		}.bind(this);
+	}}}
+	if requestHeaders {
+		var iter = requestHeaders.iterate()
+		loop {
+			var kv = iter.next() as KeyValuePair<string,string>
+			if kv == null:
+				break
+			var k #used = kv.key
+			var v #used = kv.value
+			lang "js" {{{
+				xhr.setRequestHeader(k, v);
+			}}}
+		}
+	}
+	if body {
+		lang "js" {{{
+			xhr.send(new Uint8Array(body));
+		}}}
+	}
+	else {
+		lang "js" {{{
+			xhr.send();
+		}}}
+	}
+}

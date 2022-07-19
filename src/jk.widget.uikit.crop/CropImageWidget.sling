@@ -1,0 +1,284 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.common
+import jk.app.ui
+import jk.math
+import jk.widget.uikit.boxicons
+import jk.widget.uikit.dialog
+import jk.widget.uikit.core
+
+class #widget:
+
+ui LayerWidget
+{
+	VerticalBoxWidget {
+		LayerWidget layer : 1.0 {
+			ImageWidget img {
+				imageScaleMethod = ImageWidget.FILL
+			}
+			CropperLayerWidget canvas {
+			}
+			LayerWidget ll {
+				AlignWidget reposition {
+					LayerWithBackgroundColorWidget {
+						color = Color.forRGBADouble(0, 0, 0, 0.5)
+						roundingRadius = context.getHeightValue("800um")
+						outlineColor = Color.white()
+						HorizontalBoxWidget {
+							spacing = context.getStylePixels("jkop-kit", "spacing", "1mm")
+							margin = context.getStylePixels("jkop-kit", "spacing", "1mm")
+							AlignWidget {
+								BoxIconWidget {
+									icon = "move"
+									fontSize = context.getHeightValue("3mm")
+									color = Color.white()
+								}
+							}
+							AlignWidget {
+								LabelWidget {
+									text = "Drag to Reposition"
+									textColor = Color.white()
+									fontBold = true
+									fontSize = context.getHeightValue("3mm")
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		LayerWithBackgroundColorWidget {
+			color = Color.instance("#373a40")
+			VerticalBoxWidget {
+				CropRangeWidget control {
+					roundingRadius = context.getHeightValue("2000um")
+					rangeColor = Color.instance("#0278ae")
+				}
+				LayerWithBackgroundColorWidget {
+					heightRequest = context.getStylePixels("jkop-kit", "separatorSize", "1px")
+					color = context.getStyleColor("jkop-kit", "separatorColor", "#000000")
+				}
+				LayerWidget blayer {
+				}
+			}
+		}
+	}
+	AlignWidget {
+		LayerWithBackgroundColorWidget : 0.5, 0.0, true {
+			color = Color.instance("#373a40")
+			LabelWidget title {
+				textAlign = LabelWidget.ALIGN_CENTER
+				fontBold = true
+				padding = context.getStylePixels("jkop-kit", "padding", "2mm")
+				textColor = Color.instance("#FFFFFF")
+			}
+		}
+	}
+}
+
+pvar image as Image
+pvar moveSpeed as int
+var originalHeight as int
+var originalWidth as int
+var refX as double
+var refY as double
+var afterX as double
+var afterY as double
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	img.setWidgetImage(image)
+	if moveSpeed <= 0:
+		moveSpeed = 3
+	Widget.setWidgetPointerHandlers(ll, onStartHandler, onTouchHandler, onEndHandler)
+	control.setWidgetControlChangeListener(func(val as double) {
+		if originalWidth <= 0:
+			originalWidth = Widget.getWidth(img)
+		if originalHeight <= 0:
+			originalHeight = Widget.getHeight(img)
+		var sw = (originalWidth + val) as int
+		var sh = (originalHeight + val) as int
+		Widget.setLayoutSize(img, sw, sh)
+	})
+}
+
+func setWidgetTitle(str as string) as this
+{
+	assert title
+	title.setWidgetText(str)
+	return this
+}
+
+func setWidgetButton(widget as Widget) as this
+{
+	assert blayer
+	blayer.addWidget(widget)
+	return this
+}
+
+func onStartHandler(x as double, y as double)
+{
+	refX = x
+	refY = y
+}
+
+func onTouchHandler(x as double, y as double)
+{
+	var iy2 = Widget.getY(img)
+	var ix2 = Widget.getX(img)
+	if refX > x && afterX > x:
+		ix2 = ix2 - moveSpeed
+	if refX < x && afterX < x:
+		ix2 = ix2 + moveSpeed
+	if refY > y && afterY > y:
+		iy2 = iy2 - moveSpeed
+	if refY < y && afterY < y:
+		iy2 = iy2 + moveSpeed
+	if refX < x && ix2 >= 0:
+		ix2 = 0
+	var maxX = Widget.getWidth(img) - Widget.getWidth(layer)
+	if refX > x && Math.abs(ix2) >= maxX:
+		ix2 = -maxX
+	if refY < y && iy2 >= 0:
+		iy2 = 0
+	var maxY = Widget.getHeight(img) - Widget.getHeight(layer)
+	if refY > y && Math.abs(iy2) >= maxY:
+		iy2 = -maxY
+	Widget.move(img, ix2, iy2)
+	afterX = x
+	afterY = y
+}
+
+func onEndHandler(x as double, y as double):
+	;
+
+func doneCrop(callback as function<void, Image>)
+{
+	var cheight = Widget.getHeight(canvas)
+	var cwidth = Widget.getWidth(canvas)
+	var radius = ((cwidth + cheight) / 2) / 2
+	var x = (cwidth / 2) - (radius / 2)
+	var y = (cheight / 2) - (radius / 2)
+	image.scaleToSize(Widget.getWidth(img), Widget.getHeight(img), func(newimage as Image) {
+		var xx = Math.abs(Widget.getX(img)) + x
+		var yy = Math.abs(Widget.getY(img)) + y
+		newimage.crop(xx as int, yy as int, radius, radius, func(cimage as Image) {
+			if callback:
+				callback(cimage)
+		})
+	})
+}
+
+class CropperLayerWidget is CanvasWidget is ResizeAwareWidget #widget
+{
+
+	IFDEF "target_android" {
+		lang "java" {{{
+			@Override
+			protected void onDraw(android.graphics.Canvas canvas) {
+				super.onDraw(canvas);
+				android.graphics.Paint mTransparentPaint = new android.graphics.Paint();
+				mTransparentPaint.setColor(android.graphics.Color.TRANSPARENT);
+				mTransparentPaint.setStrokeWidth(10);
+				android.graphics.Paint mSemiBlackPaint = new android.graphics.Paint();
+				mSemiBlackPaint.setColor(android.graphics.Color.TRANSPARENT);
+				mSemiBlackPaint.setStrokeWidth(10);
+				android.graphics.Path mPath = new android.graphics.Path();
+				mPath.reset();
+				float cw = canvas.getWidth() / 2;
+				float ch = canvas.getHeight() / 2;
+				float rr = ((cw + ch) / 2) / 2;
+				mPath.addCircle(cw, ch, rr, android.graphics.Path.Direction.CW);
+				mPath.setFillType(android.graphics.Path.FillType.INVERSE_EVEN_ODD);
+				canvas.drawCircle(cw, ch, rr, mTransparentPaint);
+				canvas.drawPath(mPath, mSemiBlackPaint);
+				canvas.clipPath(mPath);
+				canvas.drawColor(android.graphics.Color.parseColor("#555555"));
+			}
+		}}}
+	}
+
+	func onWidgetResized
+	{
+		IFDEF "target_html" {
+			var cheight = Widget.getHeight(this)
+			var cwidth = Widget.getWidth(this)
+			var ee = this.element
+			var parent = assert HTMLDOM.getParentElement(ee)
+			var ecanvas = HTMLDOM.createElement("canvas")
+			HTMLDOM.setStyle(ecanvas, "height", String.asString(cheight))
+			HTMLDOM.setStyle(ecanvas, "width", String.asString(cwidth))
+			HTMLDOM.setStyle(ecanvas, "position", "absolute")
+			lang "js" {{{
+				console.log(ee.hasChildNodes());
+				var children = ee.children;
+				for (var i = 0; i < children.length; i++) {
+					ee.removeChild(children[i]);
+				}
+			}}}
+			HTMLDOM.appendChild(ee, ecanvas)
+			lang "js" {{{
+				var ctx = ecanvas.getContext('2d');
+				var xc = ecanvas.width / 2;
+				var yc = ecanvas.height / 2;
+				var rr = ((xc + yc) / 2) / 2;
+
+				ctx.fillStyle = "#555555";
+				ctx.globalAlpha = 0.8;
+				ctx.fillRect(0, 0, ecanvas.width, ecanvas.height);
+				ctx.translate(xc, yc);
+
+				ctx.beginPath();
+				ctx.arc(0, 0, rr, 0, Math.PI * 2, true);
+				ctx.clip();
+				ctx.clearRect(-xc, -yc, ecanvas.width, ecanvas.height);
+			}}}
+		}
+		ELSE IFDEF "target_ios" {
+			IFDEF "target_objc" {
+				setWidgetColor(Color.instance("#555555"))
+				lang "objc" {{{
+					int radius = self.bounds.size.width / 3;
+					UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, self.bounds.size.width, self.bounds.size.height) cornerRadius:0];
+					[path addArcWithCenter:self.center radius:radius startAngle:0.0 endAngle:2*M_PI clockwise: TRUE];
+
+					CAShapeLayer *fillLayer = [CAShapeLayer layer];
+					fillLayer.path = path.CGPath;
+					fillLayer.fillRule = kCAFillRuleEvenOdd;
+					self.layer.mask = fillLayer;
+					self.clipsToBounds = true;
+				}}}
+			}
+		}
+		Widget.setAlpha(this, 0.5)
+	}
+}

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,6 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
+
+import jk.xml
 
 class:
 
@@ -99,7 +100,7 @@ func toJson as DynamicMap
 	return v
 }
 
-func toHtml(refs as RichTextDocumentReferenceResolver) as string
+func toHtmlWithResolvedReference(resolvedReference as string) as string
 {
 	var sb = new StringBuilder()
 	var aOpen = false
@@ -118,20 +119,11 @@ func toHtml(refs as RichTextDocumentReferenceResolver) as string
 			aOpen = true
 		}
 	}
-	if String.isEmpty(getReference()) == false {
-		var ref = getReference()
-		var href as string
-		if refs {
-			href = refs.getReferenceHref(ref)
-			if String.isEmpty(text):
-				text = refs.getReferenceTitle(ref)
-		}
-		if String.isEmpty(href) == false {
-			if String.isEmpty(text):
-				text = ref
-			sb.appendString("<a class=\"referenceLink\" href=\"" .. HTMLString.sanitize(href) .. "\">")
-			aOpen = true
-		}
+	if String.isEmpty(resolvedReference) == false {
+		if String.isEmpty(text):
+			text = resolvedReference
+		sb.appendString("<a class=\"referenceLink\" href=\"" .. HTMLString.sanitize(resolvedReference) .. "\">")
+		aOpen = true
 	}
 	if getIsInline() == false {
 		if getBold():
@@ -156,3 +148,21 @@ func toHtml(refs as RichTextDocumentReferenceResolver) as string
 		sb.appendString("</a>")
 	return sb.toString()
 }
+
+func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async as string
+{
+	var ref = getReference()
+	var href as string
+	if refs {
+		href = await refs.getReferenceHref(ref)
+		if String.isEmpty(text):
+			text = await refs.getReferenceTitle(ref)
+	}
+	else {
+		href = ref
+	}
+	return toHtmlWithResolvedReference(href)
+}
+
+func toHtml as string:
+	return toHtmlWithResolvedReference(getReference())

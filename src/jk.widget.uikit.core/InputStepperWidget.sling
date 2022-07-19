@@ -1,0 +1,132 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.boxicons
+
+class #widget:
+
+ui HorizontalBoxWidget
+{
+	spacing = context.getStylePixels("jkop-kit", "minusInputPlusSpacing", "1mm")
+	margin = context.getHeightValue("500um")
+	AlignWidget {
+		BoxIconWidget minusIcon {
+			color = context.getStyleColor("jkop-kit", "minusInputPlusColor", "#34c38f")
+			icon = "minus"
+		}
+	}
+	TextFieldWidget text {
+		placeholder = "0"
+	}
+	AlignWidget {
+		BoxIconWidget plusIcon {
+			color = context.getStyleColor("jkop-kit", "minusInputPlusColor", "#34c38f")
+			icon = "plus"
+		}
+	}
+}
+
+pvar textChangeHandler as function
+pvar maxValue as int
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	maxValue = 999
+	text.setWidgetType(TextFieldWidget.TYPE_INTEGER)
+	text.setInputMinValue(1)
+	text.setInputMaxValue(maxValue)
+	text.setInputMaxLength(3)
+	IFDEF "target_browser" {
+		// remove the default arrow up and arrow down on input type number
+		var styleElement = HTMLDOM.createElement("style")
+		HTMLDOM.setAttribute(styleElement, "id", VALUE "__THIS__")
+		var style = [[
+			/* Chrome, Safari, Edge, Opera */
+			input::-webkit-outer-spin-button,
+			input::-webkit-inner-spin-button {
+				-webkit-appearance: none;
+				margin: 0;
+			}
+			/* Firefox */
+			input[type=number] {
+				-moz-appearance: textfield;
+			}
+		]]
+		HTMLDOM.setTextContent(styleElement, style)
+		if not HTMLDOM.getElementById(VALUE "__THIS__"):
+			HTMLDOM.appendChild(HTMLDOM.getDocumentHead(), styleElement)
+	}
+	Widget.setWidgetClickHandler(minusIcon, func {
+		onMinusIconClicked()
+	})
+	Widget.setWidgetClickHandler(plusIcon, func {
+		onPlusIconClicked()
+	})
+	text.setWidgetTextChangeHandler(func {
+		onTextChange()
+	})
+}
+
+func onTextChange
+{
+	if textChangeHandler:
+		textChangeHandler()
+}
+
+func setWidgetText(value as string) as this
+{
+	if not text:
+		forceCreateWidget()
+	text.setWidgetText(value)
+	return this
+}
+
+func getWidgetValue as int:
+	return Integer.asInteger(text.getWidgetText())
+
+func onMinusIconClicked
+{
+	var ct = getWidgetValue()
+	if ct > 0 {
+		ct -= 1
+	}
+	text.setWidgetText(String.asString(ct))
+	onTextChange()
+}
+
+func onPlusIconClicked
+{
+	var ct = getWidgetValue()
+	if ct < maxValue:
+		ct += 1
+	text.setWidgetText(String.asString(ct))
+	onTextChange()
+}

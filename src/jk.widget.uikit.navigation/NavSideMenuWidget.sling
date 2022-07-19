@@ -1,0 +1,142 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class #widget:
+
+class NavSideMenuItem public
+{
+	pvar name as string
+	pvar route as string
+}
+
+func forItems(context as GuiApplicationContext, name as string, items as array) static as this
+{
+	assert context
+	assert items
+	var menuItems = new vector<SidebarItemWidget>
+	foreach item as map in items {
+		var itemName = item["name"] as string
+		var itemRoute = item["route"] as string
+		menuItems += new SidebarItemWidget(context)
+			.setWidgetText(itemName).setWidgetRoute(itemRoute)
+			.setWidgetSubItemMode(true)
+			.setWidgetFontSize(context.getStylePixels("jkop-kit", "smallFont"))
+	}
+	var v = new this(context)
+	v.setWidgetMenuItems(menuItems)
+	v.setWidgetText(name)
+	return v
+}
+
+ui VerticalBoxWidget
+{
+	SidebarItemWidget item {
+		rightIcon = "chevron-down"
+	}
+	LayerWithBackgroundColorWidget {
+		color = getColor()
+		VerticalBoxWidget menuContainer {
+			marginLeft = context.getHeightValue("6000um")
+		}
+	}
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+pvar widgetOnToggledHandler as function<void, bool>
+pvar widgetMenuItems as vector<SidebarItemWidget>
+var open = false
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	Widget.setWidgetClickHandler(item, func {
+		onToggle()
+	})
+}
+
+func getColor as Color
+{
+	var color = Color.instance("#1d2531")
+	color.setAlpha(0.5)
+	return color
+}
+
+func setWidgetNavId(id as string) as this
+{
+	Widget.setWidgetId(item, id)
+	return this
+}
+
+func setWidgetText(text as string) as this
+{
+	item.setWidgetText(text)
+	return this
+}
+
+func setWidgetIcon(resource as string) as this
+{
+	item.setWidgetIcon(resource)
+	return this
+}
+
+func onToggle
+{
+	var c = Widget.getChildren(menuContainer)
+	if c && sizeof c > 0 {
+		item.setWidgetBackgroundColor(context.getStyleColor("jkop-kit", "sidebarColor", "#FFFFFF"))
+		item.setWidgetRightIcon("chevron-down")
+		Widget.removeChildrenOf(menuContainer)
+		open = false
+		return
+	}
+	assert widgetMenuItems
+	foreach w as SidebarItemWidget in widgetMenuItems {
+		w.setWidgetBackgroundColor(null)
+		menuContainer.addWidget(w)
+	}
+	item.setWidgetRightIcon("chevron-up")
+	open = true
+}
+
+func click
+{
+	IFDEF "target_html" {
+		var ee = item.element
+		lang "js" {{{
+			ee.click();
+		}}}
+	}
+}
+
+func onWidgetHeightChanged(height as int #notLiteral) override
+{
+	base.onWidgetHeightChanged(height)
+	if widgetOnToggledHandler && open:
+		widgetOnToggledHandler(true)
+}

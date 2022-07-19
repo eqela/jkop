@@ -1,0 +1,499 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.socket
+import jk.socket.ssl
+import jk.io
+
+class is HTTPClient:
+
+class MyResponseParser
+{
+	class Chunk
+	{
+		var data public as buffer
+		var completed public = true
+	}
+
+	var receivedData as buffer = null
+	var headers public as HTTPClientResponse
+	var isChunked public = false
+	var isStream public = false
+	var contentLength public = 0
+	var dataCounter public = 0
+	pvar listener as HTTPClientListener
+	pvar endOfResponse = false
+	pvar aborted = false
+
+	func reset virtual
+	{
+		isChunked = false
+		isStream = false
+		headers = null
+		contentLength = 0
+		dataCounter = 0
+		endOfResponse = false
+		aborted = false
+	}
+
+	func hasEndOfHeaders(buf as buffer, size as long) private as bool
+	{
+		var n = 0
+		var v = false
+		while n <= size - 4 {
+			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n+1) == '\n' && Buffer.getByte(buf, n+2) == '\r' && Buffer.getByte(buf, n+3) == '\n' {
+				v = true
+				break
+			}
+			n++
+		}
+		return v
+	}
+
+	func parseResponse(buf as buffer) private as HTTPClientResponse
+	{
+		var i = 0
+		var p = '0' as uint8
+		var v as HTTPClientResponse
+		var first = true
+		var isChunked = false
+		loop {
+			var sb = new StringBuilder()
+			while (p = Buffer.getByte(buf, i)) != 0 {
+				if p == '\r' {
+					;
+				}
+				else if p == '\n' {
+					i++
+					break
+				}
+				else {
+					sb.appendCharacter(p as char)
+				}
+				i++
+			}
+			var t = sb.toString()
+			if String.isEmpty(t):
+				break
+			if first {
+				var comps = String.split(t, ' ', 3)
+				v = new HTTPClientResponse()
+				v.setHttpVersion(Vector.get(comps, 0))
+				v.setHttpStatus(Vector.get(comps, 1))
+				v.setHttpStatusDescription(Vector.get(comps, 2))
+			}
+			else {
+				var comps = String.split(t, ':', 2)
+				var key = Vector.get(comps, 0)
+				if String.isEmpty(key) == false {
+					var val = String.strip(Vector.get(comps, 1))
+					v.addHeader(key, val)
+					if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
+						if val == "chunked":
+							isChunked = true
+					}
+					else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
+						contentLength = String.toInteger(val)
+					}
+				}
+			}
+			first = false
+		}
+		var l = Buffer.getSize(buf) - i
+		if l > 0 {
+			receivedData = Buffer.getSubBuffer(buf, i, l)
+		}
+		else {
+			receivedData = null
+		}
+		this.isChunked = isChunked
+		if contentLength < 1 && (String.equalsIgnoreCase(v.getHeader("connection"), "close") || String.equalsIgnoreCase(v.getHttpVersion(), "HTTP/1.0")):
+			isStream = true
+		return v
+	}
+
+	func getChunk private as Chunk
+	{
+		var i = 0
+		var sb = new StringBuilder()
+		loop {
+			if receivedData == null || sizeof receivedData <= i {
+				var chunk = new Chunk()
+				chunk.completed = false
+				return chunk
+			}
+			var p = Buffer.getByte(receivedData, i)
+			if p == '\r' {
+				;
+			}
+			else if p == '\n' {
+				i++
+				break
+			}
+			else {
+				sb.appendCharacter(p as char)
+			}
+			i++
+			if sb.count() >= 16 {
+				// garbage chunk
+				return null
+			}
+		}
+		var cl = -1
+		var t = String.strip(sb.toString())
+		if String.isEmpty(t) == false:
+			cl = String.toIntegerFromHex(t)
+		var chunk = new Chunk()
+		if cl > 0 {
+			if Buffer.getSize(receivedData) - i < cl + 2 {
+				chunk.completed = false
+				return chunk
+			}
+			chunk.data = malloc cl
+			Buffer.copyFrom(chunk.data, receivedData, i, 0, cl)
+			i += cl
+		}
+		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n'):
+			i++
+		var rem = Buffer.getSize(receivedData) - i as int
+		if rem > 0 {
+			var tmp = receivedData
+			receivedData = malloc rem
+			Buffer.copyFrom(receivedData, tmp, i, 0, rem)
+		}
+		else {
+			receivedData = null
+		}
+		return chunk
+	}
+
+	func onDataReceived(buf as buffer, size as int)
+	{
+		if size > 0:
+			receivedData = Buffer.append(receivedData, buf, size)
+		if not headers {
+			if hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
+				headers = parseResponse(receivedData)
+				if headers:
+					onHeadersReceived(headers)
+			}
+			else {
+				return
+			}
+		}
+		if isChunked {
+			loop {
+				var r = getChunk()
+				if r {
+					if not r.completed:
+						break
+					if not r.data {
+						reset()
+						onEndOfResponse()
+						break
+					}
+					var sz = Buffer.getSize(r.data) as int
+					dataCounter += sz
+					onBodyDataReceived(r.data, sz)
+				}
+				else {
+					reset()
+					onEndOfResponse()
+					break
+				}
+				if receivedData == null:
+					break
+			}
+		}
+		else if isStream {
+			var sz = Buffer.getSize(receivedData) as int
+			if sz > 0 {
+				var v = receivedData
+				receivedData = null
+				dataCounter += sz
+				onBodyDataReceived(v, sz)
+			}
+		}
+		else if contentLength > 0 {
+			var rsz = Buffer.getSize(receivedData) as int
+			if rsz > 0 {
+				if contentLength <= 0 || dataCounter + rsz <= contentLength {
+					var v = receivedData
+					receivedData = null
+					dataCounter += rsz
+					onBodyDataReceived(v, rsz)
+				}
+				else {
+					var vsz = contentLength - dataCounter
+					var v = Buffer.getSubBuffer(receivedData, 0, vsz)
+					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz-vsz)
+					dataCounter += vsz
+					onBodyDataReceived(v, vsz)
+				}
+			}
+			if dataCounter >= contentLength {
+				reset()
+				onEndOfResponse()
+			}
+		}
+		else {
+			reset()
+			onEndOfResponse()
+		}
+	}
+
+	func onHeadersReceived(headers as HTTPClientResponse)
+	{
+		if listener && listener.onResponseReceived(headers) == false {
+			if listener:
+				listener.onAborted()
+			aborted = true
+		}
+	}
+
+	func onBodyDataReceived(buffer as buffer, size as long)
+	{
+		if listener && listener.onDataReceived(buffer) == false {
+			if listener:
+				listener.onAborted()
+			aborted = true
+		}
+	}
+
+	func onEndOfResponse
+	{
+		if listener:
+			listener.onResponseCompleted()
+		endOfResponse = true
+	}
+}
+
+var openSocket as ConnectedSocket
+var openSocketProtocol as string
+var openSocketAddress as string
+var openSocketPort as int
+pvar defaultUserAgent as string = null
+var parser as MyResponseParser
+var receiveBuffer as buffer
+pvar acceptInvalidCertificate = false
+
+ctor:
+	receiveBuffer = malloc 64 * 1024
+
+func openConnectionWithDetails(protocol as string, address as string, aport as int, listener as HTTPClientListener) as bool
+{
+	closeConnection(listener)
+	if String.isEmpty(address) {
+		if listener:
+			listener.onError("No server address")
+		return false
+	}
+	if protocol != "http" && protocol != "https" {
+		if listener:
+			listener.onError("Protocol is invalid: `" .. protocol .. "'. Must be http or https")
+		return false
+	}
+	var port = aport
+	if port < 1 {
+		if protocol == "https" {
+			port = 443
+		}
+		else {
+			port = 80
+		}
+	}
+	if listener:
+		listener.onStatus("Connecting to server `" .. address .. ":" .. String.forInteger(port) .. "' ..")
+	openSocket = TCPSocket.createAndConnect(address, port)
+	if listener:
+		listener.onStatus(null)
+	if openSocket == null {
+		if listener:
+			listener.onError("Connection failed: `" .. address .. ":" .. String.forInteger(port) .. "'")
+		return false
+	}
+	if protocol == "https" {
+		openSocket = SSLSocket.forClient(openSocket, address, null, acceptInvalidCertificate)
+		if openSocket == null && listener {
+			listener.onError("FAILED to create SSL socket for HTTPS")
+			closeConnection(listener)
+			return false
+		}
+	}
+	openSocketProtocol = protocol
+	openSocketAddress = address
+	openSocketPort = port
+	parser = new MyResponseParser()
+	return true
+}
+
+func openConnection(request as HTTPClientRequest, listener as HTTPClientListener) as bool
+{
+	if request == null {
+		if listener:
+			listener.onError("No request")
+		return false
+	}
+	return openConnectionWithDetails(request.getProtocol(), request.getServerAddress(), request.getServerPort(), listener)
+}
+
+func closeConnection(listener as HTTPClientListener)
+{
+	assert openSocket
+	if listener:
+		listener.onStatus("Closing connection")
+	openSocket.close()
+	openSocket = null
+	openSocketProtocol = null
+	openSocketAddress = null
+	openSocketPort = 0
+	parser = null
+	if listener:
+		listener.onStatus(null)
+}
+
+func sendRequest(request as HTTPClientRequest, listener as HTTPClientListener) as bool
+{
+	if request == null {
+		if listener:
+			listener.onError("No request")
+		return false
+	}
+	if listener && listener.onStartRequest(request) == false:
+		return false
+	if openSocket {
+		if request.getServerAddress() != openSocketAddress || request.getProtocol() != openSocketProtocol || request.getServerPort() != openSocketPort:
+			closeConnection(listener)
+	}
+	if openSocket == null {
+		openConnection(request, listener)
+		assert openSocket
+	}
+	if listener:
+		listener.onStatus("Sending request headers ..")
+	var rqs = request.toStringWithUserAgent(defaultUserAgent)
+	var pww = PrintWriterWrapper.forWriter(openSocket)
+	var whr = pww.print(rqs)
+	if listener:
+		listener.onStatus(null)
+	if whr == false {
+		if listener:
+			listener.onError("Failed to send HTTP request headers")
+		closeConnection(listener)
+		return false
+	}
+	var body = request.getBody()
+	if body {
+		if listener:
+			listener.onStatus("Sending request body ..")
+		var rv = true
+		var bf = malloc 4096 * 4
+		loop {
+			var r = body.read(bf)
+			if r < 1:
+				break
+			var bw = openSocket.write(bf, r)
+			if bw < r {
+				if listener:
+					listener.onError("Failed to send request body (wrote " .. String.forInteger(bw) .. " bytes out of a " .. String.forInteger(r) .. " byte packet)")
+				closeConnection(listener)
+				rv = false
+				break
+			}
+		}
+		if body is Closable {
+			(body as! Closable).close()
+		}
+		if listener:
+			listener.onStatus(null)
+		if rv == false:
+			return false
+	}
+	return true
+}
+
+func readResponse(listener as HTTPClientListener, timeout as int) as bool
+{
+	if openSocket == null {
+		if listener:
+			listener.onError("No open socket")
+		return false
+	}
+	if listener:
+		listener.onStatus("Receiving response ..")
+	var rv = true
+	parser.setListener(listener)
+	loop {
+		var r as int
+		if openSocket is SSLSocket {
+			r = (openSocket as! SSLSocket).readWithTimeout(receiveBuffer, timeout)
+		}
+		else {
+			r = (openSocket as! TCPSocket).readWithTimeout(receiveBuffer, timeout)
+		}
+		if r == 0 {
+			rv = false
+			break
+		}
+		if r < 1 { // socket closed
+			if parser.isStream {
+				parser.reset()
+				parser.onEndOfResponse()
+				break
+			}
+			closeConnection(listener)
+			if listener:
+				listener.onAborted()
+			rv = false
+			break
+		}
+		parser.onDataReceived(receiveBuffer, r)
+		if parser.getAborted() {
+			closeConnection(listener)
+			rv = false
+			break
+		}
+		if parser.getEndOfResponse() {
+			parser.reset()
+			rv = true
+			break
+		}
+	}
+	if parser:
+		parser.setListener(null)
+	if listener {
+		listener.onStatus(null)
+		if listener.onEndRequest() == false:
+			rv = false
+	}
+	return rv
+}
+
+func executeRequest(request as HTTPClientRequest, listener as HTTPClientListener) override
+{
+	assert sendRequest(request, listener)
+	assert readResponse(listener, 30000)
+	if String.equalsIgnoreCase(request.getHeader("connection"), "close"):
+		closeConnection(listener)
+}

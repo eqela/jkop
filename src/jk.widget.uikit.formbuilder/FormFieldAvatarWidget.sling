@@ -1,0 +1,313 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.core
+import jk.widget.uikit.camera
+import jk.widget.photo
+import jk.widget.uikit.dialog
+import jk.widget.common
+import jk.widget.camera
+import jk.widget.file
+import jk.widget.photo
+import jk.widget.uikit.boxicons
+import jk.widget.uikit.crop
+
+class is WidgetWithValue #widget:
+
+IFDEF "target_html"
+{
+	func prepareElement(element as object) override
+	{
+		base.prepareElement(element)
+		HTMLDOM.addEventListener(element, "mouseover", func {
+			if isHover && image:
+				onChangeProfilePhoto()
+		})
+		HTMLDOM.addEventListener(element, "mouseout", func {
+			if isHover && image:
+				Widget.removeChildrenOf(hhbox)
+		})
+	}
+}
+
+ui LayerWidget
+{
+	HorizontalBoxWidget {
+		spacing = context.getHeightValue("4mm")
+		fixedHeight = context.getHeightValue("33mm")
+		AlignWidget labelCon : 0.4 {
+			LabelWidget label : 1.0, 0.5 {
+				fontSize = context.getStylePixels("jkop-kit", "regularFont")
+				fontFamily = context.getStyleString("jkop-kit", "fontFamilyRegular")
+			}
+		}
+		AlignWidget alignw : 1.0 {
+			LayerWithBackgroundColorWidget : 0.0, 0.0 {
+				ImageWidget avatar {
+					imageResource = "avatar"
+					imageRounded = true
+					imageWidth = context.getHeightValue("30mm")
+					imageHeight = context.getHeightValue("30mm")
+				}
+				AlignWidget {
+					HorizontalBoxWidget hhbox : 0.0, 1.0 {
+					}
+				}
+			}
+		}
+	}
+}
+
+const ALIGN_LEFT = 1
+const ALIGN_RIGHT = 2
+const ALIGN_CENTER = 3
+
+var image as Image
+var isHover = true
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	Widget.setWidgetClickHandler(avatar, func {
+		var hbox = new HorizontalBoxWidget(context)
+		var popup = Dialog.content(context, hbox)
+		popup.setWidgetModal(false)
+		var v = new VerticalBoxWidget(context)
+		v.setWidgetMarginTop(context.getHeightValue("1800um"))
+		var camera = new BoxIconWidget(context).setWidgetIcon("Camera").setWidgetFontSize(context.getHeightValue("35mm"))
+		Widget.setWidgetClickHandler(camera, func {
+			var photoPopup = new PhotoCaptureWidget(context)
+			PopupDialogManager.initialize(context, this)
+			var cameraPopup = PopupDialogManager.showContentWidgetPopup(photoPopup)
+			photoPopup.setWidgetCallback(func(image as Image) {
+				onPictureTaken(image, null)
+				cameraPopup.hidePopup()
+			})
+			popup.hidePopup()
+		})
+		v.addWidgetWithProperties(camera, 1.0)
+		v.addWidget(new LabelWidget(context).setWidgetText("Camera").setWidgetTextAlign(LabelWidget.ALIGN_CENTER))
+		var vv = new VerticalBoxWidget(context)
+		var fd = new BoxIconWidget(context).setWidgetIcon("Folder").setWidgetFontSize(context.getHeightValue("35mm"))
+		Widget.setWidgetClickHandler(fd, func {
+			onOpenFileSelector()
+			popup.hidePopup()
+		})
+		vv.addWidgetWithProperties(fd, 1.0)
+		vv.addWidget(new LabelWidget(context).setWidgetText("File Directory").setWidgetTextAlign(LabelWidget.ALIGN_CENTER))
+		hbox.addWidgetWithProperties(v, 1.0)
+		hbox.addWidgetWithProperties(vv, 1.0)
+	})
+}
+
+func onOpenFileSelector
+{
+	var selector = new FileSelector(context)
+	selector.openFileDialog(this, "image/*", func(buffer as buffer, filename as string, mimetype as string, err as Error) {
+		assert not err:
+			println "error: " .. err.toString()
+		assert buffer
+		var img = context.getImageForBufferSync(buffer, mimetype)
+		if not img {
+			onPictureTaken(null, Error.forCode("invalidImageBuffer"))
+		}
+		else {
+			onPictureTaken(img, null)
+		}
+	})
+}
+
+func onPictureTaken(img as Image, error as Error)
+{
+	assert not error
+	assert img
+	image = img
+	var obuf = assert getWidgetValue()
+	var buf = Buffer.asBuffer(obuf)
+	var maxSize = 1024 * 1024 * 3
+	assert sizeof buf < maxSize {
+		Dialog.error(context, "Please upload a photo that is less than 3MB in size.", func {
+			onOpenFileSelector()
+		})
+	}
+	isHover = false
+	Widget.removeChildrenOf(hhbox)
+	var crop = new CropImageWidget(context)
+	crop.setImage(img)
+	PopupDialogManager.initialize(context, this)
+	var cpop = PopupDialogManager.showContentWidgetPopup(crop)
+	var cancelbtn = new PrimaryButtonWidget(context)
+	cancelbtn.setWidgetText("CANCEL")
+	cancelbtn.setWidgetClickHandler(func {
+		Dialog.yesno(context, "Are you sure you want to discard your edits?", func {
+			cpop.hidePopup()
+		})
+	})
+	var btn = new PrimaryButtonWidget(context)
+	btn.setWidgetText("SAVE")
+	btn.setWidgetClickHandler(func {
+		crop.doneCrop(func(cimage as Image) {
+			avatar.setWidgetImage(cimage)
+			avatar.setWidgetImageWidth(context.getHeightValue("32mm"))
+			avatar.setWidgetImageHeight(context.getHeightValue("32mm"))
+			image = cimage
+			onUpdateProfilePhoto()
+			cpop.hidePopup()
+		})
+	})
+	var btnBox = new HorizontalBoxWidget(context)
+	btnBox.setWidgetSpacing(context.getStylePixels("hitch", "spacing"))
+	btnBox.addWidgetWithProperties(cancelbtn, 1)
+	btnBox.addWidgetWithProperties(btn, 1)
+	crop.setWidgetButton(btnBox)
+}
+
+func createLayerWithBackgroundColorWidget as Widget
+{
+	var lyr = new LayerWithBackgroundColorWidget(context)
+	lyr.setWidgetColor(Color.forRGBA(220, 220, 220, 220))
+	lyr.setWidgetOutlineColor(Color.instance("orange"))
+	lyr.setWidgetOutlineWidth(context.getHeightValue("200um"))
+	lyr.setWidgetWidthRequest(context.getHeightValue("32mm"))
+	lyr.setWidgetHeightRequest(context.getHeightValue("6mm"))
+	return lyr
+}
+
+func onChangeProfilePhoto
+{
+	var cpp = new AlignWidget(context)
+	cpp.addWidget(LabelWidget.forText(context, "Change Profile Photo").setWidgetFontBold(true).setWidgetFontSize(context.getHeightValue("2800um")))
+	var layer = createLayerWithBackgroundColorWidget() as LayerWithBackgroundColorWidget
+	layer.addWidget(cpp)
+	hhbox.addWidget(layer)
+}
+
+func onUpdateProfilePhoto
+{
+	var alignX = new AlignWidget(context)
+	var xicon = new BoxIconWidget(context)
+	xicon.setWidgetIcon("x")
+	xicon.setWidgetFontSize(context.getHeightValue("6mm"))
+	xicon.setWidgetColor(Color.instance("orange"))
+	Widget.setWidgetClickHandler(xicon, func {
+		avatar.setWidgetImageResource("avatar")
+		image = null
+		Widget.removeChildrenOf(hhbox)
+		isHover = true
+	})
+	alignX.addWidgetWithProperties(xicon, 0.0, 1.0)
+	var alignCheck = new AlignWidget(context)
+	var checkicon = new BoxIconWidget(context)
+	checkicon.setWidgetIcon("check")
+	checkicon.setWidgetFontSize(context.getHeightValue("6mm"))
+	checkicon.setWidgetColor(Color.instance("orange"))
+	Widget.setWidgetClickHandler(checkicon, func {
+		Widget.removeChildrenOf(hhbox)
+		isHover = true
+	})
+	alignCheck.addWidgetWithProperties(checkicon, 1.0, 1.0)
+	var hb = new HorizontalBoxWidget(context)
+	hb.addWidgetWithProperties(alignX, 1.0)
+	hb.addWidget(alignCheck)
+	var layer = createLayerWithBackgroundColorWidget() as LayerWithBackgroundColorWidget
+	layer.addWidget(hb)
+	hhbox.addWidget(layer)
+}
+
+func getWidgetValue as object
+{
+	IFDEF "target_browser" {
+		if not image:
+			return null
+		var source = (image as ImageForBrowser).getSource()
+		var imagBuffer as buffer
+		if String.contains(source, "image/png") {
+			imagBuffer = image.toPNGData()
+		}
+		else if String.contains(source, "image/jpeg") {
+			imagBuffer = image.toJPGData()
+		}
+		assert imagBuffer
+		return Buffer.asObject(imagBuffer)
+	}
+	ELSE {
+		return null
+	}
+}
+
+func setWidgetValue(value as object)
+{
+	assert value:
+		avatar.setWidgetImageResource("avatar")
+	var buff as buffer
+	if value is BufferObject {
+		buff = (value as! BufferObject).toBuffer()
+	}
+	else {
+		buff = Buffer.asBuffer(value)
+	}
+	image = context.getImageForBufferSync(buff, "image/png")
+	assert image
+	avatar.setWidgetImage(image)
+}
+
+func setWidgetRemoveLabel(remove as bool)
+{
+	if remove:
+		Widget.removeFromParent(labelCon)
+}
+
+func setWidgetFormLabel(value as string) as this
+{
+	assert label
+	label.setWidgetText(value)
+	return this
+}
+
+func setWidgetImageResource(value as string) as this
+{
+	assert String.isNotEmpty(value)
+	avatar.setWidgetImageResource(value)
+	return this
+}
+
+func setWidgetAlignLabel(align as int #notLiteral) as this
+{
+	if align == ALIGN_LEFT {
+		alignw.setAlignForIndex(0, 0.0, 0.5)
+	}
+	else if align == ALIGN_RIGHT {
+		alignw.setAlignForIndex(0, 1.0, 0.5)
+	}
+	else if align == ALIGN_CENTER {
+		alignw.setAlignForIndex(0, 0.5, 0.5)
+	}
+	return this
+}

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,11 +24,11 @@
 
 class:
 
-class StringIteratorWrapper is Iterator<object>
+class StringIteratorWrapper is Iterator<dynamic>
 {
 	pvar iterator as CharacterIterator
 
-	func next as object
+	func next as dynamic
 	{
 		if not iterator:
 			return null
@@ -39,10 +38,10 @@ class StringIteratorWrapper is Iterator<object>
 			return null
 		}
 		IFDEF "target_objc" {
-			return lang "objc" object {{{ [NSNumber numberWithUnsignedInt:c] }}}
+			return lang "objc" dynamic {{{ [NSNumber numberWithUnsignedInt:c] }}}
 		}
 		ELSE {
-			return c as! object
+			return c
 		}
 	}
 
@@ -53,13 +52,13 @@ class StringIteratorWrapper is Iterator<object>
 	}
 }
 
-class BufferIteratorWrapper is Iterator<object>
+class BufferIteratorWrapper is Iterator<dynamic>
 {
 	pvar buffer as buffer
 	pvar size as long
 	var position = 0
 
-	func next as object
+	func next as dynamic
 	{
 		if not buffer:
 			return null
@@ -68,10 +67,10 @@ class BufferIteratorWrapper is Iterator<object>
 		var v = buffer[position]
 		position++
 		IFDEF "target_objc" {
-			return lang "objc" object {{{ [NSNumber numberWithUnsignedInt:v] }}}
+			return lang "objc" dynamic {{{ [NSNumber numberWithUnsignedInt:v] }}}
 		}
 		ELSE {
-			return v as! object
+			return v
 		}
 	}
 
@@ -83,13 +82,13 @@ class BufferIteratorWrapper is Iterator<object>
 	}
 }
 
-class ArrayIteratorWrapper is Iterator<object>
+class ArrayIteratorWrapper is Iterator<dynamic>
 {
 	pvar array as array
 	pvar size as long
 	var position = 0
 
-	func next as object
+	func next as dynamic
 	{
 		if not array:
 			return null
@@ -108,13 +107,13 @@ class ArrayIteratorWrapper is Iterator<object>
 	}
 }
 
-class VectorIteratorWrapper is Iterator<object>
+class VectorIteratorWrapper is Iterator<dynamic>
 {
 	pvar vector as vector
 	pvar size as long
 	var position = 0
 
-	func next as object
+	func next as dynamic
 	{
 		if not vector:
 			return null
@@ -133,32 +132,66 @@ class VectorIteratorWrapper is Iterator<object>
 	}
 }
 
-func iterate(object as dynamic) static as Iterator<object>
+func iterate(value as dynamic) static as Iterator<dynamic>
 {
-	if object is string {
+	if value is string {
 		var v = new StringIteratorWrapper()
-		v.setIterator(String.iterate(object as! string))
+		v.setIterator(String.iterate(value as! string))
 		return v
 	}
-	if object is buffer {
+	if value is buffer {
 		var v = new BufferIteratorWrapper()
-		v.setBuffer(object as! buffer)
-		v.setSize(sizeof object as! buffer)
+		v.setBuffer(value as! buffer)
+		v.setSize(sizeof value as! buffer)
 		return v
 	}
-	if object is array {
+	if value is array {
 		var v = new ArrayIteratorWrapper()
-		v.setArray(object as! array)
-		v.setSize(sizeof object as! array)
+		v.setArray(value as! array)
+		v.setSize(sizeof value as! array)
 		return v
 	}
-	if object is vector {
+	if value is vector {
 		var v = new VectorIteratorWrapper()
-		v.setVector(object as! vector)
-		v.setSize(sizeof object as! vector)
+		v.setVector(value as! vector)
+		v.setSize(sizeof value as! vector)
 		return v
 	}
-	if object is map:
-		return iterate(Map.getValues(object as! map))
+	if value is map:
+		return iterate(Map.getValues(value as! map))
 	return null
+}
+
+func iteratePropertyNames(object as dyno) static as Iterator<string>:
+	return Vector.iterate(getPropertyNames(object))
+
+func getPropertyNames(object as dyno) static as vector<string>
+{
+	assert object
+	IFDEF "target_js" {
+		var v = new vector<string>
+		lang "js" {{{
+			for(var name in object) {
+				v.append(name);
+			}
+		}}}
+		return v
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
+}
+
+func getPropertyValue(object as dyno, key as string) static as dynamic
+{
+	assert object
+	assert key
+	IFDEF "target_js" {
+		return lang "js" dynamic {{{ object[key] }}}
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
 }

@@ -1,0 +1,432 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.common
+
+class #widget:
+
+class DataCellWidget private #widget
+{
+	func forWidget(ctx as GuiApplicationContext, widget as Widget, align as double = 0.0) static as this
+	{
+		var v = new this(ctx)
+		v.setContentWidget(widget, align)
+		return v
+	}
+
+	ui LayerWidget
+	{
+		AlignWidget align {
+		}
+	}
+
+	pvar widgetHasCustomAlignment = false
+	var contentWidget as Widget
+	var contentWidgetAlign = 0.5
+	var contentWidgetWidth = 0
+	var contentWidgetWeight = 0.0
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		updateWidget()
+	}
+
+	func getCellWeight as double:
+		return contentWidgetWeight
+
+	func updateWidget private
+	{
+		assert getInitialized()
+		Widget.removeChildrenOf(align)
+		if contentWidget:
+			align.addWidgetWithProperties(contentWidget, contentWidgetAlign, 0.5)
+		if contentWidgetWidth > 0:
+			setWidgetWidthRequest(contentWidgetWidth)
+		var parent = Widget.getParent(this) as HorizontalBoxWidget
+		if parent:
+			parent.setWidgetWeight(this, contentWidgetWeight)
+	}
+
+	func setContentWidget(widget as Widget, vv as double)
+	{
+		contentWidget = widget
+		contentWidgetAlign = vv
+		updateWidget()
+	}
+
+	func setCellWidth(width as int)
+	{
+		contentWidgetWidth = width
+		if contentWidgetWidth < 1 {
+			contentWidgetWeight = 1.0
+		}
+		else {
+			contentWidgetWeight = 0.0
+		}
+		updateWidget()
+	}
+
+	func setCellAlign(vv as double)
+	{
+		this.contentWidgetAlign = vv
+		updateWidget()
+	}
+
+	func getCellAlign as double:
+		return contentWidgetAlign
+
+	func getContentWidget as Widget:
+		return contentWidget
+}
+
+class DataRowWidget #widget
+{
+	ui LayerWithBackgroundColorWidget
+	{
+		marginLeft = context.getStylePixels("jkop-kit", "tableRowMarginLeft", "2mm")
+		marginRight = context.getStylePixels("jkop-kit", "tableRowMarginRight", "2mm")
+		marginTop = context.getStylePixels("jkop-kit", "tableRowMarginTop", "2mm")
+		marginBottom = context.getStylePixels("jkop-kit", "tableRowMarginBottom", "2mm")
+		HorizontalBoxWidget box {
+			spacing = context.getStylePixels("jkop-kit", "tableSpacing", "2mm")
+		}
+	}
+
+	pvar widgetTextColor as Color
+	pvar widgetFontBold = false
+	var childWidgets as vector<DataCellWidget>
+
+	func initializeWidget override
+	{
+		base.initializeWidget()
+		foreach widget in childWidgets:
+			box.addWidgetWithProperties(widget, widget.getCellWeight())
+	}
+
+	func reset
+	{
+		childWidgets = null
+		if getInitialized():
+			Widget.removeChildrenOf(box)
+	}
+
+	func addText(text as string, align as double = 0.0, width as int = 0)
+	{
+		var label = LabelWidget.forText(context, text)
+		label.setWidgetTextColor(widgetTextColor)
+		label.setWidgetFontSize(context.getStylePixels("jkop-kit", "tableRowFontSize", "3000um"))
+		label.setWidgetFontFamily(context.getStyleString("jkop-kit", "tableRowFontFamilyRegular", "Arial"))
+		if widgetFontBold {
+			label.setWidgetFontFamily(context.getStyleString("jkop-kit", "tableRowFontFamilyMedium", "Arial"))
+			label.setWidgetFontBold(true)
+		}
+		addCellWidget(label, align, width)
+	}
+
+	func addCellWidget(widget as Widget, align as double = 0.0, width as int = 0)
+	{
+		assert widget
+		var cell = DataCellWidget.forWidget(context, widget, align)
+		cell.setCellWidth(width)
+		if not childWidgets:
+			childWidgets = new vector<DataCellWidget>
+		childWidgets += cell
+		if getInitialized():
+			box.addWidgetWithProperties(cell, cell.getCellWeight())
+	}
+
+	func getCellWidgets as vector<DataCellWidget>:
+		return childWidgets
+}
+
+class ColumnInfo private
+{
+	pvar label as string
+	pvar width as int
+	pvar align as double
+}
+
+class RowColumnInfo private
+{
+	pvar align as double
+	pvar bold = false
+}
+
+ui VerticalBoxWidget
+{
+	DataRowWidget header {
+		color = context.getStyleColor("jkop-kit", "tableHeaderColor", "#777777")
+		textColor = context.getStyleColor("jkop-kit", "tableHeaderTextColor", "#FFFFFF")
+		borderBottomWidth = context.getStylePixels("jkop-kit", "tableHeaderBottomOutlineHeight", "1px")
+		borderBottomColor = context.getStyleColor("jkop-kit", "tableHeaderBottomOutlineColor", "#000000")
+		fontBold = true
+	}
+	LayerWidget scrollerLayer : 1.0 {
+	}
+}
+
+pvar widgetHeaderTopBorderEnabled = true
+var rowWidgets as vector<Widget>
+var columns as array
+var data as vector<array>
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	if widgetHeaderTopBorderEnabled {
+		header.setWidgetBorderTopWidth(context.getStylePixels("jkop-kit", "tableHeaderBottomOutlineHeight", "1px"))
+		header.setWidgetBorderTopColor(context.getStyleColor("jkop-kit", "tableHeaderBottomOutlineColor", "#000000"))
+	}
+	updateWidgetColumns()
+	updateDataWidgets()
+}
+
+func setWidgetColumns(columns as array)
+{
+	this.columns = columns
+	if getInitialized():
+		updateWidgetColumns()
+}
+
+func setWidgetData(data as vector<array>, render as bool = true)
+{
+	this.data = data
+	if getInitialized() && render:
+		updateDataWidgets()
+}
+
+func getWidgetData as vector<array>:
+	return this.data
+
+func updateWidgetColumns
+{
+	header.reset()
+	foreach cc in columns {
+		var column = String.asString(cc)
+		var ci = parseColumnInfo(column)
+		header.addText(ci.getLabel(), ci.getAlign(), ci.getWidth())
+	}
+	foreach row as DataRowWidget in rowWidgets:
+		updateCellProperties(row)
+}
+
+func updateCellProperties(row as DataRowWidget) private
+{
+	assert row
+	var cells = assert row.getCellWidgets()
+	var n = 0
+	while n < Vector.getSize(cells) {
+		var cell = Vector.get(cells, n)
+		if cell {
+			var ci = getColumnInfo(n)
+			cell.setCellWidth(ci.getWidth())
+			cell.setCellAlign(ci.getAlign())
+		}
+		n++
+	}
+}
+
+func getColumnInfo(idx as int) private as ColumnInfo
+{
+	if not columns:
+		return new ColumnInfo()
+	if idx < 0 || idx >= sizeof columns:
+		return new ColumnInfo()
+	return parseColumnInfo(String.asString(columns[idx]))
+}
+
+func parseRowColumnInfo(value as string) private as RowColumnInfo
+{
+	var v = new RowColumnInfo()
+	if not value:
+		return v
+	// TODO: add more supported row cells formatting
+	foreach comp in String.split(value, ',') {
+		var vals = String.split(comp, '=', 2)
+		var key = Vector.get(vals, 0)
+		var value = Vector.get(vals, 1)
+		if key == "fontBold" {
+			v.setBold(Boolean.asBoolean(value))
+		}
+		else if key == "align" {
+			if value == "left" {
+				v.setAlign(0.0)
+			}
+			else if value == "center" {
+				v.setAlign(0.5)
+			}
+			else if value == "right" {
+				v.setAlign(1.0)
+			}
+			else {
+				v.setAlign(0.0)
+			}
+		}
+	}
+	return v
+}
+
+func parseColumnInfo(value as string) private as ColumnInfo
+{
+	var v = new ColumnInfo()
+	if not value:
+		return v
+	foreach comp in String.split(value, ',') {
+		var vals = String.split(comp, '=', 2)
+		var key = Vector.get(vals, 0)
+		var val = Vector.get(vals, 1)
+		if key == "label" {
+			v.setLabel(val)
+		}
+		else if key == "width" {
+			v.setWidth(context.getWidthValue(val))
+		}
+		else if key == "align" {
+			if val == "left" {
+				v.setAlign(0.0)
+			}
+			else if val == "center" {
+				v.setAlign(0.5)
+			}
+			else if val == "right" {
+				v.setAlign(1.0)
+			}
+			else {
+				v.setAlign(0.0)
+			}
+		}
+	}
+	return v
+}
+
+func setRowStyle(row as DataRowWidget, excludeBorderBottom as bool = false) private
+{
+	assert row
+	row.setWidgetColor(context.getStyleColor("jkop-kit", "tableRowColor", "#EEEEEE"))
+	row.setWidgetTextColor(context.getStyleColor("jkop-kit", "tableRowTextColor", "#000000"))
+	if excludeBorderBottom:
+		return
+	row.setWidgetBorderBottomWidth(context.getStylePixels("jkop-kit", "tableRowBottomOutlineHeight", "1px"))
+	row.setWidgetBorderBottomColor(context.getStyleColor("jkop-kit", "tableRowBottomOutlineColor", "#000000"))
+}
+
+func updateDataWidgets private
+{
+	var headerSize = sizeof header.getCellWidgets()
+	var widgets = new vector<Widget>
+	foreach entry in data {
+		var v = new DataRowWidget(context)
+		var count = 0
+		foreach cell in entry {
+			if count >= headerSize:
+				break
+			var cellColumnInfo = getColumnInfo(count)
+			var align = cellColumnInfo.getAlign()
+			if cell is Widget {
+				v.addCellWidget(cell as! Widget, align)
+			}
+			else {
+				var value = String.asString(cell)
+				if String.contains(value, "{") {
+					var tmp = value
+					var style = String.getSubString(tmp, String.getIndexOfCharacter(tmp, '{'), String.getIndexOfCharacter(tmp, '}'))
+					style = String.replaceString(style, "{", "")
+					style = String.replaceString(style, "}", "")
+					style = String.strip(style)
+					value = String.getSubString(value, 0, String.getIndexOfCharacter(tmp, '{'))
+					var columnInfo = parseRowColumnInfo(style)
+					if columnInfo {
+						align = columnInfo.getAlign()
+						v.setWidgetFontBold(columnInfo.getBold())
+					}
+				}
+				v.addText(value, align)
+			}
+			count++
+		}
+		widgets += v
+	}
+	rowWidgets = widgets
+	var total = sizeof rowWidgets
+	var count = 0
+	foreach row as DataRowWidget in rowWidgets {
+		var excludeBorderBottom = false
+		if count == total - 1:
+			excludeBorderBottom = true
+		setRowStyle(row, excludeBorderBottom)
+		count++
+	}
+	var original = Vector.get(Widget.getChildren(scrollerLayer), 0)
+	var scroller = new DynamicVerticalScrollerWidget(context)
+	scroller.setWidgetContainerSpacing(context.getStylePixels("jkop-kit", "tableContainerSpacing", "0mm"))
+	scroller.setWidgetContainerMargin(context.getStylePixels("jkop-kit", "tableContainerMargin", "0mm"))
+	scroller.setWidgetProvider(StaticWidgetProvider.forWidgets(widgets))
+	scroller.clear()
+	Widget.setVisible(scroller, false)
+	scrollerLayer.addWidget(scroller)
+	if original {
+		context.startTimer(0, func {
+			Widget.removeFromParent(original)
+			Widget.setVisible(scroller, true)
+		})
+	}
+}
+
+func updateTableRowColor(index as int, color as Color)
+{
+	assert color
+	var row = assert Vector.get(rowWidgets, index) as DataRowWidget
+	row.setWidgetColor(color)
+}
+
+func updateTableRowTextColor(rowIndex as int, textColor as Color)
+{
+	assert textColor
+	var row = assert Vector.get(rowWidgets, rowIndex) as DataRowWidget
+	var cellWidgets = assert row.getCellWidgets()
+	foreach cell as DataCellWidget in cellWidgets {
+		var contentWidget = cell.getContentWidget() as LabelWidget
+		if not contentWidget:
+			continue
+		contentWidget.setWidgetTextColor(textColor)
+	}
+}
+
+func getRowCellWidgets(index as int) as vector<Widget>
+{
+	var row = assert Vector.get(rowWidgets, index) as DataRowWidget
+	var cellWidgets = assert row.getCellWidgets()
+	var v = new vector<Widget>
+	foreach cell as DataCellWidget in cellWidgets:
+		v += cell.getContentWidget()
+	return v
+}
+
+func getRowCount as int
+{
+	if not rowWidgets:
+		return 0
+	return (sizeof rowWidgets) as int
+}

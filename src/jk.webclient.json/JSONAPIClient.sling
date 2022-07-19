@@ -1,0 +1,256 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.url
+import jk.json
+import jk.webclient
+
+class:
+
+prop credentialsEnabled as bool = false
+prop redirectionEnabled as bool = false
+prop redirectionLimit as int = 5
+prop apiUrl as string
+prop webClient as WebClient
+
+**
+** Concatenates the API URL string with the supplied API endpoint string and returns it.
+**
+
+func getFullURL(api as string) virtual as string
+{
+	var url = apiUrl
+	if String.isEmpty(url):
+		url = "/"
+	if url == "/" {
+		if String.startsWith(api, "/"):
+			return api
+		return url .. api
+	}
+	if String.endsWith(url, "/") {
+		if String.startsWith(api, "/"):
+			return url .. String.getEndOfString(api, 1)
+		return url .. api
+	}
+	if String.startsWith(api, "/"):
+		return url .. api
+	return url .. "/" .. api
+}
+
+**
+** Encodes the supplied instance of DynamicMap class into a JSON formatted string
+** then converts it to a UTF8 encoded buffer and finally returns it.
+**
+
+func toUTF8Buffer(data as DynamicMap) as buffer
+{
+	assert data
+	return String.toUTF8Buffer(JSONEncoder.encode(data))
+}
+
+**
+** A virtual method that accepts an instance of KeyValueList
+** for request headers customization purposes.
+**
+
+func customizeRequestHeaders(headers as KeyValueList<string,string>) virtual
+{
+}
+
+**
+** A virtual method that will be called upon the start of sending the request.
+**
+
+func onStartSendRequest virtual
+{
+}
+
+**
+** A virtual method that will be called upon the end of sending the request.
+**
+
+func onEndSendRequest virtual
+{
+}
+
+**
+** A virtual method that will be called for default error handling.
+**
+
+func onDefaultErrorHandler(error as Error) virtual
+{
+}
+
+**
+** If the response is an error response, then throw an appropriate Error object.
+**
+
+func tryHandleAsError(response as DynamicMap)
+{
+	var error = toError(response)
+	if error:
+		throw error
+}
+
+**
+** Converts the supplied instance of DynamicMap class 
+** into an Error object if the instance is null or if
+** the value of the key 'status' is equal to 'error'.
+**
+
+func toError(response as DynamicMap) as Error
+{
+	if not response:
+		return Error.forCode("noServerResponse")
+	if response.getString("status") == "error" {
+		var v = new Error()
+		var code = response.getString("code")
+		if String.isEmpty(code):
+			code = response.getString("error")
+		v.setCode(code)
+		var detail = response.getString("detail")
+		if String.isEmpty(detail):
+			detail = response.getString("message")
+		v.setDetail(detail)
+		return v
+	}
+	return null
+}
+
+**
+** Sends the request and interprets the response as JSON content. Throws an Error object if
+** the response was considered an error response.
+**
+
+func sendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer) async as DynamicMap
+{
+	var response = await doSendRequest(method, url, headers, data, 0)
+	var responseString = String.forUTF8Buffer(response.body)
+	var jsonResponseBody = JSONParser.parseString(responseString) as DynamicMap
+	if not jsonResponseBody:
+		Error.throw("invalidServerResponse", url)
+	tryHandleAsError(jsonResponseBody)
+	return jsonResponseBody
+}
+
+**
+** Sends an HTTP request with the supplied HTTP method, URL, HTTP headers,
+** and the data buffer.
+**
+
+func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, redirectCount as int) virtual async as WebClient.Response
+{
+	if redirectCount > redirectionLimit:
+		Error.throw("tooManyRedirections", redirectCount)
+	var hrs = headers
+	if not hrs {
+		hrs = new KeyValueList<string,string>()
+		hrs.add("Content-Type", "application/json")
+	}
+	if not webClient:
+		webClient = WebClient.instance()
+	// webClient.setCredentialsEnabled(credentialsEnabled)
+	customizeRequestHeaders(hrs)
+	onStartSendRequest()
+	var response = await webClient.executeQuery(null, method, url, hrs, data)
+	onEndSendRequest()
+	if redirectionEnabled {
+		var code = String.toInteger(response.statusCode)
+		if code >= 300 && code <= 399 && response.headers {
+			var location as string
+			foreach kvp in response.headers.asVector() {
+				if String.equalsIgnoreCase(kvp.key, "Location") {
+					location = kvp.value
+					break
+				}
+			}
+			if String.isNotEmpty(location) {
+				if not String.startsWith(location, "http"):
+					location = getFullURL(location)
+				var o = URL.forString(url)
+				var n = URL.forString(location)
+				if o && n && String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
+					n.setPort(o.getPort())
+					location = n.toString()
+				}
+				return await doSendRequest(method, location, hrs, data, redirectCount + 1)
+			}
+		}
+	}
+	if Buffer.getSize(response.body) < 1:
+		Error.throw("failedToConnect", url)
+	return response
+}
+
+**
+** Retrieves the given URL as binary data.
+**
+
+func doGetFile(url as string) async as buffer
+{
+	var response = await doSendRequest("GET", getFullURL(url), null, null, 0)
+	return response.body
+}
+
+**
+** Retrieves the given URL as JSON data.
+**
+
+func doGet(url as string) async as DynamicMap:
+	return await sendRequest("GET", getFullURL(url), null, null)
+
+**
+** Sends a POST request and interprets the response as JSON data.
+**
+
+func doPost(url as string, data as DynamicMap) async as DynamicMap:
+	return await sendRequest("POST", getFullURL(url), null, toUTF8Buffer(data))
+
+**
+** Sends a PUT request and interprets the response as JSON data.
+**
+
+func doPut(url as string, data as DynamicMap) async as DynamicMap:
+	return await sendRequest("PUT", getFullURL(url), null, toUTF8Buffer(data))
+
+**
+** Sends a DELETE request and interprets the response as JSON data.
+**
+
+func doDelete(url as string) async as DynamicMap:
+	return await sendRequest("DELETE", getFullURL(url), null, null)
+
+**
+** Uploads binary data and interprets the response as JSON data.
+**
+
+func uploadFile(url as string, data as buffer, mimeType as string) async as DynamicMap
+{
+	var mt = mimeType
+	if String.isEmpty(mt):
+		mt = "application/octet-stream"
+	var hdrs = new KeyValueList<string,string>()
+	hdrs.add("content-type", mt)
+	return await sendRequest("POST", getFullURL(url), hdrs, data)
+}

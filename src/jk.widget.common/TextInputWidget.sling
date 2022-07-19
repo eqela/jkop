@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,8 +34,7 @@ func forType(context as GuiApplicationContext, type as int, placeholder as strin
 
 IFDEF "target_android"
 {
-	extend !"android.widget.EditText"
-	isAlso Widget
+	extend TextInputBaseWidget
 }
 
 ELSE IFDEF "target_ios_objc"
@@ -182,10 +180,16 @@ ELSE IFDEF "target_html"
 			onLoseFocusListener()
 		})
 		lang "js" {{{
-			this.element.addEventListener("keypress", function(e) {
+			this.element.addEventListener("keydown", function(e) {
 				var k = e.which || e.keyCode;
 				if(k == 13) {
 					this.onEnterKeyListener();
+				}
+				else if(k == 38) {
+					this.onArrowUpKeyListener();
+				}
+				else if(k == 40) {
+					this.onArrowDownKeyListener();
 				}
 			}.bind(this));
 		}}}
@@ -238,13 +242,15 @@ var widgetBackgroundColor as Color
 var widgetIsEnabled = true
 pvar widgetTextChangeHandler as function
 pvar widgetOnEnterKeyPressed as function
+pvar widgetOnArrowUpKeyPressed as function
+pvar widgetOnArrowDownKeyPressed as function
 pvar widgetOnFocusHandler as function
 pvar widgetOnLoseFocusHandler as function
 
 ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
-		base((context as! GuiApplicationContextForAndroid).getActivityContext())
+		base(context)
 		IFDEF "target_java" {
 			lang "java" {{{
 				setSingleLine();
@@ -338,7 +344,7 @@ ctor(context as GuiApplicationContext)
 	}
 	IFDEF "target_uwp" {
 		lang "cs" {{{
-			this.Background = jk.ui.Color.forRGBA(0,0,0,0).toBrush();
+			this.Background = jk.gfx.Color.forRGBA(0,0,0,0).toBrush();
 			this.Padding = new Windows.UI.Xaml.Thickness(0,0,0,0);
 			this.BorderThickness = new Windows.UI.Xaml.Thickness(0,0,0,0);
 			this.MinHeight = 0.0;
@@ -412,7 +418,7 @@ func updateWidgetColors private
 	IFDEF "target_android" {
 		IFDEF "target_java" {
 			lang "java" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154).toARGBInt32());
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154).toARGBInt32());
 				if(widgetBackgroundColor != null) {
 					setBackgroundColor(widgetBackgroundColor.toARGBInt32());
 				}
@@ -424,7 +430,7 @@ func updateWidgetColors private
 		}
 		ELSE IFDEF "target_kotlin" {
 			lang "kotlin" {{{
-				setHintTextColor(jk.ui.Color.forRGB(154,154,154)!!.toARGBInt32())
+				setHintTextColor(jk.gfx.Color.forRGB(154,154,154)!!.toARGBInt32())
 				if(widgetBackgroundColor != null) {
 					setBackgroundColor(widgetBackgroundColor!!.toARGBInt32())
 				}
@@ -941,12 +947,12 @@ func getWidgetFontBold as bool:
 	return widgetFontBold
 
 func setWidgetPadding(padding as int #notLiteral):
-	setWidgetPadding(padding, padding, padding, padding)
+	setWidgetPaddingAll(padding, padding, padding, padding)
 
-func setWidgetPadding(x as int #notLiteral, y as int #notLiteral):
-	setWidgetPadding(x, y, x, y)
+func setWidgetPaddingSymmetric(x as int #notLiteral, y as int #notLiteral):
+	setWidgetPaddingAll(x, y, x, y)
 
-func setWidgetPadding(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
+func setWidgetPaddingAll(l as int #notLiteral, t as int #notLiteral, r as int #notLiteral, b as int #notLiteral) as this
 {
 	if l < 0 || t < 0 || r < 0 || b < 0:
 		return this
@@ -1024,30 +1030,6 @@ func setWidgetFontSize(fontSize as double #notLiteral) as this
 	return this
 }
 
-func dismissKeyboard
-{
-	IFDEF "target_android" {
-		var actx #used = (widgetContext as! GuiApplicationContextForAndroid).getActivityContext()
-		IFDEF "target_java" {
-			lang "java" {{{
-				clearFocus();
-				android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager)actx.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
-				im.hideSoftInputFromWindow(getWindowToken(), 0);
-			}}}
-		}
-		ELSE IFDEF "target_kotlin" {
-			lang "kotlin" {{{
-				clearFocus();
-				val im = actx!!.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-				im.hideSoftInputFromWindow(getWindowToken(), 0)
-			}}}
-		}
-	}
-	ELSE {
-		ERROR "Not implemented"
-	}
-}
-
 func updateWidgetFont private
 {
 	IFDEF "target_html" {
@@ -1101,7 +1083,7 @@ func updateWidgetFont private
 					style = android.graphics.Typeface.BOLD;
 				}
 				if(widgetFontResource != null) {
-					android.content.Context ctx = ((jk.ui.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
+					android.content.Context ctx = ((jk.app.ui.GuiApplicationContextForAndroid)widgetContext).getActivityContext();
 					setTypeface(android.graphics.Typeface.createFromAsset(ctx.getAssets(), widgetFontResource), style);
 				}
 				else {
@@ -1117,7 +1099,7 @@ func updateWidgetFont private
 					style = android.graphics.Typeface.BOLD;
 				}
 				if(widgetFontResource != null) {
-					var ctx = (widgetContext as jk.ui.GuiApplicationContextForAndroid).getActivityContext();
+					var ctx = (widgetContext as jk.app.ui.GuiApplicationContextForAndroid).getActivityContext();
 					setTypeface(android.graphics.Typeface.createFromAsset(ctx!!.getAssets(), widgetFontResource), style);
 				}
 				else {
@@ -1184,6 +1166,18 @@ func onEnterKeyListener private
 		widgetOnEnterKeyPressed()
 }
 
+func onArrowUpKeyListener private
+{
+	if widgetOnArrowUpKeyPressed:
+		widgetOnArrowUpKeyPressed()
+}
+
+func onArrowDownKeyListener private
+{
+	if widgetOnArrowDownKeyPressed:
+		widgetOnArrowDownKeyPressed()
+}
+
 func onFocusListener private
 {
 	if widgetOnFocusHandler:
@@ -1204,8 +1198,8 @@ func focus
 	ELSE IFDEF "target_android" {
 		IFDEF "target_java" {
 			lang "java" {{{
-				this.setFocusableInTouchMode()
-				this.requestFocus()
+				this.setFocusableInTouchMode(true);
+				this.requestFocus();
 			}}}
 		}
 	}

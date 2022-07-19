@@ -1,0 +1,152 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is WSSocket:
+
+class MyWSCloseEvent is WSCloseEvent
+{
+	var statusCode private as int
+	var reason private as string
+
+	ctor:
+		statusCode = 0
+
+	func setStatusCode(c as int) as this
+	{
+		statusCode = c
+		return this
+	}
+
+	func getStatusCode override as int:
+		return statusCode
+
+	func setReason(r as string) as this
+	{
+		reason = r
+		return this
+	}
+
+	func getReason override as string:
+		return reason
+}
+
+var socket as !"WebSocket"
+
+func onPrepareCloseEvent(e as !"CloseEvent")
+{
+	onCloseCallback(new MyWSCloseEvent().setStatusCode(e.code as int).setReason(e.reason as string))
+}
+
+func onPrepareWSMessageForStringData(data as string)
+{
+	onMessageCallback(WSMessage.forStringData(data))
+}
+
+func onPrepareWSMessageForData(data as buffer)
+{
+	onMessageCallback(WSMessage.forData(data))
+}
+
+func connect(url as string, protocols as vector<string>) override
+{
+	lang "js" {{{
+		this.socket = new WebSocket(url, protocols);
+		this.socket.addEventListener('open', function(e) {
+			this.onOpenCallback();
+		}.bind(this));
+		this.socket.addEventListener('close', function(e) {
+			this.onPrepareCloseEvent(e);
+		}.bind(this));
+		this.socket.addEventListener('error', function(e) {
+			this.onErrorCallback(JkLangError.forCode("unspecifiedError"));
+		}.bind(this));
+		this.socket.addEventListener('message', function(e) {
+			if(e.data instanceof ArrayBuffer) {
+				this.onPrepareWSMessageForData(e.data);
+			}
+			else if(e.data instanceof Blob) {
+				var fr = new FileReader();
+				fr.onload = function() {
+					this.onPrepareWSMessageForData(fr.result);
+				}.bind(this);
+				fr.readAsArrayBuffer(e.data);
+			}
+			else if(typeof e.data === "string") {
+				this.onPrepareWSMessageForStringData(e.data);
+			}
+		}.bind(this));
+	}}}
+}
+
+func send(message as WSMessage) override
+{
+	if socket == null || message == null {
+		onErrorCallback(Error.forCode("noOpenConnection"))
+		return
+	}
+	if message.getIsPing() {
+		// browser websocket has no ping API, and presumably handles pings by itself. we hope.
+		return
+	}
+	else if message.isText() {
+		var m #used = message.getDataAsString()
+		lang "js" {{{
+			if(this.socket.readyState === this.socket.OPEN) {
+				this.socket.send(m);
+			}
+			else {
+				this.onErrorCallback(JkLangError.forCode("failedToSendData"))
+			}
+		}}}
+	}
+	else {
+		var m #used = message.getData()
+		lang "js" {{{
+			if(this.socket.readyState === this.socket.OPEN) {
+				this.socket.send(m);
+			}
+			else {
+				this.onErrorCallback(JkLangError.forCode("failedToSendData"))
+			}
+		}}}
+	}
+}
+
+func closeWithReason(statusCode as int, reason as string, callback as function) override
+{
+	assert socket
+	lang "js" {{{
+		this.socket.close(statusCode, reason);
+	}}}
+	if callback:
+		callback()
+}
+
+func close override
+{
+	assert socket
+	lang "js" {{{
+		this.socket.close();
+	}}}
+}

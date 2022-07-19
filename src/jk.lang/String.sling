@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -78,6 +77,20 @@ func asString(obj as dynamic) static as string
 	}
 	ELSE IFDEF "target_cs" {
 		return lang "cs" string {{{ obj.ToString() }}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			if(obj instanceof Error) {
+				return obj.stack;
+			}
+		}}}
+		var vjs = lang "js" dynamic {{{ obj.toString() }}}
+		lang "js" {{{
+			if(vjs && vjs != "[object Object]") {
+				return vjs;
+			}
+		}}}
+		return null
 	}
 	ELSE {
 		return null
@@ -318,7 +331,7 @@ func forUCS2Buffer(data as buffer #used) static as string
 ** Constructs a new string for an array or characters.
 **
 
-func forCharArray(chars as char[] #used, offset as int #used, count as int #used) static as string
+func forCharArray(chars as array<char> #used, offset as int #used, count as int #used) static as string
 {
 	assert chars
 	IFDEF "target_cs" {
@@ -326,6 +339,23 @@ func forCharArray(chars as char[] #used, offset as int #used, count as int #used
 	}
 	ELSE IFDEF "target_java" {
 		return lang "java" string {{{ new java.lang.String(chars, offset, count) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var str as string #used = null
+		lang "js" string {{{
+			str = "";
+			let index = 0;
+			for(const cc of chars) { 
+				if (index > count) {
+					break;
+				}
+				if (index >= offset) {
+					str += String.fromCharCode(cc);
+				}
+				index++;
+			}
+		}}}
+		return str
 	}
 	ELSE IFDEF "target_js" {
 		var str as string #used = null
@@ -525,7 +555,7 @@ func forLongIntegerHex(vv as long #used, minlength as int = 0) static as string
 		v = lang "java" string {{{ java.lang.Long.toHexString(vv) }}}
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" string {{{ (~~vv).toString(16) }}}
+		v = lang "js" string {{{ vv.toString(16) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		v = lang "kotlin" string {{{ vv.toString(16) }}}
@@ -780,6 +810,44 @@ func forDouble(vv as double #used) static as string
 	}
 }
 
+func forDoubleWithDecimals(vv as double, decimals as int) static as string
+{
+	IFDEF "target_objc" {
+		var format = "%." .. decimals .. "f"
+		return lang "objc" string {{{ [NSString stringWithFormat:format, vv] }}}
+	}
+	ELSE IFDEF "target_java" {
+		var format = "%." .. decimals .. "f"
+		return lang "java" string {{{ String.format(format, vv) }}}
+	}
+	ELSE IFDEF "target_cs" {
+		var fomat = StringBuilder.forString("{0:0.")
+		for(var i = 0; i < decimals; i++) {
+			format.appendString("0")
+		}
+		format.appendString("}")
+		return lang "cs" string {{{ String.Format(format, vv) }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" string {{{ vv.toFixed(decimals) }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		var format = "%." .. decimals .. "f"
+		return lang "kotlin" string {{{ String.format(format, vv) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" string {{{ _util:create_string_for_double_with_decimals(vv, decimals) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		var format = "%." .. decimals .. "f"
+		return lang "swift" string {{{ String(format: format, vv) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
 **
 ** Converts a string to a buffer of bytes, encoded using the UTF8 encoding.
 **
@@ -852,15 +920,15 @@ func toBuffer(str as string, charset as string) static as buffer
 	}
 }
 
-func getBytesUnsignedUTF8(str as string) private static as uint8[]:
+func getBytesUnsignedUTF8(str as string) private static as array<uint8>:
 	return getBytesUnsigned(str, "UTF-8")
 
-func getBytesUnsigned(str as string #used, charset as string) private static as uint8[]
+func getBytesUnsigned(str as string #used, charset as string) private static as array<uint8>
 {
 	assert str
 	assert charset
 	IFDEF "target_cs" {
-		var bytes as uint8[]
+		var bytes as array<uint8>
 		lang "cs" {{{
 			System.Text.Encoding encoding;
 			if("UTF-8".Equals(charset) || "UTF8".Equals(charset)) {
@@ -877,7 +945,7 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 		return bytes
 	}
 	ELSE IFDEF "target_java" {
-		var v as uint8[]
+		var v as array<uint8>
 		lang "java" {{{
 			try {
 				v = str.getBytes(charset);
@@ -929,10 +997,10 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 		return uintArray
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" uint8[] {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray()?.toTypedArray() }}}
+		return lang "kotlin" array<uint8> {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray()?.toTypedArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" uint8[] {{{ NSMutableArray(array: [UInt8](str.utf8)) }}}
+		return lang "swift" array<uint8> {{{ NSMutableArray(array: [UInt8](str.utf8)) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -940,15 +1008,15 @@ func getBytesUnsigned(str as string #used, charset as string) private static as 
 	}
 }
 
-func getBytesSignedUTF8(str as string) static as int8[]:
+func getBytesSignedUTF8(str as string) static as array<int8>:
 	return getBytesSigned(str, "UTF-8")
 
-func getBytesSigned(str as string #used, charset as string) static as int8[]
+func getBytesSigned(str as string #used, charset as string) static as array<int8>
 {
 	if str == null || charset == null:
 		return null
 	IFDEF "target_cs" {
-		var bytes as int8[]
+		var bytes as array<int8>
 		lang "cs" {{{
 			var enc = getBytesUnsigned(str, charset);
 			if(enc == null) {
@@ -960,7 +1028,7 @@ func getBytesSigned(str as string #used, charset as string) static as int8[]
 		return bytes
 	}
 	ELSE IFDEF "target_java" {
-		var v as int8[]
+		var v as array<int8>
 		lang "java" {{{
 			try {
 				v = str.getBytes(charset);
@@ -982,7 +1050,7 @@ func getBytesSigned(str as string #used, charset as string) static as int8[]
 		return intArray
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" uint8[] {{{ str.toByteArray(kotlin.text.charset(charset)) }}}
+		return lang "kotlin" array<int8> {{{ str.toByteArray(kotlin.text.charset(charset)) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -1951,7 +2019,8 @@ func endsWith(str1 as string #used, str2 as string #used) static as bool
 		return lang "kotlin" bool {{{ str1.endsWith(str2) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _util:get_substring(str1, _util:get_string_length(str1)-_util:get_string_length(str2), _util:get_string_length(str1)) == str2 }}}
+		var s1 = lang "lua" int {{{ _util:get_utf8_character_count(str1) }}}
+		return lang "lua" bool {{{ _util:get_substring(str1, s1 -_util:get_utf8_character_count(str2), s1) == str2 }}}
 	}
 	ELSE IFDEF "target_stdlua" {
 		return lang "lua" bool {{{ string.sub(str1, string.len(str1)-string.len(str2), string.len(str1)) == str2 }}}
@@ -2109,6 +2178,21 @@ func replaceCharacter(str as string #used, oldChar as char #used, newChar as cha
 	ELSE IFDEF "target_java" {
 		return lang "java" string {{{ str.replace(oldChar, newChar) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var result = ""
+		lang "js" {{{
+			const sa = Array.from(str);
+			sa.forEach(cc => {
+				if (cc.charCodeAt() == oldChar) {
+					result += String.fromCharCode(newChar);
+				}
+				else {
+					result += cc;
+				}
+			})
+		}}}
+		return result
+	}
 	ELSE IFDEF "target_js" {
 		return lang "js" string {{{ str.replace(oldChar, newChar) }}}
 	}
@@ -2193,17 +2277,17 @@ func replaceString(str as string #used, target as string #used, replacement as s
 ** Converts the string "str" to an array of characters.
 **
 
-func toCharArray(str as string #used) static as char[]
+func toCharArray(str as string #used) static as array<char>
 {
 	assert str
 	IFDEF "target_cs" {
-		return lang "cs" char[] {{{ str.ToCharArray() }}}
+		return lang "cs" array<char> {{{ str.ToCharArray() }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" char[] {{{ str.toCharArray() }}}
+		return lang "java" array<char> {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_js" {
-		var v as char[]
+		var v as array<char>
 		lang "js" {{{
 			v = []
 			for (var i = 0; i < str.length; i++) {
@@ -2213,7 +2297,7 @@ func toCharArray(str as string #used) static as char[]
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		var ca as char[]
+		var ca as array<char>
 		lang "objc" {{{
 			ca = [[NSMutableArray alloc] init];
 			for(int i = 0; i < [str length]; i++) {
@@ -2242,10 +2326,10 @@ func toCharArray(str as string #used) static as char[]
 		return ca
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" char[] {{{ str.toCharArray() }}}
+		return lang "kotlin" array<char> {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" char[] {{{ NSMutableArray(array: Array(str!)) }}}
+		return lang "swift" array<char> {{{ NSMutableArray(array: Array(str!)) }}}
 	}
 	ELSE IFDEF "target_lua" {
 		var it = iterate(str)
@@ -2617,19 +2701,19 @@ func toDouble(str as string #used) static as double
 ** instance of CharacterIterator.
 **
 
-func iterate(string as string) static as CharacterIterator:
-	return CharacterIteratorForString.forString(string)
+func iterate(value as string) static as CharacterIterator:
+	return CharacterIteratorForString.forString(value)
 
 **
 ** Creates a new string that contains the same contents as "string", but with
 ** all characters appearing in reverse order.
 **
 
-func reverse(string as string) static as string
+func reverse(value as string) static as string
 {
-	assert string
+	assert value
 	var sb = new StringBuilder()
-	var it = iterate(string)
+	var it = iterate(value)
 	var c as char
 	while (c = it.getNextChar()) > 0:
 		sb.insertCharacter(0, c)
@@ -2641,5 +2725,5 @@ func reverse(string as string) static as string
 ** towards the beginning).
 **
 
-func iterateReverse(string as string) static as CharacterIterator:
-	return iterate(reverse(string))
+func iterateReverse(value as string) static as CharacterIterator:
+	return iterate(reverse(value))

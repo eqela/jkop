@@ -1,0 +1,312 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.core
+import jk.widget.form
+import jk.widget.uikit.stripe
+
+class is FormWidget #widget:
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	setEnableFieldLabels(false)
+	setEnableScrolling(false)
+	setFillContainerWidget(true)
+	setWidgetBackgroundColor(Color.white())
+	setElementSpacing(context.getHeightValue("5mm"))
+	setFormMargin(0)
+	formButtons = new vector<ButtonFrameWidget>
+	requiredFields = new StringSet()
+	validFields = new StringSet()
+	completeFields = new StringSet()
+}
+
+var formButtons as vector<ButtonFrameWidget>
+var requiredFields as StringSet
+var validFields as StringSet
+var validators as map<string, function<Error, string>>
+var validatorCount = 0
+pvar completeFields as StringSet
+pvar widgetFormEditable = true
+pvar onFieldChangeHandler as function
+
+func setWidgetElementSpacing(sz as int #notLiteral) as this
+{
+	setElementSpacing(sz)
+	return this
+}
+
+func removeWidgetFromForm(id as string)
+{
+	assert String.isNotEmpty(id)
+	if requiredFields.contains(id):
+		requiredFields.remove(id)
+	Widget.removeFromParent(getElementAsWidget(id))
+}
+
+func setWidgetForm(form as string) as this
+{
+	setFormDeclaration(FormDeclaration.forDescription(context, form))
+	return this
+}
+
+func setWidgetFormDeclaration(formDec as FormDeclaration) as this
+{
+	setFormDeclaration(formDec)
+	return this
+}
+
+func setWidgetFormData(formData as DynamicMap) as this
+{
+	setFormData(formData)
+	return this
+}
+
+func setWidgetFormMargin(sz as int #notLiteral) as this
+{
+	setFormMargin(sz)
+	return this
+}
+
+func setWidgetValidators(vals as map) as this
+{
+	if not vals {
+		validators = null
+		return this
+	}
+	validators = new map<string, function<Error, string>>
+	var keys = Map.iterateKeys(vals)
+	loop {
+		var key = keys.next()
+		if not key:
+			break
+		validators[key] = Map.get(vals, key) as! function<Error, string>
+	}
+	return this
+}
+
+func getWidgetValidator(valname as string) as function<Error, string>
+{
+	assert validators
+	assert String.isNotEmpty(valname)
+	validatorCount++
+	return Map.get(validators, valname)
+}
+
+func addFormButton(button as ButtonFrameWidget) as this
+{
+	assert button
+	formButtons += button
+	onFormFieldsChanged()
+	return this
+}
+
+func createFormFieldWidget(element as FormDeclaration.Element) virtual as Widget
+{
+	assert element
+	if element.isType("FormFieldText") {
+		var fftw = new FormFieldTextWidget(context)
+			.setIsTopLabel(element.getPropertyBoolean("isTopLabel"))
+			.setWidgetFormLabel(element.getPropertyString("label"))
+			.setWidgetAlignLabel(element.getPropertyInteger("align"))
+			.setWidgetValidator(getWidgetValidator(element.getPropertyString("validator")))
+			.setWidgetPlaceholder(element.getPropertyString("placeholder"))
+		return fftw
+	}
+	if element.isType("FormFieldNumber") {
+		var isDropdown = element.getPropertyBoolean("isdropdown")
+		if isDropdown {
+			var mobile = new FormFieldMobileWidget(context)
+			mobile.setCodeFieldDropDown(isDropdown)
+			mobile.setWidgetFormLabel(element.getPropertyString("label"))
+			mobile.setWidgetValidator(getWidgetValidator(element.getPropertyString("validator")))
+			return mobile
+		}
+		else {
+			var ffmw = new FormFieldMobileWidget(context)
+			ffmw.setWidgetFormLabel(element.getPropertyString("label"))
+			ffmw.setCodeLabelValue(element.getPropertyString("code"))
+			ffmw.setPlaceholderValue(element.getPropertyString("placeholder"))
+			ffmw.setWidgetValidator(getWidgetValidator(element.getPropertyString("validator")))
+			return ffmw
+		}
+	}
+	if element.isType("FormFieldStaticText") {
+		var v = new FormFieldStaticTextWidget(context)
+		v.setWidgetFormLabel(element.getPropertyString("label"))
+		var value = element.getPropertyString("value")
+		if value:
+			v.setWidgetFormValue(value)
+		if not element.getPropertyBoolean("isValueRequired") || not getWidgetFormEditable():
+			v.setIsValueRequired(false)
+		var isItalic = element.getPropertyBoolean("isItalic")
+		if isItalic:
+			v.setWidgetFontItalic(isItalic)
+		return v
+	}
+	if element.isType("FormFieldAvatar") {
+		var avatar = new FormFieldAvatarWidget(context)
+		var label = element.getPropertyString("label")
+		if String.isNotEmpty(label) {
+			avatar.setWidgetFormLabel(label)
+		}
+		else {
+			avatar.setWidgetRemoveLabel(true)
+		}
+		var resource = element.getPropertyString("resource")
+		if String.isNotEmpty(resource):
+			avatar.setWidgetImageResource(resource)
+		var align = element.getPropertyInteger("align")
+		if align > 0:
+			avatar.setWidgetAlignLabel(align)
+		return avatar
+	}
+	if element.isType("FormFieldName") {
+		var ffn = new FormFieldNameWidget(context)
+		ffn.setWidgetFormLabel(element.getPropertyString("label"))
+		ffn.setWidgetId(element.getPropertyString("fnId"), element.getPropertyString("lnId"))
+		ffn.setWidgetRequired(element.getPropertyBoolean("fnRequired"), element.getPropertyBoolean("lnRequired"))
+		ffn.setWidgetValidator(getWidgetValidator(element.getPropertyString("fnValidator")), getWidgetValidator(element.getPropertyString("lnValidator")))
+		return ffn
+	}
+	if element.isType("FormFieldSelect") {
+		var kvl = new KeyValueList<string, string>()
+		var values = element.getPropertyVector("values")
+		if values {
+			foreach value as DynamicMap in values {
+				var key = value.getString("key")
+				var val = value.getString("value")
+				if key:
+					kvl.add(key, val)
+			}
+		}
+		var select = new FormFieldSelectWidget(context)
+		select.setWidgetFormLabel(element.getPropertyString("label"))
+		select.setWidgetItems(kvl)
+		return select
+	}
+	if element.isType("FormAutoSuggestInput") {
+		var ffasw = new FormFieldAutoSuggestWidget(context)
+		ffasw.setWidgetFormLabel(element.getPropertyString("label"))
+		ffasw.setWidgetPlaceholder(element.getPropertyString("placeholder"))
+		ffasw.setDefaultNoRecordMessage(element.getPropertyString("noRecordMessage"))
+		ffasw.setWidgetValidator(getWidgetValidator(element.getPropertyString("validator")))
+		return ffasw
+	}
+	if element.isType("FormFieldPassword") {
+		var v = new FormFieldTextWidget(context)
+			.setWidgetFormLabel(element.getPropertyString("label"))
+			.setWidgetType(FormFieldTextWidget.TYPE_PASSWORD)
+			.setWidgetAlignLabel(element.getPropertyInteger("align"))
+			.setWidgetPlaceholder(element.getPropertyString("placeholder"))
+			.setWidgetValidator(getWidgetValidator(element.getPropertyString("validator")))
+		v.createWidgetEyeBallIcon()
+		return v
+	}
+	if element.isType("FormFieldCheckBox") {
+		return new FormFieldCheckBoxWidget(context).setWidgetFormLabel(element.getPropertyString("label")).setWidgetFormRowLabel(element.getPropertyString("rowLabel"))
+	}
+	if element.isType("FormFieldStripe") {
+		var w = new FormFieldStripeInputWidget(context)
+		w.setWidgetKey(element.getPropertyString("key"))
+		return w
+	}
+	return null
+}
+
+func createWidgetForElement(element as FormDeclaration.Element) override as Widget
+{
+	assert element
+	if not getWidgetFormEditable() && not element.isType("FormFieldStaticText") && not element.isType("VerticalContainer") && not element.isType("HorizontalContainer") {
+		var elem = FormDeclaration.Element.forType("FormFieldStaticText")
+		elem.setPropertyString("id", element.getPropertyString("id"))
+		elem.setPropertyString("label", element.getPropertyString("label"))
+		element = elem
+	}
+	var formElement = createFormFieldWidget(element)
+	if formElement {
+		if formElement is FormFieldWidget {
+			var id = element.getId()
+			var ee = formElement as! FormFieldWidget
+			ee.setFormFieldId(id)
+			ee.setParentForm(this)
+			ee.setFormFieldError(element.getPropertyString("error"))
+			if element.getPropertyBoolean("required") {
+				ee.setRequired(true)
+				requiredFields.add(id)
+			}
+		}
+		if formElement is FormFieldNameWidget {
+			var fn = formElement as! FormFieldNameWidget
+			fn.setFormFieldNameIds(element.getPropertyString("fnId"), element.getPropertyString("lnId"))
+			fn.setParentForm(this)
+			fn.setFormFieldNameErrors(element.getPropertyString("fnError"), element.getPropertyString("lnError"))
+			if element.getPropertyBoolean("fnRequired") && element.getPropertyBoolean("lnRequired") {
+				fn.setWidgetRequired(element.getPropertyBoolean("fnRequired"), element.getPropertyBoolean("lnRequired"))
+				requiredFields.add(element.getPropertyString("fnId"))
+				requiredFields.add(element.getPropertyString("lnId"))
+			}
+		}
+		if formElement is FormFieldCheckBoxWidget {
+			var ee = formElement as! FormFieldCheckBoxWidget
+			var id = element.getId()
+			if element.getPropertyBoolean("required"):
+				requiredFields.add(id)
+		}
+		return formElement
+	}
+	return base.createWidgetForElement(element)
+}
+
+func notifyFormForFieldState(fieldId as string, empty as bool)
+{
+	if empty {
+		if requiredFields.contains(fieldId) && completeFields.contains(fieldId):
+			completeFields.remove(fieldId)
+	}
+	else {
+		if requiredFields.contains(fieldId) && not completeFields.contains(fieldId):
+			completeFields.add(fieldId)
+	}
+	onFormFieldsChanged()
+}
+
+func onFormFieldsChanged
+{
+	var completeness = getFormFieldCompleteness() && isAllInputValid()
+	foreach button in formButtons:
+		button.setWidgetEnabled(completeness)
+	if onFieldChangeHandler:
+		onFieldChangeHandler()
+}
+
+func getFormFieldCompleteness as bool:
+	return completeFields.count() >= requiredFields.count()
+
+func onValidInputs(fieldId as string):
+	validFields.add(fieldId)
+
+func isAllInputValid as bool:
+	return validFields.count() >= validatorCount

@@ -1,0 +1,348 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+import jk.model
+
+class:
+
+meta
+{
+	description [[
+		Information about an SQL table.
+	]]
+}
+
+func forName(name as string) static as this
+{
+	meta {
+		description [[
+			Creates an instance of this class with the
+			specified table name.
+		]]
+	}
+	return new this().setName(name)
+}
+
+func forDetails(name as string, columns as array<SQLTableColumnInfo> = null, indexes as array<string> = null, uniqueIndexes as array<string> = null) static as this
+{
+	var v = new this()
+	v.setName(name)
+	foreach column in columns:
+		v.addColumn(column)
+	foreach index in indexes:
+		v.addIndex(index)
+	foreach uniqueIndex in uniqueIndexes:
+		v.addUniqueIndex(uniqueIndex)
+	return v
+}
+
+func forDynamicModel(tableName as string, model as DynamicModel) static as this
+{
+	assert model
+	var table = tableName
+	if String.isEmpty(table) {
+		var meta = JSONParser.parseString(model.getModelMetadata()) as DynamicMap
+		if meta:
+			table = meta.getString("table")
+	}
+	assert String.isNotEmpty(table)
+	var v = forName(table)
+	foreach field in model.fields {
+		var fieldName = field.encodedName
+		if String.isEmpty(fieldName):
+			fieldName = field.name
+		if field.type == DynamicModelField.TYPE_STRING {
+			if field.hasTag("key") {
+				v.addStringKeyColumn(fieldName)
+			}
+			else if field.hasTag("index") {
+				v.addStringColumn(fieldName)
+			}
+			else {
+				v.addTextColumn(fieldName)
+			}
+		}
+		else if field.type == DynamicModelField.TYPE_INTEGER {
+			if field.hasTag("key") {
+				v.addIntegerKeyColumn(fieldName)
+			}
+			else {
+				v.addIntegerColumn(fieldName)
+			}
+		}
+		else if field.type == DynamicModelField.TYPE_LONG_INTEGER {
+			if field.hasTag("key") {
+				v.addLongKeyColumn(fieldName)
+			}
+			else {
+				v.addLongColumn(fieldName)
+			}
+		}
+		else if field.type == DynamicModelField.TYPE_BOOLEAN {
+			v.addIntegerColumn(fieldName)
+		}
+		else if field.type == DynamicModelField.TYPE_DOUBLE {
+			v.addDoubleColumn(fieldName)
+		}
+		else if field.type == DynamicModelField.TYPE_BUFFER {
+			v.addBlobColumn(fieldName)
+		}
+		else if field.type == DynamicModelField.TYPE_VECTOR {
+			v.addTextColumn(fieldName)
+		}
+		else if field.type == DynamicModelField.TYPE_MAP {
+			v.addTextColumn(fieldName)
+		}
+		else if field.type == DynamicModelField.TYPE_OBJECT {
+			v.addTextColumn(fieldName)
+		}
+		else {
+			Error.throw("unsupportedFieldType", String.forInteger(field.type))
+		}
+		if field.hasTag("index"):
+			v.addIndex(fieldName)
+		if field.hasTag("uniqueIndex"):
+			v.addUniqueIndex(fieldName)
+	}
+	return v
+}
+
+pvar name as string
+pvar columns as vector<SQLTableColumnInfo>
+pvar indexes as vector<SQLTableColumnIndexInfo>
+
+func addColumn(info as SQLTableColumnInfo) as this
+{
+	meta {
+		description [[
+			Adds the supplied instance of SQLTableColumnInfo class
+			which defines the column info to the list of columns of
+			this class instance and returns itself.
+		]]
+	}
+	if info == null:
+		return this
+	if columns == null:
+		columns = new vector<SQLTableColumnInfo>
+	columns += info
+	return this
+}
+
+func addIntegerColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type integer with the supplied column name
+			and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forInteger(name))
+}
+
+func addLongColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type long integer with the supplied column
+			name and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forLongInteger(name))
+}
+
+func addStringColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type string with the supplied column name
+			and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forString(name))
+}
+
+func addStringKeyColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			key column of type string with the supplied column
+			name and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forStringKey(name))
+}
+
+func addTextColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type text with the supplied column name
+			and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forText(name))
+}
+
+func addIntegerKeyColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			key column of type integer with the supplied column
+			name and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forIntegerKey(name))
+}
+
+func addLongKeyColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			key column of type long integer with the supplied
+			column name and adds it to the list of columns of
+			this class instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forLongIntegerKey(name))
+}
+
+func addDoubleColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type double with the supplied column name
+			and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forDouble(name))
+}
+
+func addBlobColumn(name as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnInfo class for
+			column of type blob with the supplied column name
+			and adds it to the list of columns of this class
+			instance and returns itself.
+		]]
+	}
+	return addColumn(SQLTableColumnInfo.forBlob(name))
+}
+
+func addIndex(column as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnIndexInfo class
+			from the supplied column name and adds it to the list
+			of indexes of this class instance and returns itself.
+			The index constraint is not a unique index constraint.
+		]]
+	}
+	if String.isEmpty(column) == false {
+		if indexes == null:
+			indexes = new vector<SQLTableColumnIndexInfo>
+		indexes += new SQLTableColumnIndexInfo().addColumn(column).setUnique(false)
+	}
+	return this
+}
+
+func addMultiColumnIndex(columns as vector<string>) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnIndexInfo class
+			from the supplied column names and adds them to the list
+			of indexes of this class instance and returns itself.
+			The index constraint is not a unique index constraint.
+		]]
+	}
+	if columns != null && sizeof columns > 0 {
+		if indexes == null:
+			indexes = new vector<SQLTableColumnIndexInfo>
+		var index = new SQLTableColumnIndexInfo()
+		index.setUnique(false)
+		foreach column in columns:
+			index.addColumn(column)
+		indexes += index
+	}
+	return this
+}
+
+func addUniqueIndex(column as string) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnIndexInfo class
+			from the supplied column name and adds it to the list
+			of indexes of this class instance and returns itself.
+			The index constraint is a unique index constraint.
+		]]
+	}
+	if String.isEmpty(column) == false {
+		if indexes == null:
+			indexes = new vector<SQLTableColumnIndexInfo>
+		indexes += new SQLTableColumnIndexInfo().addColumn(column).setUnique(true)
+	}
+	return this
+}
+
+func addUniqueMultiColumnIndex(columns as vector<string>) as this
+{
+	meta {
+		description [[
+			Creates an instance of SQLTableColumnIndexInfo class
+			from the supplied column names and adds them to the list
+			of indexes of this class instance and returns itself.
+			The index constraint is a unique index constraint.
+		]]
+	}
+	if columns != null && sizeof columns > 0 {
+		if indexes == null:
+			indexes = new vector<SQLTableColumnIndexInfo>
+		var index = new SQLTableColumnIndexInfo()
+		index.setUnique(true)
+		foreach column in columns:
+			index.addColumn(column)
+		indexes += index
+	}
+	return this
+}

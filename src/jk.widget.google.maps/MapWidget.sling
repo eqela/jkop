@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,9 +22,9 @@
  * SOFTWARE.
  */
 
-import jk.widget
-import jk.geo
 import jk.url
+import jk.widget
+import jk.app.geo
 
 class is ParentAwareWidget #widget:
 
@@ -69,6 +68,8 @@ IFDEF "target_android"
 	depend "gradle:com.google.android.gms:play-services-location:11.0.0"
 	depend "androidPermission:android.permission.INTERNET"
 	depend "androidPermission:android.permission.ACCESS_NETWORK_STATE"
+	depend "androidPermission:android.permission.ACCESS_FINE_LOCATION"
+	depend "androidPermission:android.permission.ACCESS_COARSE_LOCATION"
 	extend !"com.google.android.gms.maps.MapView"
 	implement !"com.google.android.gms.maps.OnMapReadyCallback"
 	isAlso Widget
@@ -775,6 +776,11 @@ ELSE IFDEF "target_swift"
 		return true
 }
 
+ELSE
+{
+	extend Widget
+}
+
 class MyMapMarker is MapMarker
 {
 	pvar lat as double
@@ -961,8 +967,15 @@ class MyMapSettings public
 	var canTilt = true
 	var canRotate = true
 	var mapHasMyLocation = false
+	var context as GuiApplicationContext
 	pvar settingObject as object
 	pvar mapObject as object
+
+	ctor:
+		nop
+
+	ctor(context as GuiApplicationContext):
+		this.context = context
 
 	func setCanZoom(enable as bool)
 	{
@@ -1067,7 +1080,14 @@ class MyMapSettings public
 			IFDEF "target_android" {
 				IFDEF "target_java" {
 					lang "java" {{{
-						((com.google.android.gms.maps.GoogleMap)mapObject).setMyLocationEnabled(mapHasMyLocation);
+						try {
+							((com.google.android.gms.maps.GoogleMap)mapObject).setMyLocationEnabled(mapHasMyLocation);
+						}
+						catch(java.lang.SecurityException e) {
+							if(context != null) {
+								context.logError("Location permission is not granted.");
+							}
+						}
 					}}}
 				}
 				ELSE IFDEF "target_kotlin" {
@@ -1149,10 +1169,10 @@ var centerQueueMoveWithAnimation as bool
 var mapSettings as MyMapSettings
 var mapInitialized = false
 
-ctor(context as GuiApplicationContext) private
+ctor(context as GuiApplicationContext)
 {
 	IFDEF "target_android" {
-		base((context as! jk.ui.GuiApplicationContextForAndroid).getActivityContext())
+		base((context as! jk.app.ui.GuiApplicationContextForAndroid).getActivityContext())
 		IFDEF "target_java" {
 			lang "java" {{{
 				setBackgroundColor(0xff000000);
@@ -1171,7 +1191,7 @@ ctor(context as GuiApplicationContext) private
 	}
 	this.context = context
 	markerSize = context.getHeightValue("6mm")
-	mapSettings = new MyMapSettings()
+	mapSettings = new MyMapSettings(context)
 }
 
 func onWidgetAddingToParent:
@@ -1371,7 +1391,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 					.visible(true);
 				jk.gfx.Image ico = marker.getIcon();
 				if(ico != null) {
-					jk.ui.ImageForAndroid ic = (jk.ui.ImageForAndroid)ico.scaleToSize(markerSize, markerSize);
+					jk.app.ui.ImageForAndroid ic = (jk.app.ui.ImageForAndroid)ico.scaleToSizeSync(markerSize, markerSize);
 					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getAndroidBitmap()));
 				}
 				else {
@@ -1392,7 +1412,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 					.visible(true)
 				var ico : jk.gfx.Image? = marker.getIcon()
 				if(ico != null) {
-					var ic : jk.ui.ImageForAndroid = ico.scaleToSize(markerSize, markerSize) as jk.ui.ImageForAndroid
+					var ic : jk.app.ui.ImageForAndroid = ico.scaleToSizeSync(markerSize, markerSize) as jk.app.ui.ImageForAndroid
 					mkropt.icon(com.google.android.gms.maps.model.BitmapDescriptorFactory.fromBitmap(ic.getKotlinBitmap()))
 				}
 				else {
@@ -1407,7 +1427,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 	ELSE IFDEF "target_ios_objc" {
 		var img as ImageForIOS
 		if marker.getIcon() {
-			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForIOS
+			img = marker.getIcon().scaleToSizeSync(markerSize, markerSize) as! ImageForIOS
 		}
 		lang "objc" {{{
 			GMSMarker* mm = [GMSMarker markerWithPosition:CLLocationCoordinate2DMake([marker getLat], [marker getLon])]; 
@@ -1424,7 +1444,7 @@ func doAddMapMarker(marker as MyMapMarker) private
 	ELSE IFDEF "target_swift" {
 		var img as ImageForSwift
 		if marker.getIcon():
-			img = marker.getIcon().scaleToSize(markerSize, markerSize) as! ImageForSwift
+			img = marker.getIcon().scaleToSizeSync(markerSize, markerSize) as! ImageForSwift
 		lang "swift" {{{
 			let mm = GMSMarker(position: CLLocationCoordinate2DMake(_: (marker?.getLat())!, _: (marker?.getLon())!))
 			mm.title = marker?.getTitle()
@@ -1446,7 +1466,10 @@ func doAddMapMarker(marker as MyMapMarker) private
 
 func moveToCenter(lat as double, lon as double, animated as bool = false)
 {
-	centerQueue = new GeoLocation().setLatitude(lat).setLongitude(lon)
+	centerQueue = new GeoLocation() {
+		latitude lat
+		longitude lon
+	}
 	centerQueueMoveWithAnimation = animated
 	if mapInitialized:
 		doMoveToCenter()
@@ -1456,8 +1479,8 @@ func doMoveToCenter private
 {
 	assert centerQueue
 	moveCamera(new MapCamera()
-		.setLatitude(centerQueue.getLatitude())
-		.setLongitude(centerQueue.getLongitude())
+		.setLatitude(centerQueue.latitude)
+		.setLongitude(centerQueue.longitude)
 		.setZoom(defaultZoomLevel)
 		.setAngle(45)
 		.setBearing(0), centerQueueMoveWithAnimation)
@@ -1609,7 +1632,7 @@ func doZoomToCoordinates
 	ELSE IFDEF "target_ios_objc" {
 		lang "objc" {{{
 			GMSMutablePath *path = [GMSMutablePath path];
-			for(CapeDynamicMap *coor in coordinateQueue) {
+			for(JkLangDynamicMap *coor in coordinateQueue) {
 				if(coor == nil) {
 					continue;
 				}
@@ -1628,7 +1651,7 @@ func doZoomToCoordinates
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{
 			let path = GMSMutablePath()
-			for case let coor as CapeDynamicMap in coordinateQueue! {
+			for case let coor as JkLangDynamicMap in coordinateQueue! {
 				if(coor == nil) {
 					continue;
 				}

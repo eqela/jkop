@@ -1,0 +1,312 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+import jk.fs
+import jk.mime
+import jk.url
+
+class is StringObject:
+
+func forGET(url as string) static as this
+{
+	var v = new this()
+	v.setMethod("GET")
+	v.setUrl(url)
+	return v
+}
+
+func forHEAD(url as string) static as this
+{
+	var v = new this()
+	v.setMethod("HEAD")
+	v.setUrl(url)
+	return v
+}
+
+func forPOSTReader(url as string, mimeType as string, data as SizedReader) static as this
+{
+	var v = new this()
+	v.setMethod("POST")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(data)
+	return v
+}
+
+func forPOSTFile(url as string, file as File) static as this
+{
+	assert url
+	assert file
+	var reader = assert file.read()
+	return forPOSTReader(url, MimeTypeRegistry.getSharedInstance().getTypeForFile(file), reader)
+}
+
+func forPOSTData(url as string, mimeType as string, data as buffer) static as this
+{
+	var v = new this()
+	v.setMethod("POST")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(BufferReader.forBuffer(data))
+	return v
+}
+
+func forPUTReader(url as string, mimeType as string, data as SizedReader) static as this
+{
+	var v = new this()
+	v.setMethod("PUT")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(data)
+	return v
+}
+
+func forPUTFile(url as string, file as File) static as this
+{
+	assert url
+	assert file
+	var reader = assert file.read()
+	return forPUTReader(url, MimeTypeRegistry.getSharedInstance().getTypeForFile(file), reader)
+}
+
+func forPUTData(url as string, mimeType as string, data as buffer) static as this
+{
+	var v = new this()
+	v.setMethod("PUT")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(BufferReader.forBuffer(data))
+	return v
+}
+
+func forPATCHReader(url as string, mimeType as string, data as SizedReader) static as this
+{
+	var v = new this()
+	v.setMethod("PATCH")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(data)
+	return v
+}
+
+func forPATCHData(url as string, mimeType as string, data as buffer) static as this
+{
+	var v = new this()
+	v.setMethod("PATCH")
+	v.setUrl(url)
+	if String.isEmpty(mimeType) == false:
+		v.addHeader("Content-Type", mimeType)
+	if data:
+		v.setBody(BufferReader.forBuffer(data))
+	return v
+}
+
+func forDELETE(url as string) static as this
+{
+	var v = new this()
+	v.setMethod("DELETE")
+	v.setUrl(url)
+	return v
+}
+
+pvar method as string
+pvar protocol as string
+pvar username as string
+pvar password as string
+pvar serverAddress as string
+pvar serverPort as int
+pvar requestPath as string
+pvar body as SizedReader
+var queryParams as KeyValueList<string,string>
+pvar rawHeaders as KeyValueListForStrings
+pvar headers as map<string,string>
+
+ctor
+{
+	protocol = "http"
+	serverPort = 80
+	requestPath = "/"
+	method = "GET"
+}
+
+func setUrl(url as string)
+{
+	var uu = URL.forString(url)
+	setProtocol(uu.getScheme())
+	setUsername(uu.getUsername())
+	setPassword(uu.getPassword())
+	setServerAddress(uu.getHost())
+	var pp = String.toInteger(uu.getPort())
+	if pp < 1 {
+		if protocol == "https" {
+			pp = 443
+		}
+		else if protocol == "http" {
+			pp = 80
+		}
+	}
+	setServerPort(pp)
+	setRequestPath(uu.getPath())
+	queryParams = uu.getRawQueryParameters()
+}
+
+func addHeader(key as string, value as string)
+{
+	if rawHeaders == null:
+		rawHeaders = new KeyValueListForStrings()
+	if headers == null:
+		headers = new map<string,string>
+	rawHeaders.add(key, value)
+	headers[String.toLowerCase(key)] = value
+}
+
+func addQueryParameter(key as string, value as string)
+{
+	if queryParams == null:
+		queryParams = new KeyValueList<string,string>()
+	queryParams.add(key, value)
+}
+
+func getHeader(key as string) as string
+{
+	assert headers
+	return Map.get(headers, key)
+}
+
+func setUserAgent(agent as string)
+{
+	addHeader("User-Agent", agent)
+}
+
+func getUrl as string
+{
+	var sb = new StringBuilder()
+	sb.appendString(protocol)
+	sb.appendString("://")
+	sb.appendString(serverAddress)
+	if serverPort == 80 && protocol == "http" {
+		nop // no need to include
+	}
+	else if serverPort == 443 && protocol == "https" {
+		nop // no need to include
+	}
+	else {
+		sb.appendCharacter(':')
+		sb.appendString(String.forInteger(serverPort))
+	}
+	var path = getRequestPath()
+	if String.isEmpty(path):
+		path = "/"
+	sb.appendString(path)
+	return sb.toString()
+}
+
+func toStringWithUserAgent(defaultUserAgent as string) as string
+{
+	var rq = new StringBuilder()
+	var body = getBody()
+	var path = getRequestPath()
+	if String.isEmpty(path):
+		path = "/"
+	rq.appendString(getMethod())
+	rq.appendCharacter(' ')
+	rq.appendString(path)
+	var first = true
+	if queryParams {
+		var it as Iterator<KeyValuePair<string,string>> #force = queryParams.iterate()
+		while it {
+			var kv = it.next()
+			if kv == null:
+				break
+			if first {
+				rq.appendCharacter('?')
+				first = false
+			}
+			else {
+				rq.appendCharacter('&')
+			}
+			rq.appendString(kv.key)
+			var val = kv.value
+			if val {
+				rq.appendCharacter('=')
+				rq.appendString(URLEncoder.encode(val, false, false))
+			}
+		}
+	}
+	rq.appendCharacter(' ')
+	rq.appendString("HTTP/1.1\r\n")
+	var hasUserAgent = false
+	var hasHost = false
+	var hasContentLength = false
+	if rawHeaders {
+		var it = (rawHeaders as! KeyValueList<string,string>).iterate()
+		loop {
+			var kvp = it.next()
+			if kvp == null:
+				break
+			var key = kvp.key
+			if String.equalsIgnoreCase(key, "user-agent") {
+				hasUserAgent = true
+			}
+			else if String.equalsIgnoreCase(key, "host") {
+				hasHost = true
+			}
+			else if String.equalsIgnoreCase(key, "content-length") {
+				hasContentLength = true
+			}
+			rq.appendString(key)
+			rq.appendString(": ")
+			rq.appendString(kvp.value)
+			rq.appendString("\r\n")
+		}
+	}
+	if hasUserAgent == false && defaultUserAgent {
+		rq.appendString("User-Agent: ")
+		rq.appendString(defaultUserAgent)
+		rq.appendString("\r\n")
+	}
+	if hasHost == false:
+		rq.appendString("Host: " .. getServerAddress() .. "\r\n")
+	if body && hasContentLength == false {
+		var bs = body.getSize()
+		var bss = String.forLongInteger(bs)
+		rq.appendString("Content-Length: " .. bss .. "\r\n")
+	}
+	rq.appendString("\r\n")
+	return rq.toString()
+}
+
+func toString as string:
+	return toStringWithUserAgent(null)

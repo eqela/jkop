@@ -1,0 +1,82 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is RS256:
+
+depend "nuget:BouncyCastle.NetCoreSdk@1.9.0.1"
+
+func generate(data as buffer, key as string) override as buffer
+{
+	assert data
+	assert String.isNotEmpty(key)
+	var v as buffer
+	lang "cs" {{{
+		System.IO.StringReader tr = new System.IO.StringReader(key);
+		Org.BouncyCastle.OpenSsl.PemReader pr = new Org.BouncyCastle.OpenSsl.PemReader(tr);
+		Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters rsaKeyParameters = (Org.BouncyCastle.Crypto.Parameters.RsaPrivateCrtKeyParameters)pr.ReadObject();
+		pr.Reader.Close();
+		tr.Close();
+		System.Security.Cryptography.RSAParameters rsaParams = new System.Security.Cryptography.RSAParameters();
+		rsaParams.Modulus = rsaKeyParameters.Modulus.ToByteArrayUnsigned();
+		rsaParams.Exponent = rsaKeyParameters.PublicExponent.ToByteArrayUnsigned();
+		rsaParams.D = rsaKeyParameters.Exponent.ToByteArrayUnsigned();
+		rsaParams.P = rsaKeyParameters.P.ToByteArrayUnsigned();
+		rsaParams.Q = rsaKeyParameters.Q.ToByteArrayUnsigned();
+		rsaParams.DP = rsaKeyParameters.DP.ToByteArrayUnsigned();
+		rsaParams.DQ = rsaKeyParameters.DQ.ToByteArrayUnsigned();
+		rsaParams.InverseQ = rsaKeyParameters.QInv.ToByteArrayUnsigned();
+		System.Security.Cryptography.RSA rsa = System.Security.Cryptography.RSA.Create();
+		rsa.ImportParameters(rsaParams);
+		System.Security.Cryptography.HashAlgorithm alg = System.Security.Cryptography.SHA256.Create();
+		byte[] hash = alg.ComputeHash(data);
+		v = rsa.SignHash(hash, System.Security.Cryptography.HashAlgorithmName.SHA256, System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+	}}}
+	return v
+}
+
+func validate(data as buffer, signature as buffer, key as string) override as bool
+{
+	assert data
+	assert String.isNotEmpty(key)
+	var v as bool
+	lang "cs" {{{
+		System.IO.StringReader tr = new System.IO.StringReader(key);
+		Org.BouncyCastle.OpenSsl.PemReader pr = new Org.BouncyCastle.OpenSsl.PemReader(tr);
+		Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters rsaKeyParameters = (Org.BouncyCastle.Crypto.Parameters.RsaKeyParameters)pr.ReadObject();
+		pr.Reader.Close();
+		tr.Close();
+		System.Security.Cryptography.RSAParameters rsaParams = new System.Security.Cryptography.RSAParameters();
+		rsaParams.Modulus = rsaKeyParameters.Modulus.ToByteArrayUnsigned();
+		rsaParams.Exponent = rsaKeyParameters.Exponent.ToByteArrayUnsigned();
+		System.Security.Cryptography.HashAlgorithm alg = System.Security.Cryptography.SHA256.Create();
+		byte[] hash = alg.ComputeHash(data);
+		using(System.Security.Cryptography.RSACryptoServiceProvider rsa = new System.Security.Cryptography.RSACryptoServiceProvider()) {
+			rsa.ImportParameters(rsaParams);
+			System.Security.Cryptography.RSAPKCS1SignatureDeformatter fmt = new System.Security.Cryptography.RSAPKCS1SignatureDeformatter(rsa);
+			fmt.SetHashAlgorithm("SHA256");
+			v = fmt.VerifySignature(hash, signature);
+		}
+	}}}
+	return v
+}

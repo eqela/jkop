@@ -1,0 +1,188 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.url
+import jk.webclient
+
+class is WebClient:
+
+class HTTPResponse public
+{
+	prop status as string
+	prop headers as KeyValueList<string,string>
+	prop body as buffer
+}
+
+class HTTPRequest public
+{
+	prop method as string
+	prop url as string
+	prop headers as KeyValueList<string,string>
+	prop body as buffer
+}
+
+class MyHTTPClientListener is HTTPClientListener
+{
+	prop response as HTTPClientResponse
+	prop body as buffer
+
+	func onError(message as string) override
+	{
+		Error.throw(message, null)
+	}
+
+	func onAborted override
+	{
+		Error.throw("aborted", null)
+	}
+
+	func onDataReceived(buffer as buffer) override as bool
+	{
+		body = Buffer.append(body, buffer)
+		return true
+	}
+
+	func onResponseReceived(response as HTTPClientResponse) override as bool
+	{
+		assert response
+		this.response = response
+		return true
+	}
+
+	func onResponseCompleted override
+	{
+		base.onResponseCompleted()
+	}
+}
+
+prop ctx as LoggingContext
+prop followRedirects as bool = true
+
+func getFinalRedirectUrl(url as string, location as string) private as string
+{
+	var n = URL.forString(location)
+	if String.isNotEmpty(n.getScheme()):
+		return location
+	var o = URL.forString(url)
+	o.setFragment(n.getFragment())
+	o.setQueryParameters(n.getQueryParameters())
+	o.setRawQueryParameters(n.getRawQueryParameters())
+	if String.startsWith(location, "/") {
+		o.setPath(n.getPath())
+	}
+	else {
+		var op = o.getPath()
+		if String.endsWith(op, "/") {
+			o.setPath(op .. location)
+		}
+		else {
+			var ss = String.getLastIndexOfCharacter(op, '/')
+			if ss >= 0 {
+				o.setPath(String.getSubString(op, 0, ss + 1) .. location)
+			}
+			else {
+				o.setPath("/" .. location)
+			}
+		}
+	}
+	return o.toString()
+}
+
+func doExecuteQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer, redirectCount as int, redirectLimit as int) async private as Response
+{
+	if redirectCount > redirectLimit:
+		Error.throw("maximumRedirectionsExceeded", redirectLimit)
+	var contentType as string
+	if headers {
+		foreach kvp in headers.asVector() as! vector<KeyValuePair<string, string>> {
+			if String.equalsIgnoreCase(kvp.key, "Content-Type") {
+				contentType = kvp.value
+				break
+			}
+		}
+	}
+	var req as HTTPClientRequest
+	if String.equalsIgnoreCase(method, "GET") {
+		req = HTTPClientRequest.forGET(url)
+	}
+	else if String.equalsIgnoreCase(method, "HEAD") {
+		req = HTTPClientRequest.forHEAD(url)
+	}
+	else if String.equalsIgnoreCase(method, "POST") {
+		req = HTTPClientRequest.forPOSTData(url, contentType, body)
+	}
+	else if String.equalsIgnoreCase(method, "PUT") {
+		req = HTTPClientRequest.forPUTData(url, contentType, body)
+	}
+	else if String.equalsIgnoreCase(method, "PATCH") {
+		req = HTTPClientRequest.forPATCHData(url, contentType, body)
+	}
+	else if String.equalsIgnoreCase(method, "DELETE") {
+		req = HTTPClientRequest.forDELETE(url)
+	}
+	else {
+		Error.throw("invalidHttpMethod", method)
+	}
+	if headers {
+		foreach kvp in headers.asVector() as! vector<KeyValuePair<string, string>> {
+			if String.equals(kvp.key, "Content-Type") && String.isNotEmpty(req.getHeader("content-type")):
+				continue
+			req.addHeader(kvp.key, kvp.value)
+		}
+	}
+	if ctx && ctx.isInDebugMode():
+		Log.debug(ctx, "Executing HTTP query: `" .. String.asString(req) .. "'")
+	var op = new HTTPClientOperation()
+	op.setAcceptInvalidCertificate(true)
+	var listener = new MyHTTPClientListener()
+	op.executeRequest(req, listener)
+	op.closeConnection(null)
+	var v = new WebClient.Response
+	var response = listener.response
+	if response {
+		v.statusCode = response.getHttpStatus()
+		v.statusMessage = response.getHttpStatusDescription()
+		v.headers = response.getRawHeaders()
+	}
+	v.body = listener.body
+	if followRedirects && v.headers && String.startsWith(v.statusCode, "3") {
+		var location as string
+		foreach kvp in v.headers.asVector() {
+			if String.equalsIgnoreCase(kvp.key, "Location") {
+				location = kvp.value
+				break
+			}
+		}
+		if String.isNotEmpty(location) {
+			var furl = getFinalRedirectUrl(url, location)
+			Log.debug(ctx, "Received HTTP status `" .. v.statusCode .. "'. Redirecting to `" .. furl .. "'.")
+			return await doExecuteQuery(ctx, method, furl, headers, body, redirectCount + 1, redirectLimit)
+		}
+	}
+	return v
+}
+
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async override as Response:
+	return await doExecuteQuery(ctx, method, url, headers, body, 0, 5)

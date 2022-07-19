@@ -1,0 +1,363 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+
+class is JSONObject is StringObject:
+
+func asDynamicMap(object as this) static as DynamicMap
+{
+	assert object
+	return object.toDynamicMap()
+}
+
+prop data:dataValue as DynamicMap
+{
+	get {
+		if not dataValue:
+			dataValue = new DynamicMap()
+		return dataValue
+	}
+	set {
+		dataValue = value
+	}
+}
+
+prop fields:fieldsValue as vector<DynamicModelField>
+{
+	get {
+		if not fieldsValue {
+			fieldsValue = new vector<DynamicModelField>
+			foreach name in getFieldInformation():
+				fieldsValue += name
+		}
+		return fieldsValue
+	}
+	set {
+		fieldsValue = value
+	}
+}
+
+macro SET_VECTOR_FIELD(name, value)
+{
+	if value == null {
+		setField(name, null)
+	}
+	else {
+		::jk.lang.Error.throw("setVectorNotSupported", name)
+	}
+}
+
+macro RETURN_VECTOR_FIELD_OBJECTS(name, type)
+{
+	var objects = assert getFieldAsDynamicVector(name)
+	var v = new vector<__type__>
+	foreach object as DynamicMap in objects:
+		v += __type__.forData(object)
+	return v
+}
+
+ctor:
+	this.data = null
+
+func getDataMap as DynamicMap:
+	return this.data
+
+func toString as string:
+	return JSONEncoder.toString(toDynamicMap())
+
+func toDynamicMap as DynamicMap:
+	return data
+
+func fromDynamicMap(data as DynamicMap):
+	this.data = filterMapToModel(data)
+
+func fromRawDynamicMap(data as DynamicMap):
+	this.data = data
+
+func toJsonObject as object:
+	return toDynamicMap()
+
+func setField(name as string, value as dynamic):
+	data.setDynamic(name, value)
+
+func getField(name as string) as dynamic:
+	return data.get(name)
+
+func getOrCreateFieldAsDynamicVector(name as string) as DynamicVector
+{
+	var v = data.getDynamicVector(name)
+	if not v {
+		v = new DynamicVector()
+		data.setObject(name, v)
+	}
+	return v
+}
+
+func getFieldAsDynamicVector(name as string) as DynamicVector:
+	return data.getDynamicVector(name)
+
+func getFieldAsStringVector(name as string) as vector<string>
+{
+	var v = assert getFieldAsDynamicVector(name)
+	return v.toVectorOfStrings()
+}
+
+func getFieldAsIntegerVector(name as string) as vector<int>
+{
+	var vector = assert getFieldAsDynamicVector(name)
+	var v = new vector<int>
+	foreach o in vector:
+		v += Integer.asInteger(o)
+	return v
+}
+
+func getFieldAsLongIntegerVector(name as string) as vector<long>
+{
+	var vector = assert getFieldAsDynamicVector(name)
+	var v = new vector<long>
+	foreach o in vector:
+		v += LongInteger.asLong(o)
+	return v
+}
+
+func getFieldAsDoubleVector(name as string) as vector<double>
+{
+	var vector = assert getFieldAsDynamicVector(name)
+	var v = new vector<double>
+	foreach o in vector:
+		v += Double.asDouble(o)
+	return v
+}
+
+func getFieldAsBooleanVector(name as string) as vector<bool>
+{
+	var vector = assert getFieldAsDynamicVector(name)
+	var v = new vector<bool>
+	foreach o in vector:
+		v += Boolean.asBoolean(o)
+	return v
+}
+
+func addStringToVectorField(field as string, value as string):
+	getOrCreateFieldAsDynamicVector(field).appendString(value)
+
+func addIntegerToVectorField(field as string, value as int):
+	getOrCreateFieldAsDynamicVector(field).appendInteger(value)
+
+func addLongIntegerToVectorField(field as string, value as long):
+	getOrCreateFieldAsDynamicVector(field).appendLong(value)
+
+func addDoubleToVectorField(field as string, value as double):
+	getOrCreateFieldAsDynamicVector(field).appendDouble(value)
+
+func addBooleanToVectorField(field as string, value as bool):
+	getOrCreateFieldAsDynamicVector(field).appendBoolean(value)
+
+func addBufferToVectorField(field as string, value as buffer):
+	getOrCreateFieldAsDynamicVector(field).appendObject(value)
+
+func addObjectToVectorField(field as string, value as object)
+{
+	var vv = getOrCreateFieldAsDynamicVector(field)
+	if value && value is this {
+		vv.appendObject((value as! this).toDynamicMap())
+	}
+	else {
+		vv.appendObject(value)
+	}
+}
+
+func fromJsonObject(o as object) as bool
+{
+	var data = o as DynamicMap
+	if data {
+		fromDynamicMap(data)
+	}
+	else {
+		clear()
+	}
+	return true
+}
+
+func containsField(field as string) as bool
+{
+	assert field
+	foreach ff in fields {
+		if String.equals(ff.name, field):
+			return true
+	}
+	return false
+}
+
+func hasValue(key as string) as bool
+{
+	assert key
+	return data.containsKey(key)
+}
+
+func removeNullValues
+{
+	if dataValue:
+		dataValue.removeNullValues()
+}
+
+func clear:
+	dataValue = null
+
+func setAllFields
+{
+	foreach field in fields {
+		if not data.containsKey(field.name):
+			data.setObject(field.name, null)
+	}
+}
+
+func getModelMetadata virtual as string:
+	return null
+
+func getFieldInformation virtual as vector<DynamicModelField>:
+	return null
+
+func copyFrom(other as this, mapping as DynamicMap)
+{
+	assert other
+	foreach field in fields {
+		var fname = field.name
+		var oname as string
+		if mapping && mapping.containsKey(fname) {
+			oname = mapping.getString(fname)
+		}
+		else {
+			oname = fname
+		}
+		if oname && other.hasValue(oname):
+			setField(fname, other.getField(oname))
+	}
+}
+
+func filterMapToModel(data as DynamicMap) as DynamicMap
+{
+	assert data
+	var finalMap = new DynamicMap()
+	var fieldMap = new DynamicMap()
+	foreach field in fields:
+		fieldMap.setObject(field.name, field)
+	if fieldMap.getCount() > 0 {
+		foreach key in data.getKeys() {
+			if fieldMap.containsKey(key) {
+				var inf = fieldMap.get(key) as DynamicModelField
+				if inf.type == DynamicModelField.TYPE_OBJECT {
+					var dmap as DynamicMap
+					var val = data.get(key)
+					if val is string {
+						dmap = JSONParser.parse(val as! string) as DynamicMap
+					}
+					else if val is DynamicMap {
+						dmap = val as! DynamicMap
+					}
+					if dmap && dmap.getCount() > 0 && inf.typeinfo {
+						var dmo = Reflection.createClassInstanceByTypeinfo(inf.typeinfo) as DynamicModel
+						if dmo:
+							finalMap.setObject(key, dmo.filterMapToModel(dmap))
+					}
+				}
+				else if inf.type == DynamicModelField.TYPE_VECTOR {
+					var dvec as DynamicVector
+					var val = data.get(key)
+					if val is string {
+						dvec = JSONParser.parse(val as! string) as DynamicVector
+					}
+					else if val is DynamicVector {
+						dvec = val as! DynamicVector
+					}
+					if dvec {
+						if inf.typeinfo {
+							var val = filterVectorToModels(dvec, inf.typeinfo)
+							if val:
+								finalMap.setObject(key, val)
+						}
+						else {
+							finalMap.setObject(key, dvec)
+						}
+					}
+				}
+				else if inf.type == DynamicModelField.TYPE_MAP {
+					var dmap as DynamicMap
+					var val = data.get(key)
+					if val is string {
+						dmap = JSONParser.parse(val as! string) as DynamicMap
+					}
+					else if val is DynamicMap {
+						dmap = val as! DynamicMap
+					}
+					if dmap:
+						finalMap.setObject(key, dmap)
+				}
+				else {
+					finalMap.setDynamic(key, data.get(key))
+				}
+			}
+		}
+	}
+	return finalMap
+}
+
+func filterVectorToModels(data as DynamicVector, typeinfo as typeinfo) as DynamicVector
+{
+	assert data
+	var finalVector = new DynamicVector()
+	foreach map in data.toVectorOfDynamicMaps() {
+		var dmo = Reflection.createClassInstanceByTypeinfo(typeinfo) as DynamicModel
+		if dmo:
+			finalVector.appendObject(dmo.filterMapToModel(map))
+	}
+	return finalVector
+}
+
+func toFlatDynamicMap as DynamicMap
+{
+	assert data
+	var finalMap = new DynamicMap()
+	var fieldMap = new DynamicMap()
+	foreach field in fields:
+		fieldMap.setObject(field.name, field)
+	foreach key in data.getKeys() {
+		if not fieldMap.containsKey(key):
+			continue
+		var inf = fieldMap.get(key) as DynamicModelField
+		if inf.type == DynamicModelField.TYPE_OBJECT || inf.type == DynamicModelField.TYPE_MAP {
+			var val = data.getDynamicMap(key)
+			finalMap.setObject(key, JSONEncoder.encode(val))
+		}
+		else if inf.type == DynamicModelField.TYPE_VECTOR {
+			var vec = data.getDynamicVector(key)
+			finalMap.setObject(key, JSONEncoder.encode(vec))
+		}
+		else {
+			finalMap.setDynamic(key, data.get(key))
+		}
+	}
+	return finalMap
+}

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,64 +25,70 @@
 class is DoubleObject:
 
 func forValue(value as double) static as this:
-	return asObject(value)
+	return new this(value)
 
-func asObject(value as double) static as this
+func asDouble(obj as dynamic, defval as double = 0.0) static as double #deprecated:
+	return asValue(obj, defval)
+
+func asValue(obj as dynamic, defval as double) static as double
 {
-	var v = new this()
-	v.setValue(value)
-	return v
+	var v = asObject(obj)
+	if not v:
+		return defval
+	return v.toDouble()
 }
 
-func asDouble(obj as dynamic) static as double
+func asObject(obj as dynamic) static as this
 {
 	if not obj:
-		return 0.0
+		return null
 	if obj is double:
-		return obj as double
+		return new this(obj as double)
+	if obj is this:
+		return obj as! this
 	if obj is DoubleObject {
 		var od = obj as! DoubleObject
-		return od.toDouble()
+		return new this(od.toDouble())
 	}
 	if obj is int {
 		var v = obj as int
-		return v as double
+		return new this(v as double)
 	}
 	if obj is IntegerObject {
 		var oi = obj as! IntegerObject
-		return oi.toInteger() as double
+		return new this(oi.toInteger() as double)
 	}
 	if obj is long {
 		var v = obj as long
-		return v as double
+		return new this(v as double)
 	}
 	if obj is LongIntegerObject {
 		var oi = obj as! LongIntegerObject
-		return oi.toLong() as double
+		return new this(oi.toLong() as double)
 	}
 	if obj is string:
-		return String.toDouble(obj as! string)
+		return new this(String.toDouble(obj as! string))
 	if obj is StringObject:
-		return String.toDouble((obj as! StringObject).toString())
+		return new this(String.toDouble((obj as! StringObject).toString()))
 	if obj is char {
 		var v = obj as char
-		return v as double
+		return new this(v as double)
 	}
 	if obj is CharacterObject {
 		var oc = obj as! CharacterObject
-		return oc.toCharacter() as double
+		return new this(oc.toCharacter() as double)
 	}
 	if obj is bool {
 		if obj as bool == true:
-			return 1.0
-		return 0.0
+			return new this(1.0)
+		return new this(0.0)
 	}
 	if obj is BooleanObject {
 		if (obj as! BooleanObject).toBoolean():
-			return 1.0
-		return 0.0
+			return new this(1.0)
+		return new this(0.0)
 	}
-	return 0.0
+	return null
 }
 
 func longBitsToDouble(vv as long) static as double
@@ -93,6 +98,14 @@ func longBitsToDouble(vv as long) static as double
 	}
 	ELSE IFDEF "target_cs" {
 		return lang "cs" double {{{ System.BitConverter.Int64BitsToDouble(vv) }}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			const buffer = new ArrayBuffer(16);
+			const view = new DataView(buffer);
+			view.setBigInt64(0, BigInt(vv));
+		}}}
+		return lang "js" double {{{ view.getFloat64(0) }}}
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -108,11 +121,25 @@ func doubleToLongBits(vv as double) static as long
 	ELSE IFDEF "target_cs" {
 		return lang "cs" long {{{ System.BitConverter.ToInt64(System.BitConverter.GetBytes(vv), 0) }}}
 	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			const buffer = new ArrayBuffer(16);
+			const view = new DataView(buffer);
+			view.setFloat64(0, vv);
+		}}}
+		return lang "js" long {{{ view.getBigInt64(0) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return 0
 	}
 }
+
+ctor:
+	nop
+
+ctor(value as double):
+	setValue(value)
 
 pvar value as double
 

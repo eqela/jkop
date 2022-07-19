@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -51,36 +50,48 @@ func asStringVector(o as dynamic) as vector<string>
 
 func executeBuffer(code as buffer, args as dynamic) as int
 {
-	var code = SushiCode.forBuffer(code)
-	if not code:
+	var cc = SushiCode.forBuffer(code)
+	if not cc:
 		Error.throw("failedToInitialize", "SushiCode")
-	return code.execute(asStringVector(args))
+	return cc.execute(asStringVector(args))
 }
 
 func executeFile(file as dynamic, args as dynamic) as int
 {
-	var file = new FileKit(ctx).asFile(file)
-	var code = SushiCode.forFile(file)
+	var ff = new FileKit(ctx).asFile(file)
+	var code = SushiCode.forFile(ff)
 	if not code:
-		Error.throw("failedToRead", file.getPath())
+		Error.throw("failedToRead", ff.getPath())
 	return code.execute(asStringVector(args))
 }
 
-func executeFileProcess(file as dynamic, args as dynamic) as int
+func createProcessLauncher as ProcessLauncher
 {
-	var file = new FileKit(ctx).asFile(file)
 	var pl as ProcessLauncher
 	IFDEF "target_sushi" {
 		pl = ProcessLauncher.forSelf()
 	}
 	if not pl:
-		pl = ProcessLauncher.forCommand("eqela")
-	if not pl:
 		pl = ProcessLauncher.forCommand("sushi")
 	if not pl:
 		Error.throw("failedToFindSushiVm", null)
-	pl.addToParams(file.getPath())
+	return pl
+}
+
+func executeFileProcess(file as dynamic, args as dynamic) as int
+{
+	var ff = new FileKit(ctx).asFile(file)
+	var pl = createProcessLauncher()
+	pl.addToParams(ff.getPath())
 	foreach arg in asStringVector(args):
+		pl.addToParams(arg)
+	return pl.execute()
+}
+
+func executeProcess(args as array) as int
+{
+	var pl = createProcessLauncher()
+	foreach arg as string in args:
 		pl.addToParams(arg)
 	return pl.execute()
 }

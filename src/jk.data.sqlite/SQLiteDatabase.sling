@@ -1,0 +1,293 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.data.sql
+import jk.log
+import jk.fs
+
+class is SQLDatabase abstract:
+
+meta
+{
+	description [[
+		SQLite database driver.
+	]]
+}
+
+func instance private static as this
+{
+	meta {
+		description [[
+			Creates an instance of a class that inherits
+			this class based on the target platform.
+			Returns null if there is no implementation
+			yet for the target platform.
+		]]
+	}
+	IFDEF "target_android" {
+		return new SQLiteDatabaseAndroid()
+	}
+	ELSE IFDEF "target_ios_objc" {
+		return new SQLiteDatabaseIOS()
+	}
+	ELSE IFDEF "target_netcore" {
+		return new SQLiteDatabaseNetCore()
+	}
+	ELSE IFDEF "target_monocs" {
+		return new SQLiteDatabaseMono()
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return null
+	}
+}
+
+func forFile(file as File, allowCreate as bool = true, logger as LoggingContext = null) static as this
+{
+	meta {
+		description [[
+			Creates an instance of this class from the
+			specified File object. If the object is not
+			a file and the allowCreate property is set
+			to true, then it will be created.
+		]]
+	}
+	assert file
+	var v = assert instance()
+	if logger:
+		v.setLogger(logger)
+	if not file.isFile() {
+		if allowCreate == false:
+			return null
+		var pp = file.getParent()
+		if pp.isDirectory() == false:
+			pp.createDirectoryRecursive()
+		if v.initialize(file, true) == false:
+			v = null
+	}
+	else {
+		if v.initialize(file, false) == false:
+			v = null
+	}
+	return v
+}
+
+func getDatabaseTypeId override as string
+{
+	meta {
+		description [[
+			Returns a string with value 'sqlite'.
+		]]
+	}
+	return "sqlite"
+}
+
+func initialize(file as File, create as bool) virtual as bool
+{
+	meta {
+		description [[
+			Returns the initialization status.
+		]]
+	}
+	return true
+}
+
+func querySingleRowSync(stmt as SQLStatement) override async as DynamicMap
+{
+	meta {
+		description [[
+			Returns the first record as a DynamicMap object from the
+			query() method call passing the supplied instance of
+			SQLStatement class.
+		]]
+	}
+	var it = assert await querySync(stmt)
+	var v as DynamicMap #force = it.next()
+	return v
+}
+
+func tableExistsSync(table as string) override async as bool
+{
+	meta {
+		description [[
+			Returns a boolean value which indicates if the
+			supplied table name exists in the database.
+		]]
+	}
+	assert table
+	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table' AND name=?;")
+	stmt.addParamString(table)
+	var sr = assert await querySingleRowSync(stmt)
+	assert String.equals(table, sr.getString("name"))
+	return true
+}
+
+func queryAllTableNames(callback as function<void, vector>) override async
+{
+	meta {
+		description [[
+			Calls the callback function parameter if supplied
+			and passes the returned list of all table names
+			from the queryAllTableNames() method call.
+		]]
+	}
+	var v = await queryAllTableNamesSync()
+	if callback:
+		callback(v)
+}
+
+func queryAllTableNamesSync override async as vector
+{
+	meta {
+		description [[
+			Returns a list of all table names in the database as vector object.
+		]]
+	}
+	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table';")
+	var it = assert await querySync(stmt)
+	var v = new vector
+	loop {
+		var o = it.next()
+		if o == null:
+			break
+		var name = o.getString("name")
+		if String.isEmpty(name) == false:
+			v += name
+	}
+	return v
+}
+
+func columnToCreateString(cc as SQLTableColumnInfo) virtual as string
+{
+	meta {
+		description [[
+			Creates the column definition part of the create table
+			statement as a string with the supplied instance of
+			SQLTableColumnInfo class.
+		]]
+	}
+	var sb = new StringBuilder()
+	sb.appendString(cc.getName())
+	sb.appendCharacter(' ')
+	var tt = cc.getType()
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
+		sb.appendString("INTEGER PRIMARY KEY AUTOINCREMENT")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
+		sb.appendString("BIGINT PRIMARY KEY AUTOINCREMENT")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
+		sb.appendString("TEXT PRIMARY KEY")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
+		sb.appendString("INTEGER")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG {
+		sb.appendString("BIGINT")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
+		sb.appendString("VARCHAR(255)")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
+		sb.appendString("TEXT")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
+		sb.appendString("BLOB")
+	}
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
+		sb.appendString("REAL")
+	}
+	else {
+		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+		sb.appendString("UNKNOWN")
+	}
+	return sb.toString()
+}
+
+func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+{
+	meta {
+		description [[
+			Creates the create table statement as a string
+			with the supplied table name and the list of
+			SQLTableColumnInfo objects that defines each
+			column.
+		]]
+	}
+	assert table
+	assert columns
+	var sb = new StringBuilder()
+	sb.appendString("CREATE TABLE ")
+	sb.appendString(table)
+	sb.appendString(" (")
+	var first = true
+	foreach column as SQLTableColumnInfo in columns {
+		if first == false:
+			sb.appendCharacter(',')
+		sb.appendCharacter(' ')
+		sb.appendString(columnToCreateString(column))
+		first = false
+	}
+	sb.appendString(" );")
+	return prepareSync(sb.toString())
+}
+
+func prepareDeleteTableStatementSync(table as string) override as SQLStatement
+{
+	meta {
+		description [[
+			Creates the drop table statement as a string
+			with the supplied table name.
+		]]
+	}
+	assert table
+	var sb = new StringBuilder()
+	sb.appendString("DROP TABLE ")
+	sb.appendString(table)
+	sb.appendString(";")
+	return prepareSync(sb.toString())
+}
+
+func getLastInsertIdSync(table as string) override async as long
+{
+	meta {
+		description [[
+			Returns the last insert ID as a long
+			integer with the supplied table name.
+		]]
+	}
+	var v = assert await querySingleRowSync(prepareSync("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
+	return v.getLongInteger("id")
+}
+
+func columnExistsSync(table as string, name as string) override async as bool:
+	return false
+
+func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) override async as bool:
+	return false
+
+func getIdentityColumnNameSync(table as string) stub override async as string
+func getPrimaryKeyColumnNameSync(table as string) stub override async as string
+func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
+func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement

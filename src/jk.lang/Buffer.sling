@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -23,39 +22,39 @@
  * SOFTWARE.
  */
 
-**
-** The Buffer class provides convenience methods for dealing with data buffers
-** (arbitrary sequences of bytes).
-**
+class is BufferObject:
 
-class:
+meta
+{
+	description [[
+		The Buffer class provides convenience methods for dealing with data buffers
+		(arbitrary sequences of bytes).
+	]]
+}
 
 IFDEF "target_swift"
 {
 	depend "swift-import:CoreFoundation"
 }
 
-class MyBufferObject is BufferObject private
-{
-	pvar buffer as buffer
-
-	func toBuffer as buffer:
-		return buffer
-}
-
-**
-** Returns the given array as a BufferObject (which is an object type)
-** that can be used wherever an object or a class instance is required.
-**
+func forValue(value as buffer) static as this:
+	return new this(value)
 
 func asObject(buffer as buffer) static as BufferObject
 {
-	var v = new MyBufferObject()
-	v.setBuffer(buffer)
-	return v
+	meta {
+		description [[
+			Returns the given array as a BufferObject (which is an object type)
+			that can be used wherever an object or a class instance is required.
+		]]
+	}
+	return new this(buffer)
 }
 
-func asBuffer(obj as dynamic) static as buffer
+func asBuffer(obj as dynamic) static as buffer #deprecated:
+	return asValue(obj)
+
+func asValue(obj as dynamic) static as buffer
 {
 	assert obj
 	if obj is buffer:
@@ -65,15 +64,15 @@ func asBuffer(obj as dynamic) static as buffer
 		return bo.toBuffer()
 	}
 	if obj is int:
-		return forInt32BE(obj as int)
+		return forInt32BE(obj as uint32)
 	if obj is long:
-		return forInt64BE(obj as long)
+		return forInt64BE(obj as uint64)
 	if obj is double:
 		return forDouble64BE(obj as double)
 	return null
 }
 
-func forInt8Array(buf as int8[]) static as buffer
+func forInt8Array(buf as array<int8>) static as buffer
 {
 	assert buf
 	IFDEF "target_cs" {
@@ -97,22 +96,22 @@ func forInt8Array(buf as int8[]) static as buffer
 		var sz = sizeof buf
 		var v = malloc sz
 		for(var n=0; n<sz; n++):
-			v[n] = buf[n]
+			v[n] = buf[n] as byte
 		return v
 	}
 }
 
-func toInt8Array(buf as buffer) static as int8[]
+func toInt8Array(buf as buffer) static as array<int8>
 {
 	assert buf
 	IFDEF "target_cs" {
-		return lang "cs" int8[] {{{ (sbyte[])(System.Array)buf }}}
+		return lang "cs" array<int8> {{{ (sbyte[])(System.Array)buf }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" int8[] {{{ buf }}}
+		return lang "java" array<int8> {{{ buf }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" buffer {{{ buf!!.asByteArray() }}}
+		return lang "kotlin" array<int8> {{{ buf!!.asByteArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
 		var v = new int8[sizeof buf]
@@ -131,12 +130,12 @@ func toInt8Array(buf as buffer) static as int8[]
 		var sz = sizeof buf
 		var v = new int8[sz]
 		for(var n=0; n<sz; n++):
-			v[n] = buf[n]
+			v[n] = buf[n] as int8
 		return v
 	}
 }
 
-func getSubBuffer(buffer as buffer, offset as long, size as long = -1, alwaysNewBuffer as bool = false) static as buffer
+func getSubBuffer(buffer as buffer, offset as int, size as int = -1, alwaysNewBuffer as bool = false) static as buffer
 {
 	if alwaysNewBuffer == false && offset == 0 && size < 0:
 		return buffer
@@ -153,7 +152,7 @@ func getSubBuffer(buffer as buffer, offset as long, size as long = -1, alwaysNew
 	return v
 }
 
-func getInt8(buffer as buffer #used, offset as long #used) static as uint8
+func getInt8(buffer as buffer #used, offset as int #used) static as uint8
 {
 	if not buffer:
 		return 0 as uint8
@@ -171,7 +170,7 @@ func getInt8(buffer as buffer #used, offset as long #used) static as uint8
 		return v
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" uint8 {{{ new Uint8Array(buffer)[offset] }}}
+		return lang "js" uint8 {{{ buffer[offset] }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		return lang "lua" uint8 {{{ buffer[offset+1] }}}
@@ -207,7 +206,7 @@ IFDEF "target_cs" {
 	}}}
 }
 
-func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, size as long) static
+func copyFrom(array as buffer, src as buffer, soffset as int, doffset as int, size as int) static
 {
 	assert array
 	assert src
@@ -240,13 +239,14 @@ func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, 
 	}
 	ELSE IFDEF "target_js" {
 		lang "js" {{{
-			var suint = new Uint8Array(src);
+			var suint = src;
+			var len = suint.byteLength;
 			var sz = size;
-			if((soffset + size) > suint.byteLength) {
-				sz = suint.byteLength - soffset;
+			if((soffset + size) > len) {
+				sz = len - soffset;
 			}
 			var arrayToCopy = suint.subarray(soffset, sz);
-			var duint = new Uint8Array(array);
+			var duint = array;
 			duint.set(arrayToCopy, doffset);
 		}}}
 	}
@@ -277,12 +277,12 @@ func copyFrom(array as buffer, src as buffer, soffset as long, doffset as long, 
 	}
 }
 
-func getInt16LE(buffer as buffer, offset as long) static as uint16
+func getInt16LE(buffer as buffer, offset as int) static as uint16
 {
 	if not buffer:
 		return 0 as uint16
 	IFDEF "target_cs" {
-		var v as uint16 = 0
+		var v = 0 as uint16
 		lang "cs" {{{
 			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
 			if(System.BitConverter.IsLittleEndian == false) {
@@ -324,18 +324,21 @@ func getInt16LE(buffer as buffer, offset as long) static as uint16
 		var b2 = buffer[offset+1] as uint8
 		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b2, b1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		return lang "js" uint16 {{{ Buffer.from(buffer).readInt16LE(offset) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
-		return 0
+		return 0 as uint16
 	}
 }
 
-func getInt16BE(buffer as buffer, offset as long) static as uint16
+func getInt16BE(buffer as buffer, offset as int) static as uint16
 {
 	if not buffer:
 		return 0 as uint16
 	IFDEF"target_cs" {
-		var v as uint16 = 0
+		var v = 0 as uint16
 		lang "cs" {{{
 			v = (ushort)System.BitConverter.ToInt16(buffer, (int)offset);
 			if(System.BitConverter.IsLittleEndian) {
@@ -377,16 +380,19 @@ func getInt16BE(buffer as buffer, offset as long) static as uint16
 		var b2 = buffer[offset+1] as uint8
 		return lang "lua" uint16 {{{ _util:network_bytes_to_host16(b1, b2) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		return lang "js" uint16 {{{ Buffer.from(buffer).readInt16BE(offset) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
-		return 0
+		return 0 as uint16
 	}
 }
 
-func getInt32LE(buffer as buffer, offset as long) static as uint32
+func getInt32LE(buffer as buffer, offset as int) static as uint32
 {
 	IFDEF "target_cs" {
-		var v as uint32 = 0
+		var v = 0 as uint32
 		lang "cs" {{{
 			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
 			if(System.BitConverter.IsLittleEndian == false) {
@@ -430,16 +436,19 @@ func getInt32LE(buffer as buffer, offset as long) static as uint32
 		var b4 = buffer[offset+3] as uint8
 		return lang "lua" uint32 {{{ _util:network_bytes_to_host32(b4, b3, b2, b1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		return lang "js" uint32 {{{ Buffer.from(buffer).readInt32LE(offset) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
-		return 0
+		return 0 as uint32
 	}
 }
 
-func getInt32BE(buffer as buffer, offset as long) static as uint32
+func getInt32BE(buffer as buffer, offset as int) static as uint32
 {
 	IFDEF "target_cs" {
-		var v as uint32 = 0
+		var v = 0 as uint32
 		lang "cs" {{{
 			v = (uint)System.BitConverter.ToInt32(buffer, (int)offset);
 			if(System.BitConverter.IsLittleEndian) {
@@ -483,13 +492,16 @@ func getInt32BE(buffer as buffer, offset as long) static as uint32
 		var b4 = buffer[offset+3] as uint8
 		return lang "lua" uint32 {{{ _util:network_bytes_to_host32(b1, b2, b3, b4) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		return lang "js" uint32 {{{ Buffer.from(buffer).readInt32BE(offset) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
-		return 0
+		return 0 as uint32
 	}
 }
 
-func getInt64LE(buffer as buffer, offset as long) static as uint64
+func getInt64LE(buffer as buffer, offset as int) static as uint64
 {
 	IFDEF "target_sushi" {
 		var b1 = buffer[offset] as uint8
@@ -502,51 +514,74 @@ func getInt64LE(buffer as buffer, offset as long) static as uint64
 		var b8 = buffer[offset+7] as uint8
 		return lang "lua" uint64 {{{ _util:network_bytes_to_host64(b8, b7, b6, b5, b4, b3, b2, b1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		return lang "js" uint64 {{{ Buffer.from(buffer).readBigInt64LE(offset) }}}
+	}
 	ELSE {
 		ERROR "Not implemented"
-		return 0L
+		return 0UL
 	}
 }
 
-func getInt64BE(buffer as buffer, offset as long) static as uint64
+func getInt64BE(buffer as buffer, offset as int) static as uint64
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0L
+	IFDEF "target_nodejs" {
+		return lang "js" uint64 {{{ Buffer.from(buffer).readBigInt64BE(offset) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0UL
+	}
 }
 
-func getFloatLE(buffer as buffer, offset as long) static as float
+func getFloatLE(buffer as buffer, offset as int) static as float
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0.0f
+	IFDEF "target_nodejs" {
+		return lang "js" float {{{ Buffer.from(buffer).readFloatLE(offset) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0UL
+	}
 }
 
-func getFloatBE(buffer as buffer, offset as long) static as float
+func getFloatBE(buffer as buffer, offset as int) static as float
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0.0f
+	IFDEF "target_nodejs" {
+		return lang "js" float {{{ Buffer.from(buffer).readFloatBE(offset) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0UL
+	}
 }
 
-func getDoubleLE(buffer as buffer, offset as long) static as double
+func getDoubleLE(buffer as buffer, offset as int) static as double
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0.0
+	IFDEF "target_nodejs" {
+		return lang "js" double {{{ Buffer.from(buffer).readDoubleLE(offset) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0UL
+	}
 }
 
-func getDoubleBE(buffer as buffer, offset as long) static as double
+func getDoubleBE(buffer as buffer, offset as int) static as double
 {
-	// FIXME
-	ERROR "Not implemented"
-	return 0.0
+	IFDEF "target_nodejs" {
+		return lang "js" double {{{ Buffer.from(buffer).readDoubleBE(offset) }}}
+	}
+	ELSE {
+		ERROR "Not implemented"
+		return 0UL
+	}
 }
 
 func forInt8(number as uint8) static as buffer
 {
 	var v = malloc 1
-	v[0] = number & 0xff
+	v[0] = (number & 0xff) as uint8
 	return v
 }
 
@@ -554,6 +589,15 @@ func forInt16BE(number as uint16) static as buffer
 {
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer16(number, 0) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(2);
+			buf.writeInt16BE(number);
+			obuf = buf;
+		}}}
+		return obuf
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -566,6 +610,15 @@ func forInt16LE(number as uint16) static as buffer
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer16(number, 1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(2);
+			buf.writeInt16LE(number);
+			obuf = buf;
+		}}}
+		return obuf
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -576,6 +629,15 @@ func forInt32BE(number as uint32) static as buffer
 {
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer32(number, 0) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(4);
+			buf.writeInt32BE(number);
+			obuf = buf;
+		}}}
+		return obuf
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -588,6 +650,15 @@ func forInt32LE(number as uint32) static as buffer
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer32(number, 1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(4);
+			buf.writeInt32LE(number);
+			obuf = buf;
+		}}}
+		return obuf
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -598,6 +669,15 @@ func forInt64BE(number as uint64) static as buffer
 {
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer64(number, 0) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(8);
+			buf.writeBigInt64BE(number);
+			obuf = buf;
+		}}}
+		return obuf
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -610,6 +690,15 @@ func forInt64LE(number as uint64) static as buffer
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:integer_to_buffer64(number, 1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(8);
+			buf.writeBigInt64LE(number);
+			obuf = buf;
+		}}}
+		return obuf
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -620,6 +709,15 @@ func forFloat32BE(number as float) static as buffer
 {
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:float_to_buffer32(number, 0) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(4);
+			buf.writeFloatBE(number);
+			obuf = buf;
+		}}}
+		return obuf
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -632,6 +730,15 @@ func forFloat32LE(number as float) static as buffer
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:float_to_buffer32(number, 1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(4);
+			buf.writeFloatLE(number);
+			obuf = buf;
+		}}}
+		return obuf
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
@@ -642,6 +749,15 @@ func forDouble64BE(number as double) static as buffer
 {
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:double_to_buffer64(number, 0) }}}
+	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(8);
+			buf.writeDoubleBE(number);
+			obuf = buf;
+		}}}
+		return obuf
 	}
 	ELSE {
 		ERROR "Not implemented"
@@ -654,13 +770,22 @@ func forDouble64LE(number as double) static as buffer
 	IFDEF "target_sushi" {
 		return lang "lua" buffer {{{ _util:double_to_buffer64(number, 1) }}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		var obuf as buffer
+		lang "js" {{{
+			const buf = Buffer.allocUnsafe(8);
+			buf.writeDoubleLE(number);
+			obuf = buf;
+		}}}
+		return obuf
+	}
 	ELSE {
 		ERROR "Not implemented"
 		return null
 	}
 }
 
-func getSize(buffer as buffer #used) static as long
+func getSize(buffer as buffer #used) static as int
 {
 	if buffer == null:
 		return 0
@@ -691,10 +816,10 @@ func getSize(buffer as buffer #used) static as long
 	}
 }
 
-func getByte(buffer as buffer, offset as long) static as uint8:
+func getByte(buffer as buffer, offset as int) static as uint8:
 	return getInt8(buffer, offset)
 
-func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used) static
+func setByte(buffer as buffer #used, offset as int #used, value as uint8 #used) static
 {
 	assert buffer
 	IFDEF "target_objc" {
@@ -712,9 +837,14 @@ func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used)
 			buffer[offset] = value;
 		}}}
 	}
+	ELSE IFDEF "target_nodejs" {
+		lang "js" {{{
+			buffer[offset] = value;
+		}}}
+	}
 	ELSE IFDEF "target_js" {
 		lang "js" {{{
-			new Uint8Array(buffer)[offset] = value;
+			buffer[offset] = value;
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -737,10 +867,19 @@ func setByte(buffer as buffer #used, offset as long #used, value as uint8 #used)
 	}
 }
 
-func allocate(size as long) static as buffer:
+func allocate(size as int) static as buffer:
 	return malloc size
 
-func resize(buffer as buffer, newSize as long) static as buffer
+func fill(buffer as buffer, value as uint8) static
+{
+	// FIXME: Optimize per platform
+	var s = getSize(buffer)
+	for(var i = 0; i < s; i++) {
+		setByte(buffer, i, value)
+	}
+}
+
+func resize(buffer as buffer, newSize as int) static as buffer
 {
 	if newSize < 1:
 		return null
@@ -764,11 +903,20 @@ func resize(buffer as buffer, newSize as long) static as buffer
 		}}}
 		return nbuf
 	}
+	ELSE IFDEF "target_nodejs" {
+		var newbuffer as buffer
+		lang "js" {{{
+			const sbuf = Buffer.from(buffer);
+			const uint8 = new Uint8Array(newSize);
+			sbuf.copy(uint8, 0, 0, newSize);
+			newbuffer = uint8;
+		}}}
+		return newbuffer
+	}
 	ELSE IFDEF "target_js" {
 		var newbuffer = allocate(newSize)
 		lang "js" {{{
-			var uint8 = new Uint8Array(newbuffer);
-			uint8.set(new Uint8Array(buffer));
+			newbuffer.set(buffer);
 		}}}
 		return newbuffer
 	}
@@ -810,7 +958,7 @@ func resize(buffer as buffer, newSize as long) static as buffer
 	}
 }
 
-func append(original as buffer, toAppend as buffer, size as long = -1) static as buffer
+func append(original as buffer, toAppend as buffer, size as int = -1) static as buffer
 {
 	if toAppend == null || size == 0:
 		return original
@@ -842,7 +990,7 @@ func forHexString(str as string) static as buffer
 		if (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || (c >= '0' && c<= '9') {
 			sb.appendCharacter(c)
 			if sb.count() == 2 {
-				setByte(b, n++, String.toIntegerFromHex(sb.toString()))
+				setByte(b, n++, String.toIntegerFromHex(sb.toString()) as uint8)
 				sb.clear()
 			}
 		}
@@ -852,3 +1000,14 @@ func forHexString(str as string) static as buffer
 	}
 	return b
 }
+
+prop value as buffer
+
+ctor:
+	nop
+
+ctor(value as buffer):
+	this.value = value
+
+func toBuffer as buffer:
+	return value

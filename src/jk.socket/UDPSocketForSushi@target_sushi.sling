@@ -1,0 +1,136 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+
+class is UDPSocket is FileDescriptor:
+
+var fileDescriptor = -1
+
+ctor:
+	fileDescriptor = lang "lua" int {{{ _net:create_udp_socket() }}}
+
+dtor:
+	close()
+
+func getFileDescriptor as int:
+	return fileDescriptor
+
+func close override
+{
+	var fd = this.fileDescriptor
+	assert fd >= 0
+	lang "lua" {{{
+		_net:close_udp_socket(fd)
+	}}}
+	this.fileDescriptor = -1
+}
+
+func send(buffer as buffer, address as string, port as int) override as int
+{
+	var fd = this.fileDescriptor
+	if fd < 0:
+		return -1
+	if buffer == null:
+		return -1
+	var sz = sizeof buffer
+	var v = 0
+	lang "lua" {{{
+		v = _net:send_udp_data(fd, buffer, sz, address, port, 0)
+	}}}
+	return v
+}
+
+func sendBroadcast(data as buffer, address as string, port as int) override as int
+{
+	var fd = this.fileDescriptor
+	if fd < 0:
+		return -1
+	if data == null:
+		return -1
+	var sz = sizeof data
+	var v = 0
+	lang "lua" {{{
+		v = _net:send_udp_data(fd, data, sz, address, port, 1)
+	}}}
+	return v
+}
+
+func receive(buffer as buffer, timeout as int) override as int:
+	return receiveWithAddress(buffer, timeout, null)
+
+func receiveWithAddress(buffer as buffer, timeout as int, address as SocketAddress) override as int
+{
+	if buffer == null || fileDescriptor < 0:
+		return 0
+	var fd = this.fileDescriptor
+	var sz = sizeof buffer
+	var v = 0
+	var peerhost as string
+	var peerport as int
+	lang "lua" {{{
+		v, peerhost, peerport = _net:read_udp_data(fd, buffer, sz, timeout)
+	}}}
+	if address {
+		address.address = peerhost
+		address.port = peerport
+	}
+	return v
+}
+
+func bind(port as int) override as bool
+{
+	var fd = this.fileDescriptor
+	if fd < 0:
+		return false
+	var v = 0
+	lang "lua" {{{
+		v = _net:bind_udp_port(fd, port)
+	}}}
+	if v == 1:
+		return false
+	return true
+}
+
+func getLocalAddress override as string
+{
+	var fd = this.fileDescriptor
+	var host as string
+	var port as int
+	lang "lua" {{{
+		host, port = _net:get_udp_socket_local_address(fd)
+	}}}
+	return host
+}
+
+func getLocalPort override as int
+{
+	var fd = this.fileDescriptor
+	var host as string
+	var port as int
+	lang "lua" {{{
+		host, port = _net:get_udp_socket_local_address(fd)
+	}}}
+	return port
+}

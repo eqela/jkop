@@ -1,0 +1,191 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.app
+import jk.thread
+import jk.log
+
+class is AudioManager:
+
+depend "objc-header-m:<AVFoundation/AVFoundation.h>"
+depend "objc-framework:AVFoundation"
+
+class MyAudioClip is AudioClip is Runnable
+{
+	pvar clipId as string
+
+	func run
+	{
+		lang "objc" {{{
+			NSURL* pp = [[NSBundle mainBundle] URLForResource:clipId withExtension:@"mp3"];
+			NSError* err;
+			AVAudioPlayer* avap = [[AVAudioPlayer alloc] initWithContentsOfURL:pp error:&err];
+			[avap play];
+			[NSThread sleepForTimeInterval:[avap duration]];
+			[avap stop];
+		}}}
+	}
+
+	func play as bool
+	{
+		Thread.start(this)
+		return true
+	}
+}
+
+class MyAudioStream is AudioStream
+{
+	pvar context as GuiApplicationContextForIOS
+	var avap as !"AVAudioPlayer"
+
+	func initialize(path as string) as bool
+	{
+		assert path
+		var pp as !"NSURL"
+		if String.startsWith(path, "/") {
+			lang "objc" {{{
+				pp = [NSURL URLWithString:path];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				pp = [[NSBundle mainBundle] URLForResource:path withExtension:@"mp3"];
+			}}}
+		}
+		lang "objc" {{{
+			NSError* err;
+			avap = [[AVAudioPlayer alloc] initWithContentsOfURL:pp error:&err];
+			if(err) {
+				NSLog(@"Error in AudioPlayer: %@", [err localizedDescription]);
+				return(NO);
+			}
+		}}}
+		assert avap:
+			Log.error(context, "Failed to initialize audio player for `" .. path .. "'")
+		lang "objc" {{{
+			[avap prepareToPlay];
+		}}}
+		Log.debug(context, "Initialized audio player for `" .. path .. "'")
+		return true
+	}
+
+	func play as bool
+	{
+		assert avap
+		lang "objc" {{{
+			[avap play];
+		}}}
+		return true
+	}
+
+	func pause as bool
+	{
+		assert avap
+		lang "objc" {{{
+			[avap pause];
+		}}}
+		return true
+	}
+
+	func stop as bool
+	{
+		assert avap
+		lang "objc" {{{
+			[avap stop];
+		}}}
+		return true
+	}
+
+	func seek(sec as int) as bool
+	{
+		assert avap
+		lang "objc" {{{
+			[avap setCurrentTime:sec];
+		}}}
+		return true
+	}
+
+	func getCurrentTime as int
+	{
+		assert avap
+		return lang "objc" int {{{ [avap currentTime] }}}
+	}
+
+	func getDuration as int
+	{
+		assert avap
+		return lang "objc" int {{{ [avap duration] }}}
+	}
+
+	func setLooping(v as bool) as bool
+	{
+		assert avap
+		if v {
+			lang "objc" {{{
+				[avap setNumberOfLoops:-1];
+			}}}
+		}
+		else {
+			lang "objc" {{{
+				[avap setNumberOfLoops:0];
+			}}}
+		}
+		return true
+	}
+
+	func setVolume(v as double) as bool
+	{
+		assert avap
+		lang "objc" {{{
+			[avap setVolume:v];
+		}}}
+		return true
+	}
+}
+
+func forApplication(context as ApplicationContext) static as this
+{
+	var ctx = assert context as GuiApplicationContextForIOS:
+		Log.error(context, "Context given to " .. VALUE "__THIS__" .. " is not an iOS context")
+	var v = new this()
+	v.setContext(ctx)
+	return v
+}
+
+pvar context as GuiApplicationContextForIOS
+
+func getClipForResource(id as string) override as AudioClip
+{
+	var v = new MyAudioClip()
+	v.setClipId(id)
+	return v
+}
+
+func getStreamForResource(id as string) override as AudioStream
+{
+	var v = new MyAudioStream()
+	v.setContext(context)
+	assert v.initialize(id)
+	return v
+}

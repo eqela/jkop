@@ -1,0 +1,912 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.math
+
+class is Backend:
+
+class MyColorTexture is Texture
+{
+	var color public as Color
+
+	func getPixelWidth as int:
+		return 0
+
+	func getPixelHeight as int:
+		return 0
+}
+
+class MyImageTexture is Texture
+{
+	var image public as Image
+
+	func getPixelWidth as int
+	{
+		assert image
+		return image.getPixelWidth()
+	}
+
+	func getPixelHeight as int
+	{
+		assert image
+		return image.getPixelHeight()
+	}
+}
+
+class DomElementSprite is Sprite
+{
+	var element protected as object
+	pvar parent as object
+	pvar widthFactor as double
+	pvar heightFactor as double
+	var myx protected = -99999.9
+	var myy protected = -99999.9
+	var mywidth protected as double
+	var myheight protected as double
+	var myAngle protected = 0.0
+	var myAlpha protected = 1.0
+	var scaleX protected = 1.0
+	var scaleY protected = 1.0
+
+	func getElement as object
+	{
+		return element
+	}
+
+	func setElement(value as object)
+	{
+		element = value
+		if element {
+			lang "js" {{{
+				this.element.style.position = "absolute";
+			}}}
+		}
+	}
+
+	func setBackgroundColor(color as Color)
+	{
+		var cc = HTMLDOM.colorToRGBA(color)
+		if cc {
+			lang "js" {{{
+				this.element.style.backgroundColor = cc;
+			}}}
+		}
+	}
+
+	func move(x as double, y as double)
+	{
+		if x != myx || y != myy {
+			myx = x
+			myy = y
+			var rx #used = x * widthFactor
+			var ry #used = y * heightFactor
+			lang "js" {{{
+				if(this.element != null) {
+					this.element.style.left = ~~rx;
+					this.element.style.top = ~~ry;
+				}
+			}}}
+		}
+	}
+
+	func updateSizeAsPixels(wpx as int, hpx as int)
+	{
+		mywidth = wpx / widthFactor
+		myheight = hpx / heightFactor
+	}
+
+	func updateTransform
+	{
+		assert element
+		var ang = myAngle * 180.0 / Math.M_PI
+		var str = "rotate(" .. String.forInteger(ang as int) .. "deg) scale(" .. String.forDouble(scaleX) .. "," .. String.forDouble(scaleY) .. ")"
+		HTMLDOM.setStyle(element, "transform", str)
+		HTMLDOM.setStyle(element, "webkitTransform", str)
+		HTMLDOM.setStyle(element, "msTransform", str)
+		HTMLDOM.setStyle(element, "oTransform", str)
+		HTMLDOM.setStyle(element, "mozTransform", str)
+	}
+
+	func setRotation(angle as double)
+	{
+		if myAngle == angle:
+			return
+		myAngle = angle
+		updateTransform()
+	}
+
+	func setAlpha(alpha as double)
+	{
+		var f = alpha
+		if f < 0 {
+			f = 0
+		}
+		if f > 1 {
+			f = 1
+		}
+		if f == myAlpha:
+			return
+		lang "js" {{{
+			this.element.style.opacity = f;
+		}}}
+		myAlpha = f
+	}
+
+	func scale(x as double, y as double)
+	{
+		if x == scaleX && y == scaleY:
+			return
+		scaleX = x
+		scaleY = y
+		updateTransform()
+	}
+
+	func getX as double:
+		return myx
+
+	func getY as double:
+		return myy
+
+	func getWidth as double:
+		return mywidth
+
+	func getHeight as double:
+		return myheight
+
+	func getRotation as double:
+		return myAngle
+
+	func getAlpha as double:
+		return myAlpha
+
+	func getScaleX as double:
+		return scaleX
+
+	func getScaleY as double:
+		return scaleY
+
+	func removeFromContainer
+	{
+		assert element
+		HTMLDOM.remove(element)
+		setElement(null)
+	}
+}
+
+class MyTextureSprite is DomElementSprite is TextureSprite
+{
+	pvar layer as MySpriteLayer
+
+	func resize(w as double, h as double)
+	{
+		if w == mywidth && h == myheight:
+			return
+		var wpx #used = w * widthFactor as int
+		var hpx #used = h * heightFactor as int
+		lang "js" {{{
+			this.element.style.width = ~~wpx;
+			this.element.style.height = ~~hpx;
+		}}}
+		mywidth = w
+		myheight = h
+	}
+
+	func setTexture(texture as Texture):
+		setTextureWithSize(texture, getWidth(), getHeight())
+
+	func setTextureWithSize(texture as Texture, width as double, height as double)
+	{
+		if texture == null || (width <= 0.0 && height <= 0.0):
+			return
+		var w = SpriteUtil.getAspectWidth(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		var h = SpriteUtil.getAspectHeight(texture.getPixelWidth(), texture.getPixelHeight(), width, height)
+		if w <= 0.0:
+			w = height
+		if h <= 0.0:
+			h = width
+		if w <= 0.0 || h <= 0.0:
+			return
+		if texture is MyColorTexture {
+			if element == null {
+				setElement(HTMLDOM.createElement("div"))
+				HTMLDOM.appendChild(parent, element)
+			}
+			resize(w, h)
+			setBackgroundColor((texture as! MyColorTexture).color)
+			return
+		}
+		if texture is MyImageTexture {
+			var img = assert (texture as! MyImageTexture).image as ImageForBrowser
+			var bm = assert img.image
+			if element == null {
+				setElement(HTMLDOM.createElement("img"))
+				HTMLDOM.appendChild(parent, element)
+				lang "js" {{{
+					this.element.src = bm.src;
+				}}}
+			}
+			resize(w, h)
+			return
+		}
+		ERROR "Unknown texture type"
+	}
+}
+
+class MyTextSprite is DomElementSprite is TextSprite
+{
+	pvar context as GuiApplicationContextForHTML
+
+	func setText(desc as TextProperties)
+	{
+		if desc == null {
+			if element:
+				HTMLDOM.setTextContent(element, "")
+			return
+		}
+		if element == null {
+			setElement(HTMLDOM.createElement("div"))
+			HTMLDOM.setStyle(element, "cursor", "default")
+			HTMLDOM.setStyle(element, "white-space", "nowrap")
+			HTMLDOM.setStyle(element, "line-height", "1")
+			HTMLDOM.appendChild(parent, element)
+		}
+		var textColor = desc.getTextColor()
+		if textColor {
+			var cc #used = HTMLDOM.colorToRGBA(textColor)
+			lang "js" {{{
+				this.element.style.color = cc;
+			}}}
+		}
+		var fontFamily = desc.getFontFamily()
+		if String.isEmpty(fontFamily):
+			fontFamily = "Arial"
+		if String.isEmpty(fontFamily) == false {
+			lang "js" {{{
+				this.element.style.fontFamily = fontFamily;
+			}}}
+		}
+		var fontResource = desc.getFontResource()
+		if String.isEmpty(fontResource) == false:
+			ERROR "Not implemented: font resource support"
+		var fontFile = desc.getFontFile()
+		if fontFile:
+			ERROR "Not implemented: font file support"
+		if desc.getFontIsBold() {
+			lang "js" {{{
+				this.element.style.fontWeight = "bold";
+			}}}
+		}
+		if desc.getFontIsItalic() {
+			lang "js" {{{
+				this.element.style.fontStyle = "italic";
+			}}}
+		}
+		setBackgroundColor(desc.getBackgroundColor())
+		HTMLDOM.setTextContent(element, desc.getText())
+		var hsz as double
+		var fsDesc = desc.getFontSizeDescription()
+		if String.isEmpty(fsDesc) == false {
+			var density as int
+			if context {
+				density = context.getScreenDensity()
+			}
+			else {
+				density = 96
+			}
+			hsz = jk.gfx.Length.asPoints(fsDesc, density)
+		}
+		else {
+			var fsRelative = desc.getFontSizeRelative()
+			var fsAbsolute = desc.getFontSizeAbsolute()
+			if fsRelative > 0.0 {
+				hsz = getHeightFactor() * fsRelative
+			}
+			else {
+				hsz = fsAbsolute * 18
+			}
+		}
+		lang "js" {{{
+			this.element.style.fontSize = hsz;
+		}}}
+		var msw as int
+		var msh as int
+		lang "js" {{{
+			msw = this.element.offsetWidth;
+			msh = this.element.offsetHeight;
+		}}}
+		updateSizeAsPixels(msw, msh)
+	}
+}
+
+class MySpriteLayer is DomElementSprite is SpriteLayer
+{
+	pvar context as GuiApplicationContextForHTML
+	var referenceWidth = 1.0
+	var referenceHeight = 0.0
+	var layerWidthFactor = 0.0
+	var layerHeightFactor = 0.0
+	var ppi = -1
+
+	func getLayerWidthFactor as double
+	{
+		if layerWidthFactor == 0.0 && referenceWidth > 0.0 {
+			var rwidth as double
+			lang "js" {{{
+				rwidth = this.element.offsetWidth;
+			}}}
+			layerWidthFactor = rwidth / referenceWidth
+		}
+		return layerWidthFactor
+	}
+
+	func getLayerHeightFactor as double
+	{
+		if layerHeightFactor == 0.0 {
+			var rh = getReferenceHeight()
+			if rh > 0.0 {
+				var rheight as double
+				lang "js" {{{
+					rheight = this.element.offsetHeight;
+				}}}
+				layerHeightFactor = rheight / rh
+			}
+		}
+		return layerHeightFactor
+	}
+
+	func addTextureSpriteForSize(texture as Texture, width as double, height as double) as TextureSprite
+	{
+		var v = new MyTextureSprite()
+		v.setParent(element)
+		v.setWidthFactor(getLayerWidthFactor())
+		v.setHeightFactor(getLayerHeightFactor())
+		v.setLayer(this)
+		v.setTextureWithSize(texture, width, height)
+		return v
+	}
+
+	func addTextSprite(text as TextProperties) as TextSprite
+	{
+		var v = new MyTextSprite()
+		v.setContext(context)
+		v.setParent(element)
+		v.setWidthFactor(getLayerWidthFactor())
+		v.setHeightFactor(getLayerHeightFactor())
+		v.setText(text)
+		return v
+	}
+
+	func addContainerSprite(width as double, height as double) as ContainerSprite
+	{
+		ERROR "Not implemented"
+		return null
+	}
+
+	func removeSprite(sprite as Sprite)
+	{
+		var sp = sprite as DomElementSprite
+		if sp:
+			sp.removeFromContainer()
+	}
+
+	func removeAllSprites:
+		HTMLDOM.setTextContent(element, "")
+
+	func setReferenceWidth(rw as double):
+		referenceWidth = rw
+
+	func setReferenceHeight(rh as double):
+		referenceHeight = rh
+
+	func getReferenceWidth as double:
+		return referenceWidth
+
+	func getReferenceHeight as double
+	{
+		if referenceHeight > 0.0:
+			return referenceHeight
+		var ww as double
+		var hh as double
+		lang "js" {{{
+			ww = this.element.offsetWidth;
+			hh = this.element.offsetHeight;
+		}}}
+		return hh * referenceWidth / ww
+	}
+
+	func getPPI private as int
+	{
+		if ppi < 0 {
+			if context:
+				ppi = context.getScreenDensity()
+			if ppi < 0:
+				ppi = 96
+		}
+		return ppi
+	}
+
+	func getHeightValue(spec as string) as double:
+		return jk.gfx.Length.asPoints(spec, getPPI()) / getLayerHeightFactor()
+
+	func getWidthValue(spec as string) as double:
+		return jk.gfx.Length.asPoints(spec, getPPI()) / getLayerWidthFactor()
+}
+
+func forScene(scene as Scene, context as GuiApplicationContextForHTML, domElement as object) static as this
+{
+	var v = new this()
+	v.setScene(scene)
+	v.setContext(context)
+	v.setDomElement(domElement)
+	v.initialize()
+	return v
+}
+
+pvar scene as Scene
+pvar context as GuiApplicationContextForHTML
+pvar domElement as object
+var sceneManager as SceneManager
+var gameTime as TimeValue
+var isStarted = false
+var lastFrame = 0.0
+var pointerEvent = new PointerEvent()
+var keyEvent = new KeyEvent()
+var isOpera = false
+var isWebkit = false
+
+// The ultimate reference for all things related to keypresses on JavaScript: http://unixpapa.com/js/key.html
+
+func translateKeyCode(keycode as int, keychar as string, event as KeyEvent) private
+{
+	var kc as int
+	var sv as string
+	switch keycode {
+		case 32 {
+			kc = KeyEvent.KEY_SPACE
+			sv = " "
+		}
+		case 13 {
+			kc = KeyEvent.KEY_ENTER
+			sv = "\n"
+		}
+		case 9 {
+			kc = KeyEvent.KEY_TAB
+			sv = "\t"
+		}
+		case 27 {
+			kc = KeyEvent.KEY_ESCAPE
+		}
+		case 8 {
+			kc = KeyEvent.KEY_BACKSPACE
+		}
+		case 16 {
+			kc = KeyEvent.KEY_SHIFT
+		}
+		case 17 {
+			kc = KeyEvent.KEY_CONTROL
+		}
+		case 18 {
+			kc = KeyEvent.KEY_ALT
+		}
+		case 20 {
+			kc = KeyEvent.KEY_CAPSLOCK
+		}
+		case 144 {
+			kc = KeyEvent.KEY_NUMLOCK
+		}
+		case 37 {
+			kc = KeyEvent.KEY_LEFT
+		}
+		case 38 {
+			kc = KeyEvent.KEY_UP
+		}
+		case 39 {
+			kc = KeyEvent.KEY_RIGHT
+		}
+		case 40 {
+			kc = KeyEvent.KEY_DOWN
+		}
+		case 45 {
+			kc = KeyEvent.KEY_INSERT
+		}
+		case 46 {
+			kc = KeyEvent.KEY_DELETE
+		}
+		case 36 {
+			kc = KeyEvent.KEY_HOME
+		}
+		case 35 {
+			kc = KeyEvent.KEY_END
+		}
+		case 33 {
+			kc = KeyEvent.KEY_PAGEUP
+		}
+		case 34 {
+			kc = KeyEvent.KEY_PAGEDOWN
+		}
+		case 112 {
+			kc = KeyEvent.KEY_F1
+		}
+		case 113 {
+			kc = KeyEvent.KEY_F2
+		}
+		case 114 {
+			kc = KeyEvent.KEY_F3
+		}
+		case 115 {
+			kc = KeyEvent.KEY_F4
+		}
+		case 116 {
+			kc = KeyEvent.KEY_F5
+		}
+		case 117 {
+			kc = KeyEvent.KEY_F6
+		}
+		case 118 {
+			kc = KeyEvent.KEY_F7
+		}
+		case 119 {
+			kc = KeyEvent.KEY_F8
+		}
+		case 120 {
+			kc = KeyEvent.KEY_F9
+		}
+		case 121 {
+			kc = KeyEvent.KEY_F10
+		}
+		case 122 {
+			kc = KeyEvent.KEY_F11
+		}
+		case 123 {
+			kc = KeyEvent.KEY_F12
+		}
+		case 224 {
+			kc = KeyEvent.KEY_SUPER
+		}
+		case 91 {
+			kc = KeyEvent.KEY_SUPER
+		}
+		case 92 {
+			kc = KeyEvent.KEY_SUPER
+		}
+		case 93 {
+			kc = KeyEvent.KEY_SUPER
+		}
+		default {
+			kc = KeyEvent.KEY_NONE
+			sv = keychar
+		}
+	}
+	// FIXME: Could somehow incorporate the keypad keys from http://unixpapa.com/js/key.html
+	event.setKeyCode(kc)
+	event.setStringValue(sv)
+}
+
+func onJSKeyDown(e as object)
+{
+	var keycode as int
+	var keychar as string
+	var shift = false
+	var alt = false
+	var ctrl = false
+	lang "js" {{{
+		keychar = e.key;
+		keycode = e.keyCode;
+		shift = e.shiftKey;
+		alt = e.altKey;
+		ctrl = e.ctrlKey;
+	}}}
+	if isWebkit && ctrl {
+		onJSKeyPress(e)
+		return
+	}
+	keyEvent.clear()
+	keyEvent.setAction(KeyEvent.ACTION_DOWN)
+	translateKeyCode(keycode, keychar, keyEvent)
+	keyEvent.setShift(shift)
+	keyEvent.setControl(ctrl)
+	keyEvent.setAlt(alt)
+	onKeyEvent(keyEvent)
+	if keyEvent.isConsumed {
+		lang "js" {{{
+			if(e.preventDefault) {
+				e.preventDefault();
+			}
+		}}}
+	}
+}
+
+func onJSKeyPress(e as object)
+{
+	var keycode as int
+	var charcode as int
+	var shift = false
+	var alt = false
+	var ctrl = false
+	lang "js" {{{
+		keycode = e.keyCode;
+		if(this.isOpera) {
+			charcode = e.which;
+		}
+		else if(this.isWebkit) {
+			charcode = e.keyCode;
+		}
+		else {
+			charcode = e.charCode;
+		}
+		shift = e.shiftKey;
+		alt = e.altKey;
+		ctrl = e.ctrlKey;
+	}}}
+	keyEvent.clear()
+	keyEvent.setAction(KeyEvent.ACTION_DOWN)
+	translateKeyCode(keycode, null, keyEvent)
+	if isOpera == false && isWebkit == false {
+		if keycode > 0 && keyEvent.getKeyCode() != KeyEvent.KEY_NONE:
+			return
+	}
+	if charcode == 32 || charcode == 9 || charcode == 8:
+		return
+	if charcode > 0 {
+		var str = String.forCharacter(charcode as char)
+		if ctrl:
+			str = String.toLowerCase(str)
+		keyEvent.setStringValue(str)
+		keyEvent.setShift(shift)
+		keyEvent.setControl(ctrl)
+		keyEvent.setAlt(alt)
+		onKeyEvent(keyEvent)
+		if keyEvent.isConsumed {
+			lang "js" {{{
+				if(e.preventDefault) {
+					e.preventDefault();
+				}
+			}}}
+		}
+	}
+}
+
+func onJSKeyUp(e as object)
+{
+	var keycode as int
+	var keychar as string
+	var shift = false
+	var alt = false
+	var ctrl = false
+	lang "js" {{{
+		keychar = e.key;
+		keycode = e.keyCode;
+		shift = e.shiftKey;
+		alt = e.altKey;
+		ctrl = e.ctrlKey;
+	}}}
+	keyEvent.clear()
+	keyEvent.setAction(KeyEvent.ACTION_UP)
+	translateKeyCode(keycode, keychar, keyEvent)
+	keyEvent.setShift(shift)
+	keyEvent.setControl(ctrl)
+	keyEvent.setAlt(alt)
+	onKeyEvent(keyEvent)
+	if keyEvent.isConsumed {
+		lang "js" {{{
+			if(e.preventDefault) {
+				e.preventDefault();
+			}
+		}}}
+	}
+}
+
+func initialize
+{
+	lang "js" {{{
+		if(navigator.userAgent.indexOf("Opera") >= 0) {
+			this.isOpera = true;
+		}
+		if(navigator.userAgent.indexOf("WebKit") >= 0) {
+			this.isWebkit = true;
+		}
+	}}}
+	sceneManager = new SceneManager()
+	sceneManager.setContext(context)
+	sceneManager.setBackend(this)
+	sceneManager.pushScene(scene)
+	sceneManager.initialize()
+	var onDown = func(event as object) {
+		var posx as int
+		var posy as int
+		lang "js" {{{
+			posx = event.clientX;
+			posy = event.clientY;
+		}}}
+		pointerEvent.isConsumed = false
+		pointerEvent.action = PointerEvent.DOWN
+		pointerEvent.pointerId = 0 // FIXME
+		pointerEvent.x = posx
+		pointerEvent.y = posy
+		onPointerEvent(pointerEvent)
+		lang "js" {{{
+			event.preventDefault();
+		}}}
+	}
+	var onMove = func(event as object) {
+		var posx as int
+		var posy as int
+		lang "js" {{{
+			posx = event.clientX;
+			posy = event.clientY;
+		}}}
+		pointerEvent.isConsumed = false
+		pointerEvent.action = PointerEvent.MOVE
+		pointerEvent.pointerId = 0 // FIXME
+		pointerEvent.x = posx
+		pointerEvent.y = posy
+		onPointerEvent(pointerEvent)
+		lang "js" {{{
+			event.preventDefault();
+		}}}
+	}
+	var onUp = func(event as object) {
+		var posx as int
+		var posy as int
+		lang "js" {{{
+			posx = event.clientX;
+			posy = event.clientY;
+		}}}
+		pointerEvent.isConsumed = false
+		pointerEvent.action = PointerEvent.UP
+		pointerEvent.pointerId = 0 // FIXME
+		pointerEvent.x = posx
+		pointerEvent.y = posy
+		onPointerEvent(pointerEvent)
+		lang "js" {{{
+			event.preventDefault();
+		}}}
+	}
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "touchstart", onDown)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "touchmove", onMove)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "touchend", onUp)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "mousedown", onDown)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "mousemove", onMove)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "mouseup", onUp)
+	lang "js" {{{
+		window.addEventListener('keydown', function(event) {
+			this.onJSKeyDown(event)
+		}.bind(this), false);
+		window.addEventListener('keypress', function(event) {
+			this.onJSKeyPress(event)
+		}.bind(this), false);
+		window.addEventListener('keyup', function(event) {
+			this.onJSKeyUp(event)
+		}.bind(this), false);
+	}}}
+	/*
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "mousewheel", onDown)
+	HTMLDOM.addEventListenerWithParameterInCallback(domElement, "DOMMouseScroll", onDown)
+	*/
+}
+
+func start
+{
+	isStarted = true
+	sceneManager.start()
+	lang "js" {{{
+		requestAnimationFrame(function(e) { this.onAnimationFrame(e); }.bind(this));
+	}}}
+}
+
+func stop
+{
+	sceneManager.stop()
+	isStarted = false
+}
+
+func cleanup
+{
+	sceneManager.cleanup()
+	sceneManager = null
+}
+
+func createSpriteLayer override as SpriteLayer
+{
+	var ee = HTMLDOM.createElement("div")
+	HTMLDOM.setStyle(ee, "position", "absolute")
+	HTMLDOM.setStyle(ee, "top", "0")
+	HTMLDOM.setStyle(ee, "left", "0")
+	HTMLDOM.setStyle(ee, "width", "100%")
+	HTMLDOM.setStyle(ee, "height", "100%")
+	HTMLDOM.setStyle(ee, "overflow", "hidden")
+	HTMLDOM.appendChild(domElement, ee)
+	var v = new MySpriteLayer()
+	v.setContext(context)
+	v.setElement(ee)
+	return v
+}
+
+func createImageFromResource(name as string) override as Image:
+	return context.getResourceImage(name)
+
+func createTextureForImage(image as Image) override as Texture
+{
+	var v = new MyImageTexture()
+	v.image = image
+	return v
+}
+
+func createTextureForColor(color as Color) override as Texture
+{
+	var v = new MyColorTexture()
+	v.color = color
+	return v
+}
+
+func deleteSpriteLayer(layer as SpriteLayer) override
+{
+	var l = layer as MySpriteLayer
+	if l:
+		l.removeFromContainer()
+}
+
+func deleteTexture(texture as Texture) override
+{
+}
+
+func onPointerEvent(event as PointerEvent)
+{
+	event.x = event.x / lang "js" double {{{ this.domElement.clientWidth }}}
+	event.y = event.y / lang "js" double {{{ this.domElement.clientHeight }}}
+	var scene = sceneManager.getCurrentScene()
+	if scene:
+		scene.onPointerEvent(event)
+}
+
+func onKeyEvent(event as KeyEvent)
+{
+	var scene = sceneManager.getCurrentScene()
+	if scene:
+		scene.onKeyEvent(event)
+}
+
+func onAnimationFrame(timeMilliSeconds as double)
+{
+	if lastFrame == 0:
+		lastFrame = timeMilliSeconds
+	onTick(timeMilliSeconds as long, (timeMilliSeconds - lastFrame) as long)
+	lastFrame = timeMilliSeconds
+	if isStarted {
+		lang "js" {{{
+			requestAnimationFrame(function(e) { this.onAnimationFrame(e); }.bind(this));
+		}}}
+	}
+}
+
+func onTick(totalTime as long, deltaTime as long)
+{
+	if gameTime == null:
+		gameTime = new TimeValue()
+	gameTime.setMilliSeconds(totalTime)
+	// FIXME: Too slow
+	var scene = sceneManager.getCurrentScene()
+	if scene:
+		scene.tick(gameTime, deltaTime / 1000.0)
+}

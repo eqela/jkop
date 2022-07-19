@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +23,7 @@
  */
 
 import jk.fs
+import jk.xml
 import jk.log
 import jk.json
 import jk.text
@@ -354,7 +354,7 @@ func substituteVariables(orig as string, vars as DynamicMap) private as string
 	return sb.toString()
 }
 
-func getVariableValue(vars as DynamicMap, varname as string) as object
+func getVariableValue(vars as DynamicMap, varname as string) as dynamic
 {
 	if vars == null || varname == null:
 		return null
@@ -401,21 +401,19 @@ func getVariableValueString(vars as DynamicMap, varname as string) as string
 	return String.asString(v)
 }
 
-func getVariableValueVector(vars as DynamicMap, varname as string) as vector<object>
+func getVariableValueVector(vars as DynamicMap, varname as string) as vector
 {
 	var v = assert getVariableValue(vars, varname)
-	if v is vector<object>:
-		return v as! vector<object>
-	if v is VectorObject<object> {
-		var vo = v as! VectorObject<object>
-		var vv as vector<object> #force = vo.toVector()
-		return vv
+	if v is vector:
+		return v as! vector
+	if v is VectorObject<dynamic> {
+		var vo = v as! VectorObject<dynamic>
+		return vo.toVector()
 	}
-	if v is ArrayObject<object> {
-		var vo = v as ArrayObject<object>
-		var vv as array<object> #force = vo.toArray()
-		var vvx as vector<object> #force = Vector.forArray(vv)
-		return vvx
+	if v is ArrayObject<dynamic> {
+		var vo = v as ArrayObject<dynamic>
+		var vv = vo.toArray()
+		return Vector.forArray(vv)
 	}
 	if v is DynamicVector {
 		var dv = v as! DynamicVector
@@ -448,7 +446,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 			else {
 				vars.setString("__for_parity", "odd")
 			}
-			vars.setObject(varname, o)
+			vars.setDynamic(varname, o)
 			if doExecute(data, vars, result, importDirs) == false:
 				return false
 			if index == 0:
@@ -642,7 +640,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 			if String.isEmpty(markup) == false {
 				var doc = RichTextDocument.forWikiMarkupString(markup)
 				if doc:
-					result.appendString(doc.toHtml(null))
+					result.appendString(doc.toHtml())
 			}
 		}
 		else if tagname == "printDate" {
@@ -749,7 +747,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				vars.remove(varname)
 			}
 			else {
-				vars.setObject(varname, getVariableValue(vars, vv))
+				vars.setDynamic(varname, getVariableValue(vars, vv))
 			}
 		}
 		else if tagname == "for" || tagname == "if" {

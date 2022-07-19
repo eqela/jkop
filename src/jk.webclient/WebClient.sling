@@ -1,0 +1,116 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.json
+
+class abstract:
+
+func instance static as WebClient
+{
+	IFDEF "target_android" {
+		return new WebClientForAndroid()
+	}
+	ELSE IFDEF "target_j2se" {
+		return new WebClientForJava()
+	}
+	ELSE IFDEF "target_nodejs" {
+		return new WebClientForNodeJS()
+	}
+	ELSE IFDEF "target_js" {
+		return new WebClientForJavaScript()
+	}
+	ELSE IFDEF "target_ios_objc" {
+		return new WebClientForIOS()
+	}
+	ELSE IFDEF "target_swift" {
+		return new WebClientForSwift()
+	}
+	ELSE IFDEF "target_cs" {
+		// FIXME: Should also provide the asynchronous version that can be
+		// used in GUI (?) environments.
+		return new WebClientForDotnetSync()
+	}
+	ELSE {
+		Error.throw("notImplemented", "WebClient.instance")
+		return null
+	}
+}
+
+class Response public
+{
+	prop statusCode as string
+	prop statusMessage as string
+	prop headers as KeyValueListForStrings
+	prop body as buffer
+
+	var bodyAsString as string
+	var bodyAsDynamicMap as DynamicMap
+
+	func getHeaderValue(name as string) as string
+	{
+		assert name
+		assert headers
+		var it = headers.iterate()
+		while it {
+			var vv = it.next()
+			if not vv:
+				break
+			if String.equalsIgnoreCase(name, vv.key):
+				return vv.value
+		}
+		return null
+	}
+
+	func getBodyAsBuffer as buffer
+	{
+		if not body:
+			Error.throw("httpResponseHasNoBody", null)
+		return body
+	}
+
+	func getBodyAsString as string
+	{
+		if bodyAsString:
+			return bodyAsString
+		var v = String.forUTF8Buffer(getBodyAsBuffer())
+		if not v:
+			Error.throw("httpResponseIsNotString", null)
+		bodyAsString = v
+		return v
+	}
+
+	func getBodyAsDynamicMap as DynamicMap
+	{
+		if bodyAsDynamicMap:
+			return bodyAsDynamicMap
+		var v = JSONParser.parseBuffer(getBodyAsBuffer()) as DynamicMap
+		if not v:
+			Error.throw("httpResponseIsNotJsonMap", null)
+		bodyAsDynamicMap = v
+		return v
+	}
+}
+
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async abstract as Response

@@ -1,0 +1,195 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.json
+import jk.webclient
+
+class:
+
+func forBaseUrl(url as string) static as this
+{
+	var v = new this()
+	v.baseUrl = url
+	return v
+}
+
+prop ctx as LoggingContext
+prop baseUrl as string
+
+prop webClient:webClientValue as WebClient
+{
+	get {
+		if not webClientValue:
+			webClientValue = WebClient.instance()
+		return webClientValue
+	}
+}
+
+func executeHttpQuery(method as string, path as string, headers as KeyValueList<string,string>, body as buffer) async as WebClient.Response:
+	return await webClient.executeQuery(ctx, method, baseUrl .. path, headers, body)
+
+func callRemoteFunction(name as string, data as DynamicMap) async as object
+{
+	var dd = data
+	if not dd:
+		dd = new DynamicMap()
+	var bdata = String.toUTF8Buffer(JSONEncoder.encode(dd))
+	var url = baseUrl .. "/func/" .. name
+	var rdata = new DynamicMap()
+	var headers = new KeyValueList<string,string>()
+	headers.add("content-type", "application/json")
+	var wc = webClient
+	var response = await wc.executeQuery(ctx, "POST", url, headers, bdata)
+	var status = response.statusCode
+	var body = response.body
+	if status == null {
+		var detail = new DynamicMap()
+		detail.setString("url", url)
+		detail.setString("error", String.forUTF8Buffer(body))
+		Error.throw("failedToCallRemoteFunction", JSONEncoder.toString(detail))
+	}
+	var str = String.forUTF8Buffer(body)
+	var data = JSONParser.parseString(str) as DynamicMap
+	if not data {
+		var detail = new DynamicMap()
+		detail.setString("url", url)
+		detail.setString("responseBody", str)
+		Error.throw("failedToCallRemoteFunction", JSONEncoder.toString(detail))
+	}
+	else {
+		rdata.mergeFrom(data)
+	}
+	if rdata.getCount() < 1:
+		Error.throw("failedToCallRemoteFunction", url)
+	var statusInBody = rdata.getString("status")
+	if not String.equals(statusInBody, "ok") {
+		if String.equals(statusInBody, "error") {
+			var error = rdata.getString("errorCode")
+			var detail = rdata.getString("errorDetail")
+			if String.isEmpty(error) {
+				error = "errorStatusFromRemoteFunction"
+				if String.isEmpty(detail):
+					detail = name
+			}
+			Error.throw(error, detail)
+		}
+		else {
+			Error.throw("unsupportedRpcStatus", statusInBody)
+		}
+	}
+	return rdata.getObject("data")
+}
+
+func query(name as string, params as map) async
+{
+	var data = DynamicMap.forMap(params)
+	await callRemoteFunction(name, data)
+}
+
+func queryObject(name as string, params as map) async as object
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	return oo
+}
+
+func queryMap(name as string, params as map) async as DynamicMap
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	var vv = oo as DynamicMap
+	if not vv:
+		Error.throw("rpcResponseNotMap", oo)
+	return vv
+}
+
+func queryMapWithPage(name as string, params as map, page as int, recordsPerPage as int) async as DynamicMap
+{
+	var data = DynamicMap.forMap(params)
+	if page >= 0 {
+		data.setInteger("offset", page * recordsPerPage)
+		data.setInteger("limit", recordsPerPage)
+	}
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	var vv = oo as DynamicMap
+	if not vv:
+		Error.throw("responseNotMap", oo)
+	return vv
+}
+
+func queryVector(name as string, params as map) async as DynamicVector
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	var vv = oo as DynamicVector
+	if not vv:
+		Error.throw("rpcResponseNotVector", oo)
+	return vv
+}
+
+func queryString(name as string, params as map) async as string
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	data = null
+	if not oo:
+		return null
+	var vv = oo as string
+	if not vv:
+		Error.throw("rpcResponseNotString", oo)
+	return vv
+}
+
+func queryInteger(name as string, params as map) async as IntegerObject
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	var vv = oo as IntegerObject
+	if not vv:
+		Error.throw("rpcResponseNotInteger", oo)
+	return vv
+}
+
+func queryBoolean(name as string, params as map) async as BooleanObject
+{
+	var data = DynamicMap.forMap(params)
+	var oo = await callRemoteFunction(name, data)
+	if not oo:
+		return null
+	var vv = oo as BooleanObject
+	if not vv:
+		Error.throw("rpcResponseNotBoolean", oo)
+	return vv
+}

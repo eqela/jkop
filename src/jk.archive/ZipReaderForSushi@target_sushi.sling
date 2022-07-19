@@ -1,0 +1,153 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.io
+import jk.fs
+
+class is ZipReader:
+
+class MyZipFileEntryReader is Reader is Closable
+{
+	pvar parent as parent
+
+	func read(buffer as buffer) as int
+	{
+		if not parent:
+			return -1
+		var handle = parent.getHandle()
+		if not handle:
+			return -1
+		if not buffer:
+			return 0
+		return lang "lua" int {{{ _zip:read_get_file_data(handle, buffer) }}}
+	}
+
+	func close
+	{
+		assert parent
+		parent.closeEntryReader()
+	}
+}
+
+class MyZipReaderEntry is ZipReaderEntry
+{
+	pvar parent as parent
+
+	func getContentReader override as Reader
+	{
+		assert parent
+		return parent.getReaderForFile(getName())
+	}
+}
+
+pvar file as File
+var handle as object
+var readerOpen = false
+var entryReader as MyZipFileEntryReader
+
+ctor
+{
+	entryReader = new MyZipFileEntryReader()
+	entryReader.setParent(this)
+}
+
+func getHandle private as object:
+	return handle
+
+func initialize as this
+{
+	assert file
+	var path = assert file.getPath()
+	if handle:
+		close()
+	handle = lang "lua" object {{{ _zip:read_open(path) }}}
+	if not handle:
+		return null
+	return this
+}
+
+func closeEntryReader private
+{
+	if readerOpen {
+		lang "lua" {{{
+			_zip:read_close_file(handle)
+		}}}
+		readerOpen = false
+	}
+}
+
+func getReaderForFile(filename as string) private as Reader
+{
+	var handle = assert this.handle
+	var name = assert filename
+	closeEntryReader()
+	assert lang "lua" int {{{ _zip:read_open_file(handle, name) }}} == 1
+	return entryReader
+}
+
+func getEntries override as vector<ZipReaderEntry>
+{
+	var handle = assert this.handle
+	var v = new vector<ZipReaderEntry>
+	if lang "lua" int {{{ _zip:read_first(handle) }}} == 0:
+		return null
+	loop {
+		var name as string
+		var compressedSize as long
+		var uncompressedSize as long
+		var mode as long
+		lang "lua" {{{
+			name, compressedSize, uncompressedSize, mode = _zip:read_entry_info(handle)
+		}}}
+		if not name:
+			break
+		var entry = new MyZipReaderEntry()
+		entry.setParent(this)
+		entry.setName(name)
+		entry.setCompressedSize(compressedSize)
+		entry.setUncompressedSize(uncompressedSize)
+		entry.setMode(mode as int)
+		v += entry
+		var r = lang "lua" int {{{ _zip:read_next(handle) }}}
+		if r == 0:
+			return null
+		if r == 1:
+			continue
+		if r == 2:
+			break
+	}
+	return v
+}
+
+func close override
+{
+	closeEntryReader()
+	var handle = this.handle
+	if handle {
+		lang "lua" {{{
+			_zip:read_close(handle)
+		}}}
+		handle = null
+	}
+}

@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,18 +24,78 @@
 
 class:
 
-func createClassInstance(qualifiedName as string) static as object
+func createClassInstanceByName(qualifiedName as string) static as dynamic
 {
-	ERROR "Not implemented."
-	// FIXME
-	return null
+	assert String.isNotEmpty(qualifiedName)
+	IFDEF "target_sushi" {
+		var code = " return _g." .. qualifiedName .. "._construct0(_g." .. qualifiedName .. "._create())"
+		var ff = assert lang "lua" function<dynamic> {{{ _vm:parse_to_function(code) }}}
+		return ff()
+	}
+	ELSE IFDEF "target_nodejs" {
+		var lin = String.getLastIndexOfCharacter(qualifiedName, '.')
+		var length = String.getLength(qualifiedName)
+		var className = String.getSubString(qualifiedName, lin, length - lin)
+		var module = String.getSubString(qualifiedName, 0, lin)
+		var ff as dynamic
+		lang "js" {{{
+			const ev = "require(\'./" + module + "\')" + className + ".NEW()";
+			ff = eval(ev);
+		}}}
+		return ff
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
 }
 
-func callMethod(object as object, methodName as string, arguments as array<dynamic>) static as dynamic
+func createClassInstanceByTypeinfo(type as typeinfo) static as dynamic
 {
-	ERROR "Not implemented."
-	// FIXME
-	return null
+	IFDEF "target_sushi" {
+		var typename = lang "lua" string {{{ type }}}
+		assert String.startsWith(typename, "class:")
+		typename = String.getEndOfString(typename, 6)
+		return createClassInstanceByName(typename)
+	}
+	ELSE IFDEF "target_nodejs" {
+		var ff as dynamic
+		lang "js" {{{
+			ff = _type.NEW();
+		}}}
+		return ff
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
+}
+
+func callMethod(objectInstance as object, methodName as string, arguments as array<dynamic>) static as dynamic
+{
+	IFDEF "target_sushi" {
+		var sb = new StringBuilder()
+		sb.appendString("return function(object, arguments) return object:")
+		sb.appendString(methodName)
+		sb.appendString("(")
+		var sz = sizeof arguments
+		for(var n=0; n<sz; n++) {
+			if n > 0:
+				sb.appendString(",")
+			sb.appendString("arguments[")
+			sb.appendInteger(n+1)
+			sb.appendString("]")
+		}
+		sb.appendString(") end")
+		var code = sb.toString()
+		var ff = assert lang "lua" function<function<dynamic,object,array<dynamic>>> {{{ _vm:parse_to_function(code) }}}
+		var ffx = assert ff()
+		return ffx(objectInstance, arguments)
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
 }
 
 func getDataTypeInfo(variable as dynamic) static as typeinfo:
@@ -55,19 +114,31 @@ func isSameType(primary as object, other as object) static as bool
 	return false
 }
 
-func isInstanceOf(object as object, type as typeinfo) static as bool
+func isInstanceOf(objectInstance as object, type as typeinfo) static as bool
 {
-	assert object
+	assert objectInstance
 	IFDEF "target_cs" {
 		lang "cs" {{{
 			if(type == null) {
 				return false;
 			}
 		}}}
-		return lang "cs" bool {{{ type.IsAssignableFrom(@object.GetType()) }}}
+		return lang "cs" bool {{{ type.IsAssignableFrom(objectInstance.GetType()) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _vm:is_instance_of(object, type) }}}
+		return lang "lua" bool {{{ _vm:is_instance_of(objectInstance, type) }}}
+	}
+	ELSE IFDEF "target_js" {
+		var tt = type
+		lang "js" {{{
+			if(typeof tt.IS_INSTANCE === 'function') {
+				return tt.IS_INSTANCE(objectInstance)
+			}
+			if(typeof tt === 'function') {
+				return objectInstance instanceof tt
+			}
+		}}}
+		return false
 	}
 	ELSE {
 		ERROR "Not implemented"

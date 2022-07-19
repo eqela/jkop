@@ -1,0 +1,93 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class implements !"FIRMessagingDelegate", !"UNUserNotificationCenterDelegate":
+
+depend "objc-header-h:<UIKit/UIKit.h>"
+depend "objc-header-h:<UserNotifications/UserNotifications.h>"
+depend "objc-header-h:<FirebaseCore/FirebaseCore.h>"
+depend "objc-header-h:<FirebaseAnalytics/FirebaseAnalytics.h>"
+depend "objc-header-h:<FirebaseMessaging/FirebaseMessaging.h>"
+depend "objc-framework:UserNotifications"
+depend "objc-framework:FirebaseAnalytics"
+depend "objc-framework:FirebaseCore"
+depend "objc-framework:FirebaseCoreDiagnostics"
+depend "objc-framework:FirebaseInstanceID"
+depend "objc-framework:GoogleToolboxForMac"
+depend "objc-framework:nanopb"
+depend "objc-framework:FirebaseMessaging"
+depend "objc-framework:Protobuf"
+
+pvar listener as FCMMessagingListener
+
+lang "objc" {{{
+	- (void)messaging:(nonnull FIRMessaging *)messaging didReceiveRegistrationToken:(nonnull NSString *)fcmToken {
+		[self onFCMTokenReceived:fcmToken];
+	}
+}}}
+
+**
+** Handles a received FCM token, passing it to the configured instance
+** implementing the FCMMessagingListener interface, if there is.
+**
+
+func onFCMTokenReceived(fcmToken as string) private
+{
+	assert listener
+	listener.onFCMTokenReceived(fcmToken)
+}
+
+var instance static private as this
+
+**
+** Configures the Firebase Cloud Messaging for iOS push notification.
+**
+
+func configure(application as !"UIApplication", listener as FCMMessagingListener) static
+{
+	assert listener && not instance
+	instance = new this()
+	instance.setListener(listener)
+	var instancef final #used = instance
+	lang "objc" {{{
+		[FIRApp configure];
+		[FIRMessaging messaging].delegate = instancef;
+		if([UNUserNotificationCenter class] != nil) {
+			// iOS 10 or later
+			// For iOS 10 display notification (sent via APNS)
+			[UNUserNotificationCenter currentNotificationCenter].delegate = self;
+			UNAuthorizationOptions authOptions = UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge;
+			[[UNUserNotificationCenter currentNotificationCenter] requestAuthorizationWithOptions:authOptions completionHandler:^(BOOL granted, NSError * _Nullable error) {
+				// ...
+			}];
+		}
+		else {
+			// iOS 10 notifications aren't available; fall back to iOS 8-9 notifications.
+			UIUserNotificationType allNotificationTypes = (UIUserNotificationTypeSound | UIUserNotificationTypeAlert | UIUserNotificationTypeBadge);
+			UIUserNotificationSettings *settings = [UIUserNotificationSettings settingsForTypes:allNotificationTypes categories:nil];
+			[application registerUserNotificationSettings:settings];
+		}
+		[application registerForRemoteNotifications];
+	}}}
+}

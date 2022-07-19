@@ -1,0 +1,319 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.common
+
+class #widget:
+
+class MyAutoSuggestInputWidget is AutoSuggestInputWidget #widget
+{
+	pvar searchDataCallback as function
+	pvar listener as InputFieldListener
+	pvar noRecordFoundError as function<void, string>
+	var widgetContext as GuiApplicationContext
+	var suggestionItems as map<string, Widget>
+	var suggestionLabel as map<string, Widget>
+	var itemLabels as vector<string>
+	var currentFocus as int
+	var currentItem as string
+	pvar selectedItem as string
+	var lastItem as string
+	var timer as GuiApplicationContext.TimerObject
+
+	ctor(ctx as GuiApplicationContext)
+	{
+		base(ctx)
+		widgetContext = ctx
+		suggestionItems = new map<string, Widget>
+		suggestionLabel = new map<string, Widget>
+		itemLabels = new vector<string>
+		setWidgetOnEnterKeyPressed(func {
+			onWidgetEnterKeyPressed()
+		})
+		setWidgetOnArrowUpKeyPressed(func {
+			onWidgetArrowUpPressed()
+		})
+		setWidgetOnArrowDownKeyPressed(func {
+			onWidgetArrowDownPressed()
+		})
+	}
+
+	func onWidgetEnterKeyPressed
+	{
+		setWidgetText(currentItem)
+		selectedItem = currentItem
+		var handler = getWidgetValueChangeHandler()
+		if handler:
+			handler()
+		closePopup()
+	}
+
+	func onWidgetArrowDownPressed
+	{
+		if currentFocus == Vector.getSize(itemLabels) - 1 {
+			removeActive(itemLabels[Vector.getSize(itemLabels) - 1])
+			currentFocus = -1
+		}
+		currentFocus++
+		lastItem = itemLabels[currentFocus - 1]
+		removeActive(lastItem)
+		currentItem = itemLabels[currentFocus]
+		addActive(currentItem)
+	}
+
+	func onWidgetArrowUpPressed
+	{
+		if currentFocus == 0 {
+			removeActive(itemLabels[currentFocus])
+			currentFocus = Vector.getSize(itemLabels)
+		}
+		currentFocus--
+		lastItem = itemLabels[currentFocus + 1]
+		removeActive(lastItem)
+		currentItem = itemLabels[currentFocus]
+		addActive(currentItem)
+	}
+
+	func removeActive(title as string)
+	{
+		assert String.isNotEmpty(title)
+		var layerWidget = Map.get(suggestionItems, title) as LayerWithBackgroundColorWidget
+		if layerWidget:
+			layerWidget.setWidgetColor(Color.white())
+		var labelWidget = Map.get(suggestionLabel, title) as LabelWidget
+		if labelWidget:
+			labelWidget.setWidgetTextColor(Color.black())
+	}
+
+	func addActive(title as string)
+	{
+		assert String.isNotEmpty(title)
+		var layerWidget = Map.get(suggestionItems, title) as LayerWithBackgroundColorWidget
+		if layerWidget:
+			layerWidget.setWidgetColor(Color.instance("orange"))
+		var labelWidget = Map.get(suggestionLabel, title) as LabelWidget
+		if labelWidget:
+			labelWidget.setWidgetTextColor(Color.white())
+	}
+
+	func onWidgetTextChanged override
+	{
+		if String.isNotEmpty(selectedItem):
+			selectedItem = null
+		if String.getLength(getWidgetText()) >= 2 {
+			if timer:
+				timer.cancel()
+			timer = widgetContext.startTimer(200, func {
+				if searchDataCallback:
+					searchDataCallback()
+			})
+		}
+		else {
+			clearItems()
+			closePopup()
+		}
+	}
+
+	func displaySuggestion(items as vector<string>)
+	{
+		assert Vector.getSize(items) >= 1 {
+			if noRecordFoundError:
+				noRecordFoundError(getDefaultNoRecordMessage())
+		}
+		clearItems()
+		Map.clear(suggestionItems)
+		Vector.clear(itemLabels)
+		currentFocus = 0
+		currentItem = items[currentFocus]
+		setWidgetItems(items)
+		addSuggestedItems()
+		showPopup()
+	}
+
+	func createWidgetItem(title as string, isFirst as bool = false, index as int = 0) override as Widget
+	{
+		var textColor = Color.black()
+		var backgroundColor = Color.white()
+		var outlineWidth = widgetContext.getHeightValue("1px")
+		var padding = widgetContext.getHeightValue("1000um")
+		var fontSize = widgetContext.getHeightValue("2mm")
+		var lbl = LabelWidget.forText(widgetContext, title)
+		var layer = new LayerWithBackgroundColorWidget(widgetContext)
+		if isFirst {
+			lbl.setWidgetTextColor(Color.white())
+			layer.setWidgetColor(Color.instance("orange"))
+		}
+		else {
+			lbl.setWidgetTextColor(Color.black())
+			layer.setWidgetColor(Color.white())
+		}
+		layer.setWidgetOutlineColor(Color.instance("#f1f1f1"))
+		layer.setWidgetOutlineWidth(outlineWidth)
+		layer.addWidget(LayerWidget.forWidget(widgetContext, lbl, padding))
+		if String.isNotEmpty(title) {
+			Widget.setWidgetClickHandler(layer, func {
+				setWidgetText(title)
+				selectedItem = title
+				if listener:
+					listener.onValueChange(String.isEmpty(title))
+				var handler = getWidgetValueChangeHandler()
+				if handler:
+					handler()
+				closePopup()
+			})
+		}
+		layer.setWidgetMouseOver(func {
+			removeActive(itemLabels[currentFocus])
+			currentItem = title
+			currentFocus = index
+			addActive(title)
+		})
+		layer.setWidgetMouseOut(func {
+			removeActive(title)
+		})
+		itemLabels += title
+		Map.set(suggestionItems, title, layer)
+		Map.set(suggestionLabel, title, lbl)
+		return layer
+	}
+}
+
+ui LayerWithBackgroundColorWidget
+{
+	outlineColor = context.getStyleColor("jkop-kit", "inputFieldOutlineColor", "#CCCCCC")
+	outlineWidth = context.getHeightValue("1px")
+	MyAutoSuggestInputWidget input {
+		onFocusHandler = func {
+			onDetectFocusChange()
+		}
+		onLoseFocusHandler = func {
+			onDetectFocusChange()
+		}
+	}
+}
+
+var focus = false
+var listener as InputFieldListener
+
+func setWidgetOnLoseFocusHandler(handler as function)
+{
+	assert input
+	input.setWidgetOnLoseFocusHandler(func {
+		onDetectFocusChange()
+		if handler:
+			handler()
+	})
+}
+
+func setWidgetInputFieldListener(l as InputFieldListener) as this
+{
+	listener = l
+	if not input:
+		forceCreateWidget()
+	input.setListener(listener)
+	return this
+}
+
+func setWidgetText(value as string) as this
+{
+	if not input:
+		forceCreateWidget()
+	input.setWidgetText(value)
+	eventHandler()
+	return this
+}
+
+func setWidgetSearchData(callback as function) as this
+{
+	input.setSearchDataCallback(callback)
+	return this
+}
+
+func setWidgetNoRecordFoundError(callback as function<void, string>):
+	input.setNoRecordFoundError(callback)
+
+func displaySuggestion(items as vector<string>) as this
+{
+	input.displaySuggestion(items)
+	return this
+}
+
+func getWidgetText as string:
+	return input.getWidgetText()
+
+func getSelectedItem as string:
+	return input.getSelectedItem()
+
+func setWidgetItems(items as vector<string>):
+	input.setWidgetItems(items)
+
+func getWidgetItems as vector<string>:
+	return input.getWidgetItems()
+
+func setWidgetPlaceholder(value as string) as this
+{
+	input.setWidgetPlaceholder(value)
+	return this
+}
+
+func setWidgetTextChangeHandler(handler as function) as this
+{
+	input.setWidgetTextChangeHandler(handler)
+	return this
+}
+
+func setDefaultNoRecordMessage(errorMessage as string):
+	input.setDefaultNoRecordMessage(errorMessage)
+
+func setWidgetValueChangeHandler(handler as function) as this
+{
+	if handler:
+		input.setWidgetValueChangeHandler(handler)
+	return this
+}
+
+func onDetectFocusChange private
+{
+	focus = !focus
+	if focus {
+		setWidgetOutlineColor(context.getStyleColor("jkop-kit", "inputFieldFocusOutlineColor", "#000000"))
+	}
+	else {
+		setWidgetOutlineColor(context.getStyleColor("jkop-kit", "inputFieldOutlineColor", "#CCCCCC"))
+		eventHandler()
+	}
+}
+
+func eventHandler private
+{
+	var value = getWidgetText()
+	var empty = false
+	if String.isEmpty(value):
+		empty = true
+	if listener:
+		listener.onValueChange(empty)
+}
+
+func closeAutoSuggestPopup:
+	input.closePopup()

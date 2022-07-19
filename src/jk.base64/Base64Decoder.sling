@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -101,24 +100,33 @@ func decode(text as string) static as buffer
 	ELSE IFDEF "target_cs" {
 		return lang "cs" buffer {{{ System.Convert.FromBase64String(text) }}}
 	}
-	ELSE IFDEF "target_js" {
+	ELSE IFDEF "target_browser" {
 		lang "js" {{{
-			var binaryString = window.atob(text);
-			var len = binaryString.length;
-			var buffer = new ArrayBuffer(len);
-			var arr = new Uint8Array(buffer);
-			for(var i = 0; i < len; i++) {
-				arr[i] = binaryString.charCodeAt(i);
-			}
-			if(buffer != null) {
-				return buffer;
+			try {
+				var binaryString = window.atob(text);
+				var len = binaryString.length;
+				var buffer = new ArrayBuffer(len);
+				var arr = new Uint8Array(buffer);
+				for(var i = 0; i < len; i++) {
+					arr[i] = binaryString.charCodeAt(i);
+				}
+				if(buffer != null) {
+					return buffer;
+				}
+			} catch(e) {
+				console.log("Exception: " + e.message);
+				return null;
 			}
 		}}}
 		return null
 	}
+	ELSE IFDEF "target_js" {
+		return lang "js" buffer {{{ Buffer.from(text, "base64") }}}
+	}
 	ELSE {
-		var data = malloc 0
+		var data = Buffer.allocate(String.getLength(text))
 		var iter = String.iterate(text)
+		var dstIndex = 0
 		if iter {
 			var ch = 0 as char
 			while (ch = iter.getNextChar()) > 0 {
@@ -126,13 +134,13 @@ func decode(text as string) static as buffer
 				var c2 = 0
 				var c3 = 0
 				var c4 = 0
-				var byte1 as uint8 = 0
-				var byte2 as uint8 = 0
-				var byte3 as uint8 = 0
+				var byte1 = 0 as uint8
+				var byte2 = 0 as uint8
+				var byte3 = 0 as uint8
 				c1 = fromLookupChar(ch)
 				c2 = fromLookupChar(ch = iter.getNextChar())
 				byte1 = ((c1 << 2) + (c2 >> 4)) as uint8
-				data = appendByte(data, byte1)
+				data[dstIndex++] = byte1
 				ch = iter.getNextChar()
 				if ch == '=' {
 					break
@@ -140,8 +148,8 @@ func decode(text as string) static as buffer
 				else {
 					c3 = fromLookupChar(ch)
 				}
-				byte2 = (((c2 & 0x0F) << 4) + (c3 >> 2))
-				data = appendByte(data, byte2)
+				byte2 = (((c2 & 0x0F) << 4) + (c3 >> 2)) as uint8
+				data[dstIndex++] = byte2
 				ch = iter.getNextChar()
 				if ch == '=' {
 					break
@@ -149,10 +157,11 @@ func decode(text as string) static as buffer
 				else {
 					c4 = fromLookupChar(ch)
 				}
-				byte3 = (((c3 & 0x03) << 6) + c4)
-				data = appendByte(data, byte3)
+				byte3 = (((c3 & 0x03) << 6) + c4) as uint8
+				data[dstIndex++] = byte3
 			}
 		}
-		return data
+		var rdata = Buffer.resize(data, dstIndex)
+		return rdata
 	}
 }

@@ -1,0 +1,163 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.core
+import jk.widget
+import jk.json
+
+class is WidgetWithValue #widget:
+
+ui FormFieldWidget
+{
+	HorizontalBoxWidget {
+		spacing = context.getHeightValue("4mm")
+		AlignWidget : 0.4 {
+			LabelWidget label : 1.0, 0.5 {
+				fontSize = context.getStylePixels("jkop-kit", "regularFont")
+				textColor = context.getStyleColor("jkop-kit", "textColor", "#000000")
+				fontFamily = context.getStyleString("jkop-kit", "fontFamilyRegular", "Arial")
+			}
+		}
+		HorizontalBoxWidget code : 1.0 {
+			spacing = context.getHeightValue("1mm")
+		}
+	}
+}
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+pvar codeLabel as LabelWidget
+pvar select as SelectFieldWidget
+pvar codeContainer as Widget
+pvar codeFieldDropDown as bool
+var input as TextFieldWidget
+pvar codeLabelValue as string
+pvar placeholderValue as string
+pvar widgetValidator as function<Error, string>
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	if getCodeFieldDropDown() {
+		select = new SelectFieldWidget(context)
+		codeContainer = new VerticalBoxWidget(context)
+		code.addWidgetWithProperties(select, 0.12)
+	}
+	else {
+		codeLabel = new LabelWidget(context)
+		codeLabel.setWidgetTextColor(context.getStyleColor("jkop-kit", "textColor", "#000000"))
+		codeLabel.setWidgetFontFamily(context.getStyleString("jkop-kit", "fontFamilyRegular", "Arial"))
+		codeLabel.setWidgetFontSize(context.getStylePixels("jkop-kit", "regularFont"))
+		if codeLabelValue:
+			setWidgetAreaLabel(codeLabelValue)
+		codeContainer = AlignWidget.forWidget(context, codeLabel, 1.0)
+		code.addWidgetWithProperties(codeContainer, 0.1)
+	}
+	input = new TextFieldWidget(context)
+	input.setWidgetInputFieldListener(this)
+	input.setWidgetType(TextFieldWidget.TYPE_PHONE_NUMBER)
+	if String.isNotEmpty(placeholderValue):
+		setWidgetPlaceholder(placeholderValue)
+	code.addWidgetWithProperties(input, 1.0)
+}
+
+func setWidgetFormLabel(value as string) as this
+{
+	label.setWidgetText(value)
+	return this
+}
+
+func setWidgetPlaceholder(value as string) as this
+{
+	assert input
+	input.setWidgetPlaceholder(value)
+	return this
+}
+
+func setWidgetAreaLabel(str as string) as this
+{
+	if codeLabel:
+		codeLabel.setWidgetText(str)
+	return this
+}
+
+func setWidgetFormValue(value as string) as this
+{
+	input.setWidgetText(value)
+	return this
+}
+
+func setInputMaxLength(len as int) as this
+{
+	input.setInputMaxLength(len)
+	return this
+}
+
+func setWidgetValue(value as object)
+{
+	var data as DynamicMap
+	if value is DynamicMap {
+		data = value as! DynamicMap
+	}
+	else {
+		data = JSONParser.parseString(String.asString(value)) as DynamicMap
+	}
+	if not data:
+		data = new DynamicMap()
+	var code = " -- "
+	if String.isNotEmpty(data.getString("code")):
+		code = data.getString("code")
+	setWidgetAreaLabel(code)
+	setWidgetFormValue(data.getString("number"))
+}
+
+func getWidgetValue as object
+{
+	var data = new DynamicMap()
+	data.setString("code", codeLabel.getWidgetText())
+	data.setString("number", input.getWidgetText())
+	return data
+}
+
+func setWidgetType(type as int) as this
+{
+	input.setWidgetType(type)
+	return this
+}
+
+func validateInputValue override as Error
+{
+	assert widgetValidator
+	return widgetValidator(input.getWidgetText())
+}
+
+func validFeedback override:
+	input.setWidgetOutlineColor(Color.instance("#34c38f"))
+
+func invalidFeedback override:
+	input.setWidgetOutlineColor(Color.instance("#f46a6a"))

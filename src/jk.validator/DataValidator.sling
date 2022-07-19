@@ -1,0 +1,382 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func isEmailAddressValid(emailAddress as string) static as bool
+{
+	meta
+	{
+		description [[
+			Addr-Spec Specification
+			Reference https://tools.ietf.org/html/rfc5322#page-17
+		]]
+	}
+	if String.isEmpty(emailAddress):
+		return false
+	if String.getLength(emailAddress) > 254:
+		return false
+	var ci = String.iterate(emailAddress)
+	if not ci:
+		return false
+	var insideQuotation = false
+	var outsideQuotation = false
+	var dotPreceded = false
+	var isFirstCharacter = true
+	var containsAtCharacter = false
+	var i = -1
+	loop {
+		i ++
+		var c = ci.getNextChar()
+		if c < 1:
+			break
+		if outsideQuotation {
+			if c != 46 && c != 64:
+				return false
+		}
+		if c >= 65 && c <= 90 {
+			;
+		}
+		else if c >= 97 && c <= 122 {
+			;
+		}
+		else if c >= 48 && c <= 57 {
+			;
+		}
+		else if c == 33 {
+			;
+		}
+		else if c >= 35 && c <= 39 {
+			;
+		}
+		else if c == 42 {
+			;
+		}
+		else if c == 43 {
+			;
+		}
+		else if c == 45 {
+			;
+		}
+		else if c == 47 {
+			;
+		}
+		else if c == 61 {
+			;
+		}
+		else if c == 63 {
+			;
+		}
+		else if c >= 94 && c <= 96 {
+			;
+		}
+		else if c >= 123 && c <= 126 {
+			;
+		}
+		else if c == 46 {
+			if isFirstCharacter:
+				return false
+			if dotPreceded && not insideQuotation:
+				return false
+			dotPreceded = true
+			continue
+		}
+		else if c == 32 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 34 {
+			if insideQuotation {
+				insideQuotation = false
+				outsideQuotation = true
+			}
+			else {
+				if not isFirstCharacter && not dotPreceded:
+					return false
+				insideQuotation = true
+				outsideQuotation = false
+			}
+		}
+		else if c == 40 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 41 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 44 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 58 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 59 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 60 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 62 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 64 {
+			if isFirstCharacter:
+				return false
+			if not insideQuotation {
+				if dotPreceded:
+					return false
+				containsAtCharacter = true
+				break
+			}
+		}
+		else if c == 91 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 92 {
+			if not insideQuotation:
+				return false
+		}
+		else if c == 93 {
+			if not insideQuotation:
+				return false
+		}
+		else {
+			return false
+		}
+		isFirstCharacter = false
+		dotPreceded = false
+	}
+	if i < 0:
+		return false
+	if (i > 64):
+		return false
+	if not containsAtCharacter:
+		return false
+	var domain = String.getEndOfString(emailAddress, i + 1)
+	if String.isEmpty(domain):
+		return false
+	if String.getLength(domain) > 253:
+		return false
+	if String.startsWith(domain, "[") {
+		if not String.endsWith(domain, "]"):
+			return false
+		var ip = String.getSubString(domain, 1, String.getLength(domain) - 2)
+		if String.isEmpty(ip):
+			return false
+		var nodes = String.split(ip, '.')
+		if not nodes || Vector.getSize(nodes) != 4:
+			return false
+		foreach node in nodes {
+			ci = String.iterate(node)
+			loop {
+				var c = ci.getNextChar()
+				if c < 1:
+					break
+				if c >= 48 && c <= 57 {
+					;
+				}
+				else {
+					return false
+				}
+			}
+			var n = String.toInteger(node)
+			if n < 0 || n > 255:
+				return false
+		}
+		return false
+	}
+	var domains = String.split(domain, '.')
+	if Vector.getSize(domains) <= 1:
+		return false
+	foreach label in domains {
+		if String.isEmpty(label):
+			return false
+		if String.getLength(label) > 63:
+			return false
+		ci = String.iterate(label)
+		if not ci:
+			return false
+		var hyphenPreceded = false
+		isFirstCharacter = true
+		loop {
+			var c = ci.getNextChar()
+			if c < 1:
+				break
+			if c >= 65 && c <= 90 {
+				;
+			}
+			else if c >= 97 && c <= 122 {
+				;
+			}
+			else if c >= 48 && c <= 57 {
+				;
+			}
+			else if c == 45 {
+				if isFirstCharacter:
+					return false
+				hyphenPreceded = true
+				isFirstCharacter = false
+				continue
+			}
+			else {
+				return false
+			}
+			hyphenPreceded = false
+			isFirstCharacter = false
+		}
+		if hyphenPreceded:
+			return false
+	}
+	return true
+}
+
+func checkPassword(password as string, minimum as int = 8, maximun as int = 64) static as Error
+{
+	if String.isEmpty(password):
+		return Error.forCode("noPassword")
+	var min = minimum
+	if min < 8:
+		min = 8
+	if String.getLength(password) < min:
+		return Error.forCode("passwordLengthLessThanMinimum")
+	var max = maximun
+	if max < 64:
+		max = 64
+	if String.getLength(password) > max:
+		return Error.forCode("passwordLengthMoreThanMaximum")
+	var hasLowerAlpha = false
+	var hasUpperAlpha = false
+	var hasNumeric = false
+	var hasSpecial = false
+	var previousChar as char
+	var sChar as char
+	var count = 1
+	var ci = String.iterate(password)
+	loop {
+		var c = ci.getNextChar()
+		if c < 1:
+			break
+		if c > 32 && c < 127 {
+			if previousChar == c {
+				count++
+				if count == 3 :
+					return Error.forCode("passwordHasRepetitiveCharacters")
+				previousChar = c
+			}
+			else {
+				if c == (previousChar + 1) {
+					sChar = c
+				}
+				else if c == (sChar + 1) {
+					return Error.forCode("passwordHasSequentialCharacters")
+				}
+				else {
+					previousChar = c
+				}
+			}
+			if c >= 65 && c <= 90 {
+				hasUpperAlpha = true
+			}
+			else if c >= 97 && c <= 122 {
+				hasLowerAlpha = true
+			}
+			else if c >= 48 && c <= 57 {
+				hasNumeric = true
+			}
+			else {
+				hasSpecial = true
+			}
+			continue
+		}
+		return Error.forCode("passwordHasUnknownCharacter")
+	}
+	if hasUpperAlpha && hasLowerAlpha == false && hasNumeric == false && hasSpecial == false {
+		return Error.forCode("passwordHasNoAlphanumericCharacterCombination")
+	}
+	else if hasLowerAlpha && hasUpperAlpha && hasNumeric == false && hasSpecial == false {
+		return Error.forCode("passwordHasNoNumericAndSpecialCharacterCombination")
+	}
+	else if hasNumeric == false {
+		return Error.forCode("passwordHasNoNumericCharacter")
+	}
+	else if hasLowerAlpha == false {
+		return Error.forCode("passwordHasNoLowercase")
+	}
+	else if hasUpperAlpha == false {
+		return Error.forCode("passwordHasNoUppercase")
+	}
+	else if hasSpecial == false {
+		return Error.forCode("passwordHasNoSpecialCharacter")
+	}
+	return null
+}
+
+func isNameValid(name as string) static as bool
+{
+	if String.isEmpty(name):
+		return false
+	var ci = String.iterate(name)
+	var isFirstCharacter = true
+	var spacePreceded = false
+	var hyphenPreceded = false
+	loop {
+		var c = ci.getNextChar()
+		if c < 1:
+			break
+		if c == 32 {
+			if isFirstCharacter:
+				return false
+			if spacePreceded:
+				return false
+			spacePreceded = true
+			continue
+		}
+		if c == 45 {
+			if isFirstCharacter:
+				return false
+			if hyphenPreceded:
+				return false
+			hyphenPreceded = true
+			continue
+		}
+		isFirstCharacter = false
+		spacePreceded = false
+		hyphenPreceded = false
+		if c == 164 || c == 165 || (c >= 65 && c <= 90) || (c >= 97 && c <= 122):
+			continue
+		return false
+	}
+	if spacePreceded:
+		return false
+	if hyphenPreceded:
+		return false
+	return true
+}

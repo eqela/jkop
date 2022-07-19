@@ -1,0 +1,174 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2020-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.widget.uikit.boxicons
+
+class #widget:
+
+class RangeControlWidget #widget
+{
+	ui LayerWidget
+	{
+		widthRequest = context.getHeightValue("4mm")
+		heightRequest = context.getHeightValue("4mm")
+		CanvasWidget outline {
+			color = Color.instance("#000000")
+			roundingRadius = context.getHeightValue("800um")
+		}
+		LayerWidget {
+			margin = context.getHeightValue("10um")
+			CanvasWidget cirle {
+				color = Color.instance("#ffffff")
+				roundingRadius = context.getHeightValue("800um")
+			}
+		}
+	}
+
+	func setWidgetColor(color as Color):
+		cirle.setWidgetColor(color)
+
+	func setWidgetRoundingRadius(radius as int #notLiteral)
+	{
+		outline.setWidgetRoundingRadius(radius)
+		cirle.setWidgetRoundingRadius(radius)
+	}
+}
+
+ui HorizontalBoxWidget
+{
+	margin = context.getStylePixels("jkop-kit", "spacing", "3mm")
+	AlignWidget : 0.0 {
+		BoxIconWidget minusIcon : 0.0, 0.5 {
+			icon = "minus"
+			fontSize = context.getHeightValue("6mm")
+		}
+	}
+	LayerWidget con : 1.0 {
+		AlignWidget {
+			LayerWidget : 0.5, 0.5, true {
+				marginLeft = context.getHeightValue("2mm")
+				marginRight = context.getHeightValue("2mm")
+				heightRequest = context.getHeightValue("500um")
+				CanvasWidget prange {
+					color = Color.instance("#000000")
+				}
+				CanvasWidget range {
+					color = Color.instance("#000000")
+				}
+			}
+			RangeControlWidget control : 0.0, 0.5 {
+			}
+		}
+	}
+	AlignWidget {
+		BoxIconWidget plusIcon : 1.0, 0.5 {
+			icon = "plus"
+			fontSize = context.getHeightValue("6mm")
+		}
+	}
+}
+
+pvar widgetControlChangeListener as function<void, double>
+pvar widgetRangeColor as Color
+var currentLength as double
+var widget as Widget
+
+ctor(ctx as GuiApplicationContext)
+{
+	base(ctx)
+	forceCreateWidget()
+}
+
+func initializeWidget override
+{
+	base.initializeWidget()
+	Widget.setWidgetPointerHandlers(con, onStartHandler, onTouchHandler, onEndHandler)
+	Widget.setWidgetClickHandler(plusIcon, func {
+		onChangedControlValuehandler(currentLength+=3)
+	})
+	Widget.setWidgetClickHandler(minusIcon, func {
+		onChangedControlValuehandler(currentLength-=3)
+	})
+}
+
+func isInside(x as double, y as double, w as Widget) private as bool
+{
+	var wx = Widget.getX(w)
+	var wy = Widget.getY(w)
+	return x >= wx && y >= wy && x <= wx + Widget.getWidth(w) && y <= wy + Widget.getHeight(w)
+}
+
+func onStartHandler(x as double, y as double) private
+{
+	resetControlWidget()
+	if isInside(x, y, control) {
+		widget = control
+		currentLength = x
+	}
+}
+
+func onTouchHandler(x as double, y as double) private
+{
+	var rightX = Widget.getWidth(prange) as! double
+	var leftX = Widget.getX(prange) as! double
+	if x > rightX:
+		x = rightX
+	if x < leftX:
+		x = leftX
+	var dx = Widget.getX(control) + (x - currentLength) as int
+	onChangedControlValuehandler(dx)
+}
+
+func onChangedControlValuehandler(val as double) private
+{
+	moveControl(val)
+	currentLength = val
+	if widgetControlChangeListener:
+		widgetControlChangeListener(val)
+}
+
+func onEndHandler(x as double, y as double) private:
+	resetControlWidget()
+
+func resetControlWidget:
+	widget = null
+
+func moveControl(value as double)
+{
+	resetControlWidget()
+	Widget.move(control, value as! int, Widget.getY(control))
+	updateInsideOfRangeCanvas()
+}
+
+func updateInsideOfRangeCanvas private
+{
+	var x = Widget.getWidth(control)
+	range.setWidgetColor(widgetRangeColor)
+	var width = (Widget.getX(control) + Widget.getWidth(control) / 2) - x
+	Widget.setLayoutSize(range, width, Widget.getHeight(range))
+	Widget.move(range, Widget.getX(prange), Widget.getY(range))
+}
+
+func setWidgetRoundingRadius(radius as int #notLiteral):
+	control.setWidgetRoundingRadius(radius)

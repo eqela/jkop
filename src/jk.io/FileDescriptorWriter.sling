@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,12 +31,21 @@ func forFileDescriptor(fd as int) static as this
 	return v
 }
 
+func forUnownedFileDescriptor(fd as int) static as this
+{
+	var v = new this()
+	v.setFd(fd)
+	v.setOwned(false)
+	return v
+}
+
 pvar fd = -1
+pvar owned = true
 
 IFDEF "target_supports_destructor"
 {
-    dtor:
-        close()
+	dtor:
+		close()
 }
 
 func getFileDescriptor as int:
@@ -45,33 +53,34 @@ func getFileDescriptor as int:
 
 func write(buf as buffer, size as int) as int
 {
-    var v = -1
-    IFDEF "target_sushi" {
-        var handle = this.fd
-        if handle >= 0 {
-            lang "lua" {{{
-                v = _io:write_to_handle(handle, buf, size)
-            }}}
-        }
-    }
-    ELSE {
-        ERROR "Not implemented"
-    }
-    return v
+	var v = -1
+	IFDEF "target_sushi" {
+		var handle = this.fd
+		if handle >= 0 {
+			lang "lua" {{{
+				v = _io:write_to_handle(handle, buf, size)
+			}}}
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
+	return v
 }
 
 func close
 {
-    IFDEF "target_sushi" {
-        var handle = this.fd
-        if handle >= 0 {
-            lang "lua" {{{
-                _io:close_handle(handle)
-            }}}
-            this.fd = -1
-        }
-    }
-    ELSE {
-        ERROR "Not implemented"
-    }
+	assert owned
+	IFDEF "target_sushi" {
+		var handle = this.fd
+		if handle >= 0 {
+			lang "lua" {{{
+				_io:close_handle(handle)
+			}}}
+			this.fd = -1
+		}
+	}
+	ELSE {
+		ERROR "Not implemented"
+	}
 }

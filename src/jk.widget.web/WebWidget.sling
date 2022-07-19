@@ -1,8 +1,7 @@
 
 /*
- * This file is part of Jkop
- * Copyright (c) 2016-2018 Job and Esther Technologies Oy
- * Copyright (c) 2018-2020 Eqela Oy
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -50,17 +49,29 @@ IFDEF "target_android"
 		ctor:
 			;
 
-		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", url as string) override as bool
+		// NOTE: This method was deprecated in API level 24.
+		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", url as string) override as bool #magical
 		{
 			var vp = view as! parent
+			return vp.overrideWidgetUrlLoading(url)
+		}
+
+		func shouldOverrideUrlLoading(view as !"android.webkit.WebView", request as !"android.webkit.WebResourceRequest") override as bool #magical
+		{
+			var vp = view as! parent
+			var url as string
+			lang "java" {{{
+				url = request.getUrl().toString();
+			}}}
 			return vp.overrideWidgetUrlLoading(url)
 		}
 	}
 }
 
-IFDEF "target_ios_objc"
+ELSE IFDEF "target_ios_objc"
 {
 	depend "objc-header-h:<WebKit/WebKit.h>"
+	depend "objc-framework:WebKit"
 	extend !"WKWebView"
 	implement !"WKNavigationDelegate"
 	isAlso Widget
@@ -77,7 +88,7 @@ IFDEF "target_ios_objc"
 	}}}
 }
 
-IFDEF "target_swift"
+ELSE IFDEF "target_swift"
 {
 	depend "objc-header-h:<WebKit/WebKit.h>"
 	extend !"WKWebView"
@@ -96,7 +107,7 @@ IFDEF "target_swift"
 	}}}
 }
 
-IFDEF "target_html"
+ELSE IFDEF "target_html"
 {
 	is Widget
 
@@ -106,6 +117,11 @@ IFDEF "target_html"
 		HTMLDOM.setAttribute(v, "sandbox", "allow-forms allow-scripts allow-modals allow-popups allow-same-origin")
 		return v
 	}
+}
+
+ELSE
+{
+	is Widget
 }
 
 var widgetContext as GuiApplicationContext
@@ -123,6 +139,7 @@ ctor(context as GuiApplicationContext)
 				setWebChromeClient(new android.webkit.WebChromeClient());
 				android.webkit.WebSettings settings = getSettings();
 				settings.setJavaScriptEnabled(true);
+				settings.setDomStorageEnabled(true);
 			}}}
 		}
 		ELSE IFDEF "target_kotlin" {
@@ -152,6 +169,26 @@ func overrideWidgetUrlLoading(url as string) as bool
 	if customUrlHandler:
 		return customUrlHandler(url)
 	return false
+}
+
+func setWebCustomUserAgent(customUserAgent as string) as this
+{
+	var cua final = customUserAgent
+	var web final = this
+	IFDEF "target_android" {
+		IFDEF "target_java" {
+			lang "java" {{{
+				android.webkit.WebSettings settings = getSettings();
+				settings.setUserAgentString(cua);
+			}}}
+		}
+	}
+	ELSE IFDEF "target_ios_objc" {
+		lang "objc" {{{
+			self.customUserAgent = cua;
+		}}}
+	}
+	return this
 }
 
 func setWidgetHtmlString(html as string) as this
