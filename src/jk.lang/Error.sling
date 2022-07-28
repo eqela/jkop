@@ -24,11 +24,11 @@
 
 class is StringObject is StringObjectWithDebug:
 
-func throw(code as string, detail as dynamic) static:
-	throw ExceptionWithError.forError(forCode(code, detail))
+func throw(code as string, detail as dynamic = null, stackTrace as string = null) static:
+	throw ExceptionWithError.forError(forCode(code, detail, stackTrace))
 
-func forCode(code as string, detail as dynamic = null) static as this:
-	return new this().setCode(code).setDetail(detail)
+func forCode(code as string, detail as dynamic = null, stackTrace as string = null) static as this:
+	return new this().setCode(code).setDetail(detail).setStackTrace(stackTrace)
 
 func asString(error as this) static as string
 {
@@ -37,11 +37,12 @@ func asString(error as this) static as string
 	return error.toString()
 }
 
-func set(error as this, code as string, detail as dynamic) static as this
+func set(error as this, code as string, detail as dynamic = null, stackTrace as string = null) static as this
 {
 	assert error
 	error.setCode(code)
 	error.setDetail(detail)
+	error.setStackTrace(stackTrace)
 	return error
 }
 
@@ -63,6 +64,7 @@ func isError(o as object) static as bool
 
 pvar code as string
 pvar detail as dynamic
+pvar stackTrace as string
 
 func clear as this
 {
@@ -74,20 +76,33 @@ func clear as this
 func toStringWithDefault(debug as bool, defaultError as string) as string
 {
 	var details as string
-	if detail is StringObjectWithDebug {
-		details = (detail as! StringObjectWithDebug).toStringWithDebug(debug)
+	if detail {
+		if detail is StringObjectWithDebug {
+			details = (detail as! StringObjectWithDebug).toStringWithDebug(debug)
+		}
+		else {
+			details = String.asString(detail)
+		}
+		if not details && detail is object:
+			details = String.forObjectInformation(detail as! object)
+	}
+	var sb = new StringBuilder()
+	if String.isNotEmpty(code) {
+		sb.appendString(code)
 	}
 	else {
-		details = String.asString(detail)
+		sb.appendString(defaultError)
 	}
-	if String.isEmpty(code) == false {
-		if String.isEmpty(details) == false:
-			return code .. ":" .. details
-		return code
+	if String.isNotEmpty(details) || String.isNotEmpty(stackTrace) {
+		sb.appendCharacter(':')
+		if details:
+			sb.appendString(details)
+		if String.isNotEmpty(stackTrace) {
+			sb.appendCharacter(':')
+			sb.appendString(stackTrace)
+		}
 	}
-	if String.isEmpty(details) == false:
-		return "errorWithDetail:" .. details
-	return defaultError
+	return sb.toString()
 }
 
 func toStringWithDebug(debug as bool) as string:

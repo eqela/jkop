@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+import jk.env
+
 class:
 
 class MyRunningProcess is Process
@@ -132,6 +134,16 @@ class MyCompletedProcess is Process
 		return getExitStatus()
 }
 
+func mergeStringMap(from as map<string,string>, to as dynamic) static private
+{
+	assert from
+	assert to
+	foreach key in Map.getKeys(from):
+		lang "js" {{{
+			to[key] = from.get(key)
+		}}}
+}
+
 func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver) static as Process
 {
 	var ff = launcher.getFile()
@@ -142,7 +154,10 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 	var cwd = launcher.getCwd()
 	if cwd != null:
 		cwdp = cwd.getPath()
-	var env = launcher.getEnv()
+	var env = lang "js" dynamic {{{ {} }}}
+	if launcher.getInheritEnvironmentVariables():
+		mergeStringMap(EnvironmentVariable.getAll(), env)
+	mergeStringMap(launcher.getEnv(), env)
 	var cp = lang "js" dynamic {{{ require('child_process') }}}
 	var options = lang "js" dynamic {{{
 		{
