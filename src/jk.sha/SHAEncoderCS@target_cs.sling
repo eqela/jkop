@@ -24,9 +24,10 @@
 
 class is SHAEncoder:
 
-func encodeAsBuffer(data as buffer, version as int) override as buffer
+func encodeBuffer(data as buffer) override as buffer
 {
-	assert data
+	if not data:
+		Error.throw("nullBufferToEncode", null)
 	var hashAlgorithm as !"System.Security.Cryptography.HashAlgorithm" #used
 	IFDEF "target_dotnet4" {
 		if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
@@ -72,20 +73,10 @@ func encodeAsBuffer(data as buffer, version as int) override as buffer
 			}}}
 		}
 	}
-	assert hashAlgorithm
-	return lang "cs" buffer {{{ hashAlgorithm.ComputeHash(data) }}}
-}
-
-func encodeAsString(data as buffer, version as int) override as string
-{
-	var encodedBytes = assert encodeAsBuffer(data, version)
-	var result as string #used
-	lang "cs" {{{
-		System.Text.StringBuilder sb = new System.Text.StringBuilder();
-		foreach(byte b in encodedBytes) {
-			sb.Append(b.ToString("x2"));
-		}
-		result = sb.ToString();
-	}}}
-	return result
+	if not hashAlgorithm:
+		Error.throw("unsupportedShaAlgorithm", String.forInteger(version))
+	var v = lang "cs" buffer {{{ hashAlgorithm.ComputeHash(data) }}}
+	if not v:
+		Error.throw("failedToComputeShaHash", data)
+	return v
 }

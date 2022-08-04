@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+import jk.fs
+
 class abstract:
 
 const ANY = 0
@@ -31,38 +33,65 @@ const SHA256 = 3
 const SHA384 = 4
 const SHA512 = 5
 
-func create static as this
+func forSha1 static as this:
+	return forVersion(SHA1)
+
+func forSha224 static as this:
+	return forVersion(SHA224)
+
+func forSha256 static as this:
+	return forVersion(SHA256)
+
+func forSha384 static as this:
+	return forVersion(SHA384)
+
+func forSha512 static as this:
+	return forVersion(SHA512)
+
+func forVersion(version as int) static as this
 {
+	var v as this
 	IFDEF "target_cs" {
-		return new SHAEncoderCS()
+		v = new SHAEncoderCS()
 	}
 	ELSE IFDEF "target_java" {
-		return new SHAEncoderJava()
+		v = new SHAEncoderJava()
 	}
 	ELSE IFDEF "target_objc" {
-		return new SHAEncoderObjC()
+		v = new SHAEncoderObjC()
 	}
 	ELSE IFDEF "target_kotlin" {
-		return new SHAEncoderKotlin()
+		v = new SHAEncoderKotlin()
+	}
+	ELSE IFDEF "target_nodejs" {
+		v = new SHAEncoderForNodeJS()
 	}
 	ELSE {
-		return new SHAEncoderGeneric()
+		v = new SHAEncoderGeneric()
 	}
+	v.version = version
+	return v
 }
 
-func getSha1HashForString(data as string) static as string
+prop version as int
+
+func encodeBuffer(data as buffer) abstract as buffer
+
+func encodeString(data as string) virtual as buffer:
+	return encodeBuffer(String.toUTF8Buffer(data))
+
+func encodeFile(file as File) virtual as buffer
 {
-	assert data
-	var enc = assert create()
-	return enc.encodeAsString(String.toUTF8Buffer(data), SHA1)
+	if not file:
+		Error.throw("nullFileToEncode", null)
+	return encodeBuffer(file.getContentsBuffer())
 }
 
-func getSha1HashForBuffer(data as buffer) static as string
-{
-	assert data
-	var enc = assert create()
-	return enc.encodeAsString(data, SHA1)
-}
+func getHashForString(data as string) virtual as string:
+	return String.forBufferHex(encodeString(data))
 
-func encodeAsBuffer(data as buffer, version as int) abstract as buffer
-func encodeAsString(data as buffer, version as int) abstract as string
+func getHashForBuffer(data as buffer) virtual as string:
+	return String.forBufferHex(encodeBuffer(data))
+
+func getHashForFile(file as File) virtual as string:
+	return String.forBufferHex(encodeFile(file))

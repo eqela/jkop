@@ -22,33 +22,72 @@
  * SOFTWARE.
  */
 
+import jk.fs
+import jk.nodejs
+
 class is SHAEncoder:
+
+func createHasher private as dynamic
+{
+	var algo as string
+	if version == SHAEncoder.ANY {
+		algo = "sha256"
+	}
+	else if version == SHAEncoder.SHA1 {
+		algo = "sha1"
+	}
+	else if version == SHAEncoder.SHA224 {
+		algo = "sha224"
+	}
+	else if version == SHAEncoder.SHA256 {
+		algo = "sha256"
+	}
+	else if version == SHAEncoder.SHA384 {
+		algo = "sha384"
+	}
+	else if version == SHAEncoder.SHA512 {
+		algo = "sha512"
+	}
+	else {
+		Error.throw("unsupportedShaAlgorithm", String.forInteger(version))
+	}
+	return NodeModule.require("crypto").createHash(algo)
+}
 
 func encodeBuffer(data as buffer) override as buffer
 {
 	if not data:
 		Error.throw("nullBufferToEncode", null)
-	var algorithm as string
-	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
-		algorithm = "SHA-1"
-	}
-	else if SHAEncoder.SHA256 == version {
-		algorithm = "SHA-256"
-	}
-	else if SHAEncoder.SHA384 == version {
-		algorithm = "SHA-384"
-	}
-	else if SHAEncoder.SHA512 == version {
-		algorithm = "SHA-512"
-	}
-	if not algorithm:
-		Error.throw("unsupportedShaAlgorithm", String.forInteger(version))
-	var v as buffer #used
-	lang "kotlin" {{{
-		val md = java.security.MessageDigest.getInstance(algorithm);
-		v = (md.digest(data.toByteArray())).toUByteArray()
-	}}}
+	var hasher = createHasher()
+	hasher.update(data)
+	var v = hasher.digest() as! buffer
 	if not v:
 		Error.throw("failedToComputeShaHash", data)
+	return v
+}
+
+func encodeFile(file as File) override as buffer
+{
+	if not file:
+		Error.throw("nullFileToEncode", null)
+	var bsz = 10 * 1024 * 1024
+	if file.getSize() < bsz:
+		return encodeBuffer(file.getContentsBuffer())
+	var rd = file.read()
+	var hasher = createHasher()
+	var buffer = malloc 1024
+	loop {
+		var sz = rd.read(buffer)
+		if sz < 1:
+			break
+		var bb = buffer
+		if sz < bsz:
+			bb = Buffer.getSubBuffer(buffer, 0, sz)
+		hasher.update(bb)
+	}
+	rd.close()
+	var v = hasher.digest() as! buffer
+	if not v:
+		Error.throw("failedToComputeShaHash", file)
 	return v
 }

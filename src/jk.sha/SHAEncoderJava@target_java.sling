@@ -24,9 +24,10 @@
 
 class is SHAEncoder:
 
-func encodeAsBuffer(data as buffer, version as int) override as buffer
+func encodeBuffer(data as buffer) override as buffer
 {
-	assert data
+	if not data:
+		Error.throw("nullBufferToEncode", null)
 	var algorithm as string
 	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
 		algorithm = "SHA-1"
@@ -40,7 +41,8 @@ func encodeAsBuffer(data as buffer, version as int) override as buffer
 	else if SHAEncoder.SHA512 == version {
 		algorithm = "SHA-512"
 	}
-	assert algorithm
+	if not algorithm:
+		Error.throw("unsupportedShaAlgorithm", String.forInteger(version))
 	var v as buffer #used
 	lang "java" {{{
 		try {
@@ -53,19 +55,7 @@ func encodeAsBuffer(data as buffer, version as int) override as buffer
 			v = null;
 		}
 	}}}
-	return v
-}
-
-func encodeAsString(data as buffer, version as int) override as string
-{
-	var encodedBytes = assert encodeAsBuffer(data, version)
-	var v as string #used
-	lang "java" {{{
-		java.lang.StringBuffer sb = new java.lang.StringBuffer();
-		for(int i = 0; i < encodedBytes.length; i++) {
-			sb.append(Integer.toString((encodedBytes[i] & 0xff) + 0x100, 16).substring(1));
-		}
-		v = sb.toString();
-	}}}
+	if not v:
+		Error.throw("failedToComputeShaHash", data)
 	return v
 }
