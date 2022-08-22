@@ -234,7 +234,7 @@ class ResultSet is SQLResultSetIterator
 	}
 }
 
-func doInitialize(serverAddress as string, username as string, password as string, database as string, port as int) virtual as bool
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, port as int) override
 {
 	var pg = NodeModule.require("pg")
 	lang "js" {{{
@@ -247,13 +247,12 @@ func doInitialize(serverAddress as string, username as string, password as strin
 		})
 	}}}
 	databaseName = database
-	return true
 }
 
-func closeSync override:
+func closeConnection async override:
 	pool.end()
 
-func prepareSync(sql as string) override as SQLStatement
+func prepareStatement(sql as string) async override as SQLStatement
 {
 	assert sql
 	var sb = new StringBuilder()
@@ -274,7 +273,7 @@ func prepareSync(sql as string) override as SQLStatement
 	return Statement.forSql(sb.toString())
 }
 
-func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
 {
 	assert pool
 	var ss = assert stmt as Statement
@@ -294,11 +293,11 @@ func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
 		v.result = result
 	}
 	if String.isNotEmpty(error):
-		Log.error(getLogger(), error)
+		Log.error(ctx, error)
 	return v
 }
 
-func executeSync(stmt as SQLStatement) override async as bool
+func executeStatement(stmt as SQLStatement) override async as bool
 {
 	assert pool
 	var ss = assert stmt as Statement
@@ -316,42 +315,42 @@ func executeSync(stmt as SQLStatement) override async as bool
 		}
 	}}}
 	if String.isNotEmpty(error):
-		Log.error(getLogger(), error)
+		Log.error(ctx, error)
 	return sucess
 }
 
-func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 {
 	var v = 1
-	if not await executeSync(stmt):
+	if not await executeStatement(stmt):
 		v = 0
 	return v
 }
 
-func querySingleRowSync(stmt as SQLStatement) override async as DynamicMap
+func executeSingleRowQueryStatement(stmt as SQLStatement) override async as DynamicMap
 {
-	var it = assert await querySync(stmt)
+	var it = assert await executeQueryStatement(stmt)
 	var v as DynamicMap #force = it.next()
 	return v
 }
 
-func tableExistsSync(table as string) override async as bool
+func checkIfTableExists(table as string) override async as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
-	var stmt = assert prepareSync("SELECT table_name FROM information_schema.tables WHERE table_catalog = ? AND table_name = ? LIMIT 1;")
+	var stmt = assert await prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_catalog = ? AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
-	var sr = assert await querySingleRowSync(stmt)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
 	return String.equalsIgnoreCase(table, sr.getString("table_name"))
 }
 
-func queryAllTableNamesSync override async as vector
+func getAllTableNames override async as vector<string>
 {
 	assert String.isNotEmpty(databaseName)
-	var stmt = assert prepareSync("SELECT table_name FROM information_schema.tables WHERE table_catalog = ?;")
+	var stmt = assert await prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_catalog = ?;")
 	stmt.addParamString(databaseName)
-	var it = assert await querySync(stmt)
-	var v = new vector
+	var it = assert await executeQueryStatement(stmt)
+	var v = new vector<string>
 	loop {
 		var vv = it.next()
 		if not vv:
@@ -398,7 +397,7 @@ func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as
 	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
 		return "DOUBLE PRECISION"
 	}
-	Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+	Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
 	return "UNKNOWN"
 }
 
@@ -415,21 +414,21 @@ func columnToCreateString(cc as SQLTableColumnInfo) private as string
 	return sb.toString()
 }
 
-func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) override as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
 {
 	assert String.isNotEmpty(table) && column
 	var sql = "ALTER TABLE \"" .. table .. "\" ADD COLUMN \"" .. column.getName() .. "\" " .. prepareTypeAsString(column.getType(), column.getName()) .. ";"
-	return prepareSync(sql)
+	return await prepareStatement(sql)
 }
 
-func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) override as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
 {
 	assert String.isNotEmpty(table) && column
 	var sql = "ALTER TABLE \"" .. table .. "\" ALTER COLUMN \"" .. column.getName() .. "\" TYPE " .. prepareTypeAsString(column.getType(), column.getName()) .. ";"
-	return prepareSync(sql)
+	return await prepareStatement(sql)
 }
 
-func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
 {
 	assert String.isNotEmpty(table) && columns
 	var sb = new StringBuilder()
@@ -447,10 +446,10 @@ func prepareCreateTableStatementSync(table as string, columns as vector<SQLTable
 		first = false
 	}
 	sb.appendString(" );")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func prepareDeleteTableStatementSync(table as string) override as SQLStatement
+func prepareDeleteTableStatement(table as string) async override as SQLStatement
 {
 	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
@@ -459,28 +458,28 @@ func prepareDeleteTableStatementSync(table as string) override as SQLStatement
 	sb.appendString(table)
 	sb.appendString("\"")
 	sb.appendString(";")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func columnExistsSync(table as string, column as string) override async as bool
+func checkIfColumnExists(table as string, column as string) override async as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && String.isNotEmpty(column)
-	var stmt = assert prepareSync("SELECT column_name FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = assert await prepareStatement("SELECT column_name FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	stmt.addParamString(column)
-	var sr = assert await querySingleRowSync(stmt)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
 	return String.equalsIgnoreCase(column, sr.getString("column_name"))
 }
 
-func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) override async as bool
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && column
-	var stmt = assert prepareSync("SELECT data_type FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = assert await prepareStatement("SELECT data_type FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	stmt.addParamString(column.getName())
-	var sr = assert await querySingleRowSync(stmt)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
 	var type = prepareTypeAsString(column.getType(), column.getName(), true)
 	var ctype = sr.getString("data_type")
 	if String.equalsIgnoreCase(type, ctype):
@@ -488,57 +487,8 @@ func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) overrid
 	return false
 }
 
-func getIdentityColumnNameSync(table as string) stub override async as string
-func getPrimaryKeyColumnNameSync(table as string)stub  override async as string
+func getIdentityColumnName(table as string) stub override async as string
+func getPrimaryKeyColumnName(table as string)stub  override async as string
 
-func getLastInsertIdSync(table as string) override async as long:
+func getLastInsertId(table as string) override async as long:
 	return 0 as long
-
-func close(callback as function) override
-{
-	closeSync()
-	if callback:
-		callback()
-}
-
-func execute(stmt as SQLStatement, callback as function<void, bool>) override async
-{
-	var result = await executeSync(stmt)
-	if callback:
-		callback(result)
-}
-
-func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override async
-{
-	var result = await executeUpdateDeleteSync(stmt)
-	if callback:
-		callback(result)
-}
-
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override async
-{
-	var result = await querySync(stmt)
-	if callback:
-		callback(result)
-}
-
-func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override async
-{
-	var result = await querySingleRowSync(stmt)
-	if callback:
-		callback(result)
-}
-
-func tableExists(table as string, callback as function<void, bool>) override async
-{
-	var result = await tableExistsSync(table)
-	if callback:
-		callback(result)
-}
-
-func queryAllTableNames(callback as function<void, vector>) override async
-{
-	var result = await queryAllTableNamesSync()
-	if callback:
-		callback(result)
-}

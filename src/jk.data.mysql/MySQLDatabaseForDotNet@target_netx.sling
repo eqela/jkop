@@ -376,22 +376,21 @@ class ResultSet is SQLResultSetIterator
 
 var connectionString as string
 
-func doInitialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override as bool
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
 {
 	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Protocol=" .. protocol .. ";Password=" .. password .. ";SslMode=" .. sslMode .. ";"
 	if enableUTF8:
 		connectionString = connectionString .. "charset=utf8mb4;"
 	Log.debug(getLogger(), "MySQL connection string: `" .. connectionString .. "'")
-	return true
 }
 
-func closeSync override:
+func closeConnection async override:
 	connectionString = null
 
-func prepareSync(sql as string) override as SQLStatement:
+func prepareStatement(sql as string) async override as SQLStatement:
 	return Statement.forSql(sql)
 
-func executeSync(stmt as SQLStatement) override async as bool
+func executeStatement(stmt as SQLStatement) override async as bool
 {
 	var ss = assert stmt as Statement
 	var v = true
@@ -410,7 +409,7 @@ func executeSync(stmt as SQLStatement) override async as bool
 	return v
 }
 
-func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -431,7 +430,7 @@ func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
 	return v
 }
 
-func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
 {
 	var ss = assert stmt as Statement
 	var v as ResultSet = null
@@ -453,45 +452,4 @@ func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
 	if String.isNotEmpty(error):
 		Log.error(getLogger(), error)
 	return v
-}
-
-func close(callback as function) override
-{
-	closeSync()
-	if callback:
-		callback()
-}
-
-func execute(stmt as SQLStatement, callback as function<void, bool>) override async
-{
-	var v = await executeSync(stmt)
-	if callback:
-		callback(v)
-}
-
-func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override async
-{
-	var v = await executeUpdateDeleteSync(stmt)
-	if callback:
-		callback(v)
-}
-
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override async
-{
-	var v = await querySync(stmt)
-	if callback:
-		callback(v)
-}
-
-func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override async
-{
-	await query(stmt, func(it as SQLResultSetIterator) {
-		if callback {
-			assert it:
-				callback(null)
-			var v = it.next()
-			it.close()
-			callback(v)
-		}
-	})
 }

@@ -330,10 +330,10 @@ func finalizePacket(packet as MyPacketBuilder, seqnum as int) as buffer
 	return v
 }
 
-func doInitialize(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override as bool
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
 {
-	assert protocol == MySQLDatabase.PROTOCOL_SOCKET:
-		logError("Unsupported protocol in MySQLDatabaseGeneric: `" .. protocol .. "'")
+	if protocol != MySQLDatabase.PROTOCOL_SOCKET:
+		Error.throw("unsupportedMySqlProtocol", protocol)
 	this.serverAddress = serverAddress
 	this.username = username
 	this.password = password
@@ -342,7 +342,8 @@ func doInitialize(serverAddress as string, username as string, password as strin
 	this.protocol = protocol
 	this.enableUTF8 = enableUTF8
 	this.reconnectTime = 0L
-	return reconnectSync()
+	if not reconnectSync():
+		Error.throw("failedToStartMySqlConnection", null)
 }
 
 func serverSupportsSSL as bool
@@ -362,7 +363,7 @@ func openSocketForAddress(address as string) as TCPSocket
 		host = comps[0]
 		port = String.toInteger(comps[1])
 	}
-	logDebug("Connecting to MySQL server `" .. host .. ":" .. String.forInteger(port) .. "' ..")
+	Log.debug(ctx, "Connecting to MySQL server `" .. host .. ":" .. String.forInteger(port) .. "' ..")
 	return TCPSocket.createAndConnect(host, port)
 }
 
@@ -433,7 +434,7 @@ func parseOkPacket(packet as buffer) private as OkPacket
 func logOkPacket(v as OkPacket) private
 {
 	assert v
-	logDebug("MySQL server responded with OK status: affectedRows=" .. String.forLongInteger(v.getAffectedRows()) .. ", lastInsertId=" .. String.forLongInteger(v.getLastInsertId()) .. ", statusFlags=" .. String.forInteger(v.getStatusFlags()) .. ", warningCount=" .. String.forInteger(v.getWarningCount()))
+	Log.debug(ctx, "MySQL server responded with OK status: affectedRows=" .. String.forLongInteger(v.getAffectedRows()) .. ", lastInsertId=" .. String.forLongInteger(v.getLastInsertId()) .. ", statusFlags=" .. String.forInteger(v.getStatusFlags()) .. ", warningCount=" .. String.forInteger(v.getWarningCount()))
 }
 
 func handleAsErrorPacket(packet as buffer) private as bool
@@ -454,7 +455,7 @@ func logErrorPacket(packet as buffer) private
 	var sqlStateMarker = walker.getStaticLengthString(1)
 	var sqlState = walker.getStaticLengthString(5)
 	var errorMessage = walker.getEofTerminatedString()
-	logError("MySQL server sent error: errorCode=" .. String.forInteger(errorCode) .. ", errorMessage=`" .. errorMessage .. "'")
+	Log.error(ctx, "MySQL server sent error: errorCode=" .. String.forInteger(errorCode) .. ", errorMessage=`" .. errorMessage .. "'")
 }
 
 func reconnectSync private as bool
@@ -462,54 +463,54 @@ func reconnectSync private as bool
 	closeSocket()
 	var now = SystemClock.asSeconds()
 	if now - reconnectTime < 5 {
-		logDebug("Reconnecting too fast. Waiting for 5 seconds..")
+		Log.debug(ctx, "Reconnecting too fast. Waiting for 5 seconds..")
 		CurrentThread.sleepSeconds(5)
 	}
 	reconnectTime = SystemClock.asSeconds()
 	var osocket = assert openSocketForAddress(serverAddress):
-		logError("Failed to connect to MySQL server: `" .. serverAddress .. "'")
+		Log.error(ctx, "Failed to connect to MySQL server: `" .. serverAddress .. "'")
 	connectionState = ConnectionState.CONNECTION
 	this.socket = osocket
 	var header = assert receivePacketDataSync()
 	var hs = parseProtocolHandshake(header)
 	if not hs {
-		logWarning("Failed to parse protocol handshake")
+		Log.warning(ctx, "Failed to parse protocol handshake")
 	}
 	else {
-		logDebug("protocolVersion: " .. String.forInteger(hs.getProtocolVersion()))
-		logDebug("serverVersion: " .. hs.getServerVersion())
-		logDebug("connectionId: " .. String.forInteger(hs.getConnectionId()))
-		logDebug("authPluginData: " .. String.forInteger(String.getLength(hs.getAuthPluginData())) .. " bytes")
-		logDebug("authPluginName: " .. hs.getAuthPluginName())
-		logDebug("capabilityFlags: " .. String.forInteger(hs.getCapabilityFlags()))
-		logDebug("characterSet: " .. String.forInteger(hs.getCharacterSet()))
-		logDebug("statusFlags: " .. String.forInteger(hs.getStatusFlags()))
-		logDebug("capabilityFlagsLower: " .. String.forInteger(hs.getCapabilityFlagsLower()))
-		logDebug("capabilityFlagsUpper: " .. String.forInteger(hs.getCapabilityFlagsUpper()))
+		Log.debug(ctx, "protocolVersion: " .. String.forInteger(hs.getProtocolVersion()))
+		Log.debug(ctx, "serverVersion: " .. hs.getServerVersion())
+		Log.debug(ctx, "connectionId: " .. String.forInteger(hs.getConnectionId()))
+		Log.debug(ctx, "authPluginData: " .. String.forInteger(String.getLength(hs.getAuthPluginData())) .. " bytes")
+		Log.debug(ctx, "authPluginName: " .. hs.getAuthPluginName())
+		Log.debug(ctx, "capabilityFlags: " .. String.forInteger(hs.getCapabilityFlags()))
+		Log.debug(ctx, "characterSet: " .. String.forInteger(hs.getCharacterSet()))
+		Log.debug(ctx, "statusFlags: " .. String.forInteger(hs.getStatusFlags()))
+		Log.debug(ctx, "capabilityFlagsLower: " .. String.forInteger(hs.getCapabilityFlagsLower()))
+		Log.debug(ctx, "capabilityFlagsUpper: " .. String.forInteger(hs.getCapabilityFlagsUpper()))
 		serverCapabilityFlags = hs.getCapabilityFlagsUpper() << 16 | hs.getCapabilityFlagsLower()
 	}
 	if sslMode != MySQLDatabase.SSL_MODE_NONE {
 		if not serverSupportsSSL() {
-			logWarning("Server does not support SSL. Trying to initialize it anyway...")
+			Log.warning(ctx, "Server does not support SSL. Trying to initialize it anyway...")
 		}
 		else {
-			logDebug("Server supports SSL")
+			Log.debug(ctx, "Server supports SSL")
 		}
 		sendSync(createSSLRequest())
-		var sslsocket = assert SSLSocket.forClient(osocket, getHostName(serverAddress), getLogger(), true):
-			logError("SSL handshake with MySQL server failed")
-		logDebug("SSL connection successfully established.")
+		var sslsocket = assert SSLSocket.forClient(osocket, getHostName(serverAddress), ctx, true):
+			Log.error(ctx, "SSL handshake with MySQL server failed")
+		Log.debug(ctx, "SSL connection successfully established.")
 		this.socket = sslsocket
 		sslEnabled = true
 	}
 	else {
-		logDebug("SSL disabled as requested")
+		Log.debug(ctx, "SSL disabled as requested")
 	}
 	var ap = authenticationPlugin
 	if String.isEmpty(ap):
 		ap = hs.getAuthPluginName()
 	assert handleAuthenticationSync(ap, hs.getAuthPluginData()) {
-		logError("Authentication failed.")
+		Log.error(ctx, "Authentication failed.")
 		closeSocket()
 	}
 	if not executePacketSync(createComInitDb(database)) {
@@ -517,7 +518,7 @@ func reconnectSync private as bool
 		return false
 	}
 	connectionState = ConnectionState.COMMAND
-	logDebug("Successfully connected and authenticated to MySQL server.")
+	Log.debug(ctx, "Successfully connected and authenticated to MySQL server.")
 	return true
 }
 
@@ -596,13 +597,13 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 		var bpassword = String.toUTF8Buffer(password)
 		var bdata = String.toUTF8Buffer(authData)
 		var encoder = assert SHAEncoder.forSha1():
-			logError("Failed to create a SHA encoder!")
+			Log.error(ctx, "Failed to create a SHA encoder!")
 		var h1 = encoder.encodeBuffer(bpassword)
 		var hpw2 = encoder.encodeBuffer(h1)
 		var concat = Buffer.append(bdata, hpw2)
 		var h2 = encoder.encodeBuffer(concat)
 		assert sizeof h1 == 20 && sizeof h2 == 20:
-			logError("SHA1 encoder returned buffers that are not 20 bytes!")
+			Log.error(ctx, "SHA1 encoder returned buffers that are not 20 bytes!")
 		for(var n=0; n<20; n++):
 			h1[n] = h1[n] ^ h2[n]
 		if not forAuthSwitch {
@@ -618,7 +619,7 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 		var bpassword = String.toUTF8Buffer(password)
 		var bdata = String.toUTF8Buffer(authData)
 		var encoder = assert SHAEncoder.forSha256():
-			logError("Failed to create a SHA encoder!")
+			Log.error(ctx, "Failed to create a SHA encoder!")
 		var h1 = encoder.encodeBuffer(bpassword)
 		var hpw2 = encoder.encodeBuffer(h1)
 		var concat = Buffer.append(hpw2, bdata)
@@ -626,7 +627,7 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 		var sz = sizeof h1
 		var sz2 = sizeof h2
 		assert sz == sz2:
-			logError("SHA256 encoder returned different size buffers " .. String.forLongInteger(sz) .. " and " .. String.forLongInteger(sz2) .. "!")
+			Log.error(ctx, "SHA256 encoder returned different size buffers " .. String.forLongInteger(sz) .. " and " .. String.forLongInteger(sz2) .. "!")
 		for(var n=0; n<sz; n++):
 			h1[n] = h1[n] ^ h2[n]
 		if not forAuthSwitch {
@@ -639,7 +640,7 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 		}
 	}
 	else {
-		logError("Unsupported authentication plugin requested by server: `" .. authPlugin .. "'")
+		Log.error(ctx, "Unsupported authentication plugin requested by server: `" .. authPlugin .. "'")
 		return null
 	}
 	return finalizePacket(pm, getNextSequence())
@@ -658,19 +659,19 @@ func handleAuthenticationSync(authPlugin as string, authData as string, forAuthS
 				response = sendAndReceive(finalizePacket(pm, getNextSequence()))
 			}
 			else {
-				logError("Using caching_sha2_password over unsecure connection is not supported.")
+				Log.error(ctx, "Using caching_sha2_password over unsecure connection is not supported.")
 				return false
 			}
 		}
 		else if sizeof response == 2 && response[0] == 0x01 && response[1] == 0x03 {
 			var packet = receivePacketDataSync()
 			if isOkPacket(packet) {
-				logDebug("Received a fast_auth_success message from MySQL server.")
+				Log.debug(ctx, "Received a fast_auth_success message from MySQL server.")
 				logOkPacket(parseOkPacket(packet))
 				sequence = 0
 				return true
 			}
-			logError("Received an unexpected (non-ok) packet from MySQL server.")
+			Log.error(ctx, "Received an unexpected (non-ok) packet from MySQL server.")
 			closeSocket()
 			return false
 		}
@@ -690,16 +691,16 @@ func handleAuthenticationSync(authPlugin as string, authData as string, forAuthS
 		var pluginName = walker.getNullTerminatedString()
 		var authPluginData = walker.getEofTerminatedString()
 		if String.isNotEmpty(pluginName) {
-			logDebug("Server responded with auth switch request. Plugin name=`" .. pluginName .. "'")
+			Log.debug(ctx, "Server responded with auth switch request. Plugin name=`" .. pluginName .. "'")
 			if pluginName == authPlugin {
-				logError("Auth switch request to plugin `" .. pluginName .. "' received from server, but already using that plugin! Aborting.")
+				Log.error(ctx, "Auth switch request to plugin `" .. pluginName .. "' received from server, but already using that plugin! Aborting.")
 				closeSocket()
 				return false
 			}
 			return handleAuthenticationSync(pluginName, authPluginData, true)
 		}
 	}
-	logError("Unknown packet received from MySQL server as response to handshake response.")
+	Log.error(ctx, "Unknown packet received from MySQL server as response to handshake response.")
 	closeSocket()
 	return false
 }
@@ -739,7 +740,7 @@ func receivePacketSync as buffer
 			var n = socket.read(receiveBuffer)
 			if n < 1 {
 				if connectionState == ConnectionState.COMMAND {
-					logWarning("Failed to receive packet. Reconnecting.")
+					Log.warning(ctx, "Failed to receive packet. Reconnecting.")
 					reconnectSync()
 				}
 				return null
@@ -750,7 +751,7 @@ func receivePacketSync as buffer
 				break
 		}
 	}
-	logDebug("Received packet: " .. String.forBufferHex(v))
+	Log.debug(ctx, "Received packet: " .. String.forBufferHex(v))
 	return v
 }
 
@@ -795,11 +796,11 @@ func sendSync(packet as buffer) as bool
 	assert socket && packet
 	assert socket.write(packet, -1) > 0 {
 		if connectionState == ConnectionState.COMMAND {
-			logWarning("Failed to send packet of " .. String.forLongInteger(sizeof packet) .. " bytes. Reconnecting.")
+			Log.warning(ctx, "Failed to send packet of " .. String.forLongInteger(sizeof packet) .. " bytes. Reconnecting.")
 			reconnectSync()
 		}
 	}
-	logDebug("Sent packet: " .. String.forBufferHex(packet))
+	Log.debug(ctx, "Sent packet: " .. String.forBufferHex(packet))
 	return true
 }
 
@@ -818,14 +819,14 @@ func executePacketSync(packet as buffer) as bool
 	}
 	if handleAsErrorPacket(result):
 		return false
-	logWarning("Received an unexpected (non-error, non-ok) packet from MySQL server.")
+	Log.warning(ctx, "Received an unexpected (non-error, non-ok) packet from MySQL server.")
 	return false
 }
 
 func closeSocket private
 {
 	if socket {
-		logDebug("Closing MySQL socket")
+		Log.debug(ctx, "Closing MySQL socket")
 		socket.close()
 		socket = null
 		connectionState = ConnectionState.DISCONNECTED
@@ -834,7 +835,7 @@ func closeSocket private
 	}
 }
 
-func closeSync override
+func closeConnection async override
 {
 	connectionState = ConnectionState.DISCONNECTING
 	sendAndReceive(createComQuit())
@@ -857,33 +858,33 @@ func receiveColumnsSync(numColumns as long) private as vector<ColumnDefinition>
 				break
 			var column = parseColumnDefinition(packet)
 			if not column {
-				logWarning("Invalid column packet received.")
+				Log.warning(ctx, "Invalid column packet received.")
 				continue
 			}
-			logDebug("Column: `" .. column.getName() .. "'")
+			Log.debug(ctx, "Column: `" .. column.getName() .. "'")
 			columns += column
 			n++
 		}
-		logDebug("Received " .. String.forInteger(n) .. " columns")
+		Log.debug(ctx, "Received " .. String.forInteger(n) .. " columns")
 	}
 	return columns
 }
 
-func prepareSync(sql as string) override as SQLStatement
+func prepareStatement(sql as string) async override as SQLStatement
 {
 	assert String.isNotEmpty(sql):
-		logWarning("Empty string given as statement to prepare")
+		Log.warning(ctx, "Empty string given as statement to prepare")
 	var prep = createPacket()
 	prep.appendByte(0x16)
 	prep.appendEofTerminatedString(sql)
-	logDebug("Preparing query: `" .. sql .. "'")
+	Log.debug(ctx, "Preparing query: `" .. sql .. "'")
 	var prepresp = sendAndReceive(finalizePacket(prep, getNextSequence()))
 	if handleAsErrorPacket(prepresp):
 		return null
 	var walker = MyPacketParser.forBuffer(prepresp)
 	var status = walker.getInt8()
 	if status != 0 {
-		logError("Prepare statement returned non-zero status")
+		Log.error(ctx, "Prepare statement returned non-zero status")
 		return null
 	}
 	var statementId = walker.getInt32()
@@ -891,7 +892,7 @@ func prepareSync(sql as string) override as SQLStatement
 	var numParams = walker.getInt16()
 	walker.skipBytes(1)
 	var warningCount = walker.getInt16()
-	logDebug("Query prepared as statement id " .. String.forInteger(statementId))
+	Log.debug(ctx, "Query prepared as statement id " .. String.forInteger(statementId))
 	if numParams > 0 {
 		var n = 0
 		loop {
@@ -905,7 +906,7 @@ func prepareSync(sql as string) override as SQLStatement
 			// Note: We don't care about these. We just count them for debugging purposes...
 			n++
 		}
-		logDebug("Query has " .. String.forInteger(n) .. " parameter(s)")
+		Log.debug(ctx, "Query has " .. String.forInteger(n) .. " parameter(s)")
 	}
 	var columns = receiveColumnsSync(numColumns)
 	return MyStatement.forStatementId(statementId, columns, this)
@@ -1143,7 +1144,7 @@ class ExecuteStatementSyncResponse private
 	}
 }
 
-func executeSync(stmt as SQLStatement) override async as bool
+func executeStatement(stmt as SQLStatement) override async as bool
 {
 	var v = assert executeStatementSync(stmt, false):
 		return false
@@ -1151,7 +1152,7 @@ func executeSync(stmt as SQLStatement) override async as bool
 	return v.getStatus()
 }
 
-func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 {
 	var v = assert executeStatementSync(stmt, false):
 		return 0
@@ -1159,7 +1160,7 @@ func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
 	return v.getAffectedRows()
 }
 
-func querySync(stmt as SQLStatement) override async  as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async  as SQLResultSetIterator
 {
 	var v = assert executeStatementSync(stmt, true):
 		return null
@@ -1170,7 +1171,7 @@ func closeStatementSync(statement as MyStatement) private
 {
 	assert statement
 	var id = statement.getId()
-	logDebug("Closing statement " .. String.forLongInteger(id))
+	Log.debug(ctx, "Closing statement " .. String.forLongInteger(id))
 	var close = createPacket()
 	close.appendByte(0x19)
 	close.appendInt32(id as uint32)
@@ -1181,7 +1182,7 @@ func resetStatement(statement as MyStatement) private as bool
 {
 	assert statement
 	var id = statement.getId()
-	logDebug("Resetting statement " .. String.forLongInteger(id))
+	Log.debug(ctx, "Resetting statement " .. String.forLongInteger(id))
 	var close = createPacket()
 	close.appendByte(0x1A)
 	close.appendInt32(id as uint32)
@@ -1192,7 +1193,7 @@ func resetStatement(statement as MyStatement) private as bool
 		logOkPacket(parseOkPacket(resp))
 		return true
 	}
-	logError("Unknown response to resetStatement")
+	Log.error(ctx, "Unknown response to resetStatement")
 	return false
 }
 
@@ -1214,10 +1215,10 @@ func isNullInBitmap(bitmap as buffer, index as int) private as bool
 func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private as vector<object>
 {
 	assert packet:
-		logWarning("Null packet given to parseRecord")
+		Log.warning(ctx, "Null packet given to parseRecord")
 	var walker = MyPacketParser.forBuffer(packet)
 	assert walker.getInt8() == 0x00:
-		logWarning("Record buffer has invalid header")
+		Log.warning(ctx, "Record buffer has invalid header")
 	var columnCount = Vector.getSize(columns)
 	var nullBytes = (columnCount + 9) / 8
 	var nullBitmap = walker.getBuffer(nullBytes)
@@ -1257,7 +1258,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 		else if type == FieldType.MYSQL_TYPE_DATE {
 			var length = walker.getInt8()
 			if length != 4 {
-				logError("Unsupported length for date field: " .. String.forInteger(length))
+				Log.error(ctx, "Unsupported length for date field: " .. String.forInteger(length))
 				return null
 			}
 			var year = walker.getInt16()
@@ -1285,7 +1286,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 				nop
 			}
 			else {
-				logError("Unsupported length for datetime field: " .. String.forInteger(length))
+				Log.error(ctx, "Unsupported length for datetime field: " .. String.forInteger(length))
 				return null
 			}
 			var dt = new DateTime()
@@ -1313,7 +1314,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 				microseconds = walker.getInt32()
 			}
 			else {
-				logError("Unsupported length for time field: " .. String.forInteger(length))
+				Log.error(ctx, "Unsupported length for time field: " .. String.forInteger(length))
 				return null
 			}
 			var dt = new DateTime()
@@ -1343,7 +1344,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 				o = String.forASCIIBuffer(walker.getLengthEncodedBuffer())
 			}
 			else {
-				logWarning("Unsupported character set " .. String.forInteger(cs) .. " encountered. Assuming binary.")
+				Log.warning(ctx, "Unsupported character set " .. String.forInteger(cs) .. " encountered. Assuming binary.")
 				o = walker.getLengthEncodedBuffer()
 			}
 		}
@@ -1358,10 +1359,10 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 			o = walker.getLengthEncodedString()
 		}
 		else {
-			logError("Unsupported field type " .. String.forInteger(type) .. " encountered in response.")
+			Log.error(ctx, "Unsupported field type " .. String.forInteger(type) .. " encountered in response.")
 			return null
 		}
-		logDebug("Field " .. String.forInteger(n) .. " or `" .. column.getName() .. "' type=" .. String.forInteger(type) .. ", value=`" .. String.asString(o) .. "'")
+		Log.debug(ctx, "Field " .. String.forInteger(n) .. " or `" .. column.getName() .. "' type=" .. String.forInteger(type) .. ", value=`" .. String.asString(o) .. "'")
 		v[n] = o
 		n ++
 	}
@@ -1371,9 +1372,9 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) private as vector<object>
 {
 	assert statement:
-		logWarning("null statement given to fetchNext")
+		Log.warning(ctx, "null statement given to fetchNext")
 	var statementId = statement.getId()
-	logDebug("Fetching next record for statement " .. String.forLongInteger(statementId))
+	Log.debug(ctx, "Fetching next record for statement " .. String.forLongInteger(statementId))
 	var req = createPacket()
 	req.appendByte(0x1c)
 	req.appendInt32(statementId as uint32)
@@ -1389,7 +1390,7 @@ func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) pr
 		var rr = parseRecord(resp, columns)
 		if rr {
 			if v:
-				logWarning("Multiple records received in response to a single fetch statement!")
+				Log.warning(ctx, "Multiple records received in response to a single fetch statement!")
 			v = rr
 		}
 	}
@@ -1399,9 +1400,9 @@ func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) pr
 func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as ExecuteStatementSyncResponse
 {
 	var ms = assert stmt as MyStatement:
-		logError("Invalid statement object given to executeStatementSync")
+		Log.error(ctx, "Invalid statement object given to executeStatementSync")
 	var statementId = ms.getId()
-	logDebug("Executing prepared statement with id " .. String.forLongInteger(statementId))
+	Log.debug(ctx, "Executing prepared statement with id " .. String.forLongInteger(statementId))
 	var xx = createPacket()
 	xx.appendByte(0x17)
 	xx.appendInt32(statementId as uint32)
@@ -1454,7 +1455,7 @@ func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as E
 				xx.appendByte(0)
 			}
 			else {
-				logWarning("Unsupported parameter type encountered.")
+				Log.warning(ctx, "Unsupported parameter type encountered.")
 				xx.appendByte(FieldType.MYSQL_TYPE_BLOB)
 				xx.appendByte(0)
 			}
@@ -1481,7 +1482,7 @@ func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as E
 				xx.appendLengthEncodedBuffer(param as! buffer)
 			}
 			else {
-				logWarning("Unsupported parameter type encountered.")
+				Log.warning(ctx, "Unsupported parameter type encountered.")
 				xx.appendLengthEncodedInteger(0)
 			}
 		}
@@ -1512,44 +1513,4 @@ func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as E
 		v = ExecuteStatementSyncResponse.forResults(rs)
 	}
 	return v
-}
-
-func close(callback as function) override
-{
-	// FIXME: Make truly asynchronous
-	closeSync()
-	if callback:
-		callback()
-}
-
-func execute(stmt as SQLStatement, callback as function<void, bool>) override async
-{
-	// FIXME: Make truly asynchronous
-	var v = await executeSync(stmt)
-	if callback:
-		callback(v)
-}
-
-func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override async
-{
-	// FIXME: Make truly asynchronous
-	var v = await executeUpdateDeleteSync(stmt)
-	if callback:
-		callback(v)
-}
-
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override async
-{
-	// FIXME: Make truly asynchronous
-	var v = await querySync(stmt)
-	if callback:
-		callback(v)
-}
-
-func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override async
-{
-	// FIXME: Make truly asynchronous
-	var v = await querySingleRowSync(stmt)
-	if callback:
-		callback(v)
 }

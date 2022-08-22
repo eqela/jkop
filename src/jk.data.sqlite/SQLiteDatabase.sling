@@ -58,7 +58,7 @@ func instance private static as this
 		return new SQLiteDatabaseMono()
 	}
 	ELSE {
-		ERROR "Not implemented"
+		Error.throw("notSupported", "SQLite")
 		return null
 	}
 }
@@ -74,9 +74,10 @@ func forFile(file as File, allowCreate as bool = true, logger as LoggingContext 
 		]]
 	}
 	assert file
-	var v = assert instance()
-	if logger:
-		v.setLogger(logger)
+	var v = instance()
+	if not v:
+		Error.throw("failedToCreateSQLiteInstance", null)
+	v.ctx = logger
 	if not file.isFile() {
 		if allowCreate == false:
 			return null
@@ -113,7 +114,7 @@ func initialize(file as File, create as bool) virtual as bool
 	return true
 }
 
-func querySingleRowSync(stmt as SQLStatement) override async as DynamicMap
+func executeSingleRowQueryStatement(stmt as SQLStatement) override async as DynamicMap
 {
 	meta {
 		description [[
@@ -122,12 +123,12 @@ func querySingleRowSync(stmt as SQLStatement) override async as DynamicMap
 			SQLStatement class.
 		]]
 	}
-	var it = assert await querySync(stmt)
+	var it = assert await executeQueryStatement(stmt)
 	var v as DynamicMap #force = it.next()
 	return v
 }
 
-func tableExistsSync(table as string) override async as bool
+func checkIfTableExists(table as string) override async as bool
 {
 	meta {
 		description [[
@@ -136,37 +137,23 @@ func tableExistsSync(table as string) override async as bool
 		]]
 	}
 	assert table
-	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table' AND name=?;")
+	var stmt = assert await prepareStatement("SELECT name FROM sqlite_master WHERE type='table' AND name=?;")
 	stmt.addParamString(table)
-	var sr = assert await querySingleRowSync(stmt)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
 	assert String.equals(table, sr.getString("name"))
 	return true
 }
 
-func queryAllTableNames(callback as function<void, vector>) override async
-{
-	meta {
-		description [[
-			Calls the callback function parameter if supplied
-			and passes the returned list of all table names
-			from the queryAllTableNames() method call.
-		]]
-	}
-	var v = await queryAllTableNamesSync()
-	if callback:
-		callback(v)
-}
-
-func queryAllTableNamesSync override async as vector
+func getAllTableNames override async as vector<string>
 {
 	meta {
 		description [[
 			Returns a list of all table names in the database as vector object.
 		]]
 	}
-	var stmt = assert prepareSync("SELECT name FROM sqlite_master WHERE type='table';")
-	var it = assert await querySync(stmt)
-	var v = new vector
+	var stmt = assert await prepareStatement("SELECT name FROM sqlite_master WHERE type='table';")
+	var it = assert await executeQueryStatement(stmt)
+	var v = new vector<string>
 	loop {
 		var o = it.next()
 		if o == null:
@@ -219,13 +206,13 @@ func columnToCreateString(cc as SQLTableColumnInfo) virtual as string
 		sb.appendString("REAL")
 	}
 	else {
-		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+		Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
 		sb.appendString("UNKNOWN")
 	}
 	return sb.toString()
 }
 
-func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
 {
 	meta {
 		description [[
@@ -250,10 +237,10 @@ func prepareCreateTableStatementSync(table as string, columns as vector<SQLTable
 		first = false
 	}
 	sb.appendString(" );")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func prepareDeleteTableStatementSync(table as string) override as SQLStatement
+func prepareDeleteTableStatement(table as string) async override as SQLStatement
 {
 	meta {
 		description [[
@@ -266,10 +253,10 @@ func prepareDeleteTableStatementSync(table as string) override as SQLStatement
 	sb.appendString("DROP TABLE ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func getLastInsertIdSync(table as string) override async as long
+func getLastInsertId(table as string) override async as long
 {
 	meta {
 		description [[
@@ -277,17 +264,17 @@ func getLastInsertIdSync(table as string) override async as long
 			integer with the supplied table name.
 		]]
 	}
-	var v = assert await querySingleRowSync(prepareSync("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT ROWID AS id FROM " .. table .. " ORDER BY ROWID DESC LIMIT 1;"))
 	return v.getLongInteger("id")
 }
 
-func columnExistsSync(table as string, name as string) override async as bool:
+func checkIfColumnExists(table as string, name as string) override async as bool:
 	return false
 
-func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) override async as bool:
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool:
 	return false
 
-func getIdentityColumnNameSync(table as string) stub override async as string
-func getPrimaryKeyColumnNameSync(table as string) stub override async as string
-func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
-func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
+func getIdentityColumnName(table as string) stub override async as string
+func getPrimaryKeyColumnName(table as string) stub override async as string
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) stub async override as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) stub async override as SQLStatement

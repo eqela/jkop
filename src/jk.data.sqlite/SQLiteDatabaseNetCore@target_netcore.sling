@@ -211,7 +211,7 @@ func initialize(file as File, openCreate as bool) override as bool
 	return v
 }
 
-func closeSync override
+func closeConnection async override
 {
 	lang "cs" {{{
 		if(db != null) {
@@ -221,7 +221,7 @@ func closeSync override
 	}}}
 }
 
-func prepareSync(sql as string) override as SQLStatement
+func prepareStatement(sql as string) async override as SQLStatement
 {
 	var v = new Statement()
 	var ss #used = sql
@@ -233,7 +233,7 @@ func prepareSync(sql as string) override as SQLStatement
 	return v
 }
 
-func executeSync(stmt as SQLStatement) override async as bool
+func executeStatement(stmt as SQLStatement) override async as bool
 {
 	assert stmt
 	var v = true
@@ -259,7 +259,7 @@ func executeSync(stmt as SQLStatement) override async as bool
 	return v
 }
 
-func executeUpdateDeleteSync(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 {
 	var v = 0
 	if stmt {
@@ -467,7 +467,7 @@ class ResultSet is SQLResultSetIterator
 	}
 }
 
-func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
 {
 	assert stmt:
 		Log.debug(getLogger(), "SQLite query: null statement")
@@ -501,46 +501,9 @@ func querySync(stmt as SQLStatement) override async as SQLResultSetIterator
 	return v
 }
 
-func close(callback as function) override
+func getPrimaryKeyColumnName(table as string) override async as string
 {
-	closeSync()
-	if callback:
-		callback()
-}
-
-func execute(stmt as SQLStatement, callback as function<void, bool>) override async
-{
-	if callback:
-		callback(await executeSync(stmt))
-}
-
-func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) override async
-{
-	if callback:
-		callback(await executeUpdateDeleteSync(stmt))
-}
-
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) override async
-{
-	if callback:
-		callback(await querySync(stmt))
-}
-
-func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>) override async
-{
-	if callback:
-		callback(await querySingleRowSync(stmt))
-}
-
-func tableExists(table as string, callback as function<void, bool>) override async
-{
-	if callback:
-		callback(await tableExistsSync(table))
-}
-
-func getPrimaryKeyColumnNameSync(table as string) override async as string
-{
-	var itr = assert await querySync(prepareSync("PRAGMA TABLE_INFO(" .. table .. ");"))
+	var itr = assert await executeQueryStatement(await prepareStatement("PRAGMA TABLE_INFO(" .. table .. ");"))
 	loop {
 		var v = itr.next()
 		if not v:

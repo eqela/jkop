@@ -34,29 +34,72 @@ meta
 	]]
 }
 
-pvar logger as LoggingContext = null
+prop ctx as LoggingContext
 
-func logDebug(message as string):
-	Log.debug(logger, message)
-
-func logInfo(message as string):
-	Log.info(logger, message)
-
-func logWarning(message as string):
-	Log.warning(logger, message)
-
-func logError(message as string):
-	Log.error(logger, message)
-
-// Generic methods (shared for both synchronous and asynchoronous APIs)
+func closeConnection async abstract
 func getDatabaseTypeId abstract as string
+func getLastInsertId(table as string) abstract async as long
+func getIdentityColumnName(table as string) abstract async as string
+func getPrimaryKeyColumnName(table as string) abstract async as string
+func prepareStatement(sql as string) async abstract as SQLStatement
+func executeStatement(stmt as SQLStatement) abstract async as bool
+func executeUpdateDeleteStatement(stmt as SQLStatement) abstract async as int
+func executeQueryStatement(stmt as SQLStatement) abstract async as SQLResultSetIterator
+func executeSingleRowQueryStatement(stmt as SQLStatement) abstract async as DynamicMap
+func checkIfTableExists(table as string) abstract async as bool
+func checkIfColumnExists(table as string, name as string) abstract async as bool
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) abstract async as bool
+func getAllTableNames abstract async as vector<string>
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async abstract as SQLStatement
+func prepareDeleteTableStatement(table as string) async abstract as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
 
-// Synchronous API
-func prepareSync(sql as string) abstract as SQLStatement
-func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) abstract as SQLStatement
-func prepareDeleteTableStatementSync(table as string) abstract as SQLStatement
+func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async as bool
+{
+	meta {
+		description [[
+			Checks if the database table exists and creates it if it does not exist.
+			Returns false if something went wrong.
+		]]
+	}
+	foreach column as SQLTableColumnInfo in columns {
+		if await checkIfColumnExists(tableName, column.getName()) {
+			if not await checkIfColumnTypeMatches(tableName, column):
+				assert await executeStatement(await prepareUpdateColumnTypeStatement(tableName, column))
+		}
+		else {
+			assert await executeStatement(await prepareCreateColumnStatement(tableName, column))
+		}
+	}
+	return true
+}
 
-func prepareCreateIndexStatementSync(table as string, columns as vector<string>, unique as bool) virtual as SQLStatement
+func ensureTableExists(table as SQLTableInfo) virtual async as bool
+{
+	meta {
+		description [[
+			Checks if the database table exists and creates it if it does not exist.
+		]]
+	}
+	assert table
+	var name = table.getName()
+	assert String.isNotEmpty(name)
+	if await checkIfTableExists(name) {
+		var v = await ensureColumnsExistInTable(name, table.getColumns())
+		if v:
+			return true
+		return false
+	}
+	assert await executeStatement(await prepareCreateTableStatement(name, table.getColumns()))
+	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
+		if not await executeStatement(await prepareCreateIndexStatement(name, cii.getColumns(), cii.getUnique())):
+			await executeStatement(await prepareDeleteTableStatement(name))
+	}
+	return true
+}
+
+func prepareCreateIndexStatement(table as string, columns as vector<string>, unique as bool) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -95,88 +138,7 @@ func prepareCreateIndexStatementSync(table as string, columns as vector<string>,
 		sqlsb.appendString(column)
 	}
 	sqlsb.appendString(" )")
-	return prepareSync(sqlsb.toString())
-}
-
-func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
-func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) abstract as SQLStatement
-func getLastInsertIdSync(table as string) abstract async as long
-func getIdentityColumnNameSync(table as string) abstract async as string
-func getPrimaryKeyColumnNameSync(table as string) abstract async as string
-func columnExistsSync(table as string, name as string) abstract async as bool
-func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) abstract async as bool
-func closeSync abstract
-func executeSync(stmt as SQLStatement) abstract async as bool
-func executeUpdateDeleteSync(stmt as SQLStatement) abstract async as int
-func querySync(stmt as SQLStatement) abstract async as SQLResultSetIterator
-func querySingleRowSync(stmt as SQLStatement) abstract async as DynamicMap
-func tableExistsSync(table as string) abstract async as bool
-func queryAllTableNamesSync abstract async as vector
-
-// Asynchronous API
-func close(callback as function) abstract
-func execute(stmt as SQLStatement, callback as function<void, bool>) async abstract
-func executeUpdateDelete(stmt as SQLStatement, callback as function<void, int>) async abstract
-func query(stmt as SQLStatement, callback as function<void, SQLResultSetIterator>) async  abstract
-func querySingleRow(stmt as SQLStatement, callback as function<void, DynamicMap>)async abstract
-func tableExists(table as string, callback as function<void, bool>) async abstract
-func queryAllTableNames(callback as function<void, vector>) async abstract
-
-func ensureColumnsExistsSync(tableName as string, columns as vector<SQLTableColumnInfo>) async as bool
-{
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-			Returns false if something went wrong.
-		]]
-	}
-	foreach column as SQLTableColumnInfo in columns {
-		if await columnExistsSync(tableName, column.getName()) {
-			if not await isColumnTypeSameSync(tableName, column):
-				assert await executeSync(prepareUpdateColumnTypeStatementSync(tableName, column))
-		}
-		else {
-			assert await executeSync(prepareCreateColumnStatementSync(tableName, column))
-		}
-	}
-	return true
-}
-
-func ensureTableExistsSync(table as SQLTableInfo) virtual async as bool
-{
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-		]]
-	}
-	assert table
-	var name = table.getName()
-	assert String.isNotEmpty(name)
-	if await tableExistsSync(name) {
-		var v = await ensureColumnsExistsSync(name, table.getColumns())
-		if v:
-			return true
-		return false
-	}
-	assert await executeSync(prepareCreateTableStatementSync(name, table.getColumns()))
-	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
-		if not await executeSync(prepareCreateIndexStatementSync(name, cii.getColumns(), cii.getUnique())):
-			await executeSync(prepareDeleteTableStatementSync(name))
-	}
-	return true
-}
-
-func ensureTableExists(table as SQLTableInfo, callback as function<void, bool>) async virtual
-{
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-			Calls the callback function parameter if supplied and passes the result of the operation.
-		]]
-	}
-	var v = await ensureTableExistsSync(table)
-	if callback:
-		callback(v)
+	return await prepareStatement(sqlsb.toString())
 }
 
 func createColumnSelectionString(columns as vector<string>) private as string
@@ -200,7 +162,7 @@ func createColumnSelectionString(columns as vector<string>) private as string
 	return sb.toString()
 }
 
-func createOrderByString(order as vector<SQLOrderingRule>) as string
+func createOrderByString(order as vector<SQLOrderingRule>) private as string
 {
 	meta {
 		description [[
@@ -229,7 +191,7 @@ func createOrderByString(order as vector<SQLOrderingRule>) as string
 	return sb.toString()
 }
 
-func prepareQueryAllStatementSync(table as string, columns as vector<string> = null, order as vector<SQLOrderingRule> = null) virtual as SQLStatement
+func prepareSelectAllStatement(table as string, columns as vector<string> = null, order as vector<SQLOrderingRule> = null) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -245,66 +207,10 @@ func prepareQueryAllStatementSync(table as string, columns as vector<string> = n
 	sb.appendString(table)
 	sb.appendString(createOrderByString(order))
 	sb.appendString(";")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func prepareCountRecordsStatementSync(table as string, criteria as DynamicMap, likeOperator as bool = false) virtual as SQLStatement
-{
-	meta {
-		description [[
-			Creates an instance of SQLStatement for select count statement
-			with the specified database table name and a map of criteria.
-		]]
-	}
-	var sb = new StringBuilder()
-	sb.appendString("SELECT COUNT(*) AS count FROM ")
-	sb.appendString(table)
-	var first = true
-	var keys as vector<string>
-	if criteria {
-		keys = criteria.getKeys()
-		foreach key as string in keys {
-			if first {
-				sb.appendString(" WHERE ")
-				first = false
-			}
-			else {
-				sb.appendString(" AND ")
-			}
-			sb.appendString(key)
-			var value = criteria.getString(key)
-			if value == null {
-				sb.appendString(" IS NULL")
-			}
-			else {
-				if likeOperator {
-					sb.appendString(" LIKE ?")
-				}
-				else {
-					sb.appendString(" = ?")
-				}
-			}
-		}
-	}
-	sb.appendCharacter(';')
-	var stmt = assert prepareSync(sb.toString())
-	if keys {
-		foreach key as string in keys {
-			var val = criteria.getString(key)
-			if val == null:
-				continue
-			if likeOperator {
-				stmt.addParamString("%" .. val .. "%")
-			}
-			else {
-				stmt.addParamString(val)
-			}
-		}
-	}
-	return stmt
-}
-
-func prepareQueryWithCriteriaStatementSync(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) virtual as SQLStatement
+func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -358,7 +264,7 @@ func prepareQueryWithCriteriaStatementSync(table as string, criteria as DynamicM
 	}
 	sb.appendCharacter(';')
 	var sql = sb.toString()
-	var stmt = prepareSync(sql)
+	var stmt = await prepareStatement(sql)
 	if not stmt:
 		return null
 	if keys {
@@ -377,7 +283,63 @@ func prepareQueryWithCriteriaStatementSync(table as string, criteria as DynamicM
 	return stmt
 }
 
-func prepareQueryDistinctValuesStatementSync(table as string, column as string) virtual as SQLStatement
+func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeOperator as bool = false) async virtual as SQLStatement
+{
+	meta {
+		description [[
+			Creates an instance of SQLStatement for select count statement
+			with the specified database table name and a map of criteria.
+		]]
+	}
+	var sb = new StringBuilder()
+	sb.appendString("SELECT COUNT(*) AS count FROM ")
+	sb.appendString(table)
+	var first = true
+	var keys as vector<string>
+	if criteria {
+		keys = criteria.getKeys()
+		foreach key as string in keys {
+			if first {
+				sb.appendString(" WHERE ")
+				first = false
+			}
+			else {
+				sb.appendString(" AND ")
+			}
+			sb.appendString(key)
+			var value = criteria.getString(key)
+			if value == null {
+				sb.appendString(" IS NULL")
+			}
+			else {
+				if likeOperator {
+					sb.appendString(" LIKE ?")
+				}
+				else {
+					sb.appendString(" = ?")
+				}
+			}
+		}
+	}
+	sb.appendCharacter(';')
+	var stmt = assert await prepareStatement(sb.toString())
+	if keys {
+		foreach key as string in keys {
+			var val = criteria.getString(key)
+			if val == null:
+				continue
+			if likeOperator {
+				stmt.addParamString("%" .. val .. "%")
+			}
+			else {
+				stmt.addParamString(val)
+			}
+		}
+	}
+	return stmt
+}
+
+func prepareSelectDistinctValuesStatement(table as string, column as string) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -392,21 +354,10 @@ func prepareQueryDistinctValuesStatementSync(table as string, column as string) 
 	sb.appendString(" FROM ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func prepareSelectStatementSync(table as string, criteria as DynamicMap) virtual as SQLStatement
-{
-	meta {
-		description [[
-			Creates an instance of SQLStatement for select all statement with the
-			specified database table name and an instance of DynamicMap for criteria.
-		]]
-	}
-	return prepareQueryWithCriteriaStatementSync(table, criteria)
-}
-
-func prepareInsertStatementSync(table as string, data as DynamicMap) virtual as SQLStatement
+func prepareInsertStatement(table as string, data as DynamicMap) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -441,7 +392,7 @@ func prepareInsertStatementSync(table as string, data as DynamicMap) virtual as 
 		first = false
 	}
 	sb.appendString(" );")
-	var stmt = assert prepareSync(sb.toString())
+	var stmt = assert await prepareStatement(sb.toString())
 	foreach key in keys {
 		var o = data.get(key)
 		if o == null:
@@ -477,7 +428,7 @@ func prepareInsertStatementSync(table as string, data as DynamicMap) virtual as 
 	return stmt
 }
 
-func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as DynamicMap) virtual as SQLStatement
+func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -493,7 +444,7 @@ func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as
 	sb.appendString(" SET ")
 	var params = new vector<object>
 	var first = true
-	var keys as Iterator<string> #force = data.iterateKeys()
+	var keys = data.iterateKeys()
 	while keys {
 		var key = keys.next()
 		if not key:
@@ -514,7 +465,7 @@ func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as
 	if criteria && criteria.getCount() > 0 {
 		sb.appendString(" WHERE ")
 		first = true
-		var criterias as Iterator<string> #force = criteria.iterateKeys()
+		var criterias = criteria.iterateKeys()
 		while criterias {
 			var criterium = criterias.next()
 			if not criterium:
@@ -534,7 +485,7 @@ func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = assert prepareSync(sb.toString())
+	var stmt = assert await prepareStatement(sb.toString())
 	foreach o in params {
 		if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
@@ -555,7 +506,7 @@ func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as
 	return stmt
 }
 
-func prepareDeleteStatementSync(table as string, criteria as DynamicMap) virtual as SQLStatement
+func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -572,7 +523,7 @@ func prepareDeleteStatementSync(table as string, criteria as DynamicMap) virtual
 	if criteria && criteria.getCount() > 0 {
 		sb.appendString(" WHERE ")
 		var first = true
-		var criterias as Iterator<string> #force = criteria.iterateKeys()
+		var criterias = criteria.iterateKeys()
 		while criterias {
 			var criterium = criterias.next()
 			if not criterium:
@@ -586,7 +537,7 @@ func prepareDeleteStatementSync(table as string, criteria as DynamicMap) virtual
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = prepareSync(sb.toString())
+	var stmt = await prepareStatement(sb.toString())
 	if not stmt:
 		return null
 	foreach o in params {

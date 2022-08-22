@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
-import jk.data.sql
 import jk.log
+import jk.data.sql
 
 class is SQLDatabase abstract:
 
@@ -40,79 +40,86 @@ func instance private static as this
 		return new PostgreSQLForNodeJS()
 	}
 	ELSE {
+		Error.throw("notSupported", "PostgreSQL")
 		return null
 	}
 }
 
-func forConnectionStringSync(ctx as LoggingContext, connectionString as string) static as this
+func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
 {
-	assert String.isNotEmpty(connectionString):
-		Log.error(ctx, "Empty connection string given to MySQLDatabase")
+	if String.isEmpty(connectionString):
+		Error.throw("emptyConnectionString", null, StackTrace.generate())
 	var ss = String.split(connectionString, ':')
-	var paramc = Vector.getSize(ss)
-	assert ss && paramc >= 4:
-		Log.error(ctx, "PostgreSQLDatabase connection string has less than 4 fields: `" .. connectionString .. "'")
-	var address = ss[0]
-	var username = ss[1]
-	var password = ss[2]
-	var database = ss[3]
+	if Vector.getSize(ss) < 4:
+		Error.throw("invalidConnectionString", connectionString)
+	var address = Vector.get(ss, 0)
+	var username = Vector.get(ss, 1)
+	var password = Vector.get(ss, 2)
+	var database = Vector.get(ss, 3)
 	var port = 5432
-	var sport = ss[4]
+	var sport = Vector.get(ss, 4)
 	if sport:
-		port = sport as int
-	return connectSync(ctx, address, username, password, database, port)
+		port = String.toInteger(sport)
+	if String.isEmpty(address):
+		Error.throw("emptyAddress", connectionString)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", connectionString)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", connectionString)
+	if port < 0:
+		Error.throw("invalidPortNumber", connectionString)
+	return forConnectionDetails(ctx, address, username, password, database, port)
 }
 
-func connectSync(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, port as int) static as this
+func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 {
-	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database) && port > 0
-	var v = assert instance()
-	v.setLogger(ctx)
-	assert v.initializeSync(serverAddress, username, password, database, port)
-	return v
+	if not config:
+		Error.throw("nullConfiguration", null, StackTrace.generate())
+	var serverAddress = config.getString("serverAddress")
+	var username = config.getString("username")
+	var password = config.getString("password")
+	var database = config.getString("database")
+	var port = config.getInteger("port", 5432)
+	if String.isEmpty(serverAddress):
+		Error.throw("emptyAddress", config)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", config)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", config)
+	if port < 0:
+		Error.throw("invalidPortNumber", config)
+	return forConnectionDetails(ctx, serverAddress, username, password, database, port)
 }
 
-func forConfig(logContext as LoggingContext, config as DynamicMap) static as this
+func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, port as int) static as this
 {
-	assert config
-	var serverAddress = assert config.getString("serverAddress")
-	var username = assert config.getString("username")
-	var password = assert config.getString("password")
-	var database = assert config.getString("database")
-	var port = config.getInteger("enableUTF8", 5432)
-	var v = assert instance()
-	v.setLogger(logContext)
-	assert v.initializeSync(serverAddress, username, password, database, port)
+	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database) || port < 0:
+		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
+	var v = instance()
+	if not v:
+		Error.throw("failedToCreatePostgreSQLClientInstance", null)
+	v.ctx = ctx
+	Log.debug(ctx, "PostgreSQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.asString(port) .. "'")
+	v.setConnectionDetails(serverAddress, username, password, database, port)
 	return v
 }
 
 func getDatabaseTypeId override as string:
 	return "postgresql"
 
-func initializeSync(serverAddress as string, username as string, password as string, database as string, port as int) virtual as bool
-{
-	logDebug("PostgreSQLDatabase: Connecting to database host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.asString(port) .. "'")
-	assert doInitialize(serverAddress, username, password, database, port)
-	return true
-}
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, port as int) abstract
 
-func doInitialize(serverAddress as string, username as string, password as string, database as string, port as int) virtual as bool:
-	return true
+func prepareInsertStatement(table as string, data as DynamicMap) async override as SQLStatement:
+	return await base.prepareInsertStatement(table, transformKeys(data))
 
-func prepareInsertStatementSync(table as string, data as DynamicMap) override as SQLStatement:
-	return base.prepareInsertStatementSync(table, transformKeys(data))
+func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) async override as SQLStatement:
+	return await base.prepareUpdateStatement(table, transformKeys(criteria), transformKeys(data))
 
-func prepareUpdateStatementSync(table as string, criteria as DynamicMap, data as DynamicMap) override as SQLStatement:
-	return base.prepareUpdateStatementSync(table, transformKeys(criteria), transformKeys(data))
+func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) async override as SQLStatement:
+	return await base.prepareSelectWithCriteriaStatement(table, transformKeys(criteria), limit, offset, columns, order, likeOperator)
 
-func prepareDeleteStatementSync(table as string, criteria as DynamicMap) override as SQLStatement:
-	return base.prepareDeleteStatementSync(table, transformKeys(criteria))
-
-func prepareQueryWithCriteriaStatementSync(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) override as SQLStatement:
-	return base.prepareQueryWithCriteriaStatementSync(table, transformKeys(criteria), limit, offset, columns, order, likeOperator)
-
-func prepareCountRecordsStatementSync(table as string, criteria as DynamicMap, likeOperator as bool = false) override as SQLStatement:
-	return base.prepareCountRecordsStatementSync(table, transformKeys(criteria), likeOperator)
+func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeOperator as bool = false) async override as SQLStatement:
+	return await base.prepareCountRecordsStatement(table, transformKeys(criteria), likeOperator)
 
 func transformKeys(data as DynamicMap) as DynamicMap
 {

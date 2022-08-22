@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
-import jk.data.sql
 import jk.log
+import jk.data.sql
 
 class is SQLDatabase abstract:
 
@@ -34,7 +34,7 @@ meta
 	]]
 }
 
-pvar databaseName as string
+prop databaseName as string
 
 func instance private static as this
 {
@@ -42,77 +42,72 @@ func instance private static as this
 		return new MSSQLDatabaseForDotNet()
 	}
 	ELSE {
-		ERROR "Not implemented"
+		Error.throw("notSupported", "MSSQL")
 		return null
 	}
 }
 
-func forConnectionStringSync(connectionString as string, logContext as LoggingContext) static as this
+func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
 {
-	assert String.isNotEmpty(connectionString)
-	var ss = String.split(connectionString, ':', 4)
-	assert ss && Vector.getSize(ss) == 4
-	return connectSync(ss[0], ss[1], ss[2], ss[3], logContext)
+	if String.isEmpty(connectionString):
+		Error.throw("emptyConnectionString", null, StackTrace.generate())
+	var ss = String.split(connectionString, ':')
+	if Vector.getSize(ss) < 4:
+		Error.throw("invalidConnectionString", connectionString)
+	var address = Vector.get(ss, 0)
+	var username = Vector.get(ss, 1)
+	var password = Vector.get(ss, 2)
+	var database = Vector.get(ss, 3)
+	if String.isEmpty(address):
+		Error.throw("emptyAddress", connectionString)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", connectionString)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", connectionString)
+	return forConnectionDetails(ctx, address, username, password, database)
 }
 
-func connectSync(serverAddress as string, username as string, password as string, database as string, logger as LoggingContext = null) static as this
+func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string) static as this
 {
-	assert String.isNotEmpty(serverAddress) && String.isNotEmpty(username) && String.isNotEmpty(password) && String.isNotEmpty(database)
-	var v = assert instance()
-	v.setLogger(logger)
-	assert v.initializeSync(serverAddress, username, password, database)
+	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database):
+		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
+	var v = instance()
+	if not v:
+		Error.throw("failedToCreateMSSQLClientInstance", null)
+	v.ctx = ctx
+	v.setConnectionDetails(serverAddress, username, password, database)
 	return v
 }
 
 func getDatabaseTypeId override as string:
 	return "mssql"
 
-func initializeSync(serverAddress as string, username as string, password as string, database as string) virtual as bool:
-	return true
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string) abstract
 
-func querySingleRowSync(stmt as SQLStatement) override async as DynamicMap
+func executeSingleRowQueryStatement(stmt as SQLStatement) override async as DynamicMap
 {
-	var it = assert await querySync(stmt)
+	var it = assert await executeQueryStatement(stmt)
 	var v as DynamicMap #force = it.next()
 	it.close()
 	return v
 }
 
-func tableExistsSync(table as string) override async as bool
+func checkIfTableExists(table as string) override async as bool
 {
 	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
-	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_name = ? LIMIT 1;")
+	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE' AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
-	var sr = assert await querySingleRowSync(stmt)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
 	return String.equals(table, sr.getString("TABLE_NAME"))
 }
 
-func queryAllTableNames(callback as function<void, vector>) override async
-{
-	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE';"):
-		callback(null)
-	await query(stmt, func(it as SQLResultSetIterator) {
-		assert it:
-			callback(null)
-		var v = new vector
-		loop {
-			var vv = it.next()
-			if not vv:
-				break
-			v += vv.getString("TABLE_NAME")
-		}
-		it.close()
-		callback(v)
-	})
-}
-
-func queryAllTableNamesSync override async as vector
+func getAllTableNames override async as vector<string>
 {
 	assert String.isNotEmpty(databaseName)
-	var stmt = assert prepareSync("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE';")
-	var it = assert await querySync(stmt)
-	var v = new vector
+	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_type = 'BASE TABLE';")
+	var it = assert await executeQueryStatement(stmt)
+	var v = new vector<string>
 	loop {
 		var vv = it.next()
 		if not vv:
@@ -158,13 +153,13 @@ func columnToCreateString(cc as SQLTableColumnInfo) private as string
 		sb.appendString("REAL")
 	}
 	else {
-		Log.error(getLogger(), "Unknown column type: " .. String.forInteger(tt))
+		Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
 		sb.appendString("UNKNOWN")
 	}
 	return sb.toString()
 }
 
-func prepareCreateTableStatementSync(table as string, columns as vector<SQLTableColumnInfo>) override as SQLStatement
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
 {
 	assert String.isNotEmpty(table) && columns
 	var sb = new StringBuilder()
@@ -180,42 +175,42 @@ func prepareCreateTableStatementSync(table as string, columns as vector<SQLTable
 		first = false
 	}
 	sb.appendString(" );")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func prepareDeleteTableStatementSync(table as string) override as SQLStatement
+func prepareDeleteTableStatement(table as string) async override as SQLStatement
 {
 	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.appendString("DROP TABLE ")
 	sb.appendString(table)
 	sb.appendString(";")
-	return prepareSync(sb.toString())
+	return await prepareStatement(sb.toString())
 }
 
-func getLastInsertIdSync(table as string) override async as long
+func getLastInsertId(table as string) override async as long
 {
-	var v = assert await querySingleRowSync(prepareSync("SELECT IDENT_CURRENT('" .. table .. "') AS id;"))
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT IDENT_CURRENT('" .. table .. "') AS id;"))
 	return v.getLongInteger("id")
 }
 
-func getPrimaryKeyColumnNameSync(table as string) override async as string
+func getPrimaryKeyColumnName(table as string) override async as string
 {
-	var v = assert await querySingleRowSync(prepareSync("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PK_%' AND TABLE_NAME='" .. table .. "';"))
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PK_%' AND TABLE_NAME='" .. table .. "';"))
 	return v.getString("COLUMN_NAME")
 }
 
-func getIdentityColumnNameSync(table as string) override async as string
+func getIdentityColumnName(table as string) override async as string
 {
-	var v = assert await querySingleRowSync(prepareSync("SELECT name FROM sys.columns WHERE object_id = object_id('" .. table .. "') AND is_identity=1;"))
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT name FROM sys.columns WHERE object_id = object_id('" .. table .. "') AND is_identity=1;"))
 	return v.getString("name")
 }
 
-func columnExistsSync(table as string, name as string) override async as bool:
+func checkIfColumnExists(table as string, name as string) override async as bool:
 	return false
 
-func isColumnTypeSameSync(table as string, column as SQLTableColumnInfo) override async as bool:
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool:
 	return false
 
-func prepareCreateColumnStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
-func prepareUpdateColumnTypeStatementSync(table as string, column as SQLTableColumnInfo) stub override as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) stub async override as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) stub async override as SQLStatement
