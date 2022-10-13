@@ -114,7 +114,7 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 		namesb.appendCharacter('_')
 		namesb.appendString(column)
 	}
-	var idxname = namesb.toString()
+	var idxname = prepareColumnName(namesb.toString())
 	var unq = ""
 	if unique:
 		unq = "UNIQUE "
@@ -124,7 +124,7 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 	sqlsb.appendString("INDEX ")
 	sqlsb.appendString(idxname)
 	sqlsb.appendString(" ON ")
-	sqlsb.appendString(table)
+	sqlsb.appendString(prepareTableName(table))
 	sqlsb.appendString(" (")
 	var first = true
 	foreach column in columns {
@@ -135,7 +135,7 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 			sqlsb.appendString(", ")
 		}
 		first = false
-		sqlsb.appendString(column)
+		sqlsb.appendString(prepareColumnName(column))
 	}
 	sqlsb.appendString(" )")
 	return await prepareStatement(sqlsb.toString())
@@ -156,7 +156,7 @@ func createColumnSelectionString(columns as vector<string>) private as string
 	foreach column in columns {
 		if not first:
 			sb.appendString(", ")
-		sb.appendString(column)
+		sb.appendString(prepareColumnName(column))
 		first = false
 	}
 	return sb.toString()
@@ -178,7 +178,7 @@ func createOrderByString(order as vector<SQLOrderingRule>) private as string
 	foreach sr in order {
 		if not first:
 			sb.appendString(", ")
-		sb.appendString(sr.getColumn())
+		sb.appendString(prepareColumnName(sr.getColumn()))
 		sb.appendCharacter(' ')
 		if sr.getDescending() {
 			sb.appendString("DESC")
@@ -204,7 +204,7 @@ func prepareSelectAllStatement(table as string, columns as vector<string> = null
 	sb.appendString("SELECT ")
 	sb.appendString(createColumnSelectionString(columns))
 	sb.appendString(" FROM ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	sb.appendString(createOrderByString(order))
 	sb.appendString(";")
 	return await prepareStatement(sb.toString())
@@ -225,7 +225,7 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 	sb.appendString("SELECT ")
 	sb.appendString(createColumnSelectionString(columns))
 	sb.appendString(" FROM ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	var first = true
 	var keys as vector<string>
 	if criteria {
@@ -238,7 +238,7 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 			else {
 				sb.appendString(" AND ")
 			}
-			sb.appendString(key)
+			sb.appendString(prepareColumnName(key))
 			var value = criteria.getString(key)
 			if value == null {
 				sb.appendString(" IS NULL")
@@ -293,7 +293,7 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeO
 	}
 	var sb = new StringBuilder()
 	sb.appendString("SELECT COUNT(*) AS count FROM ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	var first = true
 	var keys as vector<string>
 	if criteria {
@@ -306,7 +306,7 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeO
 			else {
 				sb.appendString(" AND ")
 			}
-			sb.appendString(key)
+			sb.appendString(prepareColumnName(key))
 			var value = criteria.getString(key)
 			if value == null {
 				sb.appendString(" IS NULL")
@@ -350,9 +350,9 @@ func prepareSelectDistinctValuesStatement(table as string, column as string) asy
 	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var sb = new StringBuilder()
 	sb.appendString("SELECT DISTINCT ")
-	sb.appendString(column)
+	sb.appendString(prepareColumnName(column))
 	sb.appendString(" FROM ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	sb.appendString(";")
 	return await prepareStatement(sb.toString())
 }
@@ -368,14 +368,14 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.appendString("INSERT INTO ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	sb.appendString(" ( ")
 	var first = true
 	var keys = data.getKeys()
 	foreach key in keys {
 		if not first:
 			sb.appendCharacter(',')
-		sb.appendString(key as string)
+		sb.appendString(prepareColumnName(key as string))
 		first = false
 	}
 	sb.appendString(" ) VALUES ( ")
@@ -440,7 +440,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.appendString("UPDATE ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	sb.appendString(" SET ")
 	var params = new vector<object>
 	var first = true
@@ -451,7 +451,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 			break
 		if not first:
 			sb.appendString(", ")
-		sb.appendString(key)
+		sb.appendString(prepareColumnName(key))
 		var value = data.get(key)
 		if value == null {
 			sb.appendString(" = NULL")
@@ -472,7 +472,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 				break
 			if not first:
 				sb.appendString(" AND ")
-			sb.appendString(criterium)
+			sb.appendString(prepareColumnName(criterium))
 			var value = criteria.get(criterium)
 			if value == null {
 				sb.appendString(" IS NULL")
@@ -518,7 +518,7 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtu
 	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.appendString("DELETE FROM ")
-	sb.appendString(table)
+	sb.appendString(prepareTableName(table))
 	var params = new vector<object>
 	if criteria && criteria.getCount() > 0 {
 		sb.appendString(" WHERE ")
@@ -530,7 +530,7 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtu
 				break
 			if not first:
 				sb.appendString(" AND ")
-			sb.appendString(criterium)
+			sb.appendString(prepareColumnName(criterium))
 			sb.appendString(" = ?")
 			first = false
 			params += criteria.get(criterium)
@@ -559,3 +559,9 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtu
 	}
 	return stmt
 }
+
+func prepareTableName(tableName as string) virtual as string:
+	return tableName
+
+func prepareColumnName(columnName as string) virtual as string:
+	return columnName
