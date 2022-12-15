@@ -22,43 +22,34 @@
  * SOFTWARE.
  */
 
-class:
+import jk.nodejs
 
-func forString(string as string) static as this:
-	return ExceptionWithString.forString(string)
+class is BlockCipher:
 
-func forError(error as Error) static as this:
-	return ExceptionWithError.forError(error)
+prop key as string
+prop iv as string
 
-func forErrorCode(code as string) static as this:
-	return ExceptionWithError.forError(Error.forCode(code))
+var cipher as dynamic
+var decipher as dynamic
 
-IFDEF "target_java"
+func getIvBuffer as buffer:
+	return String.toUTF8Buffer(iv)
+
+func getBlockSize override as int:
+	return 16
+
+func encryptBlock(src as buffer, dest as buffer) override
 {
-	extend !"java.lang.RuntimeException"
+	var cipher = NodeModule.require("crypto").createCipheriv("aes-128-ecb", key, null)
+	cipher.setAutoPadding(false)
+	var v = lang "js" buffer {{{ Buffer.concat([ cipher.update(src), cipher.final() ]) }}}
+	Buffer.copyFrom(dest, v, 0, 0, Buffer.getSize(v))
 }
 
-IFDEF "target_kotlin" {
-	extend !"kotlin.Exception"
-}
-
-ELSE IFDEF "target_cs"
+func decryptBlock(src as buffer, dest as buffer) override
 {
-	extend !"System.Exception"
+	var decipher = NodeModule.require("crypto").createDecipheriv("aes-128-ecb", key, null)
+	decipher.setAutoPadding(false)
+	var v = lang "js" buffer {{{ Buffer.concat([ decipher.update(src), decipher.final() ]) }}}
+	Buffer.copyFrom(dest, v, 0, 0, Buffer.getSize(v))
 }
-
-ELSE IFDEF "target_swift"
-{
-	implement !"Error"
-}
-
-ELSE IFDEF "target_ios_objc" {
-	extend !"NSException"
-}
-
-ELSE IFDEF "target_nodejs" {
-	extend !"Error"
-}
-
-ctor:
-	nop
