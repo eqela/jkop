@@ -29,50 +29,56 @@ class abstract is WebClient:
 
 func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async override as Response
 {
-    var https = NodeModule.require("https")
-    var http = NodeModule.require("http")
-    var urlm = NodeModule.require("url")
+	var https = NodeModule.require("https")
+	var http = NodeModule.require("http")
+	var urlm = NodeModule.require("url")
 	return lang "js" promise<Response> {{{
-        new Promise((resolve, reject) => {
-            let client = http;
-            const nurl = urlm.parse(url);
-            const options = {
-                method: method
-            };
-            if (nurl.protocol === 'https:') {
-                client = https;
-            }
-            var request = client.request(url, options, (res) => {
-                var v = WebClientResponse.NEW();
-                v.setStatusCode("" + res.statusCode);
-                v.setStatusMessage("" + res.statusMessage);
-                v.setHeaders(res.headers);
-                var data = [];
-                res.on('data', chunk => {
-                    data.push(chunk);
-                });
-                res.on('end', () => {
-                    var buffer = Buffer.concat(data);
-                    v.setBody(buffer);
-                    resolve(v);
-                });
-            });
-            request.on('error', (error) => {
-                console.log(error);
-                reject(error);
-            });
-            let i = 0;
-            if (headers) {
-                while(i < headers.count()) {
-                    request.setHeader(headers.getKey(i), headers.getValue(i));
-                    i++;
-                }
-            }
-            if (body) {
-                request.setHeader('Content-Length', body.byteLength);
-                request.write(body);
-            }
-            request.end();
-        })
-    }}}
+		new Promise((resolve, reject) => {
+			let client = http;
+			const nurl = urlm.parse(url);
+			const options = {
+				method: method
+			};
+			if (nurl.protocol === 'https:') {
+				client = https;
+			};
+			var request = client.request(url, options, (res) => {
+				var v = WebClientResponse.NEW();
+				v.setStatusCode("" + res.statusCode);
+				v.setStatusMessage("" + res.statusMessage);
+				var hdrs = _jk_lang.KeyValueListForStrings.NEW();
+				if(res.headers) {
+					for(var key in res.headers) {
+						hdrs.add(key, res.headers[key]);
+					}
+				}
+				v.setHeaders(hdrs);
+				var data = [];
+				res.on('data', chunk => {
+					data.push(chunk);
+				});
+				res.on('end', () => {
+					var buffer = Buffer.concat(data);
+					v.setBody(buffer);
+					resolve(v);
+				});
+			});
+			request.on('error', (error) => {
+				console.log(error);
+				reject(error);
+			});
+			let i = 0;
+			if (headers) {
+				while(i < headers.count()) {
+					request.setHeader(headers.getKey(i), headers.getValue(i));
+					i++;
+				}
+			}
+			if (body) {
+				request.setHeader('Content-Length', body.byteLength);
+				request.write(body);
+			}
+			request.end();
+		})
+	}}}
 }

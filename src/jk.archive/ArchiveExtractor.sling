@@ -1,0 +1,113 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2022 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+
+class abstract:
+
+class ArchiveExtractorTarFileGeneric is ArchiveExtractor
+{
+	func forFile(file as File) static as this
+	{
+		var v = new this()
+		v.file = file
+		return v
+	}
+
+	prop file as File
+
+	func extractToDirectory(destDir as File, listener as function<void,File>) override async
+	{
+		if not TarReader.extractTarFileToDirectory(file, destDir):
+			Error.throw("failedtoExtractTarFile", String.asString(file))
+	}
+}
+
+class ArchiveExtractorZipFileGeneric is ArchiveExtractor
+{
+	func forFile(file as File) static as this
+	{
+		var v = new this()
+		v.file = file
+		return v
+	}
+
+	prop file as File
+
+	func extractToDirectory(destDir as File, listener as function<void,File>) override async
+	{
+		if not ZipReader.extractZipFileToDirectory(file, destDir, listener):
+			Error.throw("failedtoExtractZipFile", String.asString(file))
+	}
+}
+
+class ArchiveExtractorZipBufferGeneric is ArchiveExtractor
+{
+	func forBuffer(buffer as buffer) static as this
+	{
+		var v = new this()
+		v.buffer = buffer
+		return v
+	}
+
+	prop buffer as buffer
+
+	func extractToDirectory(destDir as File, listener as function<void,File>) override async
+	{
+		if not ZipReader.extractZipBufferToDirectory(buffer, destDir, listener):
+			Error.throw("failedtoExtractZipBufferToDirectory", String.asString(destDir))
+	}
+}
+
+func forFile(file as File) static as ArchiveExtractor
+{
+	if TarReader.isTarFile(file):
+		return ArchiveExtractorTarFileGeneric.forFile(file)
+	if ZipReader.isZipFile(file) {
+		IFDEF "target_nodejs" {
+			return ArchiveExtractorZipNodeJS.forFile(file)
+		}
+		ELSE {
+			return ArchiveExtractorZipFileGeneric.forFile(file)
+		}
+	}
+	Error.throw("unsupportedArchiveFileType", String.asString(file))
+	return null
+}
+
+func forBuffer(buffer as buffer, type as string) static as ArchiveExtractor
+{
+	if type == "zip" {
+		IFDEF "target_nodejs" {
+			return ArchiveExtractorZipNodeJS.forBuffer(buffer)
+		}
+		ELSE {
+			return ArchiveExtractorZipBufferGeneric.forBuffer(buffer)
+		}
+	}
+	Error.throw("unsupportedArchiveType", type)
+	return null
+}
+
+func extractToDirectory(destDir as File, listener as function<void,File>) abstract async
