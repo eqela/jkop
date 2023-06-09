@@ -1,0 +1,134 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.text
+import jk.console
+
+class is ConsoleApplicationMain:
+
+var spaces = false
+var diff = false
+var replace = false
+var output as string
+var parameters as vector<string>
+var actions = new vector<ActionCommand>
+
+func initialize override as bool
+{
+	foreach arg in args {
+		if arg.isFlag("spaces") {
+			spaces = true
+		}
+		else if arg.isFlag("diff") {
+			diff = true
+		}
+		else if arg.isFlag("replace") {
+			replace = true
+		}
+		else if arg.isOption("output") {
+			output = arg.value
+		}
+		else if arg.isOption("execute") {
+			var ca = assert ActionCommand.forText(arg.value):
+				Log.error(ctx, "Invalid action command: `" .. arg.value .. "'")
+			actions += ca
+		}
+		else if String.startsWith(arg.key, "x-") {
+			var cmd = new ActionCommand()
+			cmd.setCommand(String.getEndOfString(arg.key, 2))
+			cmd.setParameters(StringUtil.quotedStringToVector(arg.value, ',', false))
+			actions += cmd
+		}
+		else if String.startsWith(arg.flag, "x-") {
+			var cmd = new ActionCommand()
+			cmd.setCommand(String.getEndOfString(arg.flag, 2))
+			cmd.setParameters(new vector<string>)
+			actions += cmd
+		}
+		else if arg.isParameter() {
+			if not parameters:
+				parameters = new vector<string>
+			parameters += arg.parameter
+		}
+		else {
+			arg.reportAsUnsupported(ctx)
+			return false
+		}
+	}
+	return true
+}
+
+func execute override as bool
+{
+	assert Vector.isNotEmpty(parameters):
+		Log.error(ctx, "No file specified")
+	if replace && output {
+		Log.error(ctx, "You cannot use both -replace and -output=")
+		return false
+	}
+	if replace && diff {
+		Log.error(ctx, "You cannot use both -replace and -diff")
+		return false
+	}
+	var v = true
+	foreach param in parameters {
+		var ee = new POMFileEditor()
+		ee.setContext(ctx)
+		ee.setIndentWithTab(!spaces)
+		ee.setActions(actions)
+		var file = File.forPath(param)
+		ee.setFile(file)
+		var data as string
+		if diff {
+			data = ee.getDiff()
+		}
+		else {
+			data = ee.getModifiedContent()
+		}
+		if not data {
+			Log.error(ctx, "Failed to process: `" .. file.getPath() .. "'")
+			v = false
+			break
+		}
+		if replace || output {
+			var of as File
+			if replace {
+				of = file
+			}
+			else if output {
+				of = File.forPath(output)
+			}
+			of.setContentsUTF8(data)
+		}
+		else {
+			stdout.print(data)
+		}
+	}
+	return v
+}
+
+main:
+	return executeMain(new this(), args)

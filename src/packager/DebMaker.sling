@@ -1,0 +1,193 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.archive
+
+class is PackageMaker:
+
+func execute(ctx as LoggingContext, sourceDir as File, destDir as File, packageInfo as PackageInfo) as bool
+{
+	assert packageInfo
+	assert sourceDir
+	assert destDir
+	var tmp = assert TemporaryDirectory.create():
+		Log.error(ctx, "Failed to create temporary directory.")
+	var v = doExecute(ctx, sourceDir, destDir, packageInfo, tmp)
+	tmp.removeRecursive()
+	return v
+}
+
+func toDebianArchitecture(arch as string) as string
+{
+	var aa = arch
+	var dash = String.getLastIndexOfCharacter(aa, '-')
+	if dash > 0:
+		aa = String.getEndOfString(aa, dash+1)
+	if aa == "x64":
+		return "amd64"
+	if aa == "x86":
+		return "i386"
+	if aa == "arm":
+		return "armhf"
+	if aa == "arm64":
+		return "arm64"
+	return aa
+}
+
+func doExecute(ctx as LoggingContext, sourceDir as File, destDir as File, packageInfo as PackageInfo, tmp as File) private as bool
+{
+	var tmpsource = tmp.entry("source")
+	var filedir = tmpsource.entry("opt").entry(packageInfo.name)
+	filedir.createDirectoryRecursive()
+	Log.status(ctx, "[deb] Copying files .. ")
+	sourceDir.copyFileOrDirectoryTo(filedir)
+	var controlDir = tmp.entry("control")
+	controlDir.createDirectoryRecursive()
+	var controlFile = controlDir.entry("control")
+	var arch = toDebianArchitecture(packageInfo.platform)
+	if String.isEmpty(arch):
+		arch = "all"
+	Log.status(ctx, "[deb] Generating installer .. ")
+	var sb = new StringBuilder()
+	sb.appendString("Package: ")
+	sb.appendString(packageInfo.name)
+	sb.appendString("\n")
+	sb.appendString("Version: ")
+	sb.appendString(packageInfo.version)
+	sb.appendString("\n")
+	sb.appendString("Maintainer: ")
+	sb.appendString(packageInfo.authorName .. " <" .. packageInfo.authorEmail .. ">")
+	sb.appendString("\n")
+	sb.appendString("Architecture: ")
+	sb.appendString(arch)
+	sb.appendString("\n")
+	sb.appendString("Description: ")
+	sb.appendString(packageInfo.description)
+	sb.appendString("\n")
+	controlFile.setContentsUTF8(sb.toString())
+	var executables = String.split(packageInfo.executables, ',')
+	if Vector.getSize(executables) > 0 {
+		var postinst = new StringBuilder()
+		postinst.appendString("#! /usr/bin/env bash\n")
+		postinst.appendString("#\n")
+		var prerm = new StringBuilder()
+		prerm.appendString("#! /usr/bin/env bash\n")
+		prerm.appendString("#\n")
+		foreach executable in executables {
+			postinst.appendString("rm -f '/usr/bin/" .. executable .. "'\n")
+			postinst.appendString("ln -s '/opt/" .. packageInfo.name .. "/" .. executable .. "' '/usr/bin/" .. executable .. "'\n")
+			prerm.appendString("rm -f '/usr/bin/" .. executable .. "'\n")
+		}
+		var postinstFile = controlDir.entry("postinst")
+		postinstFile.setContentsUTF8(postinst.toString())
+		var prermFile = controlDir.entry("prerm")
+		prermFile.setContentsUTF8(prerm.toString())
+	}
+	var controlTarballFile = tmp.entry("control.tar.gz")
+	var tar = new TarGZipWriterExternalCommand()
+	assert tar.tarDir(ctx, controlDir, controlTarballFile, true):
+		Log.error(ctx, "Failed to write control tarfile.")
+	var dataTarballFile = tmp.entry("data.tar.gz")
+	assert tar.tarDir(ctx, tmpsource, dataTarballFile, true):
+		Log.error(ctx, "Internal error occured.")
+	var deb = String.toUTF8Buffer("!<arch>\n")
+	var debianBinaryFile = tmp.entry("debian-binary")
+	debianBinaryFile.setContentsUTF8("2.0\n")
+	var packageSection = assert createFileComponent(debianBinaryFile):
+		Log.error(ctx, "Failed to create file component.")
+	deb = Buffer.append(deb, packageSection)
+	var controlSection = assert createFileComponent(controlTarballFile):
+		Log.error(ctx, "Failed to create file component.")
+	deb = Buffer.append(deb, controlSection)
+	var dataSection = assert createFileComponent(dataTarballFile):
+		Log.error(ctx, "Failed to create file component.")
+	deb = Buffer.append(deb, dataSection)
+	var filename = packageInfo.name .. "_" .. packageInfo.version .. "_" .. arch .. ".deb"
+	var v = destDir.entry(filename)
+	v.getParent().createDirectoryRecursive()
+	v.setContentsBuffer(deb)
+	Log.info(ctx, v.getPath())
+	return true
+}
+
+func appendStringToBuffer(buffer as buffer, offset as int, string as string, length as int)
+{
+	var chars = new char[length]
+	var idx = 0
+	var it = String.iterate(string)
+	while it && idx < length {
+		var c = it.getNextChar()
+		if Character.isEOF(c):
+			break
+		chars[idx] = c
+		idx ++
+	}
+	while idx < length:
+		chars[idx++] = ' '
+	for(var i=0; i<length; i++):
+		buffer[offset + i] = ((chars[i] as int) & 0xff) as byte
+}
+
+func createFileComponent(file as File) as buffer
+{
+	assert file && file.isFile()
+	var fi = assert file.stat()
+	var v = Buffer.allocate(60)
+	var fileName = file.getBasename()
+	if not fileName:
+		fileName = ""
+	var n = 0
+	// File identifier - length of 16 bytes (ASCII)
+	appendStringToBuffer(v, n, fileName, 16)
+	n += 16
+	// File modification timestamp - length of 12 bytes (decimal)
+	appendStringToBuffer(v, n, String.forLongInteger(fi.getModifyTime()), 12)
+	n += 12
+	// Owner ID - length of 6 bytes (decimal)
+	appendStringToBuffer(v, n, String.forLongInteger(fi.getOwnerUser()), 6)
+	n += 6
+	// Group ID - length of 6 bytes (decimal)
+	appendStringToBuffer(v, n, String.forLongInteger(fi.getOwnerGroup()), 6)
+	n += 6
+	// File mode - length of 8 bytes (octal)
+	appendStringToBuffer(v, n, String.forLongInteger(fi.getMode()), 8)
+	n += 8
+	// File size in bytes - length of 10 bytes (decimal)
+	appendStringToBuffer(v, n, String.forLongInteger(fi.getSize()), 10)
+	n += 10
+	// Ending characters - length of 2 bytes
+	v[n++] = 0x60
+	v[n++] = 0x0A
+	// Actual data
+	v = Buffer.append(v, file.getContentsBuffer())
+	if Buffer.getSize(v) % 2 == 1 {
+		var ab = malloc 1
+		ab[0] = '\n' as uint8
+		v = Buffer.append(v, ab)
+	}
+	return v
+}

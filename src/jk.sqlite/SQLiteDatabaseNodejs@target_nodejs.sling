@@ -1,0 +1,337 @@
+import jk.sql
+import jk.nodejs
+import jk.fs
+import jk.log
+
+class is SQLiteDatabase:
+
+depend "npm:better-sqlite3:8.4.0"
+
+var sqldatabase private as !"sqlite.Database"
+
+class Statement is SQLStatement
+{
+	var isStoredProcedure = false
+	var sqlitedb as !"sqlite.Database"
+	var params = new vector
+	var error as string
+	var sqlPreparedStmt as !"sqlite.Statement"
+
+	func setIsStoredProcedure(v as bool) as SQLStatement
+	{
+		isStoredProcedure = v
+		return this
+	}
+
+	func getIsStoredProcedure as bool:
+		return isStoredProcedure
+
+	func create(db as !"sqlite.Database", statement as string) as bool
+	{
+		assert db
+		var v = true
+		try {
+			sqlitedb = db
+			sqlPreparedStmt = sqlitedb.prepare(statement)
+		}
+		catch (e) {
+			v = false
+		}
+		return v
+	}
+
+	func addParamString(val as string) as SQLStatement
+	{
+		Vector.append(params, val)
+		return this
+	}
+
+	func addParamInteger(val as int) as SQLStatement
+	{
+		Vector.append(params, val)
+		return this
+	}
+
+	func addParamLongInteger(val as long) as SQLStatement
+	{
+		Vector.append(params, val)
+		return this
+	}
+
+	func addParamDouble(val as double) as SQLStatement
+	{
+		Vector.append(params, val)
+		return this
+	}
+
+	func addParamBlob(val as buffer) as SQLStatement
+	{
+		Vector.append(params, val)
+		return this
+	}
+
+	func setParamString(name as string, val as string) as SQLStatement:
+		return addParamString(val)
+
+	func setParamInteger(name as string, val as int) as SQLStatement:
+		return addParamInteger(val)
+
+	func setParamLongInteger(name as string, val as long) as SQLStatement:
+		return addParamLongInteger(val)
+
+	func setParamDouble(name as string, val as double) as SQLStatement:
+		return addParamDouble(val)
+
+	func setParamBlob(name as string, val as buffer) as SQLStatement:
+		return addParamBlob(val)
+
+	func getError as string:
+		return error
+
+	func resetStatement:
+		Vector.clear(params)
+
+	func close
+	{
+		resetStatement()
+		sqlPreparedStmt = null
+	}
+
+	func executeUpdateDelete as int
+	{
+		assert sqlPreparedStmt
+		var v = 0
+		try {
+			var result = sqlPreparedStmt.run(params)
+			v = Integer.asInteger(result.changes)
+		}
+		catch (e) {
+			error = "Failed to execute prepared statement: " + String.asString(e)
+		}
+		return v
+	}
+
+	func execute as bool
+	{
+		assert sqlPreparedStmt
+		var b as bool
+		try {
+			sqlPreparedStmt.run(params)
+			b = true
+		}
+		catch (e) {
+			error = "Failed to execute prepared statement: " + String.asString(e)
+			b = false
+		}
+		return b
+	}
+
+	func getIteratorStmt as !"sqlite.Statement"
+	{
+		assert sqlPreparedStmt
+		var rowIteratorStmt as !"sqlite.Statement"
+		try {
+			rowIteratorStmt = sqlPreparedStmt.bind(params)
+		}
+		catch (e) {
+			error = "Failed to get prepared statement: " + String.asString(e)
+		}
+		return rowIteratorStmt
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var currentRowValue as vector
+	var rawColumnData as vector
+	var columnNames = new vector<string>
+	var iterator as !"sqlite.Iterator"
+
+	ctor(stmt as Statement):
+		initialize(stmt.getIteratorStmt())
+
+	func initialize(stmt as !"sqlite.Statement")
+	{
+		rawColumnData = stmt.columns() as vector
+		iterator = stmt.raw().iterate()
+	}
+
+	func next override as DynamicMap 
+	{
+		var data as DynamicMap
+		if not step():
+			return null
+		var columns = getColumnNames()
+		data = new DynamicMap()
+		for(var i = 0; i < Vector.getSize(columns); i++):
+			data.setObject(Vector.get(columns, i), getColumnObject(i))
+		return data
+	}
+
+	func nextValues(values as vector<object>) override as bool
+	{
+		assert values
+		if not step():
+			return false
+		Vector.clear(values)
+		var columns = getColumnCount()
+		for(var i = 0; i < columns; i++):
+			values += getColumnObject(i)
+		return true
+	}
+
+	func getColumnName(n as int #used) override as string:
+		return String.asString(Vector.get(rawColumnData as vector, n).name)
+
+	func getColumnCount override as int:
+		return Integer.asInteger(Vector.getSize(rawColumnData))
+
+	func getColumnNames override as vector<string>
+	{
+		if Vector.getSize(columnNames) > 0:
+			return columnNames
+		var itr = Vector.iterate(rawColumnData)
+		loop {
+			var next = itr.next()
+			if not next:
+				break
+			Vector.append(columnNames, String.asString(next.name))
+		}
+		return columnNames
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		var type = String.asString(Vector.get(rawColumnData, n).type)
+		if type == "INTEGER":
+			return Integer.asObject(getColumnInt(n))
+		else if type == "DOUBLE":
+			return Double.asObject(getColumnDouble(n))
+		else if type == "TEXT":
+			return getColumnString(n)
+		else if type == "BLOB":
+			return Buffer.asObject(getColumnBuffer(n))
+		else:
+			Error.throw("Unsupported type", type)
+		return null
+	}
+
+	func getColumnInt(n as int) override as int:
+		return Integer.asInteger(currentRowValue[n])
+
+	func getColumnDouble(n as int) override as double:
+		return Double.asDouble(currentRowValue[n])
+
+	func getColumnBuffer(n as int) override as buffer:
+		return Buffer.asBuffer(currentRowValue[n])
+
+	func getColumnString(n as int) as string:
+		return String.asString(currentRowValue[n])
+
+	func getColumnLong(n as int) override as long:
+		return LongInteger.asLong(currentRowValue[n])
+
+	func step override as bool 
+	{
+		if not hasNext():
+			return false
+		return true
+	}
+
+	func hasNext override as bool
+	{
+		var itr = iterator.next()
+		if itr.done == true:
+			return false
+		currentRowValue = itr.value as vector
+		return true
+	}
+
+	func close override
+	{
+		rawColumnData = null
+		columnNames = null
+		iterator = null
+		currentRowValue = null
+	}
+}
+
+func initialize(file as File, openCreate as bool) override as bool
+{
+	assert file
+	var sqlite = NodeModule.require("better-sqlite3")
+	var ctx as LoggingContext
+	if openCreate == false && file.isFile() == false {
+		Log.error(ctx, "Database does not exist: " .. file.getPath())
+		return false
+	}
+	var filePath = file.getPath()
+	if filePath == null {
+		Log.error(ctx, "Database file '" .. file.getPath() .. "' is empty.")
+		return false
+	}
+	var v = true
+	try {
+		sqldatabase = sqlite(String.asString(file)) 
+	}
+	catch (e) {
+		v = false
+	}
+	if v {
+		Log.debug(ctx, "Opened Sqlite database: '" .. file.getPath() .. "'")
+	}
+	else {
+		if openCreate:
+			Log.error(ctx, "Failed to create database. Please check write permissions")
+	}
+	return v
+}
+
+func closeConnection async override 
+{
+	lang "js" {{{
+		if (this.sqldatabase !== null) {
+			this.sqldatabase.close()
+			this.sqldatabase = null
+		}
+	}}}
+}
+
+func prepareStatement(sql as string) async override as SQLStatement 
+{
+	var stmt = new Statement()
+	if not stmt.create(sqldatabase, sql):
+		return null
+	return stmt
+}
+
+func executeStatement(stmt as SQLStatement) async override as bool 
+{
+	assert stmt
+	var v as bool
+	var ss = stmt as Statement
+	if ss:
+		v = ss.execute()
+	return v
+}
+
+func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetIterator 
+{
+	assert stmt
+	var ss = stmt as Statement
+	var ctx as LoggingContext
+	if not ss {
+		Log.debug(ctx, "SQLite query: null statement")
+		return null
+	}
+	return new ResultSet(ss)
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) async override as int
+{
+	var v = 0
+	var ss = stmt as Statement
+	if ss:
+		v = ss.executeUpdateDelete()
+	return v
+}

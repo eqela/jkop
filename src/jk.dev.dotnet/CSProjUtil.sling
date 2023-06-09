@@ -1,0 +1,118 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.xml
+
+class:
+
+func findNetFrameworkProjectFile(dir as File) static as File
+{
+	assert dir
+	var v as File
+	var it = dir.entries()
+	while it {
+		var f = it.next()
+		if not f:
+			break
+		if f.hasExtension("sln"):
+			return f
+		if v == null && f.hasExtension("csproj") {
+			if isNetCoreProject(f) == false {
+				v = f
+				break
+			}
+		}
+	}
+	return v
+}
+
+func findNetCoreProjectFile(dir as File) static as File
+{
+	assert dir
+	var v as File
+	var it = dir.entries()
+	while it {
+		var f = it.next()
+		if not f:
+			break
+		if v == null && f.hasExtension("csproj") {
+			if isNetCoreProject(f) {
+				v = f
+				break
+			}
+		}
+	}
+	return v
+}
+
+func isNetCoreProject(file as File) static as bool
+{
+	var xp = XMLParser.forFile(file)
+	if not xp:
+		return false
+	var v = false
+	loop {
+		var e = xp.next()
+		if not e:
+			break
+		if e is XMLParser.StartElement && (e as! XMLParser.StartElement).getName() == "Project" {
+			if (e as! XMLParser.StartElement).getParam("Sdk") != null:
+				return true
+		}
+	}
+	return v
+}
+
+func isAppProject(dir as File) static as bool
+{
+	assert dir
+	var it = dir.entries()
+	while it {
+		var f = it.next()
+		if not f:
+			break
+		if not f.hasExtension("csproj"):
+			continue
+		var xp = XMLParser.forFile(f)
+		if not xp:
+			continue
+		var outputTypeFlag = false
+		loop {
+			var e = xp.next()
+			if not e:
+				break
+			if e is XMLParser.StartElement && (e as! XMLParser.StartElement).getName() == "OutputType":
+				outputTypeFlag = true
+			if e is XMLParser.EndElement && (e as! XMLParser.EndElement).getName() == "OutputType":
+				outputTypeFlag = false
+			if outputTypeFlag && e is XMLParser.CharacterData {
+				var str = (e as! XMLParser.CharacterData).getData()
+				if str && str != "Library":
+					return true
+			}
+		}
+	}
+	return false
+}

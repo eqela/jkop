@@ -17,12 +17,12 @@ Compiling Jkop
 --------------
 
 The Sling compiler is distributed in Javascript format through NPM. To compile Jkop,
-you will therefore need to install Node.JS (v16 or higher), which includes NPM. Then
-run the following commands:
+you will therefore need to install Node.JS (v16 or higher), which includes NPM.
+
+To compile for Node.JS:
 
 ```
-npm install
-npm run build
+npm run build-node-js
 ```
 
 This performs a full build of all modules of Jkop, and produces Javascript code as
@@ -33,4 +33,5 @@ More information:
 
 * Jkop website: http://www.jkop.org
 * Documentation and tutorials: https://eqdn.tech/jkop/
+* The Sling programming language: http://eqdn.tech/sling
 * About Eqela: https://www.eqela.com

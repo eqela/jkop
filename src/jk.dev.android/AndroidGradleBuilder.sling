@@ -1,0 +1,234 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.os
+import jk.log
+import jk.env
+import jk.process
+
+class:
+
+prop ctx as LoggingContext
+prop gradleCommand as File
+prop androidStudioPath as File
+prop buildRelease as bool = true
+
+ctor:
+	nop
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func getGradleCommandFile as File
+{
+	var v = gradleCommand
+	if v:
+		return v
+	v = ExternalCommand.findInPath("gradle")
+	if v:
+		return v
+	return null
+}
+
+func findGradleExecutableForPath(path as string) private as File
+{
+	assert String.isNotEmpty(path)
+	var ff = File.forPath(path)
+	if ff.isFile():
+		return ff
+	if ff.isDirectory() {
+		var v = ff.entry("bin").entry("gradle").asExecutable()
+		if v.isFile():
+			return v
+		v = ff.entry("gradle").asExecutable()
+		if v.isFile():
+			return v
+	}
+	return null
+}
+
+func findGradleExecutable private as File
+{
+	var v = getGradleCommandFile()
+	if v:
+		return v
+	var androidStudioDir = this.androidStudioPath
+	if androidStudioDir == null {
+		if OS.isMacOS() {
+			androidStudioDir = File.forPath("/Applications/Android Studio.app/Contents/gradle")
+		}
+		else if OS.isWindows() {
+			IFDEF "target_netx" {
+				androidStudioDir = File.forPath(lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFiles) }}}).entry("Android").entry("Android Studio").entry("gradle")
+				if androidStudioDir.isDirectory() == false {
+					androidStudioDir = File.forPath(lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86) }}}).entry("Android").entry("Android Studio").entry("gradle")
+				}
+				if androidStudioDir.isDirectory() == false {
+					androidStudioDir = File.forPath("C:\\Program Files\\Android\\Android Studio\\gradle")
+				}
+				if androidStudioDir.isDirectory() == false {
+					androidStudioDir = File.forPath("C:\\Program Files (x86)\\Android\\Android Studio\\gradle")
+				}
+				if androidStudioDir.isDirectory() == false {
+					androidStudioDir = null
+				}
+			}
+			ELSE {
+				;
+			}
+		}
+	}
+	if androidStudioDir && androidStudioDir.isDirectory() {
+		var it = androidStudioDir.entries()
+		while it {
+			var g = it.next()
+			if g == null:
+				break
+			if g.isDirectory() == false:
+				continue
+			var bn = g.getBasename()
+			if String.startsWith(bn, "gradle-") {
+				var v = findGradleExecutableForPath(g.getPath())
+				if v:
+					return v
+				Log.debug(ctx, "Not a valid Gradle path: `" .. String.asString(g) .. "'")
+			}
+		}
+		var gradlesub = androidStudioDir.entry("gradle")
+		if gradlesub.isDirectory() {
+			var i2 = gradlesub.entries()
+			while i2 {
+				var g = i2.next()
+				if g == null:
+					break
+				if g.isDirectory() == false:
+					continue
+				var bn = g.getBasename()
+				if String.startsWith(bn, "gradle-") {
+					var v = findGradleExecutableForPath(g.getPath())
+					if v:
+						return v
+					Log.debug(ctx, "Not a valid Gradle path: `" .. String.asString(g) .. "'")
+				}
+			}
+		}
+	}
+	return null
+}
+
+func canBuild(dir as File) as bool
+{
+	assert dir
+	if dir.entry("AndroidManifest.xml").isFile():
+		return true
+	return false
+}
+
+func execute(sourceDirectory as File, destinationDirectory as File)
+{
+	var dir = sourceDirectory
+	if not dir:
+		Error.throw("noSourceDirectory", null)
+	if not dir.isDirectory():
+		Error.throw("notDirectory", dir)
+	Log.debug(ctx, "Using source directory: `" .. String.asString(dir) .. "'")
+	var gradleExe = findGradleExecutable()
+	if not gradleExe:
+		Error.throw("failedToFindCommand", "gradle")
+	Log.debug(ctx, "Using Gradle command: `" .. String.asString(gradleExe) .. "'")
+	var sdkPath = AndroidSDK.findAndroidSDKDirectory(ctx, null)
+	if not sdkPath:
+		Error.throw("failedToFindAndroidSdk", null)
+	Log.debug(ctx, "Using Android SDK: `" .. String.asString(sdkPath) .. "'")
+	Log.info(ctx, "Executing Gradle build: `" .. String.asString(dir) .. "' ..")
+	var errorBuffer as StringBuilder
+	if ctx.isInDebugMode():
+		errorBuffer = new StringBuilder()
+	var args as vector<string>
+	if buildRelease {
+		args = [ "build" ]
+	}
+	else {
+		args = [ "assembleDebug", "-x", "lint" ]
+	}
+	var pl as ProcessLauncher
+	if OS.isLinux() || OS.isMacOS() {
+		// The Android SDK ships the gradle script without the
+		// execute permission set. If this is the case, we need
+		// to manually execute the shell for it.
+		if gradleExe.isExecutable() == false {
+			pl = ProcessLauncher.forCommand("sh")
+			pl.addToParams(gradleExe.getPath())
+		}
+	}
+	if not pl:
+		pl = ProcessLauncher.forFile(gradleExe)
+	foreach arg as string in args:
+		pl.addToParams(arg)
+	pl.setErrorBuffer(errorBuffer)
+	pl.setCwd(dir)
+	pl.setEnvVariable("ANDROID_HOME", sdkPath.getPath())
+	Log.debug(ctx, "Executing gradle command: `" .. pl.toString() .. "'")
+	var r = pl.execute()
+	if r != 0 {
+		if errorBuffer && errorBuffer.count() > 0:
+			Log.error(ctx, "Gradle execution error buffer: `" .. errorBuffer.toString() .. "'")
+		Error.throw("gradleBuildFailed", String.forInteger(r))
+	}
+	else {
+		if errorBuffer && errorBuffer.count() > 0:
+			Log.debug(ctx, "Gradle execution error buffer: `" .. errorBuffer.toString() .. "'")
+	}
+	Log.debug(ctx, "Gradle build succesful")
+	var destdir = destinationDirectory
+	if destdir {
+		destdir.createDirectoryRecursive()
+		var aarDir = dir.entry("build").entry("outputs").entry("aar")
+		var it = aarDir.entries()
+		while it {
+			var file = it.next()
+			if not file:
+				break
+			var dest = destdir.entry(file.getBasename())
+			Log.debug(ctx, "Copying `" .. String.asString(file) .. "' -> `" .. String.asString(dest) .. "' ..")
+			file.copyFileTo(dest)
+		}
+		var apkDir = dir.entry("build").entry("outputs").entry("apk")
+		var it2 = apkDir.entries()
+		while it2 {
+			var file = it2.next()
+			if not file:
+				break
+			if file.hasExtension("apk") == false:
+				continue
+			var bn = file.getBasename()
+			if String.startsWith(bn, "src-"):
+				continue
+			var dest = destdir.entry(bn)
+			Log.debug(ctx, "Copying `" .. String.asString(file) .. "' -> `" .. String.asString(dest) .. "' ..")
+			file.copyFileTo(dest)
+		}
+	}
+}

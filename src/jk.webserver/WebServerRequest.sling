@@ -1,0 +1,250 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.url
+import jk.json
+
+class abstract:
+
+var url as URL
+var userData as DynamicMap
+
+func getMethod abstract as string
+func getPath(withQuery as bool = true) abstract as string
+func getHeaders abstract as vector<KeyValuePair<string,string>>
+func getHeader(key as string) abstract as string
+func setHeader(key as string, value as string) abstract
+func removeHeader(key as string) abstract
+func readBodyChunk abstract async as promise<buffer>
+func readBodyAsBuffer abstract async as buffer
+func readBodyAsString abstract async as string
+func setResponseHeader(key as string, value as string) abstract
+func setResponseHeaderList(headers as KeyValueList<string,string>) abstract
+func setResponseHeaders(headers as dynamic) abstract
+func setResponseStatus(code as int) abstract
+func writeResponseData(data as buffer) abstract async as promise
+func endResponse abstract async as promise
+
+func setUserData(key as string, data as dynamic)
+{
+	assert key
+	if not userData:
+		userData = new DynamicMap()
+	userData.setDynamic(key, data)
+}
+
+func getUserData(key as string) as dynamic
+{
+	assert key
+	assert userData
+	return userData.getDynamic(key)
+}
+
+func setResponseRedirect(url as string)
+{
+	setResponseStatus(303)
+	setResponseHeader("Location", url)
+}
+
+func setResponseRedirectAsDirectory
+{
+	var path = getUrlPath()
+	if path == null:
+		path = ""
+	setResponseRedirect(path .. "/")
+}
+
+func getUrl virtual as URL
+{
+	if not url:
+		url = URL.forString(getPath(), true)
+	return url
+}
+
+func getUrlPath virtual as string
+{
+	var url = assert getUrl()
+	return url.getPath()
+}
+
+func getQueryParameters as map<string,string>
+{
+	var url = assert getUrl()
+	return url.getQueryParameters()
+}
+
+func iterateQueryParameters as Iterator<KeyValuePair<string,string>>
+{
+	var url = assert getUrl()
+	var list = assert url.getRawQueryParameters()
+	return list.iterate()
+}
+
+func getQueryParameter(key as string) as string
+{
+	var url = assert getUrl()
+	return url.getQueryParameter(key)
+}
+
+func getCookies virtual as map<string,string>
+{
+	var cookies = new map<string,string>
+	var cvals = getHeader("cookie")
+	if cvals {
+		var sp = String.split(cvals, ';')
+		foreach ck in sp {
+			ck = String.strip(ck)
+			if String.isEmpty(ck):
+				continue
+			var e = String.getIndexOfCharacter(ck, '=')
+			if e < 0 {
+				Map.set(cookies, ck, "")
+			}
+			else {
+				Map.set(cookies, String.getSubString(ck, 0, e), String.getEndOfString(ck, e+1))
+			}
+		}
+	}
+	return cookies
+}
+
+func getCookie(cookieName as string) virtual as string
+{
+	var cookies = assert getCookies()
+	var v = Map.get(cookies, cookieName)
+	if v:
+		return v
+	var v0 = Map.get(cookies, cookieName .. ".0")
+	if not v0:
+		return null
+	var sb = new StringBuilder()
+	sb.appendString(v0)
+	var n = 1
+	loop {
+		var vn = Map.get(cookies, cookieName .. "." .. String.forInteger(n))
+		if not vn:
+			break
+		sb.appendString(vn)
+		n++
+	}
+	return sb.toString()
+}
+
+func isForResource(res as string) virtual as bool
+{
+	assert res
+	var path = assert getUrlPath()
+	while String.endsWith(path, "/"):
+		path = String.getSubString(path, 0, String.getLength(path) - 1)
+	if path == res:
+		return true
+	return false
+}
+
+func isForDirectory virtual as bool
+{
+	var path = getUrlPath()
+	if path && String.endsWith(path, "/"):
+		return true
+	return false
+}
+
+func isForPrefix(res as string) virtual as bool
+{
+	assert res
+	var rr = getUrlPath()
+	if rr && String.startsWith(rr, res):
+		return true
+	return false
+}
+
+func isForMethod(mm as string) virtual as bool
+{
+	assert mm
+	if String.equalsIgnoreCase(mm, getMethod()):
+		return true
+	return false
+}
+
+func readBodyAsJsonDynamicMap async as DynamicMap
+{
+	var bodyString = assert await readBodyAsString()
+	return JSONParser.parse(bodyString) as DynamicMap
+}
+
+func sendResponse(response as dynamic) async
+{
+	setResponseStatus(200)
+	if response == null {
+		await endResponse()
+		return
+	}
+	if response is buffer || response is BufferObject {
+		var vv = Buffer.asBuffer(response)
+		if vv {
+			setResponseHeader("Content-Type", "application/octet-stream")
+			await writeResponseData(vv)
+			await endResponse()
+			return
+		}
+	}
+	if response is map || response is DynamicMap {
+		var vv = DynamicMap.asDynamicMap(response)
+		if vv {
+			setResponseHeader("Content-Type", "application/json")
+			await writeResponseData(String.toUTF8Buffer(JSONEncoder.encode(vv)))
+			await endResponse()
+			return
+		}
+	}
+	if response is array || response is vector || response is DynamicVector {
+		var vv = DynamicVector.asDynamicVector(response)
+		if vv {
+			setResponseHeader("Content-Type", "application/json")
+			await writeResponseData(String.toUTF8Buffer(JSONEncoder.encode(vv)))
+			await endResponse()
+			return
+		}
+	}
+	if response is JSONObject {
+		var vv = (response as! JSONObject).toJsonObject()
+		if vv {
+			var ee = JSONEncoder.encode(vv)
+			if ee {
+				setResponseHeader("Content-Type", "application/json")
+				await writeResponseData(String.toUTF8Buffer(ee))
+				await endResponse()
+				return
+			}
+		}
+	}
+	var str = String.asString(response)
+	if str {
+		setResponseHeader("Content-Type", "text/plain")
+		await writeResponseData(String.toUTF8Buffer(str))
+		await endResponse()
+		return
+	}
+	await endResponse()
+}

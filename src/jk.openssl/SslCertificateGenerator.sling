@@ -1,0 +1,123 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.process
+
+class:
+
+prop openssl:opensslValue as File
+{
+	get {
+		var v = opensslValue
+		if not v:
+			v = ExternalCommand.findInPath("openssl")
+		if not v:
+			Error.throw("commandNotFound", "openssl")
+		return v
+	}
+	set {
+		opensslValue = value
+	}
+}
+
+prop name as string
+prop csrDetails as string
+prop validity as int = 36500
+
+func forName(name as string) static as this
+{
+	var v = new this()
+	v.name = name
+	return v
+}
+
+func doGeneratePem(wd as File) private as string
+{
+	var cmd = openssl
+	var output = new StringBuilder()
+	var pl as ProcessLauncher
+	// Generate private key
+	pl = ProcessLauncher.forFile(cmd)
+	pl.addToParams("genrsa")
+	pl.addToParams("-out")
+	pl.addToParams("cert.key")
+	pl.addToParams("2048")
+	pl.setCwd(wd)
+	pl.executeToStringBuilder(output)
+	// Generate CSR
+	pl = ProcessLauncher.forFile(cmd)
+	pl.addToParams("req")
+	pl.addToParams("-new")
+	pl.addToParams("-key")
+	pl.addToParams("cert.key")
+	pl.addToParams("-out")
+	pl.addToParams("cert.csr")
+	pl.addToParams("-subj")
+	var csr = csrDetails
+	if String.isEmpty(csr):
+		csr = "/O=" .. (name ? name : "")
+	pl.addToParams(csr)
+	pl.setCwd(wd)
+	pl.executeToStringBuilder(output)
+	// Generate certificate
+	pl = ProcessLauncher.forFile(cmd)
+	pl.addToParams("x509")
+	pl.addToParams("-req")
+	pl.addToParams("-days")
+	pl.addToParams(String.forInteger(validity))
+	pl.addToParams("-in")
+	pl.addToParams("cert.csr")
+	pl.addToParams("-signkey")
+	pl.addToParams("cert.key")
+	pl.addToParams("-out")
+	pl.addToParams("cert.crt")
+	pl.setCwd(wd)
+	pl.executeToStringBuilder(output)
+	// return PEM (key and cert combined)
+	var keyFile = wd.entry("cert.key")
+	var crtFile = wd.entry("cert.crt")
+	if keyFile.isFile() == false || crtFile.isFile() == false:
+		Error.throw("failedToGenerateKey", output.toString())
+	var sb = new StringBuilder()
+	sb.appendString(keyFile.getContentsUTF8())
+	sb.appendString(crtFile.getContentsUTF8())
+	return sb.toString()
+}
+
+func generatePem as string
+{
+	var wd = TemporaryDirectory.create()
+	var v as string
+	try {
+		v = doGeneratePem(wd)
+	}
+	catch e {
+		wd.removeRecursive()
+		throw e
+	}
+	wd.removeRecursive()
+	return v
+}

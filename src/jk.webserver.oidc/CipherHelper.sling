@@ -1,0 +1,63 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.md5
+import jk.aes
+import jk.random
+import jk.base64
+
+class:
+
+func forSecret(secret as string) static as this
+{
+	var v = new this()
+	v.secret = secret
+	return v
+}
+
+prop secret as string
+
+func getKey private as string:
+	return String.getSubString(MD5Encoder.encodeString(secret), 0, 16)
+
+func encrypt(data as string) as string
+{
+	var iv = String.getSubString(MD5Encoder.encodeString(String.forInteger(Random.getSharedInstance().nextInteger())), 0, 16)
+	var cipher = AES128Cipher.create(getKey(), iv)
+	if not cipher:
+		Error.throw("failedToCreateCipher", "aes128")
+	var encrypted = BlockCipher.encryptString(data, cipher)
+	return iv .. Base64Encoder.encode(encrypted)
+}
+
+func decrypt(data as string) as string
+{
+	assert data
+	var iv = String.getSubString(data, 0, 16)
+	var edata = String.getEndOfString(data, 16)
+	var cipher = AES128Cipher.create(getKey(), iv)
+	if not cipher:
+		Error.throw("failedToCreateCipher", "aes128")
+	return BlockCipher.decryptString(Base64Decoder.decode(edata), cipher)
+}

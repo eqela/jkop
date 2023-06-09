@@ -1,0 +1,116 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.process
+
+class:
+
+prop ctx as LoggingContext
+prop mvnCommand as File
+
+ctor:
+	nop
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func getMvnCommandFile as File
+{
+	var v = mvnCommand
+	if v:
+		return v
+	v = ExternalCommand.findInPath("mvn")
+	if v:
+		return v
+	return null
+}
+
+func canBuild(dir as File) as bool
+{
+	assert dir
+	if dir.entry("pom.xml").isFile():
+		return true
+	return false
+}
+
+func execute(sourceDirectory as File, destinationDirectory as File)
+{
+	var dir = sourceDirectory
+	if not dir:
+		Error.throw("noSourceDirectory", null)
+	if not dir.isDirectory():
+		Error.throw("directoryDoesNotExist", dir)
+	Log.debug(ctx, "Using source directory: `" .. String.asString(dir) .. "'")
+	var mvnExe = getMvnCommandFile()
+	if not mvnExe:
+		Error.throw("failedToFindCommand", "mvn")
+	Log.debug(ctx, "Using maven command: `" .. String.asString(mvnExe) .. "'")
+	var pomFile = dir.entry("pom.xml")
+	if not pomFile.isFile():
+		Error.throw("fileDoesNotExist", pomFile)
+	var errorBuffer as StringBuilder
+	if ctx.isInDebugMode():
+		errorBuffer = new StringBuilder()
+	var pl = ProcessLauncher.forFile(mvnExe)
+	pl.addToParams("package")
+	pl.setErrorBuffer(errorBuffer)
+	pl.setCwd(dir)
+	Log.debug(ctx, "Executing maven command: `" .. pl.toString() .. "'")
+	var r = pl.execute()
+	if r != 0 {
+		if errorBuffer && errorBuffer.count() > 0:
+			Log.error(ctx, "Maven execution error buffer: `" .. errorBuffer.toString() .. "'")
+		Error.throw("mavenBuildFailed", String.forInteger(r))
+	}
+	else {
+		if errorBuffer && errorBuffer.count() > 0:
+			Log.debug(ctx, "Maven execution error buffer: `" .. errorBuffer.toString() .. "'")
+	}
+	Log.debug(ctx, "Maven build succesful")
+	var target = dir.entry("target")
+	if target && destinationDirectory {
+		var jarFile as File
+		var iter = target.entries()
+		while iter {
+			var ff = iter.next()
+			if not ff:
+				break
+			if ff.hasExtension("jar") {
+				jarFile = ff
+				break
+			}
+		}
+		if jarFile {
+			var dest = destinationDirectory.entry(jarFile.getBasename())
+			Log.debug(ctx, "Copying `" .. String.asString(jarFile) .. "' -> `" .. String.asString(dest) .. "' ..")
+			jarFile.copyFileTo(dest)
+		}
+		else {
+			Error.throw("failedToFindJarFile", null)
+		}
+	}
+}

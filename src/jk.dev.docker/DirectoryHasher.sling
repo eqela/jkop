@@ -1,0 +1,76 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.sha
+import jk.log
+
+class:
+
+func forDirectory(dir as File, excludes as vector<string>) static as this
+{
+	var v = new this()
+	v.directory = dir
+	v.excludes = excludes
+	return v
+}
+
+prop ctx as LoggingContext
+prop directory as File
+prop excludes as vector<string>
+
+func calculateHash as string
+{
+	var ff = FileFinder.forRoot(directory)
+	foreach exclude in excludes:
+		ff.addExcludePattern(exclude)
+	ff.setIncludeDirectories(true)
+	var data = new vector<string>
+	var sha = SHAEncoder.forSha1()
+	loop {
+		var f = ff.next()
+		if not f:
+			break
+		var name = f.getRelativePath(directory, null)
+		if not name:
+			name = ""
+		var hash as string
+		if f.isFile() {
+			Log.status(ctx, "[Hash] Hashing file `" .. String.asString(f) .. "' .. ")
+			hash = sha.getHashForFile(f)
+			Log.debug(ctx, "Hashed file `" .. String.asString(f) .. "': `" .. hash .. "'")
+		}
+		if not hash:
+			hash = ""
+		data += name .. ":" .. hash
+	}
+	Log.status(ctx, null)
+	Log.status(ctx, "[Hash] Computing final hash .. ")
+	Vector.sortAsStrings(data)
+	var v = ""
+	foreach dd in data:
+		v = sha.getHashForString(v .. dd)
+	Log.status(ctx, null)
+	return v
+}

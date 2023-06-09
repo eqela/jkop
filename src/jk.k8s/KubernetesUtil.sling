@@ -1,0 +1,183 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func mapToEnvs(list as map<string, string>) static private as vector<KubernetesClient.EnvVar>
+{
+	assert list
+	var envs = new vector<KubernetesClient.EnvVar>
+	foreach key as string in Map.getKeys(list) {
+		var env = new KubernetesClient.EnvVar()
+		env.name = key
+		env.value = Map.getValue(list, key)
+		envs += env
+	}
+	return envs
+}
+
+func createNamespaceConfig(name as string) static as KubernetesClient.Namespace
+{
+	var meta = new KubernetesClient.ObjectMeta()
+	meta.name = name
+	var v = new KubernetesClient.Namespace()
+	v.apiVersion = "v1"
+	v.kind = "Namespace"
+	v.metadata = meta
+	return v
+}
+
+func createJobConfigForContainer(name as string, image as string, command as vector<string>, envs as map<string, string> = null) static as KubernetesClient.Job
+{
+	var job = new KubernetesClient.Job()
+	job.apiVersion = "batch/v1"
+	job.kind = "Job"
+	var metadata = new KubernetesClient.ObjectMeta()
+	metadata.name = name
+	job.metadata = metadata
+	var jobSpec = new KubernetesClient.JobSpec()
+	job.spec = jobSpec
+	jobSpec.ttlSecondsAfterFinished = 0
+	jobSpec.backoffLimit = 0
+	var template = new KubernetesClient.PodTemplateSpec()
+	jobSpec.template = template
+	var podSpec = new KubernetesClient.PodSpec()
+	template.spec = podSpec
+	podSpec.restartPolicy = "Never"
+	var container = new KubernetesClient.Container()
+	container.name = name
+	container.image = image
+	container.command = command
+	if envs:
+		container.env = mapToEnvs(envs)
+	var containers = new vector<KubernetesClient.Container>
+	containers += container
+	podSpec.containers = containers
+	return job
+}
+
+func createDeploymentConfigForContainer(name as string, image as string, command as vector<string>, envs as map<string,string> = null) static as KubernetesClient.Deployment
+{
+	var v = new KubernetesClient.Deployment()
+	v.apiVersion = "apps/v1"
+	v.kind = "Deployment"
+	var metadata = new KubernetesClient.ObjectMeta()
+	metadata.name = name
+	v.metadata = metadata
+	var spec = new KubernetesClient.DeploymentSpec()
+	v.spec = spec
+	spec.replicas = 1
+	var selector = new KubernetesClient.LabelSelector()
+	var matchLabels = new KubernetesClient.KeyValueObject()
+	matchLabels.setField("app", name)
+	selector.matchLabels = matchLabels
+	spec.selector = selector
+	var template = new KubernetesClient.PodTemplateSpec()
+	var templateMeta = new KubernetesClient.ObjectMeta()
+	template.metadata = templateMeta
+	var templateMetaLabels = new KubernetesClient.KeyValueObject()
+	templateMeta.labels = templateMetaLabels
+	templateMetaLabels.setField("app", name)
+	spec.template = template
+	var podSpec = new KubernetesClient.PodSpec()
+	template.spec = podSpec
+	podSpec.restartPolicy = "Always"
+	var container = new KubernetesClient.Container()
+	container.name = name
+	container.image = image
+	container.command = command
+	if envs:
+		container.env = mapToEnvs(envs)
+	var containers = new vector<KubernetesClient.Container>
+	containers += container
+	podSpec.containers = containers
+	return v
+}
+
+func createPodConfigForContainer(name as string, image as string, command as vector<string>, envs as map<string,string> = null) static as KubernetesClient.Pod
+{
+	var v = new KubernetesClient.Pod()
+	v.apiVersion = "v1"
+	v.kind = "Pod"
+	var metadata = new KubernetesClient.ObjectMeta()
+	metadata.name = name
+	var labels = new KubernetesClient.KeyValueObject()
+	labels.setField("app", name)
+	metadata.labels = labels
+	v.metadata = metadata
+	var spec = new KubernetesClient.PodSpec()
+	spec.restartPolicy = "Always"
+	var container = new KubernetesClient.Container()
+	container.name = name
+	container.image = image
+	container.command = command
+	if envs:
+		container.env = mapToEnvs(envs)
+	var containers = new vector<KubernetesClient.Container>
+	containers += container
+	spec.containers = containers
+	v.spec = spec
+	return v
+}
+
+func createServiceConfig(name as string, externalPort as int, internalPort as int, isPublic as bool) static as KubernetesClient.Service
+{
+	var port = new KubernetesClient.ServicePort()
+	port.name = "http"
+	port.protocol = "TCP"
+	port.port = externalPort
+	port.targetPort = internalPort
+	var ports = new vector<KubernetesClient.ServicePort>
+	ports += port
+	var selector = new KubernetesClient.KeyValueObject()
+	selector.setField("app", name)
+	var spec = new KubernetesClient.ServiceSpec()
+	spec.selector = selector
+	spec.ports = ports
+	if isPublic:
+		spec.type = "LoadBalancer"
+	var meta = new KubernetesClient.ObjectMeta()
+	meta.name = name
+	var v = new KubernetesClient.Service()
+	v.apiVersion = "v1"
+	v.kind = "Service"
+	v.metadata = meta
+	v.spec = spec
+	return v
+}
+
+func createSecretConfig(name as string, type as string, key as string, value as string) static as KubernetesClient.Secret
+{
+	var v = new KubernetesClient.Secret()
+	v.apiVersion = "v1"
+	v.kind = "Secret"
+	v.type = type
+	var metadata = new KubernetesClient.ObjectMeta()
+	metadata.name = name
+	v.metadata = metadata
+	var data = new KubernetesClient.KeyValueObject()
+	data.setField(key, value)
+	v.data = data
+	return v
+}

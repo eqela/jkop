@@ -1,0 +1,484 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.text
+
+class is FileEditor:
+
+pvar indentWithTab = true
+
+func createLicenseObject(id as string) as POM.License
+{
+	if String.equalsIgnoreCase(id, "MIT") {
+		var v = new POM.License()
+		v.setName("MIT License")
+		v.setUrl("http://www.opensource.org/licenses/mit-license.php")
+		return v
+	}
+	if String.equalsIgnoreCase(id, "Apache2") {
+		var v = new POM.License()
+		v.setName("The Apache License, Version 2.0")
+		v.setUrl("http://www.apache.org/licenses/LICENSE-2.0.txt")
+		return v
+	}
+	var v = new POM.License()
+	v.setName(id)
+	return v
+}
+
+func mustHaveValue(value as string) as string
+{
+	if String.isEmpty(value):
+		return null
+	return value
+}
+
+func actionParametersToDependency(action as ActionCommand) as POM.Dependency
+{
+	var dd = new POM.Dependency()
+	dd.setGroupId(mustHaveValue(action.getParameter(0)))
+	dd.setArtifactId(mustHaveValue(action.getParameter(1)))
+	dd.setVersion(mustHaveValue(action.getParameter(2)))
+	dd.setType(mustHaveValue(action.getParameter(3)))
+	dd.setScope(mustHaveValue(action.getParameter(4)))
+	dd.setOptional(mustHaveValue(action.getParameter(5)))
+	// FIXME: Exclusions cannot be provided here
+	return dd
+}
+
+func actionParametersToPerson(action as ActionCommand) as POM.Person
+{
+	var v = new POM.Person()
+	v.setName(mustHaveValue(action.getParameter(0)))
+	v.setEmail(mustHaveValue(action.getParameter(1)))
+	v.setUrl(mustHaveValue(action.getParameter(2)))
+	v.setOrganization(mustHaveValue(action.getParameter(3)))
+	v.setOrganizationUrl(mustHaveValue(action.getParameter(4)))
+	v.setId(mustHaveValue(action.getParameter(5)))
+	var rrs = String.split(action.getParameter(6), ',')
+	if Vector.getSize(rrs) > 0:
+		v.setRoles(rrs)
+	v.setTimezone(mustHaveValue(action.getParameter(7)))
+	// FIXME: properties
+	return v
+}
+
+func actionParametersToBuildPlugin(action as ActionCommand) as POM.BuildPlugin
+{
+	var v = new POM.BuildPlugin()
+	v.setGroupId(mustHaveValue(action.getParameter(0)))
+	v.setArtifactId(mustHaveValue(action.getParameter(1)))
+	v.setVersion(mustHaveValue(action.getParameter(2)))
+	v.setExtensions(mustHaveValue(action.getParameter(3)))
+	v.setInherited(mustHaveValue(action.getParameter(4)))
+	var vConfiguration = action.getParameter(5)
+	if String.isNotEmpty(vConfiguration) {
+		var config = new POM.Configuration()
+		foreach value in StringUtil.quotedStringToVector(vConfiguration, ',') {
+			var comps = String.split(value, '=', 2)
+			var key = Vector.get(comps, 0)
+			var val = Vector.get(comps, 1)
+			config.addToValues(key, val)
+		}
+		v.setConfiguration(config)
+	}
+	var vDependencies = action.getParameter(6)
+	// FIXME: Handle the dependencies
+	var vExecutions = action.getParameter(7)
+	if String.isNotEmpty(vExecutions) {
+		var ecs = String.split(vExecutions, ':')
+		var id = Vector.get(ecs, 0)
+		var phase = Vector.get(ecs, 1)
+		var goal = Vector.get(ecs, 2)
+		var x = new POM.BuildExecution()
+		x.setId(id)
+		x.setPhase(phase)
+		if String.isNotEmpty(goal) {
+			var gv = new vector<string>
+			gv += goal
+			x.setGoals(gv)
+		}
+		var xv = new vector<POM.BuildExecution>
+		xv += x
+		v.setExecutions(xv)
+	}
+	return v
+}
+
+macro INIT_BUILD_PROPERTY
+{
+	var build = pom.getBuild()
+	if not build {
+		build = new POM.Build()
+		pom.setBuild(build)
+	}
+}
+
+macro INIT_BUILD_PLUGIN_PROPERTY
+{
+	var build = pom.getBuild()
+	if not build {
+		build = new POM.Build()
+		pom.setBuild(build)
+	}
+	var plugins = build.getPlugins()
+	if not plugins {
+		plugins = new vector<POM.BuildPlugin>
+		build.setPlugins(plugins)
+	}
+}
+
+macro INIT_SCM_PROPERTY
+{
+	var scm = pom.getScm()
+	if not scm {
+		scm = new POM.SCM()
+		pom.setScm(scm)
+	}
+}
+
+func filterPom(pom as POM) as bool
+{
+	foreach action in getActions() {
+		if action.isCommand("setModelVersion") {
+			pom.setModelVersion(action.getParameter(0))
+		}
+		else if action.isCommand("setGroupId") {
+			pom.setGroupId(action.getParameter(0))
+		}
+		else if action.isCommand("setArtifactId") {
+			pom.setArtifactId(action.getParameter(0))
+		}
+		else if action.isCommand("setVersion") {
+			pom.setVersion(action.getParameter(0))
+		}
+		else if action.isCommand("setPackaging") {
+			pom.setPackaging(action.getParameter(0))
+		}
+		else if action.isCommand("clearDependencies") {
+			pom.setDependencies(null)
+		}
+		else if action.isCommand("addToDependencies") {
+			var dd = actionParametersToDependency(action)
+			var deps = pom.getDependencies()
+			if not deps {
+				deps = new vector<POM.Dependency>
+				pom.setDependencies(deps)
+			}
+			deps += dd
+		}
+		else if action.isCommand("clearParent") {
+			pom.setParent(null)
+		}
+		else if action.isCommand("setParent") {
+			var dd = new POM.Parent()
+			dd.setGroupId(mustHaveValue(action.getParameter(0)))
+			dd.setArtifactId(mustHaveValue(action.getParameter(1)))
+			dd.setVersion(mustHaveValue(action.getParameter(2)))
+			dd.setRelativePath(mustHaveValue(action.getParameter(3)))
+			pom.setParent(dd)
+		}
+		else if action.isCommand("clearDependencyManagement") {
+			pom.setDependencyManagement(null)
+		}
+		else if action.isCommand("addToDependencyManagement") {
+			var dd = actionParametersToDependency(action)
+			var deps = pom.getDependencyManagement()
+			if not deps {
+				deps = new vector<POM.Dependency>
+				pom.setDependencyManagement(deps)
+			}
+			deps += dd
+		}
+		else if action.isCommand("clearModules") {
+			pom.setModules(null)
+		}
+		else if action.isCommand("addToModules") {
+			var mod = action.getParameter(0)
+			if mod {
+				var modules = pom.getModules()
+				if not modules {
+					modules = new vector<string>
+					pom.setModules(modules)
+				}
+				modules += mod
+			}
+		}
+		else if action.isCommand("clearProperties") {
+			pom.setProperties(null)
+		}
+		else if action.isCommand("addToProperties") {
+			var props = pom.getProperties()
+			if not props {
+				props = new KeyValueListForStrings()
+				pom.setProperties(props)
+			}
+			props.add(action.getParameter(0), action.getParameter(1))
+		}
+		else if action.isCommand("setDefaultGoal") {
+			INIT_BUILD_PROPERTY()
+			build.setDefaultGoal(action.getParameter(0))
+		}
+		else if action.isCommand("setBuildDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("setFinalBuildName") {
+			INIT_BUILD_PROPERTY()
+			build.setFinalName(action.getParameter(0))
+		}
+		else if action.isCommand("clearBuildFilters") {
+			INIT_BUILD_PROPERTY()
+			build.setFilters(null)
+		}
+		else if action.isCommand("addToBuildFilters") {
+			INIT_BUILD_PROPERTY()
+			var props = build.getFilters()
+			if not props {
+				props = new vector<string>
+				build.setFilters(props)
+			}
+			props += action.getParameter(0)
+		}
+		else if action.isCommand("clearBuildResources") {
+			INIT_BUILD_PROPERTY()
+			build.setResources(null)
+		}
+		// FIXME: addToBuildResources
+		else if action.isCommand("clearBuildTestResources") {
+			INIT_BUILD_PROPERTY()
+			build.setTestResources(null)
+		}
+		// FIXME: addToBuildTestResources
+		else if action.isCommand("clearBuildPlugins") {
+			INIT_BUILD_PROPERTY()
+			build.setPlugins(null)
+		}
+		else if action.isCommand("addToBuildPlugins") {
+			INIT_BUILD_PLUGIN_PROPERTY()
+			plugins += actionParametersToBuildPlugin(action)
+		}
+		else if action.isCommand("addMavenSourcePlugin") {
+			INIT_BUILD_PLUGIN_PROPERTY()
+			var plugin = new POM.BuildPlugin()
+			plugin.setGroupId("org.apache.maven.plugins")
+			plugin.setArtifactId("maven-source-plugin")
+			var x = new POM.BuildExecution()
+			x.setId("attach-sources")
+			var gv = new vector<string>
+			gv += "jar"
+			x.setGoals(gv)
+			var xv = new vector<POM.BuildExecution>
+			xv += x
+			plugin.setExecutions(xv)
+			plugins += plugin
+		}
+		else if action.isCommand("addMavenJavadocPlugin") {
+			INIT_BUILD_PLUGIN_PROPERTY()
+			var plugin = new POM.BuildPlugin()
+			plugin.setGroupId("org.apache.maven.plugins")
+			plugin.setArtifactId("maven-javadoc-plugin")
+			var x = new POM.BuildExecution()
+			x.setId("attach-sources")
+			var gv = new vector<string>
+			gv += "jar"
+			x.setGoals(gv)
+			var xv = new vector<POM.BuildExecution>
+			xv += x
+			plugin.setExecutions(xv)
+			plugins += plugin
+		}
+		else if action.isCommand("clearBuildPluginManagement") {
+			INIT_BUILD_PROPERTY()
+			build.setPluginManagement(null)
+		}
+		else if action.isCommand("addToBuildPluginManagement") {
+			INIT_BUILD_PROPERTY()
+			var plugins = build.getPluginManagement()
+			if not plugins {
+				plugins = new vector<POM.BuildPlugin>
+				build.setPluginManagement(plugins)
+			}
+			plugins += actionParametersToBuildPlugin(action)
+		}
+		else if action.isCommand("setSourceDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setSourceDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("setScriptSourceDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setScriptSourceDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("setTestSourceDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setTestSourceDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("setOutputDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setOutputDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("setTestOutputDirectory") {
+			INIT_BUILD_PROPERTY()
+			build.setTestOutputDirectory(action.getParameter(0))
+		}
+		else if action.isCommand("clearBuildExtensions") {
+			INIT_BUILD_PROPERTY()
+			build.setExtensions(null)
+			// FIXME: addToBuildExtensions
+			// FIXME: Reporting.*
+		}
+		else if action.isCommand("setName") {
+			pom.setName(action.getParameter(0))
+		}
+		else if action.isCommand("setDescription") {
+			pom.setDescription(action.getParameter(0))
+		}
+		else if action.isCommand("setUrl") {
+			pom.setUrl(action.getParameter(0))
+		}
+		else if action.isCommand("setInceptionYear") {
+			pom.setInceptionYear(action.getParameter(0))
+		}
+		else if action.isCommand("clearLicenses") {
+			pom.setLicenses(null)
+		}
+		else if action.isCommand("addToLicenses") {
+			var lls = pom.getLicenses()
+			if not lls {
+				lls = new vector<POM.License>
+				pom.setLicenses(lls)
+			}
+			lls += createLicenseObject(action.getParameter(0))
+		}
+		else if action.isCommand("clearOrganization") {
+			pom.setOrganization(null)
+		}
+		else if action.isCommand("setOrganization") {
+			var oo = new POM.Organization()
+			oo.setName(mustHaveValue(action.getParameter(0)))
+			oo.setUrl(mustHaveValue(action.getParameter(1)))
+			pom.setOrganization(oo)
+		}
+		else if action.isCommand("clearDevelopers") {
+			pom.setDevelopers(null)
+		}
+		else if action.isCommand("addToDevelopers") {
+			var pp = actionParametersToPerson(action)
+			var devs = pom.getDevelopers()
+			if not devs {
+				devs = new vector<POM.Person>
+				pom.setDevelopers(devs)
+			}
+			devs += pp
+		}
+		else if action.isCommand("clearContributors") {
+			pom.setContributors(null)
+		}
+		else if action.isCommand("addToContributors") {
+			var pp = actionParametersToPerson(action)
+			var devs = pom.getContributors()
+			if not devs {
+				devs = new vector<POM.Person>
+				pom.setContributors(devs)
+			}
+			devs += pp
+		}
+		else if action.isCommand("clearIssueManagement") {
+			pom.setIssueManagement(null)
+		}
+		else if action.isCommand("setIssueManagementSystem") {
+			var ims = pom.getIssueManagement()
+			if not ims {
+				ims = new POM.IssueManagement()
+				pom.setIssueManagement(ims)
+			}
+			ims.setSystem(action.getParameter(0))
+		}
+		else if action.isCommand("setIssueManagementUrl") {
+			var ims = pom.getIssueManagement()
+			if not ims {
+				ims = new POM.IssueManagement()
+				pom.setIssueManagement(ims)
+			}
+			ims.setUrl(action.getParameter(0))
+			// FIXME: ciManagement
+			// FIXME: mailingLists
+		}
+		else if action.isCommand("clearScm") {
+			pom.setScm(null)
+		}
+		else if action.isCommand("setScmConnection") {
+			INIT_SCM_PROPERTY()
+			scm.setConnection(action.getParameter(0))
+		}
+		else if action.isCommand("setScmDeveloperConnection") {
+			INIT_SCM_PROPERTY()
+			scm.setDeveloperConnection(action.getParameter(0))
+		}
+		else if action.isCommand("setScmTag") {
+			INIT_SCM_PROPERTY()
+			scm.setTag(action.getParameter(0))
+		}
+		else if action.isCommand("setScmUrl") {
+			INIT_SCM_PROPERTY()
+			scm.setUrl(action.getParameter(0))
+		}
+		else if action.isCommand("clearPrerequisites") {
+			pom.setPrerequisites(null)
+		}
+		else if action.isCommand("addToPrerequisites") {
+			var prs = pom.getPrerequisites()
+			if not prs {
+				prs = new KeyValueListForStrings()
+				pom.setPrerequisites(prs)
+			}
+			prs.add(action.getParameter(0), action.getParameter(1))
+		}
+		else if action.isCommand("clearRepositories") {
+			pom.setRepositories(null)
+			// FIXME: addToRepositories
+		}
+		else if action.isCommand("clearPluginRepositories") {
+			pom.setPluginRepositories(null)
+			// FIXME: addToPluginRepositories
+		}
+		else {
+			Log.error(ctx, "Unsupported action: `" .. action.getCommand() .. "'")
+			return false
+		}
+	}
+	return true
+}
+
+func getModifiedContentForFile(file as File, fileName as string) override as string
+{
+	var pom = assert POMParser.parseFile(ctx, file, fileName)
+	assert filterPom(pom)
+	var pm = new POMMaker()
+	pm.setIndentWithTab(indentWithTab)
+	var xx = assert pm.toXML(pom)
+	return xx
+}

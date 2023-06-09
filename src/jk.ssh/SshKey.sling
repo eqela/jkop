@@ -1,0 +1,163 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.os
+import jk.fs
+import jk.env
+import jk.process
+
+class:
+
+func generate(passPhrase as string) static as this:
+	return doGenerate(passPhrase, null)
+
+func generatePem(passPhrase as string) static as this:
+	return doGenerate(passPhrase, "PEM")
+
+func generatePkcs8(passPhrase as string) static as this:
+	return doGenerate(passPhrase, "PKCS8")
+
+func doGenerate(passPhrase as string, format as string) private static as this
+{
+	var keygen = ExternalCommand.findInPath("ssh-keygen")
+	if not keygen:
+		Error.throw("commandNotFound", "ssh-keygen")
+	var pl = ProcessLauncher.forFile(keygen)
+	if not pl:
+		Error.throw("failedToCreate", "ProcessLauncher")
+	var dir = TemporaryDirectory.create()
+	if not dir:
+		Error.throw("failedToCreate", "TemporaryDirectory")
+	pl.addToParams("-t")
+	pl.addToParams("rsa")
+	pl.addToParams("-f")
+	pl.addToParams("sshkey")
+	pl.addToParams("-N")
+	pl.addToParams(passPhrase ? passPhrase : "")
+	if String.isNotEmpty(format) {
+		pl.addToParams("-m")
+		pl.addToParams(format)
+	}
+	pl.setCwd(dir)
+	pl.executeSilent()
+	var v as this
+	var prfile = dir.entry("sshkey")
+	var pufile = dir.entry("sshkey.pub")
+	if prfile.isFile() && pufile.isFile() {
+		v = new this()
+		v.setPrivateKey(prfile.getContentsBuffer())
+		v.setPublicKey(pufile.getContentsBuffer())
+	}
+	dir.removeRecursive()
+	if not v:
+		Error.throw("failedToCreate", "SshKey")
+	return v
+}
+
+func generateAndSave(keyName as string, passPhrase as string) static as this:
+	return generate(passPhrase).save(keyName)
+
+func generateDefault(passPhrase as string) static as this:
+	return generate(passPhrase).save("id_rsa")
+
+func get(name as string) static as this:
+	return new this().load(name)
+
+func getPublic(name as string) static as buffer:
+	return new this().loadPublicKey(name)
+
+func getDefaultPublic static as buffer:
+	return getPublic("id_rsa")
+
+pvar privateKey as buffer
+pvar publicKey as buffer
+
+func getDefaultStorageDirectory private as File
+{
+	var dd = CommonPath.getHomeDirectory()
+	if dd:
+		dd = dd.entry(".ssh")
+	return dd
+}
+
+func save(keyName as string) as this
+{
+	if String.isEmpty(keyName):
+		Error.throw("invalidKeyName", "SshKey")
+	var dir = getDefaultStorageDirectory()
+	if not dir:
+		Error.throw("noDefaultStorageDirectory", "SshKey")
+	dir.createDirectoryRecursive()
+	var prfile = dir.entry(keyName)
+	var pufile = dir.entry(keyName .. ".pub")
+	if prfile.exists():
+		Error.throw("alreadyExists", prfile)
+	if pufile.exists():
+		Error.throw("alreadyExists", pufile)
+	prfile.setContentsBuffer(getPrivateKey())
+	if OS.isLinux() || OS.isMacOS():
+		prfile.setMode(384)
+	try {
+		pufile.setContentsBuffer(getPublicKey())
+	}
+	catch e {
+		prfile.remove()
+		throw e
+	}
+	return this
+}
+
+func loadPublicKey(keyName as string) as buffer
+{
+	if String.isEmpty(keyName):
+		Error.throw("invalidKeyName", "SshKey")
+	var dir = getDefaultStorageDirectory()
+	if not dir:
+		Error.throw("noDefaultStorageDirectory", "SshKey")
+	var pufile = dir.entry(keyName .. ".pub")
+	var pudata = pufile.getContentsBuffer()
+	if not pudata:
+		Error.throw("failedToRead", pufile)
+	return pudata
+}
+
+func load(keyName as string) as this
+{
+	if String.isEmpty(keyName):
+		Error.throw("invalidKeyName", "SshKey")
+	var dir = getDefaultStorageDirectory()
+	if not dir:
+		Error.throw("noDefaultStorageDirectory", "SshKey")
+	var prfile = dir.entry(keyName)
+	var pufile = dir.entry(keyName .. ".pub")
+	var prdata = prfile.getContentsBuffer()
+	if not prdata:
+		Error.throw("failedToRead", prfile)
+	var pudata = pufile.getContentsBuffer()
+	if not pudata:
+		Error.throw("failedToRead", pufile)
+	setPrivateKey(prdata)
+	setPublicKey(pudata)
+	return this
+}

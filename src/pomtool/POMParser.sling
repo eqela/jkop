@@ -1,0 +1,1095 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.xml
+import jk.log
+
+class is XMLParserAdapter:
+
+func parseFile(ctx as LoggingContext, file as File, fileName as string) static as POM
+{
+	var v = new this()
+	assert v.executeForFile(ctx, file, fileName)
+	return v.getPom()
+}
+
+func parseString(ctx as LoggingContext, data as string, fileName as string) static as POM
+{
+	var v = new this()
+	assert v.executeForString(ctx, data, fileName)
+	return v.getPom()
+}
+
+pvar pom as POM
+
+func parseLicenses(ee as XMLParser.StartElement) as vector<POM.License>
+{
+	var v = new vector<POM.License>
+	loop {
+		var license = acceptStartElement("license")
+		if license {
+			var vv = new POM.License()
+			loop {
+				var name = acceptStringElementData("name")
+				if name {
+					vv.setName(name)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					vv.setUrl(url)
+					continue
+				}
+				var distribution = acceptStringElementData("distribution")
+				if distribution {
+					vv.setDistribution(distribution)
+					continue
+				}
+				var comments = acceptStringElementData("comments")
+				if comments {
+					vv.setComments(comments)
+					continue
+				}
+				if acceptEndElement(license):
+					break
+				expect("name, url, distribution or comments")
+				return null
+			}
+			v += vv
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("license")
+		return null
+	}
+	return v
+}
+
+func parseBuildExecutions(ee as XMLParser.StartElement) as vector<POM.BuildExecution>
+{
+	var v = new vector<POM.BuildExecution>
+	loop {
+		var dd = acceptStartElement("execution")
+		if dd {
+			var vv = new POM.BuildExecution()
+			loop {
+				var id = acceptStringElementData("id")
+				if id {
+					vv.setId(id)
+					continue
+				}
+				var goals = acceptStartElement("goals")
+				if goals {
+					var strs = assert acceptStringList(goals, "goal")
+					vv.setGoals(strs)
+					continue
+				}
+				var phase = acceptStringElementData("phase")
+				if phase {
+					vv.setPhase(phase)
+					continue
+				}
+				var inherited = acceptStringElementData("inherited")
+				if inherited {
+					vv.setInherited(inherited)
+					continue
+				}
+				var configuration = acceptStartElement("configuration")
+				if configuration {
+					var cfg = assert parseConfigurationElement(configuration)
+					vv.setConfiguration(cfg)
+					continue
+				}
+				if acceptEndElement(dd):
+					break
+				expect("id, goals, phase, inherited or configuration")
+				return null
+			}
+			v += vv
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("execution")
+		return null
+	}
+	return v
+}
+
+func parseDependencies(ee as XMLParser.StartElement) as vector<POM.Dependency>
+{
+	var v = new vector<POM.Dependency>
+	loop {
+		var dd = acceptStartElement("dependency")
+		if dd {
+			var vv = new POM.Dependency()
+			loop {
+				var groupId = acceptStringElementData("groupId")
+				if groupId {
+					vv.setGroupId(groupId)
+					continue
+				}
+				var artifactId = acceptStringElementData("artifactId")
+				if artifactId {
+					vv.setArtifactId(artifactId)
+					continue
+				}
+				var version = acceptStringElementData("version")
+				if version {
+					vv.setVersion(version)
+					continue
+				}
+				var type = acceptStringElementData("type")
+				if type {
+					vv.setType(type)
+					continue
+				}
+				var scope = acceptStringElementData("scope")
+				if scope {
+					vv.setScope(scope)
+					continue
+				}
+				var optional = acceptStringElementData("optional")
+				if optional {
+					vv.setOptional(optional)
+					continue
+				}
+				var xxs = acceptStartElement("exclusions")
+				if xxs {
+					var vx = new vector<POM.Exclusion>
+					loop {
+						var xx = acceptStartElement("exclusion")
+						if xx {
+							var x = new POM.Exclusion()
+							loop {
+								var groupId = acceptStringElementData("groupId")
+								if groupId {
+									x.setGroupId(groupId)
+									continue
+								}
+								var artifactId = acceptStringElementData("artifactId")
+								if artifactId {
+									x.setArtifactId(artifactId)
+									continue
+								}
+								if acceptEndElement(xx):
+									break
+								expect("groupId or artifactId")
+								return null
+							}
+							vx += x
+							continue
+						}
+						if acceptEndElement(xxs):
+							break
+						expect("exclusion")
+						return null
+					}
+					vv.setExclusions(vx)
+					continue
+				}
+				if acceptEndElement(dd):
+					break
+				expect("groupId, artifactId, version, type, scope, version, optional or exclusions")
+				return null
+			}
+			v += vv
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("dependency")
+		return null
+	}
+	return v
+}
+
+func parseParentElement(ee as XMLParser.StartElement) as POM.Parent
+{
+	var v = new POM.Parent()
+	loop {
+		var groupId = acceptStringElementData("groupId")
+		if groupId {
+			v.setGroupId(groupId)
+			continue
+		}
+		var artifactId = acceptStringElementData("artifactId")
+		if artifactId {
+			v.setArtifactId(artifactId)
+			continue
+		}
+		var version = acceptStringElementData("version")
+		if version {
+			v.setVersion(version)
+			continue
+		}
+		var relativePath = acceptStringElementData("relativePath")
+		if relativePath {
+			v.setRelativePath(relativePath)
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("groupId, artifactId, version or relativePath")
+		return null
+	}
+	return v
+}
+
+func acceptStringList(ee as XMLParser.StartElement, subTag as string) as vector<string>
+{
+	var v = new vector<string>
+	loop {
+		var value = acceptStringElementData(subTag)
+		if value {
+			v += value
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect(subTag)
+		return null
+	}
+	return v
+}
+
+func acceptPropertyList(ee as XMLParser.StartElement) as KeyValueListForStrings
+{
+	var v = new KeyValueListForStrings()
+	loop {
+		var se = acceptStringElement()
+		if se {
+			v.add(se.getName(), se.getContent())
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("property definition")
+		return null
+	}
+	return v
+}
+
+func parsePersonList(ee as XMLParser.StartElement, subTag as string) as vector<POM.Person>
+{
+	var v = new vector<POM.Person>
+	loop {
+		var tt = acceptStartElement(subTag)
+		if tt {
+			var person = new POM.Person()
+			loop {
+				var id = acceptStringElementData("id")
+				if id {
+					person.setId(id)
+					continue
+				}
+				var name = acceptStringElementData("name")
+				if name {
+					person.setName(name)
+					continue
+				}
+				var email = acceptStringElementData("email")
+				if email {
+					person.setEmail(email)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					person.setUrl(url)
+					continue
+				}
+				var organization = acceptStringElementData("organization")
+				if organization {
+					person.setOrganization(organization)
+					continue
+				}
+				var organizationUrl = acceptStringElementData("organizationUrl")
+				if organizationUrl {
+					person.setOrganizationUrl(organizationUrl)
+					continue
+				}
+				var roles = acceptStartElement("roles")
+				if roles {
+					var strs = assert acceptStringList(roles, "role")
+					person.setRoles(strs)
+					continue
+				}
+				var timezone = acceptStringElementData("timezone")
+				if timezone {
+					person.setTimezone(timezone)
+					continue
+				}
+				var properties = acceptStartElement("properties")
+				if properties {
+					var pps = assert acceptPropertyList(properties)
+					person.setProperties(pps)
+					continue
+				}
+				if acceptEndElement(tt):
+					break
+				expect("id, name, email, url, organization, organizationUrl, roles, timezone or properties")
+				return null
+			}
+			v += person
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect(subTag)
+		return null
+	}
+	return v
+}
+
+func parseMailingLists(ee as XMLParser.StartElement) as vector<POM.MailingList>
+{
+	var v = new vector<POM.MailingList>
+	loop {
+		var mailingList = acceptStartElement("mailingList")
+		if mailingList {
+			var ml = new POM.MailingList()
+			loop {
+				var name = acceptStringElementData("name")
+				if name {
+					ml.setName(name)
+					continue
+				}
+				var subscribe = acceptStringElementData("subscribe")
+				if subscribe {
+					ml.setSubscribe(subscribe)
+					continue
+				}
+				var unsubscribe = acceptStringElementData("unsubscribe")
+				if unsubscribe {
+					ml.setUnsubscribe(unsubscribe)
+					continue
+				}
+				var post = acceptStringElementData("post")
+				if post {
+					ml.setPost(post)
+					continue
+				}
+				var archive = acceptStringElementData("archive")
+				if archive {
+					ml.setArchive(archive)
+					continue
+				}
+				var otherArchives = acceptStartElement("otherArchive")
+				if otherArchives {
+					var oas = assert acceptStringList(otherArchives, "otherArchive")
+					ml.setOtherArchives(oas)
+					continue
+				}
+				if acceptEndElement(mailingList):
+					break
+				expect("name, subscribe, unsubscribe, post, archive or otherArchive")
+				return null
+			}
+			v += ml
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("mailingList")
+		return null
+	}
+	return v
+}
+
+func parseRepositoryComponent(ee as XMLParser.StartElement) as POM.RepositoryComponent
+{
+	var v = new POM.RepositoryComponent()
+	loop {
+		var enabled = acceptStringElementData("enabled")
+		if enabled {
+			v.setEnabled(enabled)
+			continue
+		}
+		var updatePolicy = acceptStringElementData("updatePolicy")
+		if updatePolicy {
+			v.setUpdatePolicy(updatePolicy)
+			continue
+		}
+		var checksumPolicy = acceptStringElementData("checksumPolicy")
+		if checksumPolicy {
+			v.setChecksumPolicy(checksumPolicy)
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("enabled, updatePolicy or checksumPolicy")
+		return null
+	}
+	return v
+}
+
+func parseRepositoryList(ee as XMLParser.StartElement, subTag as string) as vector<POM.Repository>
+{
+	var v = new vector<POM.Repository>
+	loop {
+		var rtag = acceptStartElement(subTag)
+		if rtag {
+			var rr = new POM.Repository()
+			loop {
+				var id = acceptStringElementData("id")
+				if id {
+					rr.setId(id)
+					continue
+				}
+				var name = acceptStringElementData("name")
+				if name {
+					rr.setName(name)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					rr.setUrl(url)
+					continue
+				}
+				var layout = acceptStringElementData("layout")
+				if layout {
+					rr.setLayout(layout)
+					continue
+				}
+				var releases = acceptStartElement("releases")
+				if releases {
+					var cc = assert parseRepositoryComponent(releases)
+					rr.setReleases(cc)
+					continue
+				}
+				var snapshots = acceptStartElement("snapshots")
+				if snapshots {
+					var cc = assert parseRepositoryComponent(snapshots)
+					rr.setSnapshots(cc)
+					continue
+				}
+				if acceptEndElement(rtag):
+					break
+				expect("id, name, url, layout, releases or snapshots")
+				return null
+			}
+			v += rr
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("")
+		return null
+	}
+	return v
+}
+
+func parseConfigurationElement(ee as XMLParser.StartElement) as POM.Configuration
+{
+	var v = new POM.Configuration()
+	v.setName("configuration")
+	loop {
+		var se = acceptStringElement()
+		if se {
+			v.addToValues(se.getName(), se.getContent())
+			continue
+		}
+		var st = acceptStartElement()
+		if st {
+			var x = assert parseConfigurationElement(st)
+			x.setName(st.getName())
+			x.setParams(st.getParams())
+			v.addToChildren(x)
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("configuration element")
+		return null
+	}
+	return v
+}
+
+func parseReportingElement(ee as XMLParser.StartElement) as POM.Reporting
+{
+	var v = new POM.Reporting()
+	loop {
+		var outputDirectory = acceptStringElementData("outputDirectory")
+		if outputDirectory {
+			v.setOutputDirectory(outputDirectory)
+			continue
+		}
+		var plugins = acceptStartElement("plugins")
+		if plugins {
+			var pv = new vector<POM.ReportingPlugin>
+			loop {
+				var plugin = acceptStartElement("plugin")
+				if plugin {
+					var pp = new POM.ReportingPlugin()
+					loop {
+						var groupId = acceptStringElementData("groupId")
+						if groupId {
+							pp.setGroupId(groupId)
+							continue
+						}
+						var artifactId = acceptStringElementData("artifactId")
+						if artifactId {
+							pp.setArtifactId(artifactId)
+							continue
+						}
+						var version = acceptStringElementData("version")
+						if version {
+							pp.setVersion(version)
+							continue
+						}
+						var reportSets = acceptStartElement("reportSets")
+						if reportSets {
+							var rss = new vector<POM.ReportSet>
+							loop {
+								var reportSet = acceptStartElement("reportSet")
+								if reportSet {
+									var rs = new POM.ReportSet()
+									loop {
+										var id = acceptStringElementData("id")
+										if id {
+											rs.setId(id)
+											continue
+										}
+										var reports = acceptStartElement("reports")
+										if reports {
+											var mms = assert acceptStringList(reports, "report")
+											rs.setReports(mms)
+											continue
+										}
+										var inherited = acceptStringElementData("inherited")
+										if inherited {
+											rs.setInherited(inherited)
+											continue
+										}
+										var configuration = acceptStartElement("configuration")
+										if configuration {
+											var cfg = assert parseConfigurationElement(configuration)
+											rs.setConfiguration(cfg)
+											continue
+										}
+										if acceptEndElement(reportSet):
+											break
+										expect("reportSet property declaration")
+										return null
+									}
+									rss += rs
+									continue
+								}
+								if acceptEndElement(reportSets):
+									break
+								expect("recordSet")
+								return null
+							}
+							pp.setReportSets(rss)
+							continue
+						}
+						if acceptEndElement(plugin):
+							break
+						expect("Plugin property declaration")
+						return null
+					}
+					pv += pp
+					continue
+				}
+				if acceptEndElement(plugins):
+					break
+				expect("Plugin declaration")
+				return null
+			}
+			v.setPlugins(pv)
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("Build declaration")
+		return null
+	}
+	return v
+}
+
+func parseBuildElement(ee as XMLParser.StartElement) as POM.Build
+{
+	var v = new POM.Build()
+	loop {
+		var defaultGoal = acceptStringElementData("defaultGoal")
+		if defaultGoal {
+			v.setDefaultGoal(defaultGoal)
+			continue
+		}
+		var directory = acceptStringElementData("directory")
+		if directory {
+			v.setDirectory(directory)
+			continue
+		}
+		var finalName = acceptStringElementData("finalName")
+		if finalName {
+			v.setFinalName(finalName)
+			continue
+		}
+		var filters = acceptStartElement("filters")
+		if filters {
+			var list = assert acceptStringList(filters, "filter")
+			v.setFilters(list)
+			continue
+		}
+		var resources = acceptStartElement("resources")
+		if resources {
+			var pv = new vector<POM.BuildResource>
+			loop {
+				var resource = acceptStartElement("resource")
+				if resource {
+					var pp = new POM.BuildResource()
+					loop {
+						var targetPath = acceptStringElementData("targetPath")
+						if targetPath {
+							pp.setTargetPath(targetPath)
+							continue
+						}
+						var filtering = acceptStringElementData("filtering")
+						if filtering {
+							pp.setFiltering(filtering)
+							continue
+						}
+						var directory = acceptStringElementData("directory")
+						if directory {
+							pp.setDirectory(directory)
+							continue
+						}
+						var includes = acceptStartElement("includes")
+						if includes {
+							var mms = assert acceptStringList(includes, "include")
+							pp.setIncludes(mms)
+							continue
+						}
+						var excludes = acceptStartElement("excludes")
+						if excludes {
+							var mms = assert acceptStringList(excludes, "exclude")
+							pp.setExcludes(mms)
+							continue
+						}
+						if acceptEndElement(resource):
+							break
+						expect("Resource property declaration")
+						return null
+					}
+					continue
+				}
+				if acceptEndElement(resources):
+					break
+				expect("Resource declaration")
+				return null
+			}
+			v.setResources(pv)
+			continue
+		}
+		var plugins = acceptStartElement("plugins")
+		if plugins {
+			var pv = new vector<POM.BuildPlugin>
+			loop {
+				var plugin = acceptStartElement("plugin")
+				if plugin {
+					var pp = new POM.BuildPlugin()
+					loop {
+						var groupId = acceptStringElementData("groupId")
+						if groupId {
+							pp.setGroupId(groupId)
+							continue
+						}
+						var artifactId = acceptStringElementData("artifactId")
+						if artifactId {
+							pp.setArtifactId(artifactId)
+							continue
+						}
+						var version = acceptStringElementData("version")
+						if version {
+							pp.setVersion(version)
+							continue
+						}
+						var extensions = acceptStringElementData("extensions")
+						if extensions {
+							pp.setExtensions(extensions)
+							continue
+						}
+						var inherited = acceptStringElementData("inherited")
+						if inherited {
+							pp.setInherited(inherited)
+							continue
+						}
+						var configuration = acceptStartElement("configuration")
+						if configuration {
+							var cfg = assert parseConfigurationElement(configuration)
+							pp.setConfiguration(cfg)
+							continue
+						}
+						var deps = acceptStartElement("dependencies")
+						if deps {
+							var dd = assert parseDependencies(deps)
+							pp.setDependencies(dd)
+							continue
+						}
+						var execs = acceptStartElement("executions")
+						if execs {
+							var xs = assert parseBuildExecutions(execs)
+							pp.setExecutions(xs)
+							continue
+						}
+						if acceptEndElement(plugin):
+							break
+						expect("Plugin property declaration")
+						return null
+					}
+					pv += pp
+					continue
+				}
+				if acceptEndElement(plugins):
+					break
+				expect("Plugin declaration")
+				return null
+			}
+			v.setPlugins(pv)
+			continue
+		}
+		if acceptEndElement(ee):
+			break
+		expect("Build declaration")
+		return null
+	}
+	return v
+}
+
+func execute override
+{
+	var project = parseStartElement("project")
+	pom = new POM()
+	loop {
+		var modelVersion = acceptStringElementData("modelVersion")
+		if modelVersion {
+			pom.setModelVersion(modelVersion)
+			continue
+		}
+		var groupId = acceptStringElementData("groupId")
+		if groupId {
+			pom.setGroupId(groupId)
+			continue
+		}
+		var artifactId = acceptStringElementData("artifactId")
+		if artifactId {
+			pom.setArtifactId(artifactId)
+			continue
+		}
+		var version = acceptStringElementData("version")
+		if version {
+			pom.setVersion(version)
+			continue
+		}
+		var packaging = acceptStringElementData("packaging")
+		if packaging {
+			pom.setPackaging(packaging)
+			continue
+		}
+		var deps = acceptStartElement("dependencies")
+		if deps {
+			var dd = assert parseDependencies(deps)
+			pom.setDependencies(dd)
+			continue
+		}
+		var parent = acceptStartElement("parent")
+		if parent {
+			var pp = assert parseParentElement(parent)
+			pom.setParent(pp)
+			continue
+		}
+		var depm = acceptStartElement("dependencyManagement")
+		if depm {
+			var depms = acceptStartElement("dependencies")
+			if depms {
+				var dd = assert parseDependencies(deps)
+				pom.setDependencyManagement(dd)
+			}
+			assert parseEndElement(depm)
+			continue
+		}
+		var modules = acceptStartElement("modules")
+		if modules {
+			var mms = assert acceptStringList(modules, "module")
+			pom.setModules(mms)
+			continue
+		}
+		var properties = acceptStartElement("properties")
+		if properties {
+			var pps = assert acceptPropertyList(properties)
+			pom.setProperties(pps)
+			continue
+		}
+		var build = acceptStartElement("build")
+		if build {
+			var pp = assert parseBuildElement(build)
+			pom.setBuild(pp)
+			continue
+		}
+		var reporting = acceptStartElement("reporting")
+		if reporting {
+			var pp = parseReportingElement(reporting)
+			pom.setReporting(pp)
+			continue
+		}
+		var name = acceptStringElementData("name")
+		if name {
+			pom.setName(name)
+			continue
+		}
+		var description = acceptStringElementData("description")
+		if description {
+			pom.setDescription(description)
+			continue
+		}
+		var url = acceptStringElementData("url")
+		if url {
+			pom.setUrl(url)
+			continue
+		}
+		var inceptionYear = acceptStringElementData("inceptionYear")
+		if inceptionYear {
+			pom.setInceptionYear(inceptionYear)
+			continue
+		}
+		var licenses = acceptStartElement("licenses")
+		if licenses {
+			var dd = assert parseLicenses(licenses)
+			pom.setLicenses(dd)
+			continue
+		}
+		var organization = acceptStartElement("organization")
+		if organization {
+			var o = new POM.Organization()
+			loop {
+				var name = acceptStringElementData("name")
+				if name {
+					o.setName(name)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					o.setUrl(url)
+					continue
+				}
+				if acceptEndElement(organization):
+					break
+				expect("name or url")
+			}
+			pom.setOrganization(o)
+			continue
+		}
+		var profiles = acceptStartElement("profiles")
+		if profiles {
+			loop {
+				var profile = acceptStartElement("profile")
+				if profile {
+					loop {
+						var id = acceptStringElementData("id")
+						if id:
+							continue
+						if acceptEndElement(profile):
+							break
+						expect("profile data")
+					}
+					// FIXME: Process
+					continue
+				}
+				if acceptEndElement(profiles):
+					break
+				expect("profiles data")
+			}
+			// FIXME: Actually process profiles
+			continue
+		}
+		var developers = acceptStartElement("developers")
+		if developers {
+			var devs = assert parsePersonList(developers, "developer")
+			pom.setDevelopers(devs)
+			continue
+		}
+		var contributors = acceptStartElement("contributors")
+		if contributors {
+			var cons = assert parsePersonList(contributors, "contributor")
+			pom.setContributors(cons)
+			continue
+		}
+		var issueManagement = acceptStartElement("issueManagement")
+		if issueManagement {
+			var im = new POM.IssueManagement()
+			loop {
+				var system = acceptStringElementData("system")
+				if system {
+					im.setUrl(system)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					im.setUrl(url)
+					continue
+				}
+				if acceptEndElement(issueManagement):
+					break
+				expect("system or url")
+			}
+			pom.setIssueManagement(im)
+			continue
+		}
+		var mailingLists = acceptStartElement("mailingLists")
+		if mailingLists {
+			var mls = assert parseMailingLists(mailingLists)
+			pom.setMailingLists(mls)
+			continue
+		}
+		var ciManagement = acceptStartElement("ciManagement")
+		if ciManagement {
+			var ci = new POM.CIManagement()
+			loop {
+				var system = acceptStringElementData("system")
+				if system {
+					ci.setSystem(system)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					ci.setUrl(url)
+					continue
+				}
+				var notifiers = acceptStartElement("notifiers")
+				if notifiers {
+					var nv = new vector<POM.CIManagementNotifier>
+					loop {
+						var notifier = acceptStartElement("notifier")
+						if notifier {
+							var nn = new POM.CIManagementNotifier()
+							loop {
+								var type = acceptStringElementData("type")
+								if type {
+									nn.setType(type)
+									continue
+								}
+								var sendOnError = acceptStringElementData("sendOnError")
+								if sendOnError {
+									nn.setSendOnError(sendOnError)
+									continue
+								}
+								var sendOnFailure = acceptStringElementData("sendOnFailure")
+								if sendOnFailure {
+									nn.setSendOnFailure(sendOnFailure)
+									continue
+								}
+								var sendOnSuccess = acceptStringElementData("sendOnSuccess")
+								if sendOnSuccess {
+									nn.setSendOnSuccess(sendOnSuccess)
+									continue
+								}
+								var sendOnWarning = acceptStringElementData("sendOnWarning")
+								if sendOnWarning {
+									nn.setSendOnWarning(sendOnWarning)
+									continue
+								}
+								var configuration = acceptStartElement("configuration")
+								if configuration {
+									var cfg = assert parseConfigurationElement(configuration)
+									nn.setConfiguration(cfg)
+									continue
+								}
+								if acceptEndElement(notifier):
+									break
+								expect("Notifier property declaration")
+							}
+							nv += nn
+							continue
+						}
+						if acceptEndElement(notifiers):
+							break
+						expect("notifier")
+					}
+					ci.setNotifiers(nv)
+					continue
+				}
+				if acceptEndElement(ciManagement):
+					break
+				expect("system, url or notifiers")
+			}
+			pom.setCiManagement(ci)
+			continue
+		}
+		var scm = acceptStartElement("scm")
+		if scm {
+			var so = new POM.SCM()
+			loop {
+				var connection = acceptStringElementData("connection")
+				if connection {
+					so.setConnection(connection)
+					continue
+				}
+				var developerConnection = acceptStringElementData("developerConnection")
+				if developerConnection {
+					so.setDeveloperConnection(developerConnection)
+					continue
+				}
+				var tag = acceptStringElementData("tag")
+				if tag {
+					so.setTag(tag)
+					continue
+				}
+				var url = acceptStringElementData("url")
+				if url {
+					so.setUrl(url)
+					continue
+				}
+				if acceptEndElement(scm):
+					break
+				expect("connection, developerConnection, tag or url")
+			}
+			pom.setScm(so)
+			continue
+		}
+		var prereqs = acceptStartElement("prerequisites")
+		if prereqs {
+			var rs = assert acceptPropertyList(prereqs)
+			pom.setPrerequisites(rs)
+			continue
+		}
+		var repositories = acceptStartElement("repositories")
+		if repositories {
+			var reps = assert parseRepositoryList(repositories, "repository")
+			pom.setRepositories(reps)
+			continue
+		}
+		var pluginRepositories = acceptStartElement("pluginRepositories")
+		if pluginRepositories {
+			var reps = assert parseRepositoryList(pluginRepositories, "pluginRepository")
+			pom.setPluginRepositories(reps)
+			continue
+		}
+		if acceptEndElement(project):
+			break
+		expect("Project declaration entry")
+	}
+}

@@ -1,0 +1,123 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.sql
+
+class is SQLDatabase abstract:
+
+meta
+{
+	description [[
+		PostgreSQL database driver.
+	]]
+}
+
+func instance private static as this
+{
+	IFDEF "target_nodejs" {
+		return new PostgreSQLForNodeJS()
+	}
+	ELSE {
+		Error.throw("notSupported", "PostgreSQL")
+		return null
+	}
+}
+
+func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
+{
+	if String.isEmpty(connectionString):
+		Error.throw("emptyConnectionString", null, StackTrace.generate())
+	var ss = String.split(connectionString, ':')
+	if Vector.getSize(ss) < 4:
+		Error.throw("invalidConnectionString", connectionString)
+	var address = Vector.get(ss, 0)
+	var username = Vector.get(ss, 1)
+	var password = Vector.get(ss, 2)
+	var database = Vector.get(ss, 3)
+	var port = 5432
+	var param4 = Vector.get(ss, 4)
+	var enableSSL = false
+	if String.startsWith(param4, "sslmode=") {
+		if String.getEndOfString(param4, 8) == "require":
+			enableSSL = true
+	}
+	else {
+		port = String.toInteger(param4)
+	}
+	if String.isEmpty(address):
+		Error.throw("emptyAddress", connectionString)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", connectionString)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", connectionString)
+	if port < 0:
+		Error.throw("invalidPortNumber", connectionString)
+	return forConnectionDetails(ctx, address, username, password, database, port, enableSSL)
+}
+
+func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
+{
+	if not config:
+		Error.throw("nullConfiguration", null, StackTrace.generate())
+	var serverAddress = config.getString("serverAddress")
+	var username = config.getString("username")
+	var password = config.getString("password")
+	var database = config.getString("database")
+	var port = config.getInteger("port", 5432)
+	var enableSSL = config.getBoolean("enableSSL")
+	if String.isEmpty(serverAddress):
+		Error.throw("emptyAddress", config)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", config)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", config)
+	if port < 0:
+		Error.throw("invalidPortNumber", config)
+	return forConnectionDetails(ctx, serverAddress, username, password, database, port, enableSSL)
+}
+
+func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, port as int, enableSSL as bool) static as this
+{
+	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database) || port < 0:
+		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
+	var v = instance()
+	if not v:
+		Error.throw("failedToCreatePostgreSQLClientInstance", null)
+	v.ctx = ctx
+	Log.debug(ctx, "PostgreSQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.asString(port) .. "'")
+	v.setConnectionDetails(serverAddress, username, password, database, port, enableSSL)
+	return v
+}
+
+func prepareTableName(tableName as string) override as string:
+	return "\"" .. tableName .. "\""
+
+func prepareColumnName(columnName as string) override as string:
+	return "\"" .. columnName .. "\""
+
+func getDatabaseTypeId override as string:
+	return "postgresql"
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, port as int, enableSSL as bool) abstract
