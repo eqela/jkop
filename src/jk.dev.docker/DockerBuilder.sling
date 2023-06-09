@@ -1,0 +1,202 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.sha
+import jk.time
+import jk.process
+import jk.docker
+
+class:
+
+var ctx as LoggingContext
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func ensureDockerfileInDirectory(path as File)
+{
+	var dockerfile = path.entry("Dockerfile")
+	if not dockerfile.isFile():
+		Error.throw("fileDoesNotExist", dockerfile.getPath())
+}
+
+func getDirectoryContentsHash(directory as File) as string
+{
+	// FIXME: Instead of hardcoding the exclusions, these should be read from .dockerignore
+	var hasher = DirectoryHasher.forDirectory(directory, [ ".git", ".svn", "node_modules", ".build" ])
+	var hash = hasher.calculateHash()
+	return hash
+}
+
+func loginToDockerRegistry(registry as DockerRegistryCredentials)
+{
+	if registry == null || String.isEmpty(registry.username) || String.isEmpty(registry.password):
+		return
+	var pl = ProcessLauncher.forCommand("docker")
+	pl.addToParams("login")
+	pl.addToParams("-u")
+	pl.addToParams(registry.username)
+	pl.addToParams("-p")
+	pl.addToParams(registry.password)
+	pl.addToParams(registry.address)
+	Log.debug(ctx, pl.toString())
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0 {
+		Log.error(ctx, sb.toString())
+		Error.throw("dockerLoginFailed", null)
+	}
+	else if ctx && ctx.isInDebugMode() {
+		Log.debug(ctx, sb.toString())
+	}
+}
+
+func logoutFromDockerRegistry(registry as DockerRegistryCredentials)
+{
+	if registry == null || String.isEmpty(registry.username) || String.isEmpty(registry.password):
+		return
+	var pl = ProcessLauncher.forCommand("docker")
+	pl.addToParams("logout")
+	pl.addToParams(registry.address)
+	Log.debug(ctx, pl.toString())
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0 {
+		Log.error(ctx, sb.toString())
+		Error.throw("dockerLogoutFailed", null)
+	}
+	else if ctx && ctx.isInDebugMode() {
+		Log.debug(ctx, sb.toString())
+	}
+}
+
+func imageExistsInRegistry(imageTag as string) as bool
+{
+	var pl = ProcessLauncher.forCommand("docker")
+	pl.addToParams("manifest")
+	pl.addToParams("inspect")
+	pl.addToParams(imageTag)
+	pl.setEnvVariable("DOCKER_CLI_EXPERIMENTAL", "enabled")
+	Log.debug(ctx, pl.toString())
+	var r = true
+	var sb = new StringBuilder()
+	if pl.executeToStringBuilder(sb) != 0:
+		r = false
+	if ctx && ctx.isInDebugMode():
+		Log.debug(ctx, sb.toString())
+	return r
+}
+
+func buildDockerImageInDirectory(directory as File, dockerfile as File, imageTag as string, buildArgs as DynamicMap)
+{
+	var pl = ProcessLauncher.forCommand("docker")
+	pl.setCwd(directory)
+	pl.addToParams("build")
+	pl.addToParams(".")
+	if String.isNotEmpty(imageTag) {
+		pl.addToParams("-t")
+		pl.addToParams(imageTag)
+	}
+	if dockerfile {
+		pl.addToParams("-f")
+		pl.addToParams(dockerfile.getPath())
+	}
+	if buildArgs {
+		foreach key in buildArgs.getKeys() {
+			pl.addToParams("--build-arg")
+			pl.addToParams(key .. "=" .. buildArgs.getString(key))
+		}
+	}
+	Log.debug(ctx, pl.toString())
+	if pl.execute() != 0:
+		Error.throw("dockerBuildFailed", null)
+}
+
+func pushDockerImage(imageTag as string)
+{
+	var pl = ProcessLauncher.forCommand("docker")
+	pl.addToParams("push")
+	pl.addToParams(imageTag)
+	Log.debug(ctx, pl.toString())
+	if pl.execute() != 0:
+		Error.throw("dockerPushFailed", null)
+}
+
+func buildDirectoryToDockerRegistry(imageName as string, contextDirectory as File, dependencyPaths as vector<File>, dockerfile as File, registry as DockerRegistryCredentials, buildArgs as DynamicMap, tagName as string) as string
+{
+	var imageTag = tagName
+	if String.isEmpty(imageTag) {
+		var dps = dependencyPaths
+		if not dps:
+			dps = new vector<File>
+		if Vector.isEmpty(dps):
+			dps += contextDirectory
+		var hash = ""
+		var sha = SHAEncoder.forSha1()
+		foreach dp in dps {
+			Log.status(ctx, "[Docker] Computing directory hash: `" .. String.asString(contextDirectory) .. "' .. ")
+			var dhash as string
+			if dp.isFile() {
+				dhash = sha.getHashForFile(dp)
+			}
+			else if dp.isDirectory() {
+				dhash = getDirectoryContentsHash(dp)
+			}
+			else {
+				Error.throw("noSuchFileOrDirectory", String.asString(dp))
+			}
+			Log.status(ctx, null)
+			hash = sha.getHashForString(hash .. dhash)
+		}
+		imageTag = registry.address .. "/" .. imageName .. ":" .. hash
+		Log.debug(ctx, "imageTag: `" .. imageTag .. "'")
+	}
+	Log.status(ctx, "[Docker] Login to registry: `" .. registry.address .. "' .. ")
+	loginToDockerRegistry(registry)
+	Log.status(ctx, null)
+	try {
+		Log.status(ctx, "[Docker] Checking image in registry: `" .. imageTag .. "' .. ")
+		var exists = imageExistsInRegistry(imageTag)
+		Log.status(ctx, null)
+		if exists {
+			Log.info(ctx, "Docker image already exists in registry: `" .. imageTag .. "'")
+		}
+		else {
+			if not dockerfile:
+				ensureDockerfileInDirectory(contextDirectory)
+			Log.status(ctx, "[Docker] Build image: `" .. imageTag .. "' .. ")
+			buildDockerImageInDirectory(contextDirectory, dockerfile, imageTag, buildArgs)
+			Log.status(ctx, "[Docker] Push image: `" .. imageTag .. "' .. ")
+			pushDockerImage(imageTag)
+			Log.status(ctx, null)
+		}
+	}
+	catch e {
+		Log.status(ctx, null)
+		logoutFromDockerRegistry(registry)
+		throw e
+	}
+	logoutFromDockerRegistry(registry)
+	return imageTag
+}

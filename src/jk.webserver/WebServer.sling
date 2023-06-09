@@ -1,0 +1,131 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+
+class abstract:
+
+prop ctx as LoggingContext
+prop errorHandler as function<void,WebServerRequest,dynamic>
+
+var middlewares = new vector<WebServerMiddleware>
+
+ctor:
+	initialize()
+
+ctor(ctx as LoggingContext)
+{
+	this.ctx = ctx
+	initialize()
+}
+
+func instance(ctx as LoggingContext) static as this
+{
+	IFDEF "target_nodejs" {
+		return new WebServerForNodejs(ctx)
+	}
+	ELSE {
+		ERROR "Not implemented."
+		return null
+	}
+}
+
+func waitForServers(ctx as LoggingContext, servers as vector<this>) async static
+{
+	IFDEF "target_nodejs" {
+		await WebServerForNodejs.waitForServers(ctx, servers)
+	}
+	ELSE {
+		ERROR "Not implemented."
+	}
+}
+
+func initialize virtual:
+	nop
+
+func useFunction(function as function<promise,WebServerRequest,function<promise>>)
+{
+	use(new WebServerMiddleware() {
+		handler function
+	})
+}
+
+func asHttpErrorCode(error as dynamic) as int
+{
+	if error == null:
+		return 500
+	var wse = error as WebServerException
+	if wse == null:
+		return 500
+	return wse.httpStatus
+}
+
+func handleError(req as WebServerRequest, error as dynamic) virtual
+{
+	var handler = errorHandler
+	if handler {
+		handler(req, error)
+	}
+	else {
+		Log.error(ctx, String.asString(error))
+		req.setResponseStatus(asHttpErrorCode(error))
+		req.endResponse()
+	}
+}
+
+func handleRequest(req as WebServerRequest) async virtual
+{
+	var state = {}
+	state.index = 0
+	var nextf as function<promise>
+	nextf = func async {
+		var mw = Vector.get(middlewares, state.index as int)
+		if mw {
+			state.index ++
+			await mw.handleRequest(req, nextf)
+		}
+		else {
+			throw WebServerException.forNotFound()
+		}
+	}
+	try {
+		await nextf()
+	}
+	catch e {
+		handleError(req, e)
+	}
+}
+
+func use(middleware as WebServerMiddleware) virtual
+{
+	if middleware {
+		middleware.server = this
+		middlewares += middleware
+		middleware.initializeMiddleware(this)
+	}
+}
+
+func start(port as int) async abstract
+func execute(port as int) async abstract
+func stop async abstract

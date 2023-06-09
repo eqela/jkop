@@ -1,0 +1,127 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class is SSLSocket:
+
+// FIXME: This implementation is incomplete
+
+pvar ctx as LoggingContext
+pvar socket as TCPSocket
+pvar serverAddress as string
+var acceptInvalidCertificate as bool
+var requireClientCertificate = false
+var tlsServer private as dynamic
+var tlsSocket private as dynamic
+
+func setAcceptInvalidCertificate(v as bool) override:
+	acceptInvalidCertificate = v
+
+func setRequireClientCertificate(v as bool) override:
+	requireClientCertificate = v
+
+func open(cSocket as ConnectedSocket, certFile as File = null, keyFile as File = null, isServer as bool = false, passphrase as string = null) as bool
+{
+	socket = cSocket as TCPSocket
+	assert socket
+	lang "js" {{{
+		this.tlsServer = require('tls').createServer();
+		this.tlsSocket = new require('tls').TLSSocket(socket, {
+			isServer: isServer,
+			key: keyFile,
+			cert: certFile,
+			requestCert: this.requireClientCertificate,
+			rejectUnauthorized: this.acceptInvalidCertificate,
+			server: this.tlsServer
+		})
+	}}}
+	var v = true
+	if !tlsSocket:
+		v = false
+	return v
+}
+
+func read(buffer as buffer) override as int
+{
+	/*
+	// FIXME
+	lang "js" {{{
+		this.tlsSocket.on('data', function await (data) {
+			buffer = data;
+		});
+	}}}
+	var v = Buffer.getSize(buffer)
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return v
+	*/
+	return 0
+}
+
+func close override
+{
+	lang "js" {{{
+		this.tlsServer.close();
+	}}}
+}
+
+func readWithTimeout(buffer as buffer, timeout as int) override as int
+{
+	lang "js" {{{
+		this.tlsSocket.setTimeout(timeout);
+		this.tlsSocket.on('data', function await (data) {
+			buffer = data;
+		});
+	}}}
+	var v = Buffer.getSize(buffer)
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	var bw as int
+	lang "js" {{{
+		this.tlsSocket.write(buffer, 'buffer');
+		bw = this.tlsSocket.bytesWritten;
+	}}}
+	if bw < 1 {
+		close()
+		bw = -1
+	}
+	return bw
+}
+
+func getNetSocket as dynamic:
+	return tlsSocket
+
+func getSocket override as ConnectedSocket:
+	return socket

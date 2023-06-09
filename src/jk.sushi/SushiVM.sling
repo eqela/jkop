@@ -1,0 +1,156 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class:
+
+func getCurrentVMFile static as File
+{
+	IFDEF "target_sushi" {
+		var vm = File.forPath(lang "lua" string {{{ _vm.get_sushi_executable_path() }}})
+		if vm.isFile():
+			return vm
+	}
+	return null
+}
+
+func getVMCodeSizeForFile(file as File) static as long
+{
+	if not file:
+		return 0
+	var reader = file.read()
+	if not reader:
+		return 0
+	var size = reader.getSize()
+	if size < 8 {
+		reader.close()
+		return 0
+	}
+	if not reader.setCurrentPosition(size - 8) {
+		reader.close()
+		return 0
+	}
+	var buffer = malloc 4
+	if reader.read(buffer) != 4 {
+		reader.close()
+		return 0
+	}
+	if buffer[0] != 0x53 || buffer[1] != 0x75 || buffer[2] != 0x70 || buffer[3] != 0x50 {
+		reader.close()
+		return 0
+	}
+	if reader.read(buffer) != 4 {
+		reader.close()
+		return 0
+	}
+	reader.close()
+	return Buffer.getInt32BE(buffer, 0) as long
+}
+
+func readSushiVMCodeFromFile(file as File) static as buffer
+{
+	assert file
+	var sz = getVMCodeSizeForFile(file) as int
+	if sz < 1:
+		return file.getContentsBuffer()
+	var reader = file.read()
+	var v = malloc sz
+	var r = reader.read(v)
+	reader.close()
+	if r < sz:
+		return null
+	return v
+}
+
+func compressIfNecessaryAndPossible(code as buffer) static as buffer
+{
+	assert code
+	IFDEF "target_sushi" {
+		if code[0] != 0x00 && code[1] != 0x64 && code[2] != 0x65 && code[3] != 0x66:
+			return lang "lua" buffer {{{ _util:deflate(code) }}}
+	}
+	return null
+}
+
+func wrapCodeFileToVMFile(ctx as LoggingContext, vm as File, program as File, target as File) static as bool
+{
+	assert vm && program && target:
+		Log.error(ctx, "Invalid arguments for SushiVM.wrapCodeFileToVMFile")
+	var code = assert program.getContentsBuffer():
+		Log.error(ctx, "Failed to read program file: `" .. program.getPath() .. "'")
+	var sushi = assert readSushiVMCodeFromFile(vm):
+		Log.error(ctx, "Failed to read Sushi VM code from file: `" .. vm.getPath() .. "'")
+	return wrapCodeBufferToVMBuffer(ctx, sushi, code, target)
+}
+
+func wrapCodeBufferToVMBuffer(ctx as LoggingContext, sushi as buffer, code as buffer, target as File) static as bool
+{
+	assert sushi && code && target:
+		Log.error(ctx, "Invalid arguments for SushiVM.wrapCodeBufferToVMBuffer")
+	var tdir = target.getParent()
+	if not tdir.exists() {
+		tdir.createDirectoryRecursive()
+	}
+	var writer = assert target.write():
+		Log.error(ctx, "Failed to open file for writing: `" .. target.getPath() .. "'")
+	assert writer.write(sushi, -1) > 0 {
+		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
+		writer.close()
+	}
+	var ccode = compressIfNecessaryAndPossible(code)
+	if ccode {
+		var cmagic = malloc 4
+		Buffer.setByte(cmagic, 0, 0x00)
+		Buffer.setByte(cmagic, 1, 0x64)
+		Buffer.setByte(cmagic, 2, 0x65)
+		Buffer.setByte(cmagic, 3, 0x66)
+		assert writer.write(cmagic, 4) == 4 {
+			Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
+			writer.close()
+		}
+		code = ccode
+	}
+	assert writer.write(code, -1) > 0 {
+		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
+		writer.close()
+	}
+	var magic = malloc 4
+	Buffer.setByte(magic, 0, 0x53)
+	Buffer.setByte(magic, 1, 0x75)
+	Buffer.setByte(magic, 2, 0x70)
+	Buffer.setByte(magic, 3, 0x50)
+	assert writer.write(magic, 4) == 4 {
+		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
+		writer.close()
+	}
+	assert writer.write(Buffer.forInt32BE((sizeof sushi) as uint), -1) == 4 {
+		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
+		writer.close()
+	}
+	writer.close()
+	target.makeExecutable()
+	return true
+}

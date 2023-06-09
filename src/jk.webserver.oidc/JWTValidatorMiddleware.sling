@@ -1,0 +1,58 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.jwt
+import jk.webserver
+
+class is WebServerMiddleware:
+
+prop issuerBaseUrl as string
+
+var jwtValidator as JWTValidator
+
+func initializeMiddleware(server as WebServer) override:
+	jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, issuerBaseUrl)
+
+func handleRequest(request as WebServerRequest, next as function<promise>) async override
+{
+	var authorization = String.strip(request.getHeader("authorization"))
+	if String.isEmpty(authorization):
+		throw WebServerException.forUnauthorized()
+	if String.startsWithIgnoreCase(authorization, "bearer ") == false:
+		throw WebServerException.forUnauthorized()
+	var token = String.strip(String.getEndOfString(authorization, 7))
+	if String.isEmpty(token):
+		throw WebServerException.forUnauthorized()
+	if not await jwtValidator.validateSignature(token):
+		throw WebServerException.forUnauthorized()
+	var jwt = JWT.decode(token, null)
+	if not jwt:
+		throw WebServerException.forUnauthorized()
+	var jwtData = jwt.getClaims()
+	if not jwtData:
+		throw WebServerException.forUnauthorized()
+	request.setUserData("jwtToken", token)
+	request.setUserData("jwtTokenData", jwtData)
+	await next()
+}

@@ -1,0 +1,113 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.log
+import jk.archive
+import jk.webclient
+
+class:
+
+func forDefaultDirectory static as this
+{
+	var dd = CommonPath.getHomeDirectory()
+	if not dd:
+		Error.throw("noHomeDirectory", null)
+	return forDirectory(dd.entry(".sushivm").entry("cache"))
+}
+
+func forDirectory(dir as File) static as this
+{
+	var v = new this()
+	v.setCacheDirectory(dir)
+	return v
+}
+
+pvar ctx as LoggingContext
+pvar cacheDirectory as File
+
+class QueryValues private
+{
+	var status public as string
+	var data public as buffer
+}
+
+func downloadVM(version as string, platform as string) async as File
+{
+	if not cacheDirectory:
+		Error.throw("noCacheDirectory", null)
+	if String.isEmpty(version):
+		Error.throw("missingParameter", "version")
+	if String.isEmpty(platform):
+		Error.throw("missingParameter", "platform")
+	var cachedir = cacheDirectory.entry(platform).entry(version)
+	if cachedir.isDirectory():
+		return cachedir
+	var url = "https://github.com/eqela/sushivm/releases/download/" .. version .. "/sushi_" .. version .. "_" .. platform .. ".zip"
+	Log.debug(ctx, "Trying to retrieve URL: `" .. url .. "' ..")
+	Log.status(ctx, "[Downloading] " .. url .. " .. ")
+	var client = WebClient.instance()
+	if not client:
+		Error.throw("failedToCreateWebClient", null)
+	var o = new QueryValues()
+	var response = await client.executeQuery(ctx, "GET", url, null, null)
+	o.status = response.statusCode
+	o.data = response.getBodyAsBuffer()
+	Log.status(ctx, null)
+	if o.status == "200" && o.data {
+		Log.debug(ctx, "Successfully downloaded: `" .. url .. "'")
+		var listener = func(file as File) {
+			Log.status(ctx, "[Installing] " .. file.getPath() .. " .. ")
+		}
+		var r = ZipReader.extractZipBufferToDirectory(o.data, cachedir, listener)
+		Log.status(ctx, null)
+		if not r:
+			Error.throw("failedToInstall", "sushi:" .. version .. ":" .. platform)
+		return null // FIXME
+	}
+	else {
+		Error.throw("downloadFailed", url)
+	}
+	return null // FIXME
+}
+
+func getVM(version as string, platform as string) async as File
+{
+	if not cacheDirectory:
+		Error.throw("noCacheDirectory", null)
+	if String.isEmpty(version):
+		Error.throw("missingParameter", "version")
+	if String.isEmpty(platform):
+		Error.throw("missingParameter", "platform")
+	var cachedir = cacheDirectory.entry(platform).entry(version)
+	if not cachedir.isDirectory():
+		await downloadVM(version, platform)
+	var cachedFile = cachedir.entry("sushi")
+	if not cachedFile.isFile():
+		cachedFile = cachedir.entry("sushi.exe")
+	if not cachedFile.isFile():
+		Error.throw("noSuchFile", cachedFile)
+	return cachedFile
+}

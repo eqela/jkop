@@ -1,0 +1,240 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.dev.sling
+
+class:
+
+var docker as Docker
+
+ctor(docker as Docker):
+	this.docker = docker
+
+prop ctx as LoggingContext
+{
+	get {
+		if docker:
+			return docker.ctx
+		return null
+	}
+}
+
+func determineSushiAppName(dir as File) private as string
+{
+	assert dir
+	var v as string
+	var it = dir.entries()
+	while it {
+		var ff = it.next()
+		if not ff:
+			break
+		if ff.hasExtension("lua"):
+			v = ff.getBasenameWithoutExtension()
+	}
+	return v
+}
+
+func generateDockerfileContentForSushiAppDir(appname as string) private as string
+{
+	var v = [[
+		FROM eqela/eqelart:6.0.9
+		COPY . /home/app
+		ENV LISTEN_PORT 8080
+		EXPOSE $LISTEN_PORT
+		CMD [ "/eqela", "/home/app/__APPNAME__.lua" ]
+	]]
+	return String.replaceString(v, "__APPNAME__", appname)
+}
+
+func generateDockerfileContentForHtmlDir private as string
+{
+	var v = [[
+		FROM eqela/eqelart:6.0.9
+		COPY . /home/app
+		ENV LISTEN_PORT 8080
+		EXPOSE $LISTEN_PORT
+		CMD [ "/eqela", "filesy-0.9.0", "/home/app" ]
+	]]
+	return v
+}
+
+func generateDockerfileContentForHtmlTemplateDir private as string
+{
+	var v = [[
+		FROM eqela/eqelart:6.0.9
+		COPY . /home/app
+		ENV LISTEN_PORT 8080
+		EXPOSE $LISTEN_PORT
+		CMD [ "/eqela", "filesy-0.9.0", "/home/app", "-OprocessTemplateFiles=true" ]
+	]]
+	return v
+}
+
+func guessBuildType(dir as File) private as string
+{
+	assert dir
+	if SlingBuilder.tryCreate(dir):
+		return "slingProject"
+	var pjson = dir.entry("package.json")
+	if pjson.isFile() {
+		// FIXME: We could look into package.json here and see if the "build" script does a webpack AND is not a GUI app
+		// and then assume "npmBundle" instead.
+		return "npm"
+	}
+	return null
+}
+
+func buildDockerImage(dockerFileContent as string, context as File) private as string
+{
+	var dockerFile = TemporaryFile.forString(dockerFileContent)
+	if not dockerFile:
+		Error.throw("failedToGenerate", "Dockerfile")
+	Log.status(ctx, "[Building Docker image] `" .. String.asString(context) .. "' ..")
+	var img = docker.buildImageFromDockerfile(dockerFile, context)
+	Log.status(ctx, null)
+	dockerFile.remove()
+	return img
+}
+
+func buildNpmBundle(dir as File, buildConfig as DynamicMap) private as string
+{
+	var buildDirectoryPath as string
+	var mainFileName as string
+	if buildConfig {
+		buildDirectoryPath = buildConfig.getString("buildDirectoryPath")
+		mainFileName = buildConfig.getString("mainFileName")
+	}
+	if String.isEmpty(buildDirectoryPath):
+		buildDirectoryPath = "dist"
+	if String.isEmpty(mainFileName):
+		mainFileName = "app.js"
+	var dockerFileContent = [[
+		FROM alpine:3.12.0 as builder
+		WORKDIR /app
+		RUN apk add nodejs npm
+		COPY . .
+		RUN npm install
+		RUN npm run build
+		FROM eqela/nodejs:12.18.2
+		COPY --from=builder /app/__buildDirectoryPath__ /app
+		CMD [ "/bin/node", "/app/__mainFileName__" ]
+	]]
+	dockerFileContent = String.replaceString(dockerFileContent, "__buildDirectoryPath__", buildDirectoryPath)
+	dockerFileContent = String.replaceString(dockerFileContent, "__mainFileName__", mainFileName)
+	return buildDockerImage(dockerFileContent, dir)
+}
+
+func buildNpmStaticSite(dir as File, buildConfig as DynamicMap) private as string
+{
+	var buildDirectoryPath as string
+	if buildConfig:
+		buildDirectoryPath = buildConfig.getString("buildDirectoryPath")
+	if String.isEmpty(buildDirectoryPath):
+		buildDirectoryPath = "dist"
+	var dockerFileContent = [[
+		FROM alpine:3.12.0 as builder
+		WORKDIR /app
+		RUN apk add nodejs npm
+		COPY . .
+		RUN npm install
+		RUN npm run build
+		FROM eqela/eqelart:6.0.9
+		COPY --from=builder /app/__buildDirectoryPath__ /home/app
+		CMD [ "/eqela", "filesy-0.9.0", "/home/app" ]
+	]]
+	dockerFileContent = String.replaceString(dockerFileContent, "__buildDirectoryPath__", buildDirectoryPath)
+	return buildDockerImage(dockerFileContent, dir)
+}
+
+func executeSlingBuilder(dir as File, sb as SlingBuilder) as string
+{
+	var result = dir.entry(".build")
+	sb.executeBuild(result)
+	if not result:
+		Error.throw("failedToBuild", dir)
+	var dfcontent as string
+	if not result.exists() {
+		Error.throw("buildResultDoesNotExist", result)
+	}
+	else if result.entry("index.html.t").isFile() {
+		dfcontent = generateDockerfileContentForHtmlTemplateDir()
+	}
+	else if result.entry("index.html").isFile() {
+		dfcontent = generateDockerfileContentForHtmlDir()
+	}
+	else {
+		var appname = determineSushiAppName(result)
+		if String.isNotEmpty(appname) {
+			dfcontent = generateDockerfileContentForSushiAppDir(appname)
+		}
+		else {
+			Error.throw("unsupportedBuildResult", result)
+		}
+	}
+	return buildDockerImage(dfcontent, result)
+}
+
+func buildFromSourceDirectory(dir as File, tag as string, buildConfig as DynamicMap)
+{
+	if not dir:
+		Error.throw("missingParameter", "DockerBuilder:dir")
+	var buildType as string
+	if buildConfig:
+		buildType = buildConfig.getString("buildType")
+	if String.isEmpty(buildType):
+		buildType = guessBuildType(dir)
+	if String.isEmpty(buildType):
+		Error.throw("unknownSourceDirectoryType", dir)
+	var img as string
+	if buildType == "slingProject" {
+		var sb = SlingBuilder.tryCreate(dir)
+		if not sb:
+			Error.throw("failedToCreateSushiBuilder", dir)
+		img = executeSlingBuilder(dir, sb)
+	}
+	else if buildType == "slingModule" {
+		var sb = new SlingBuilder()
+		sb.generateSushiAppBuildScriptForModule(dir, buildConfig.getString("slingVersion"))
+		img = executeSlingBuilder(dir, sb)
+	}
+	else if buildType == "npmBundle" {
+		img = buildNpmBundle(dir, buildConfig)
+	}
+	else if buildType == "npmStaticSite" {
+		img = buildNpmStaticSite(dir, buildConfig)
+	}
+	// else if buildType == "npm" {
+	// }
+	else {
+		Error.throw("unsupportedSourceDirectory", dir)
+	}
+	assert String.isNotEmpty(img):
+		Error.throw("failedToBuildDockerImage", dir)
+	Log.status(ctx, "[Tagging Docker image] `" .. img .. "' => `" .. tag .. "' ..")
+	docker.tag(img, tag)
+	Log.status(ctx, null)
+}

@@ -1,0 +1,129 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.json
+import jk.nodejs
+import jk.base64
+import jk.webclient
+
+class:
+
+func forIssuerBaseUrl(ctx as LoggingContext, url as string) static as this
+{
+	return new this() {
+		ctx ctx
+		issuerBaseUrl url
+	}
+}
+
+func forJwksUrl(ctx as LoggingContext, url as string) static as this
+{
+	return new this() {
+		ctx ctx
+		jwksUrl url
+	}
+}
+
+prop ctx as LoggingContext
+prop issuerBaseUrl as string
+prop jwksUrl as string
+
+func getFinalJwksUrl async as string
+{
+	if String.isNotEmpty(jwksUrl):
+		return jwksUrl
+	if String.isEmpty(issuerBaseUrl):
+		Error.throw("failedToGetJWKSUri", "noUrlSpecified")
+	var issuerUrl = issuerBaseUrl .. "/.well-known/openid-configuration"
+	var oidc = await WebClient.instance().executeQuery(ctx, "POST", issuerUrl, null, null)
+	if not oidc:
+		Error.throw("failedToGetJWKSUri", issuerUrl)
+	if String.equals(oidc.statusCode, "200") == false:
+		Error.throw("failedToGetJWKSUri", String.forUTF8Buffer(oidc.body))
+	var v = oidc.getBodyAsDynamicMap()
+	if not v:
+		Error.throw("failedToGetJWKSUri", "invalidResponseBody")
+	var rr = v.getString("jwks_uri")
+	if String.isEmpty(rr):
+		Error.throw("failedToGetJWKSUri", "emptyUri")
+	jwksUrl = rr
+	return rr
+}
+
+IFDEF "target_nodejs"
+{
+	depend "npm:jsonwebtoken:9.0.0"
+	depend "npm:jwks-rsa:3.0.1"
+
+	var jwksClient as dynamic
+
+	func getJwksClient(uri as string) as dynamic
+	{
+		if not jwksClient {
+			var jwksRsa = NodeModule.require("jwks-rsa")
+			jwksClient = jwksRsa({ jwksUri uri })
+		}
+		return jwksClient
+	}
+}
+
+func validateSignature(token as string) async as bool
+{
+	var comps = String.split(token, '.', 3)
+	var hdrEncoded = Vector.get(comps, 0)
+	if String.isEmpty(hdrEncoded):
+		return false
+	var hbuffer = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(hdrEncoded))
+	if not hbuffer:
+		return false
+	var header = JSONParser.parse(String.forUTF8Buffer(hbuffer)) as DynamicMap
+	if not header:
+		return false
+	var kid = header.getString("kid")
+	if String.isEmpty(kid):
+		return false
+	var jwksUri = await getFinalJwksUrl()
+	var v = false
+	IFDEF "target_nodejs" {
+		try {
+			var jwksClient = getJwksClient(jwksUri)
+			var key = await jwksClient.getSigningKey(kid)
+			var pkey = key.getPublicKey()
+			var jwtVerifier = NodeModule.require("jsonwebtoken")
+			var verify = jwtVerifier.verify(token, pkey, {
+				clockTolerance 300
+			})
+			if verify:
+				v = true
+		}
+		catch(e) {
+			v = false
+		}
+	}
+	ELSE {
+		Error.throw("notImplemented", "validateJWTSignature")
+	}
+	return v
+}

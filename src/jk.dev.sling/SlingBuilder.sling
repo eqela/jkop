@@ -1,0 +1,227 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.process
+
+class:
+
+func tryCreate(file as File) static as this
+{
+	assert file
+	if file.isFile() {
+		if file.getBasename() == "build.ss":
+			return forFile(file)
+		return null
+	}
+	if file.isDirectory() {
+		var ff = file.entry("build.ss")
+		if ff.isFile():
+			return forFile(ff)
+		return null
+	}
+	return null
+}
+
+func forFile(file as File) static as this
+{
+	if not file:
+		Error.throw("noBuildFile", null)
+	var v = new this()
+	v.buildFile = file
+	return v
+}
+
+func forDirectory(dir as File) static as this
+{
+	if not dir:
+		Error.throw("noBuildDirectory", null)
+	var bf = dir.entry("build.ss")
+	if not bf.isFile():
+		Error.throw("noBuildFile", bf.getPath())
+	return forFile(bf)
+}
+
+prop eqelaRuntime as File
+prop buildFile as File
+prop buildScript as string
+
+func getEqelaRuntimeFile as File
+{
+	var v = eqelaRuntime
+	if v:
+		return v
+	var ef = ExternalCommand.findInPath("sushi")
+	if not ef:
+		ef = ExternalCommand.findInPath("eqela")
+	v = ef
+	if v:
+		return v
+	return null
+}
+
+func generateSushiAppBuildScriptForModule(module as File, slingVersion as string)
+{
+	if not module:
+		Error.throw("generateSushiAppBuildScriptForModule", "noModule")
+	var v = [[
+		#! eqela ss-0.16
+		lib sling:__SLINGVERSION__
+		import sling.build
+		var script = new SlingBuildScript()
+		script.addTarget(SlingToEqelaApplicationTarget.forSource("__MODULEPATH__"))
+		return script.execute(args)
+
+	]]
+	v = String.replaceString(v, "__SLINGVERSION__", slingVersion)
+	v = String.replaceString(v, "__MODULEPATH__", module.getPath())
+	buildScript = v
+}
+
+func executeBuildForFile(file as File) as File
+{
+	if not file:
+		Error.throw("noBuildFile", null)
+	var qq = getEqelaRuntimeFile()
+	var pl = ProcessLauncher.forFile(qq)
+	if not pl:
+		Error.throw("failedToCreateProcessLauncher", qq)
+	var cwd = file.getParent()
+	pl.setCwd(cwd)
+	pl.addToParams(file.getBasename())
+	pl.addToParams("build")
+	if pl.execute() != 0:
+		Error.throw("buildFailed", file)
+	return cwd
+}
+
+func executeBuild(result as File)
+{
+	meta {
+		description [[
+			Builds the source code and returns a File object pointing to the build output directory.
+		]]
+	}
+	var r as File
+	var tbd as File
+	var error as exception
+	try {
+		var cwd as File
+		if buildFile {
+			cwd = executeBuildForFile(buildFile)
+		}
+		else if buildScript {
+			tbd = TemporaryDirectory.create()
+			if not tbd:
+				Error.throw("failedToCreate", "TemporaryDirectory")
+			var tbf = tbd.entry("build.ss")
+			tbf.setContentsUTF8(buildScript)
+			cwd = executeBuildForFile(tbf)
+		}
+		else {
+			Error.throw("noBuildFileOrScript", null)
+		}
+		var lv = cwd.entry(".build").entry("workdir").entry("local")
+		var v as File
+		if not lv.isDirectory():
+			Error.throw("noBuildOutputDirectory", v)
+		var lvit = lv.entries()
+		while lvit {
+			var ff = lvit.next()
+			if not ff:
+				break
+			if not v && ff.isDirectory() {
+				var fname = ff.getBasename()
+				if String.equals(fname, "eqela"):
+					v = ff
+				if String.equals(fname, "sushi"):
+					v = ff
+				if String.contains(fname, "web"):
+					v = ff
+			}
+			if v:
+				break
+		}
+		if not v:
+			v = lv
+		if not v.isDirectory():
+			Error.throw("noBuildOutputDirectory", v)
+		var it = v.entries()
+		while it {
+			var ff = it.next()
+			if not ff:
+				break
+			if not r && ff.isDirectory() {
+				if String.endsWith(ff.getBasename(), "-local_eqela"):
+					r = ff
+				if String.endsWith(ff.getBasename(), "-local_sushi"):
+					r = ff
+				if String.endsWith(ff.getBasename(), "-local_web"):
+					r = ff
+				if String.endsWith(ff.getBasename(), "-local_web6"):
+					r = ff
+			}
+		}
+		if not r:
+			Error.throw("failedToFindBuildResult", v)
+		if result:
+			r.copyFileOrDirectoryTo(result)
+	}
+	catch e as exception {
+		error = e
+	}
+	if tbd:
+		tbd.removeRecursive()
+	if error:
+		throw error
+}
+
+/*
+func buildLibraryRelease(version as string) as File
+{
+	meta {
+		description [[
+			Executes a library release build with the given version number and returns a File object that points to the generated library file.
+		]]
+	}
+	var bb = build("release", [ version ])
+	var v as File
+	var it = bb.entries()
+	while it {
+		var f = it.next()
+		if not f:
+			break
+		if f.hasExtension("slib") {
+			v = f
+			break
+		}
+	}
+	if it && it is Closable:
+		(it as! Closable).close()
+	if not v:
+		Error.throw("releaseFileNotFound", bb)
+	return v
+}
+*/

@@ -1,0 +1,187 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.process
+
+class:
+
+prop podCommand as File
+prop xcodebuildCommand as File
+prop targetPlatform as string
+prop libdirs as vector<File>
+
+func getPodCommandFile as File
+{
+	var v = podCommand
+	if v:
+		return v
+	v = ExternalCommand.findInPath("pod")
+	if v:
+		return v
+	return null
+}
+
+func getXcodebuildCommandFile as File
+{
+	var v = xcodebuildCommand
+	if v:
+		return v
+	v = ExternalCommand.findInPath("xcodebuild")
+	if v:
+		return v
+	return null
+}
+
+func getBuilderId as string:
+	return "xcode"
+
+func canBuild(dir as File) as bool
+{
+	assert dir
+	var it = dir.entries()
+	while it {
+		var f = it.next()
+		if not f:
+			break
+		if f.hasExtension("xcproj"):
+			return true
+	}
+	return false
+}
+
+func execute(ctx as LoggingContext, sourceDirectory as File, destinationDirectory as File) as bool
+{
+	var dir = assert sourceDirectory:
+		Log.error(ctx, "No source directory")
+	assert dir.isDirectory():
+		Log.error(ctx, "Source directory does not exist: `" .. String.asString(dir) .. "'")
+	Log.debug(ctx, "Using source directory: `" .. String.asString(dir) .. "'")
+	if dir.entry("Podfile").isFile() {
+		var pod = assert getPodCommandFile()
+		Log.info(ctx, "Executing pod ..")
+		var errorBuffer as StringBuilder
+		if ctx.isInDebugMode():
+			errorBuffer = new StringBuilder()
+		var pl = ProcessLauncher.forFile(pod)
+		pl.addToParams("install")
+		pl.setErrorBuffer(errorBuffer)
+		pl.setCwd(dir)
+		var r = pl.execute()
+		if errorBuffer && errorBuffer.count() > 0:
+			Log.debug(ctx, "pod execution error buffer: `" .. errorBuffer.toString() .. "'")
+		if r != 0 {
+			Log.error(ctx, "pod returned an error status: " .. String.forInteger(r))
+			return false
+		}
+		Log.debug(ctx, "pod succesful")
+	}
+	var xcodebuild = assert getXcodebuildCommandFile()
+	Log.info(ctx, "Executing xcodebuild: `" .. String.asString(dir) .. "' ..")
+	var errorBuffer as StringBuilder
+	if ctx.isInDebugMode():
+		errorBuffer = new StringBuilder()
+	var pl = ProcessLauncher.forFile(xcodebuild)
+	var sdkName = targetPlatform
+	if String.isEmpty(sdkName) == false {
+		pl.addToParams("-sdk")
+		pl.addToParams(sdkName)
+	}
+	var targetName as string
+	if String.isEmpty(sdkName) || String.startsWith(sdkName, "iphone") {
+		targetName = "ios"
+	}
+	else {
+		targetName = "macos"
+	}
+	var libdirs = this.libdirs
+	if Vector.getSize(libdirs) > 0 {
+		var sb = new StringBuilder()
+		foreach libdir in libdirs {
+			if libdir.isDirectory() {
+				if sb.count() > 0:
+					sb.appendCharacter(' ')
+				sb.appendString(libdir.getPath())
+			}
+		}
+		pl.addToParams("FRAMEWORK_SEARCH_PATHS=\"" .. sb.toString() .. "\"")
+	}
+	pl.setErrorBuffer(errorBuffer)
+	pl.setCwd(dir)
+	var r = pl.execute()
+	if errorBuffer && errorBuffer.count() > 0 {
+		Log.debug(ctx, "xcodebuild execution error buffer: `" .. errorBuffer.toString() .. "'")
+	}
+	if r != 0 {
+		Log.error(ctx, "xcodebuild returned an error status: " .. String.forInteger(r))
+		return false
+	}
+	Log.debug(ctx, "xcodebuild succesful")
+	var destdir = destinationDirectory
+	if destdir {
+		destdir.createDirectoryRecursive()
+		var outputDir as File
+		if String.isEmpty(sdkName) {
+			outputDir = dir.entry("build").entry("Release-iphoneos")
+		}
+		else if sdkName == "macosx" {
+			outputDir = dir.entry("build").entry("Release")
+		}
+		else {
+			outputDir = dir.entry("build").entry("Release-" .. sdkName)
+		}
+		assert outputDir.isDirectory():
+			Log.error(ctx, "Output directory does not exist: `" .. String.asString(outputDir) .. "'")
+		var islib = false
+		var it = outputDir.entries()
+		while it {
+			var file = it.next()
+			if not file:
+				break
+			var dest = destdir.entry(file.getBasename())
+			var fileName = file.getPath()
+			if String.endsWith(fileName, ".a") || String.endsWith(fileName, ".so"):
+				islib = true
+			Log.debug(ctx, "Copying `" .. String.asString(file) .. "' -> `" .. String.asString(dest) .. "' ..")
+			file.copyFileTo(dest)
+		}
+		if islib {
+			var srcDir = dir.entry("src")
+			var it = srcDir.entries()
+			while it {
+				var file = it.next()
+				if not file:
+					break
+				if file.hasExtension("h") == false:
+					continue
+				var dest = destdir.entry(file.getBasename())
+				Log.debug(ctx, "Copying `" .. String.asString(file) .. "' -> `" .. String.asString(dest) .. "' ..")
+				file.copyFileTo(dest)
+			}
+		}
+	}
+	return true
+}

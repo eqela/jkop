@@ -1,0 +1,323 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+
+class is SQLDatabase abstract:
+
+meta
+{
+	description [[
+		MySQL database driver.
+	]]
+}
+
+const SSL_MODE_PREFERRED = "Preferred"
+const SSL_MODE_NONE = "None"
+const SSL_MODE_REQUIRED = "Required"
+const SSL_MODE_VERIFYCA = "VerifyCA"
+const SSL_MODE_VERIFYFULL = "VerifyFull"
+
+const PROTOCOL_SOCKET = "socket"
+const PROTOCOL_UNIX = "unix"
+const PROTOCOL_PIPE = "pipe"
+const PROCOL_MEMORY = "memory"
+
+prop databaseName as string
+
+func instance private static as this
+{
+	IFDEF "target_netx" {
+		return new MySQLDatabaseForDotNet()
+	}
+	ELSE {
+		return new MySQLDatabaseGeneric()
+	}
+}
+
+func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
+{
+	if String.isEmpty(connectionString):
+		Error.throw("emptyConnectionString", null, StackTrace.generate())
+	var ss = String.split(connectionString, ':')
+	var paramc = Vector.getSize(ss)
+	if paramc < 4:
+		Error.throw("invalidConnectionString", connectionString)
+	var address = Vector.get(ss, 0)
+	var username = Vector.get(ss, 1)
+	var password = Vector.get(ss, 2)
+	var database = Vector.get(ss, 3)
+	var sslMode = SSL_MODE_NONE
+	var protocol as string
+	var enableUTF8 = false
+	for(var n=4; n<paramc; n++) {
+		var param = Vector.get(ss, n)
+		if String.startsWith(param, "sslmode=") {
+			sslMode = String.getEndOfString(param, 8)
+		}
+		else if param == "ssl" {
+			sslMode = SSL_MODE_REQUIRED
+		}
+		else if String.startsWith(param, "enableutf8=") {
+			enableUTF8 = Boolean.asBoolean(String.getEndOfString(param, 11))
+		}
+		else if String.startsWith(param, "protocol=") {
+			protocol = String.getEndOfString(param, 9)
+		}
+		else if param == "utf8" {
+			enableUTF8 = true
+		}
+	}
+	if String.isEmpty(address):
+		Error.throw("emptyAddress", connectionString)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", connectionString)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", connectionString)
+	if String.isEmpty(protocol):
+		protocol = PROTOCOL_SOCKET
+	return forConnectionDetails(ctx, address, username, password, database, sslMode, protocol, enableUTF8)
+}
+
+func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
+{
+	if not config:
+		Error.throw("nullConfiguration", null, StackTrace.generate())
+	var serverAddress = config.getString("serverAddress")
+	var username = config.getString("username")
+	var password = config.getString("password")
+	var database = config.getString("database")
+	var enableUTF8 = config.getBoolean("enableUTF8", false)
+	var sslMode = config.getString("sslMode")
+	if String.isEmpty(sslMode):
+		sslMode = SSL_MODE_NONE
+	var protocol = config.getString("protocol")
+	if String.isEmpty(protocol):
+		protocol = PROTOCOL_SOCKET
+	if String.isEmpty(serverAddress):
+		Error.throw("emptyAddress", config)
+	if String.isEmpty(username):
+		Error.throw("emptyUsername", config)
+	if String.isEmpty(database):
+		Error.throw("emptyDatabaseName", config)
+	return forConnectionDetails(ctx, serverAddress, username, password, database, sslMode, protocol, enableUTF8)
+}
+
+func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) static as this
+{
+	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database) || String.isEmpty(sslMode) || String.isEmpty(protocol):
+		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
+	var v = instance()
+	if not v:
+		Error.throw("failedToCreateMySQLClientInstance", null)
+	v.ctx = ctx
+	Log.debug(ctx, "MySQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', sslMode=`" .. sslMode .. "', protocol=`" .. protocol .. "'")
+	v.databaseName = database
+	v.setConnectionDetails(serverAddress, username, password, database, sslMode, protocol, enableUTF8)
+	return v
+}
+
+func getDatabaseTypeId override as string:
+	return "mysql"
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) abstract
+
+func executeSingleRowQueryStatement(stmt as SQLStatement) override async as DynamicMap
+{
+	var it = assert await executeQueryStatement(stmt)
+	var v as DynamicMap #force = it.next()
+	it.close()
+	return v
+}
+
+func checkIfTableExists(table as string) override async as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
+	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
+	return String.equalsIgnoreCase(table, sr.getString("TABLE_NAME"))
+}
+
+func getAllTableNames override async as vector<string>
+{
+	assert String.isNotEmpty(databaseName)
+	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
+	stmt.addParamString(databaseName)
+	var it = assert await executeQueryStatement(stmt)
+	var v = new vector<string>
+	loop {
+		var vv = it.next()
+		if not vv:
+			break
+		v += vv.getString("TABLE_NAME")
+	}
+	return v
+}
+
+func columnToCreateString(cc as SQLTableColumnInfo) private as string
+{
+	var sb = new StringBuilder()
+	var columnName = cc.getName()
+	sb.appendString(columnName)
+	sb.appendCharacter(' ')
+	var tt = cc.getType()
+	sb.appendString(prepareTypeAsString(tt, columnName))
+	return sb.toString()
+}
+
+func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as bool = false) as string
+{
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
+		if forDataTypeChecking:
+			return "INTEGER"
+		return "INTEGER AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
+		return "INTEGER"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
+		if forDataTypeChecking:
+			return "BIGINT"
+		return "BIGINT AUTO_INCREMENT, PRIMARY KEY (" .. columnName .. ")"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG {
+		return "BIGINT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
+		if forDataTypeChecking:
+			return "VARCHAR(255)"
+		return "VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_general_ci"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
+		if forDataTypeChecking:
+			return "VARCHAR(255)"
+		return "VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_general_ci, PRIMARY KEY (" .. columnName .. ")"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
+		if forDataTypeChecking:
+			return "LONGTEXT"
+		return "LONGTEXT CHARACTER SET utf8 COLLATE utf8_general_ci"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
+		return "LONGBLOB"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
+		return "REAL"
+	}
+	Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
+	return "UNKNOWN"
+}
+
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
+{
+	assert String.isNotEmpty(table) && columns
+	var sb = new StringBuilder()
+	sb.appendString("CREATE TABLE ")
+	sb.appendString(table)
+	sb.appendString(" (")
+	var first = true
+	foreach column as SQLTableColumnInfo in columns {
+		if not first:
+			sb.appendCharacter(',')
+		sb.appendCharacter(' ')
+		sb.appendString(columnToCreateString(column))
+		first = false
+	}
+	sb.appendString(" ) CHARACTER SET utf8 COLLATE utf8_general_ci;")
+	return await prepareStatement(sb.toString())
+}
+
+func prepareDeleteTableStatement(table as string) async override as SQLStatement
+{
+	assert String.isNotEmpty(table)
+	var sb = new StringBuilder()
+	sb.appendString("DROP TABLE ")
+	sb.appendString(table)
+	sb.appendString(";")
+	return await prepareStatement(sb.toString())
+}
+
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+{
+	assert String.isNotEmpty(table) && column
+	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName()) .. ";"
+	return await prepareStatement(sql)
+}
+
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+{
+	assert String.isNotEmpty(table) && column
+	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.getName() .. " " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName(), true) .. ";"
+	return await prepareStatement(sql)
+}
+
+func getLastInsertId(table as string) override async as long
+{
+	// FIXME: Parameter table is ignored.
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT LAST_INSERT_ID() AS id;"))
+	return v.getLongInteger("id")
+}
+
+func getPrimaryKeyColumnName(table as string) override async as string
+{
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
+	return v.getString("COLUMN_NAME")
+}
+
+func getIdentityColumnName(table as string) override async as string
+{
+	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
+	return v.getString("COLUMN_NAME")
+}
+
+func checkIfColumnExists(table as string, column as string) override async as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && String.isNotEmpty(column)
+	var stmt = assert await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	stmt.addParamString(column)
+	var sr = assert await executeSingleRowQueryStatement(stmt)
+	return String.equalsIgnoreCase(column, sr.getString("COLUMN_NAME"))
+}
+
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
+{
+	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && column
+	var stmt = assert await prepareStatement("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(databaseName)
+	stmt.addParamString(table)
+	stmt.addParamString(column.getName())
+	var sr = assert await executeSingleRowQueryStatement(stmt)
+	var type = prepareTypeAsString(column.getType(), column.getName(), true)
+	var ctype = sr.getString("COLUMN_TYPE")
+	if String.equalsIgnoreCase(type, ctype):
+		return true
+	if type == "INTEGER" && String.equalsIgnoreCase("int", ctype):
+		return true
+	return false
+}

@@ -1,0 +1,137 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPSocket:
+
+// FIXME: This implementation is incomplete
+
+pvar readListener as function
+pvar writeListener as function
+var readBytes as buffer
+var net as dynamic
+var clientSocket as dynamic
+var server as dynamic
+var blocking private = true
+
+ctor:
+	net = lang "js" dynamic {{{ net = require('net')}}}
+
+func getNetSocket as dynamic:
+	return clientSocket
+
+func getRemoteAddress override as string:
+	return lang "js" string {{{ this.clientSocket.remoteAddress }}}
+
+func getRemotePort override as int:
+	return lang "js" int {{{ this.clientSocket.remotePort }}}
+
+func getLocalAddress override as string:
+	return lang "js" string {{{ this.clientSocket.localAddress }}}
+
+func getLocalPort override as int:
+	return lang "js" int {{{ this.clientSocket.localPort }}}
+
+func connect(address as string, port as int) override as bool
+{
+	lang "js" {{{
+		this.clientSocket = this.clientSocket.connect(port, address)
+	}}}
+	return !clientSocket ? false:true
+}
+
+func listen(port as int) override as bool
+{
+	lang "js" {{{
+		const ss = net.createServer({
+			keepAlive: true
+		}, (socket) => {
+			this.clientSocket = socket;
+			socket.setEncoding('utf8');
+			socket.on('data', (rdata) => {
+				if(this.readListener) {
+					this.readListener();
+				}
+				console.log(rdata.toString());
+				this.readBytes = rdata;
+			})
+		});
+		this.server = ss.listen(port);
+	}}}
+	return !server ? false:true
+}
+
+func accept override as TCPSocket
+{
+	assert server
+	assert clientSocket
+	var v = new this()
+	v.clientSocket = clientSocket
+	return v
+}
+
+func setBlocking(blocking as bool) override as bool
+{
+	this.blocking = blocking
+	return true
+}
+
+func getBlocking override as bool:
+	return blocking
+
+func close override
+{
+	lang "js" {{{
+		this.server.close();
+	}}}
+}
+
+func read(buffer as buffer) override as int
+{
+	assert readBytes
+	buffer = readBytes
+	var v = Buffer.getSize(readBytes)
+	if v < 1 {
+		close()
+		v = -1
+	}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	var bw as int
+	lang "js" {{{
+		this.socket.write(buffer, 'utf8', () => {
+			if(this.writeListener) {
+				this.writeListener();
+			}
+		});
+		bw = this.socket.bytesWritten;
+	}}}
+	if bw < 1 {
+		close()
+		bw = -1
+	}
+	return bw
+}

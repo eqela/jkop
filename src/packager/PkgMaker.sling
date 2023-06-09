@@ -1,0 +1,97 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.process
+
+class is PackageMaker:
+
+pvar installDir as File
+
+func execute(ctx as LoggingContext, sourceDir as File, destinationDir as File, packageInfo as PackageInfo) as bool
+{
+	assert packageInfo
+	assert sourceDir
+	assert destinationDir
+	var tmp = assert TemporaryDirectory.create():
+		Log.error(ctx, "Failed to create temporary directory")
+	var v = doExecute(ctx, sourceDir, destinationDir, packageInfo, tmp)
+	tmp.removeRecursive()
+	return v
+}
+
+func doExecute(ctx as LoggingContext, sourceDir as File, destinationDir as File, packageInfo as PackageInfo, tmp as File) private as bool
+{
+	var idir = installDir
+	if not idir:
+		idir = File.forPath("/Library")
+	idir = idir.entry(packageInfo.name)
+	var executables = String.split(packageInfo.executables, ',')
+	if Vector.getSize(executables) > 0 {
+		var scriptBuilder = new StringBuilder()
+		scriptBuilder.appendString("#! /bin/sh\n")
+		scriptBuilder.appendString("#\n")
+		foreach executable in executables {
+			scriptBuilder.appendString("ln -sfn '")
+			scriptBuilder.appendString(idir.getPath())
+			scriptBuilder.appendString("/")
+			scriptBuilder.appendString(executable)
+			scriptBuilder.appendString("' '/usr/local/bin/")
+			scriptBuilder.appendString(executable)
+			scriptBuilder.appendString("'")
+		}
+		scriptBuilder.appendString("\n")
+		scriptBuilder.appendString("exit 0")
+		var postinstallScript = tmp.entry("postinstall")
+		postinstallScript.setContentsUTF8(scriptBuilder.toString())
+		postinstallScript.setMode(493)
+	}
+	var pkgbuildExec = ExternalCommand.findInPath("pkgbuild")
+	if pkgbuildExec == null || pkgbuildExec.isFile() == false:
+		pkgbuildExec = File.forPath("/usr/bin/pkgbuild")
+	assert pkgbuildExec && pkgbuildExec.isFile():
+		Log.error(ctx, "Failed to find command: `pkgbuild'")
+	var pl = assert ProcessLauncher.forFile(pkgbuildExec):
+		Log.error(ctx, "Failed to create process launcher for file: `" .. pkgbuildExec.getPath() .. "'")
+	pl.addToParams("--root")
+	pl.addToParams(sourceDir.getPath())
+	pl.addToParams("--install-location")
+	pl.addToParams(idir.getPath())
+	pl.addToParams("--scripts")
+	pl.addToParams(tmp.getPath())
+	pl.addToParams("--identifier")
+	pl.addToParams(packageInfo.name)
+	pl.addToParams("--version")
+	pl.addToParams(packageInfo.version)
+	var finalFile = destinationDir.entry(packageInfo.name .. "_" .. packageInfo.version .. "_" .. packageInfo.platform .. ".pkg")
+	pl.addToParams(finalFile.getPath())
+	Log.status(ctx, "[pkg] Generating installer .. ")
+	var sb = new StringBuilder()
+	assert pl.executeToStringBuilder(sb) == 0:
+		Log.error(ctx, "[MacPackageInstaller] error:\n\n" .. sb.toString())
+	Log.info(ctx, finalFile.getPath())
+	return true
+}

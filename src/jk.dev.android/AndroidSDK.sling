@@ -1,0 +1,230 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.os
+import jk.log
+import jk.env
+
+class:
+
+func findAndroidSDKDirectoryForPath(ff as File) static private as File
+{
+	assert ff
+	if ff.isDirectory() {
+		if ff.entry("tools").isDirectory() && ff.entry("platform-tools").isDirectory():
+			return ff
+	}
+	return null
+}
+
+func getAndroidSDKDirectoryInEnvironmentVariables static as File
+{
+	var path = EnvironmentVariable.get("EQELA_ANDROID_SDK_PATH")
+	assert String.isNotEmpty(path)
+	var f = File.forPath(path)
+	return findAndroidSDKDirectoryForPath(f)
+}
+
+func findAndroidSDKDirectory(ctx as LoggingContext, androidSdkPath as File) static as File
+{
+	var option = androidSdkPath
+	if option {
+		var v = findAndroidSDKDirectoryForPath(option)
+		if v:
+			return v
+		Log.error(ctx, "Not a valid Android SDK directory path: `" .. String.asString(option) .. "'")
+		return null
+	}
+	var e = getAndroidSDKDirectoryInEnvironmentVariables()
+	if e:
+		return e
+	if OS.isMacOS() {
+		var home = CommonPath.getHomeDirectory()
+		if home {
+			var sdkDir = home.entry("Library").entry("Android").entry("sdk")
+			if sdkDir.isDirectory():
+				return sdkDir
+		}
+	}
+	else if OS.isWindows() {
+		var cAndroidSdk = File.forPath("C:\\Android\\sdk")
+		if cAndroidSdk.isDirectory():
+			return cAndroidSdk
+		var appDataPath as string
+		IFDEF "target_netx" {
+			appDataPath = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData) }}}
+		}
+		if String.isEmpty(appDataPath) {
+			appDataPath = EnvironmentVariable.get("AppData")
+		}
+		if String.isEmpty(appDataPath) == false {
+			var dd = File.forPath(appDataPath).entry("Android").entry("sdk")
+			if dd.isDirectory():
+				return dd
+		}
+		IFDEF "target_netx" {
+			var progFiles = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFiles) }}}
+			if String.isEmpty(progFiles) == false {
+				var dd = File.forPath(progFiles).entry("Android").entry("android-sdk")
+				if dd.isDirectory():
+					return dd
+				dd = File.forPath(progFiles).entry("Android").entry("sdk")
+				if dd.isDirectory():
+					return dd
+			}
+			progFiles = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86) }}}
+			if String.isEmpty(progFiles) == false {
+				var dd = File.forPath(progFiles).entry("Android").entry("android-sdk")
+				if dd.isDirectory():
+					return dd
+				dd = File.forPath(progFiles).entry("Android").entry("sdk")
+				if dd.isDirectory():
+					return dd
+			}
+		}
+	}
+	else if OS.isLinux() {
+		var home = CommonPath.getHomeDirectory()
+		if home {
+			var sdkDir = home.entry("Android").entry("sdk")
+			if sdkDir.isDirectory():
+				return sdkDir
+			sdkDir = home.entry("android").entry("sdk")
+			if sdkDir.isDirectory():
+				return sdkDir
+			sdkDir = home.entry(".android").entry("sdk")
+			if sdkDir.isDirectory():
+				return sdkDir
+		}
+	}
+	Log.error(ctx, "Unable to find Android SDK.")
+	return null
+}
+
+func autoDetect(ctx as LoggingContext) static as this
+{
+	var sdk = assert findAndroidSDKDirectory(ctx, null)
+	var v = new this()
+	v.setPath(sdk)
+	return v
+}
+
+func forPath(path as File) static as this
+{
+	var v = new this()
+	v.setPath(path)
+	return v
+}
+
+pvar path as File
+
+func getAvailablePlatforms as vector<string>
+{
+	var v = new vector<string>
+	if path {
+		var it = path.entry("platforms").entries()
+		while it {
+			var ff = it.next()
+			if ff == null:
+				break
+			var bn = ff.getBasename()
+			if String.startsWith(bn, "android-"):
+				v += bn
+		}
+	}
+	return v
+}
+
+func getLatestAvailablePlatform as string
+{
+	var v as string
+	var pls = getAvailablePlatforms()
+	if pls {
+		var n = -1
+		foreach pl in pls {
+			if String.startsWith(pl, "android-") == false:
+				continue
+			var nn = Integer.asInteger(String.getEndOfString(pl, 8))
+			if nn > n {
+				v = pl
+				n = nn
+			}
+		}
+	}
+	return v
+}
+
+func getLatestAvailableApiLevel as int
+{
+	var v = getLatestAvailablePlatform()
+	if v == null:
+		return 0
+	if String.startsWith(v, "android-") == false:
+		return 0
+	return Integer.asInteger(String.getEndOfString(v, 8))
+}
+
+func getAvailableBuildToolVersions as vector<string>
+{
+	var v = new vector<string>
+	if path {
+		var it = path.entry("build-tools").entries()
+		while it {
+			var ff = it.next()
+			if ff == null:
+				break
+			if ff.isDirectory() == false:
+				continue
+			v += ff.getBasename()
+		}
+	}
+	return v
+}
+
+func getLatestAvailableBuildToolVersion as string
+{
+	var v as string
+	var tls = getAvailableBuildToolVersions()
+	if tls {
+		var a = 0
+		var b = 0
+		var c = 0
+		foreach tl in tls {
+			var comps = String.split(tl, '.', 3)
+			while Vector.getSize(comps) < 3:
+				comps += "0"
+			var c1 = Integer.asInteger(comps[0])
+			var c2 = Integer.asInteger(comps[1])
+			var c3 = Integer.asInteger(comps[2])
+			if c1 > a || (c1 == a && c2 > b) || (c1 == a && c2 == b && c3 > c) {
+				v = tl
+				a = c1
+				b = c2
+				c = c3
+			}
+		}
+	}
+	return v
+}

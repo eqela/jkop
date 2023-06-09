@@ -1,0 +1,131 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.log
+import jk.process
+
+class:
+
+func splitFileToNameAndVersion(file as File) static as array<string>
+{
+	assert file
+	if not file.hasExtension("nupkg"):
+		return null
+	return splitStringToNameAndVersion(file.getBasenameWithoutExtension())
+}
+
+func splitStringToNameAndVersion(idname as string) static as array<string>
+{
+	var namesb = new StringBuilder()
+	var versb = new StringBuilder()
+	var verflag = false
+	foreach comp in String.split(idname, '.') {
+		if verflag == false {
+			if Character.isDigit(String.getChar(comp, 0)) {
+				verflag = true
+			}
+			else {
+				if namesb.count() > 0:
+					namesb.appendCharacter('.')
+				namesb.appendString(comp)
+			}
+		}
+		if verflag {
+			if versb.count() > 0:
+				versb.appendCharacter('.')
+			versb.appendString(comp)
+		}
+	}
+	return new string[] [
+		namesb.toString(),
+		versb.toString()
+	]
+}
+
+func getPackageCacheDir(dotnet as File) static as File
+{
+	if dotnet {
+		var pl = ProcessLauncher.forFile(dotnet)
+		pl.addToParams("nuget")
+		pl.addToParams("locals")
+		pl.addToParams("global-packages")
+		pl.addToParams("--list")
+		var r = pl.executeToString()
+		if r {
+			r = String.strip(r)
+			var i = String.getIndexOfString(r, "global-packages:")
+			if i >= 0 {
+				var v = String.strip(String.getEndOfString(r, i + 16))
+				if String.getLength(v) > 0:
+					return File.forPath(v)
+			}
+		}
+	}
+	var hd = CommonPath.getHomeDirectory()
+	if hd {
+		return hd.entry(".nuget").entry("packages")
+	}
+	return null
+}
+
+func clearPackageFromNugetCache(ctx as LoggingContext, dotnet as File, name as string, version as string) static as bool
+{
+	assert name
+	var pcd = assert getPackageCacheDir(dotnet):
+		Log.warning(ctx, "Failed to determine Nuget package cache directory")
+	Log.debug(ctx, "Package cache directory detected: `" .. String.asString(pcd) .. "'")
+	var f = pcd.entry(name)
+	if version:
+		f = f.entry(version)
+	Log.debug(ctx, "Cached package directory for nupkg name=`" .. name .. "', version=`" .. version .. "': `" .. String.asString(f) .. "'")
+	if not f.exists() {
+		Log.debug(ctx, "No cached package directory exists: `" .. String.asString(f) .. "'")
+		return true
+	}
+	f.removeRecursive()
+	Log.debug(ctx, "Removed cache package directory: `" .. String.asString(f) .. "'")
+	return true
+}
+
+func clearLocalPackagesFromNugetCache(ctx as LoggingContext, dotnet as File, dir as File) static as bool
+{
+	assert dir
+	var it = assert dir.entries()
+	var v = true
+	loop {
+		var f = it.next()
+		if not f:
+			break
+		if not f.hasExtension("nupkg"):
+			continue
+		var cc = splitFileToNameAndVersion(f)
+		if not cc:
+			continue
+		if not clearPackageFromNugetCache(ctx, dotnet, cc[0], cc[1]):
+			v = false
+	}
+	return v
+}

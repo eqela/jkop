@@ -1,0 +1,677 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.sha
+import jk.dev.git
+import jk.dev.docker
+
+class:
+
+class SecretReference
+{
+	pvar name as string
+	pvar key as string
+
+	ctor(name as string, key as string)
+	{
+		setName(name)
+		setKey(key)
+	}
+}
+
+class ServicePort public
+{
+	prop name as string
+	prop protocol as string
+	prop clusterPort as int
+	prop containerPort as int
+	prop externalPort as int
+}
+
+class Service public
+{
+	prop name as string
+	prop ports as vector<ServicePort>
+	prop version as string = "latest"
+	prop environment as DynamicMap
+	prop instances as int = 1
+	prop preDeployScript as string
+	prop postDeployScript as string
+	prop command as string
+	prop arguments as vector<string>
+	prop usesHttpLoadBalancing as bool = true
+	prop schedule as string
+	prop buildOnly as bool = false
+
+	ctor:
+		addHttpPort()
+
+	func hasExternalPorts as bool
+	{
+		foreach port in ports {
+			if port.externalPort > 0:
+				return true
+		}
+		return false
+	}
+
+	func clearPorts:
+		ports = null
+
+	func addHttpPort(externalPort as int = 0):
+		addPort("http", null, 80, 8080, 0)
+
+	func addPort(name as string, protocol as string, clusterPort as int, containerPort as int, externalPort as int) as this
+	{
+		var sp = new ServicePort()
+		sp.name = name
+		sp.protocol = protocol
+		sp.clusterPort = clusterPort
+		sp.containerPort = containerPort
+		sp.externalPort = externalPort
+		addPortObject(sp)
+		return this
+	}
+
+	func getOnlyPort as ServicePort
+	{
+		var ps = Vector.getSize(ports)
+		if ps > 1:
+			Error.throw("tooManyPorts", String.forInteger(ps))
+		var v = Vector.get(ports, 0)
+		if not v:
+			Error.throw("noPorts", null)
+		return v
+	}
+
+	func addPortObject(port as ServicePort) as this
+	{
+		if port {
+			if not ports:
+				ports = new vector<ServicePort>
+			ports += port
+		}
+		return this
+	}
+
+	func setClusterPort(port as int) as this
+	{
+		var pp = getOnlyPort()
+		pp.clusterPort = port
+		return this
+	}
+
+	func setContainerPort(port as int) as this
+	{
+		var pp = getOnlyPort()
+		pp.containerPort = port
+		return this
+	}
+
+	func setExternalPort(port as int) as this
+	{
+		var pp = getOnlyPort()
+		pp.externalPort = port
+		return this
+	}
+
+	func addVariable(key as string, value as string)
+	{
+		assert String.isNotEmpty(key)
+		if not environment:
+			environment = new DynamicMap()
+		environment.setString(key, value)
+	}
+
+	func addArgument(arg as string)
+	{
+		assert String.isNotEmpty(arg)
+		if not arguments:
+			arguments = new vector<string>
+		arguments += arg
+	}
+
+	func addSecret(key as string, secretName as string, secretKey as string)
+	{
+		assert String.isNotEmpty(secretName)
+		if not environment:
+			environment = new DynamicMap()
+		environment.setObject(key, new SecretReference(secretName, secretKey))
+	}
+}
+
+class BuildableService is Service public
+{
+	prop buildConfig as DynamicMap
+
+	func configureBuild(key as string, value as object)
+	{
+		assert String.isNotEmpty(key)
+		if not buildConfig:
+			buildConfig = new DynamicMap()
+		buildConfig.setObject(key, value)
+	}
+}
+
+class GitService is BuildableService public
+{
+	prop repository as string
+	prop reference as string = null
+}
+
+class LocalDirectoryService is BuildableService public
+{
+	prop directory as File
+}
+
+class PrebuiltService is Service public
+{
+	prop image as string
+}
+
+var ctx as LoggingContext
+var kube as Kubectl
+var git = new Git()
+var services as vector<Service>
+
+prop workdir:workdirValue as File
+{
+	get {
+		if not workdirValue:
+			workdirValue = TemporaryDirectory.create()
+		if not workdirValue:
+			Error.throw("failedToCreateTemporaryDirectory", null)
+		return workdirValue
+	}
+	set {
+		workdirValue = value
+	}
+}
+
+prop dockerRegistry as string = "localhost:32000"
+
+ctor(kube as Kubectl)
+{
+	this.kube = kube
+	if kube:
+		this.ctx = kube.ctx
+	git = new Git(ctx)
+}
+
+func addToServices(service as Service) as Service
+{
+	assert service
+	if not services:
+		services = new vector<Service>
+	services += service
+	return service
+}
+
+func addGitService(name as string, repository as string) as GitService
+{
+	var v = new GitService()
+	v.name = name
+	v.repository = repository
+	addToServices(v)
+	return v
+}
+
+func addLocalDirectoryService(name as string, dir as dynamic) as LocalDirectoryService
+{
+	var dirf = File.asFile(dir)
+	if not dirf:
+		Error.throw("invalidDirectory", dir)
+	var v = new LocalDirectoryService()
+	v.name = name
+	v.directory = dirf
+	addToServices(v)
+	return v
+}
+
+func addPrebuiltService(name as string, image as string) as PrebuiltService
+{
+	var v = new PrebuiltService()
+	v.name = name
+	v.image = image
+	addToServices(v)
+	return v
+}
+
+func buildAndPushContainer(srcdir as File, tag as string, buildConfig as DynamicMap)
+{
+	if not srcdir:
+		Error.throw("missingParameter", "buildAndPushContainer:srcdir")
+	if not srcdir.exists():
+		Error.throw("noSuchFileOrDirectory", srcdir)
+	var docker = new Docker(ctx)
+	var builder = new DockerBuilderOld(docker)
+	builder.buildFromSourceDirectory(srcdir, tag, buildConfig)
+	Log.info(ctx, "Built Docker image: `" .. tag .. "'")
+	Log.status(ctx, "Pushing Docker image: `" .. tag .. "' ..")
+	docker.push(tag)
+	Log.status(ctx, null)
+	Log.info(ctx, "Pushed Docker image: `" .. tag .. "'")
+}
+
+func getRegistryAddress(index as int) private as string
+{
+	assert dockerRegistry
+	var comps = String.split(dockerRegistry, ' ', 2)
+	var v = Vector.get(comps, index)
+	if String.isEmpty(v) && index > 0:
+		v = Vector.get(comps, 0)
+	return v
+}
+
+func getCustomImageTagForName(name as string, version as string) as string:
+	return getRegistryAddress(0) .. "/" .. name .. ":" .. version
+
+func getCustomImageDownloadTagForName(name as string, version as string) as string:
+	return getRegistryAddress(1) .. "/" .. name .. ":" .. version
+
+func buildAndPushGitService(service as GitService)
+{
+	if not service:
+		Error.throw("missingParameter", "buildAndPushGitService:service")
+	var name = service.name
+	if String.isEmpty(name):
+		Error.throw("missingValue", "Service:name")
+	var wd = workdir
+	var ref = service.reference
+	var dirname = name
+	if String.isNotEmpty(ref) {
+		Log.debug(ctx, "Checking out with reference: `" .. ref .. "' .. ")
+		dirname = dirname .. "-" .. SHAEncoder.forSha1().getHashForString(ref)
+	}
+	var repodir = wd.entry("git").entry(dirname)
+	if String.isNotEmpty(ref):
+		repodir.removeRecursive()
+	if repodir.isFile():
+		Error.throw("notDirectory", repodir)
+	if not repodir.isDirectory() {
+		Log.status(ctx, "Clone repository: `" .. String.asString(service.repository) .. "' .. ")
+		var cps = new Git.CloneParams()
+		cps.recursive = true
+		if String.isEmpty(ref):
+			ref = "master"
+		cps.reference = ref
+		git.clone(service.repository, repodir, cps)
+		Log.status(ctx, null)
+	}
+	Log.debug(ctx, "Code prepared for `" .. name .. "': `" .. String.asString(repodir) .. "'")
+	buildAndPushContainer(repodir, getCustomImageTagForName(name, service.version), service.buildConfig)
+}
+
+func getImageForService(service as Service) as string
+{
+	assert service
+	if service is GitService {
+		return getCustomImageDownloadTagForName(service.name, service.version)
+	}
+	else if service is LocalDirectoryService {
+		return getCustomImageDownloadTagForName(service.name, service.version)
+	}
+	else if service is PrebuiltService {
+		return (service as! PrebuiltService).image
+	}
+	else {
+		Error.throw("unsupportedService", service)
+	}
+	return null
+}
+
+func generateCronJobYamlForService(service as Service) private as string
+{
+	assert service
+	var sb = new StringBuilder()
+	sb.appendString("apiVersion: batch/v1beta1\n")
+	sb.appendString("kind: CronJob\n")
+	sb.appendString("metadata:\n")
+	sb.appendString("  name: " .. service.name .. "\n")
+	sb.appendString("spec:\n")
+	if String.isNotEmpty(service.schedule) {
+		sb.appendString("  schedule: " .. service.schedule .. "\n")
+	}
+	sb.appendString("  jobTemplate:\n")
+	sb.appendString("   spec:\n")
+	sb.appendString("    template:\n")
+	sb.appendString("     spec:\n")
+	sb.appendString("      restartPolicy: OnFailure\n")
+	sb.appendString("      containers:\n")
+	sb.appendString("      - name: " .. service.name .. "\n")
+	sb.appendString("        image: " .. getImageForService(service) .. "\n")
+	var cmd = service.command
+	if String.isNotEmpty(cmd) {
+		sb.appendString("        command:\n")
+		sb.appendString("        - " .. cmd .. "\n")
+	}
+	var args = service.arguments
+	if args && sizeof args > 0 {
+		sb.appendString("            args:\n")
+		foreach arg in args:
+			sb.appendString("            - " .. arg .. "\n")
+	}
+	var env = service.environment
+	if env && env.getCount() > 0 {
+		sb.appendString("        env:\n")
+		foreach key in env.getKeys() {
+			var value = env.get(key)
+			if not value:
+				continue
+			sb.appendString("          - name: " .. key .. "\n")
+			if value is SecretReference {
+				var sr = value as! SecretReference
+				sb.appendString("            valueFrom:\n")
+				sb.appendString("              secretKeyRef:\n")
+				sb.appendString("                name: " .. sr.getName() .. "\n")
+				sb.appendString("                key: " .. sr.getKey() .. "\n")
+			}
+			else {
+				var svalue = String.asString(value)
+				if not svalue:
+					svalue = ""
+				sb.appendString("            value: \"" .. svalue .. "\"\n")
+			}
+		}
+	}
+	return sb.toString()
+}
+
+func generateJobYamlForService(service as Service) private as string
+{
+	assert service
+	var sb = new StringBuilder()
+	sb.appendString("apiVersion: batch/v1\n")
+	sb.appendString("kind: Job\n")
+	sb.appendString("metadata:\n")
+	sb.appendString("  name: " .. service.name .. "\n")
+	sb.appendString("spec:\n")
+	sb.appendString("  template:\n")
+	sb.appendString("    spec:\n")
+	sb.appendString("      restartPolicy: OnFailure\n")
+	sb.appendString("      containers:\n")
+	sb.appendString("      - name: " .. service.name .. "\n")
+	sb.appendString("        image: " .. getImageForService(service) .. "\n")
+	var cmd = service.command
+	if String.isNotEmpty(cmd) {
+		sb.appendString("        command:\n")
+		sb.appendString("        - " .. cmd .. "\n")
+	}
+	var args = service.arguments
+	if args && sizeof args > 0 {
+		sb.appendString("            args:\n")
+		foreach arg in args:
+			sb.appendString("            - " .. arg .. "\n")
+	}
+	var env = service.environment
+	if env && env.getCount() > 0 {
+		sb.appendString("        env:\n")
+		foreach key in env.getKeys() {
+			var value = env.get(key)
+			if not value:
+				continue
+			sb.appendString("          - name: " .. key .. "\n")
+			if value is SecretReference {
+				var sr = value as! SecretReference
+				sb.appendString("            valueFrom:\n")
+				sb.appendString("              secretKeyRef:\n")
+				sb.appendString("                name: " .. sr.getName() .. "\n")
+				sb.appendString("                key: " .. sr.getKey() .. "\n")
+			}
+			else {
+				var svalue = String.asString(value)
+				if not svalue:
+					svalue = ""
+				sb.appendString("            value: \"" .. svalue .. "\"\n")
+			}
+		}
+	}
+	return sb.toString()
+}
+
+func generateYamlForService(service as Service) as string
+{
+	assert service
+	var ports = service.ports
+	if Vector.getSize(ports) < 1 {
+		if String.isNotEmpty(service.schedule):
+			return generateCronJobYamlForService(service)
+		return generateJobYamlForService(service)
+	}
+	var sb = new StringBuilder()
+	sb.appendString("apiVersion: v1\n")
+	sb.appendString("kind: Service\n")
+	sb.appendString("metadata:\n")
+	sb.appendString("  name: " .. service.name .. "\n")
+	sb.appendString("spec:\n")
+	if service.hasExternalPorts():
+		sb.appendString("  type: NodePort\n")
+	sb.appendString("  selector:\n")
+	sb.appendString("    app: " .. service.name .. "\n")
+	if Vector.getSize(ports) > 0 {
+		sb.appendString("  ports:\n")
+		foreach port in ports {
+			var pp = port.protocol
+			if String.isEmpty(pp):
+				pp = "TCP"
+			var nn = port.name
+			if String.isEmpty(nn):
+				nn = pp .. String.forInteger(port.clusterPort)
+			sb.appendString("    - protocol: " .. pp .. "\n")
+			sb.appendString("      name: " .. nn .. "\n")
+			sb.appendString("      port: " .. String.forInteger(port.clusterPort) .. "\n")
+			sb.appendString("      targetPort: " .. String.forInteger(port.containerPort) .. "\n")
+			if port.externalPort > 0:
+				sb.appendString("      nodePort: " .. String.forInteger(port.externalPort) .. "\n")
+		}
+	}
+	if service.usesHttpLoadBalancing == false:
+		sb.appendString("  clusterIP: None\n")
+	sb.appendString("---\n")
+	sb.appendString("apiVersion: apps/v1\n")
+	sb.appendString("kind: Deployment\n")
+	sb.appendString("metadata:\n")
+	sb.appendString("  name: " .. service.name .. "\n")
+	sb.appendString("  labels:\n")
+	sb.appendString("    app: " .. service.name .. "\n")
+	sb.appendString("spec:\n")
+	sb.appendString("  replicas: " .. String.forInteger(service.instances) .. "\n")
+	sb.appendString("  selector:\n")
+	sb.appendString("    matchLabels:\n")
+	sb.appendString("      app: " .. service.name .. "\n")
+	sb.appendString("  template:\n")
+	sb.appendString("    metadata:\n")
+	sb.appendString("      labels:\n")
+	sb.appendString("        app: " .. service.name .. "\n")
+	sb.appendString("    spec:\n")
+	sb.appendString("      containers:\n")
+	sb.appendString("      - name: " .. service.name .. "\n")
+	sb.appendString("        image: " .. getImageForService(service) .. "\n")
+	if Vector.getSize(ports) > 0 {
+		sb.appendString("        ports:\n")
+		foreach port in ports {
+			sb.appendString("        - containerPort: " .. String.forInteger(port.containerPort) .. "\n")
+		}
+	}
+	var env = service.environment
+	if env && env.getCount() > 0 {
+		sb.appendString("        env:\n")
+		foreach key in env.getKeys() {
+			var value = env.get(key)
+			if not value:
+				continue
+			sb.appendString("          - name: " .. key .. "\n")
+			if value is SecretReference {
+				var sr = value as! SecretReference
+				sb.appendString("            valueFrom:\n")
+				sb.appendString("              secretKeyRef:\n")
+				sb.appendString("                name: " .. sr.getName() .. "\n")
+				sb.appendString("                key: " .. sr.getKey() .. "\n")
+			}
+			else {
+				var svalue = String.asString(value)
+				if not svalue:
+					svalue = ""
+				sb.appendString("            value: \"" .. svalue .. "\"\n")
+			}
+		}
+	}
+	var args = service.arguments
+	if args && sizeof args > 0 {
+		sb.appendString("        args:\n")
+		foreach arg in args:
+			sb.appendString("          - " .. arg .. "\n")
+	}
+	return sb.toString()
+}
+
+func generateYamlForNamespace(name as string) as string
+{
+	assert String.isNotEmpty(name)
+	var sb = new StringBuilder()
+	sb.appendString("apiVersion: v1\n")
+	sb.appendString("kind: Namespace\n")
+	sb.appendString("metadata:\n")
+	sb.appendString("  name: " .. name .. "\n")
+	sb.appendString("  labels:\n")
+	sb.appendString("    name: " .. name .. "\n")
+	return sb.toString()
+}
+
+func applyYaml(yaml as string, identifier as string)
+{
+	if String.isEmpty(yaml):
+		Error.throw("emptyYaml", "applyYaml")
+	Log.debug(ctx, "Applying YAML: `" .. yaml .. "'")
+	var yml = TemporaryFile.forString(yaml)
+	if not yml:
+		Error.throw("failedToGenerate", "temporaryYamlFile")
+	try {
+		Log.status(ctx, "Executing deployment: `" .. identifier .. "' ..")
+		kube.executeCommand([ "apply", "-f", yml.getPath() ])
+		Log.info(ctx, "Deployment completed: `" .. identifier .. "'")
+	}
+	catch e {
+		throw e
+	}
+	finally {
+		Log.status(ctx, null)
+		yml.remove()
+	}
+}
+
+func prepareService(service as Service)
+{
+	assert service
+	if service is GitService {
+		buildAndPushGitService(service as! GitService)
+	}
+	else if service is LocalDirectoryService {
+		var lds = service as! LocalDirectoryService
+		buildAndPushContainer(lds.directory, getCustomImageTagForName(lds.name, service.version), lds.buildConfig)
+	}
+	else if service is PrebuiltService {
+		nop
+	}
+	else {
+		Error.throw("unsupportedService", service)
+	}
+}
+
+func createNamespace
+{
+	assert kube
+	var nsname = kube.namespace
+	assert String.isNotEmpty(nsname)
+	var yaml = generateYamlForNamespace(nsname)
+	if String.isEmpty(yaml):
+		Error.throw("failedToGenerateYaml", "createNamespace")
+	applyYaml(yaml, "namespace")
+}
+
+func initializeCluster
+{
+	createNamespace()
+	foreach service in services:
+		deployService(service)
+}
+
+func deployService(service as Service)
+{
+	prepareService(service)
+	if service.buildOnly:
+		return
+	try {
+		kube.executeCommand([ "delete", "deployment", service.name ], true)
+		kube.executeCommand([ "delete", "service", service.name ], true)
+	}
+	catch e {
+		nop
+	}
+	var pres = service.preDeployScript
+	if String.isNotEmpty(pres):
+		kube.executeSlingScript(pres)
+	applyYaml(generateYamlForService(service), service.name)
+	var posts = service.postDeployScript
+	if String.isNotEmpty(posts):
+		kube.executeSlingScript(posts)
+}
+
+func deployServiceByName(name as string)
+{
+	foreach service in services {
+		if service.name == name {
+			deployService(service)
+			return
+		}
+	}
+	Error.throw("serviceNotFound", name)
+}
+
+func deployServiceByVersion(name as string, version as string)
+{
+	foreach service in services {
+		if service.name == name {
+			updateDeploymentForService(service, version)
+			return
+		}
+	}
+	Error.throw("serviceNotFound", name)
+}
+
+func updateDeploymentForService(service as Service, version as string)
+{
+	var deployment = "deployment/" .. service.name
+	var image = dockerRegistry .. "/" .. service.name .. ":" .. version
+	try {
+		kube.executeCommand([ "set", "image", deployment, service.name .. "=" .. image, "--record" ])
+		Log.info(ctx, "Deployment container image updated for `" .. service.name .. "'")
+	}
+	catch e {
+		throw e
+	}
+}

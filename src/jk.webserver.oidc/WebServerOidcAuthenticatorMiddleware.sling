@@ -1,0 +1,254 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.url
+import jk.jwt
+import jk.slon
+import jk.json
+import jk.webclient
+import jk.webserver
+
+class is WebServerMiddleware:
+
+model Settings public
+{
+	issuerBaseUrl as string
+	applicationBaseUrl as string
+	applicationSecret as string
+	clientId as string
+	clientSecret as string
+	cookieName as string
+	loginFailedUrl as string
+	loginSuccessfulUrl as string
+	logoutSuccessfulUrl as string
+	sessionTimeoutSeconds as int
+	scope as string
+}
+
+model TokenResponse
+{
+	access_token as string
+	token_type as string
+	expires_in as int
+	scope as string
+	refresh_token as string
+	id_token as string
+}
+
+func forSettings(ctx as LoggingContext, settings as Settings) async static as this
+{
+	var v = new this()
+	v.ctx = ctx
+	v.settings = settings
+	if not v.settings:
+		v.settings = new Settings()
+	if String.isEmpty(v.settings.cookieName):
+		v.settings.cookieName = "webAppSession"
+	if v.settings.sessionTimeoutSeconds < 1:
+		v.settings.sessionTimeoutSeconds = 3600
+	if String.isEmpty(v.settings.scope):
+		v.settings.scope = "openid profile email"
+	await v.initialize()
+	return v
+}
+
+prop settings as Settings
+var oidcConfiguration as OidcConfiguration
+var jwtValidator as JWTValidator
+
+func initialize async
+{
+	oidcConfiguration = await getOpenidConfiguration()
+	jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, settings.issuerBaseUrl)
+	Log.debug(ctx, "OIDC configuration: `" .. SLONEncoder.toString(oidcConfiguration.toDynamicMap()) .. "'")
+}
+
+func getOpenidConfiguration async private as OidcConfiguration
+{
+	if String.isEmpty(settings.issuerBaseUrl):
+		Error.throw("valueMissing", "issuerBaseUrl")
+	var url = settings.issuerBaseUrl .. "/.well-known/openid-configuration"
+	Log.status(ctx, "Retrieving OpenID configuration: `" .. url .. "' .. ")
+	var response = await WebClient.instance().executeQuery(ctx, "GET", url, null, null)
+	Log.status(ctx, null)
+	if not response:
+		Error.throw("failedToQueryUrl", url)
+	if String.equals(response.statusCode, "200") == false:
+		Error.throw("failedToGetOpenIdConfiguration", String.forUTF8Buffer(response.body))
+	var str = String.forUTF8Buffer(response.body)
+	if String.isEmpty(str):
+		Error.throw("noResponseBody", url)
+	var data = JSONParser.parseString(str) as DynamicMap
+	if not data:
+		Error.throw("invalidOidcConfiguration", str)
+	return OidcConfiguration.forData(data)
+}
+
+func getRedirectUri as string:
+	return settings.applicationBaseUrl .. "/.oidc/callback"
+
+func getLoginFailedUrl as string
+{
+	var v = settings.loginFailedUrl
+	if String.isEmpty(v):
+		v = settings.applicationBaseUrl .. "/.oidc/failed"
+	return v
+}
+
+func getLoginSuccessfulUrl as string
+{
+	var v = settings.loginSuccessfulUrl
+	if String.isEmpty(v):
+		v = settings.applicationBaseUrl
+	return v
+}
+
+func handleCallbackRequest(req as WebServerRequest) async private
+{
+	var code = req.getQueryParameter("code")
+	if String.isEmpty(code) {
+		Log.debug(ctx, "Callback URL received no code: Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	var data = new map<string,string>
+	Map.set(data, "client_id", settings.clientId)
+	Map.set(data, "client_secret", settings.clientSecret)
+	Map.set(data, "scope", settings.scope)
+	Map.set(data, "code", code)
+	Map.set(data, "redirect_uri", getRedirectUri())
+	Map.set(data, "grant_type", "authorization_code")
+	var qs = QueryString.encode(data)
+	var hdrs = new KeyValueList<string,string>
+	hdrs.add("Content-Type", "application/x-www-form-urlencoded")
+	var response = await WebClient.instance().executeQuery(ctx, "POST", oidcConfiguration.token_endpoint, hdrs, String.toUTF8Buffer(qs))
+	if not response {
+		Log.debug(ctx, "Token exchange URL call failed: Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	if response.statusCode != "200" {
+		Log.debug(ctx, "Token exchange URL call return error status " .. response.statusCode .. "': Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	var tr = TokenResponse.forData(JSONParser.parseBuffer(response.body) as DynamicMap)
+	Log.debug(ctx, "Token response: `" .. SLONEncoder.toString(tr.toDynamicMap()) .. "'")
+	var idToken = tr.id_token
+	if String.isEmpty(idToken) {
+		Log.debug(ctx, "No ID token received. Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	var validateSign = await jwtValidator.validateSignature(idToken)
+	if not validateSign {
+		Log.debug(ctx, "Invalid ID token. Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	var idContent = JWT.decode(idToken, null)
+	if not idContent {
+		Log.debug(ctx, "Invalid ID token received. Login failed.")
+		req.setResponseRedirect(getLoginFailedUrl())
+		req.endResponse()
+		return
+	}
+	var encryptedString = CipherHelper.forSecret(settings.applicationSecret).encrypt(idToken)
+	var cookie = WebServerCookie.forKeyValue(settings.cookieName, encryptedString)
+	cookie.setMaxAge(settings.sessionTimeoutSeconds)
+	cookie.setPath("/")
+	cookie.setSecure(true)
+	cookie.setHttpOnly(true)
+	cookie.setSameSite("lax")
+	req.setResponseRedirect(getLoginSuccessfulUrl())
+	req.setResponseHeader("Set-Cookie", cookie.toString())
+	req.endResponse()
+}
+
+func handleLogoutRequest(req as WebServerRequest) async private
+{
+	var url = settings.logoutSuccessfulUrl
+	if String.isEmpty(url):
+		url = settings.applicationBaseUrl
+	req.setResponseRedirect(url)
+	req.setResponseHeader("Set-Cookie", WebServerCookie.forDeleteKey(settings.cookieName).toString())
+	req.endResponse()
+}
+
+func handleRequest(req as WebServerRequest, next as function<promise>) async override
+{
+	req.removeHeader("x-auth-token")
+	if req.isForResource("/.oidc/failed") {
+		req.setResponseStatus(500)
+		req.writeResponseData(String.toUTF8Buffer("Login failed"))
+		req.endResponse()
+		return
+	}
+	if req.isForResource("/.oidc/logout") {
+		await handleLogoutRequest(req)
+		return
+	}
+	if req.isForResource("/.oidc/callback") {
+		await handleCallbackRequest(req)
+		return
+	}
+	var cookie = req.getCookie(settings.cookieName)
+	if String.isNotEmpty(cookie) {
+		var cookieString = CipherHelper.forSecret(settings.applicationSecret).decrypt(cookie)
+		if cookieString {
+			req.setHeader("x-auth-token", cookieString)
+		}
+		else {
+			cookie = null
+		}
+	}
+	if String.isEmpty(cookie) {
+		var url = URL.forString(oidcConfiguration.authorization_endpoint)
+		if not url:
+			Error.throw("invalidOidcAuthorizationEndpoint", oidcConfiguration.authorization_endpoint)
+		url.addQueryParameter("scope", settings.scope)
+		url.addQueryParameter("response_type", "code")
+		url.addQueryParameter("response_mode", "query")
+		url.addQueryParameter("client_id", settings.clientId)
+		url.addQueryParameter("redirect_uri", getRedirectUri())
+		req.setResponseRedirect(url.toString())
+		req.endResponse()
+		return
+	}
+	// This will renew the cookie expiration.
+	var cc = WebServerCookie.forKeyValue(settings.cookieName, cookie)
+	cc.setMaxAge(settings.sessionTimeoutSeconds)
+	cc.setPath("/")
+	cc.setSecure(true)
+	cc.setHttpOnly(true)
+	cc.setSameSite("lax")
+	req.setResponseHeader("Set-Cookie", cc.toString())
+	await next()
+}

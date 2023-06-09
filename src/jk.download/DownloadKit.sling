@@ -1,0 +1,150 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.sha
+import jk.env
+import jk.archive
+import jk.webclient
+
+class:
+
+var ctx as LoggingContext
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func getBasename(name as string) as string
+{
+	assert name
+	var slash = String.getLastIndexOfCharacter(name, '/')
+	assert slash >= 0
+	return String.getEndOfString(name, slash+1)
+}
+
+func downloadToDirectory(url as dynamic, destdir as dynamic) async as File
+{
+	var urls = String.asString(url)
+	if not urls:
+		Error.throw("missingParameter", "url")
+	var destdirf = File.asFile(destdir)
+	if not destdirf:
+		Error.throw("missingParameter", "destdir")
+	var name = getBasename(urls)
+	if String.isEmpty(name):
+		name = SHAEncoder.forSha1().getHashForString(urls)
+	if String.isEmpty(name):
+		name = "binary"
+	return await downloadToFile(urls, destdirf.entry(name))
+}
+
+class QueryValues private
+{
+	var ss public as string
+	var hh public as KeyValueList<string,string>
+	var bb public as buffer
+}
+
+func downloadToFile(url as dynamic, destfile as dynamic) async as File
+{
+	var urls = String.asString(url)
+	if not urls:
+		Error.throw("missingParameter", "url")
+	var ourls = urls
+	var destfilef = File.asFile(destfile)
+	if not destfilef:
+		Error.throw("missingParameter", "destfile")
+	if destfilef.isFile() {
+		Log.debug(ctx, "File already exists: `" .. destfilef.getPath() .. "'")
+		return destfilef
+	}
+	var wc = WebClient.instance()
+	var o = new QueryValues()
+	var n = 1
+	loop {
+		Log.status(ctx, "Downloading: `" .. getBasename(ourls) .. "' (" .. String.forInteger(n++) .. ").. ")
+		var response = await wc.executeQuery(ctx, "GET", urls, null, null)
+		o.ss = response.statusCode
+		o.hh = response.headers
+		o.bb = response.body
+		Log.status(ctx, null)
+		if o.ss == "301" || o.ss == "302" {
+			if not o.hh:
+				break
+			var location as string
+			var it = o.hh.iterate()
+			while it {
+				var pp = it.next()
+				if not pp:
+					break
+				if String.equalsIgnoreCase(pp.key, "location") {
+					location = pp.value
+					break
+				}
+			}
+			if not location:
+				break
+			urls = location
+		}
+		else {
+			break
+		}
+	}
+	if o.ss != "200":
+		Error.throw("httpError", o.ss)
+	if not o.bb:
+		Error.throw("noContent", null)
+	new FileKit(ctx).writeBuffer(destfilef, o.bb)
+	return destfilef
+}
+
+func downloadAndExtract(url as dynamic, destdir as dynamic) async as File
+{
+	var urls = String.asString(url)
+	if not urls:
+		Error.throw("missingParameter", "url")
+	var destdirf = File.asFile(destdir)
+	if not destdirf:
+		Error.throw("missingParameter", "destdir")
+	if destdirf.isDirectory():
+		return destdirf
+	var tempfile = TemporaryFile.create()
+	if not tempfile:
+		Error.throw("failedToCreateTemporaryFile", null)
+	tempfile.remove()
+	var file = new FileKit(ctx)
+	try {
+		await downloadToFile(urls, tempfile)
+	}
+	catch e {
+		file.remove(tempfile)
+		throw e
+	}
+	var r = ZipReader.extractZipFileToDirectory(tempfile, destdirf, null)
+	file.remove(tempfile)
+	if not r:
+		Error.throw("failedToExtract", urls)
+	return destdirf
+}

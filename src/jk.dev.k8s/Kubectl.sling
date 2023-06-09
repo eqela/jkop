@@ -1,0 +1,205 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.env
+import jk.time
+import jk.random
+import jk.process
+
+class:
+
+var ctx as LoggingContext
+
+prop kubectl:kubectlValue as File
+{
+	get {
+		if not kubectlValue:
+			useDefaultKubectl()
+		return kubectlValue
+	}
+	set {
+		kubectlValue = value
+	}
+}
+
+prop namespace as string
+prop kubeconfigFile as File
+prop kubeconfigString as string
+
+ctor(ctx as LoggingContext):
+	this.ctx = ctx
+
+func useKubectlCommand(command as string)
+{
+	var kubectl = ExternalCommand.findInPath(command)
+	if not kubectl:
+		Error.throw("commandNotFound", command)
+	this.kubectl = kubectl
+}
+
+func useDefaultKubectl:
+	useKubectlCommand("kubectl")
+
+func executeCommandVector(args as vector<string>, ignoreErrors as bool = false) as string
+{
+	var gg = kubectl
+	if not gg:
+		Error.throw("noKubectlExecutable", "Kubectl:executeCommandVector")
+	var pl = ProcessLauncher.forFile(gg)
+	if not pl:
+		Error.throw("failedToCreate", "ProcessLauncher")
+	pl.setDetachFromTerminal(true)
+	var ns = namespace
+	if String.isNotEmpty(ns) {
+		pl.addToParams("-n")
+		pl.addToParams(ns)
+	}
+	var tmpfile as File
+	if kubeconfigFile {
+		pl.addToParams("--kubeconfig=" .. kubeconfigFile.getPath())
+	}
+	else if String.isNotEmpty(kubeconfigString) {
+		tmpfile = TemporaryFile.create()
+		if not tmpfile:
+			Error.throw("failedToCreateTemporaryFile", null)
+		tmpfile.setContentsUTF8("")
+		tmpfile.setMode(384)
+		tmpfile.setContentsUTF8(kubeconfigString)
+		pl.addToParams("--kubeconfig=" .. tmpfile.getPath())
+	}
+	var error as dynamic
+	var rr as string
+	try {
+		foreach arg in args:
+			pl.addToParams(arg)
+		var sb = new StringBuilder()
+		if ctx && ctx.isInDebugMode():
+			Log.debug(ctx, "Executing: `" .. String.asString(pl) .. "'")
+		var result = pl.executeToStringBuilder(sb)
+		rr = sb.toString()
+		if ctx && ctx.isInDebugMode():
+			Log.debug(ctx, "Kubectl output: `" .. rr .. "'")
+		if result != 0 {
+			if String.isNotEmpty(rr) && ignoreErrors == false:
+				Log.error(ctx, "Failed command output:\n" .. rr)
+			Error.throw("kubectlActionFailed", pl)
+		}
+	}
+	catch e {
+		error = e
+	}
+	if tmpfile:
+		tmpfile.remove()
+	if error:
+		throw error
+	return rr
+}
+
+func executeCommand(args as vector<string>, ignoreErrors as bool = false) as string
+{
+	var av = new vector<string>
+	foreach arg in args {
+		var aa = String.asString(arg)
+		if not aa:
+			aa = ""
+		av += aa
+	}
+	return executeCommandVector(av, ignoreErrors)
+}
+
+func createSecret(name as string, data as DynamicMap) as string
+{
+	if String.isEmpty(name):
+		Error.throw("nullName", "Kubectl:createSecret")
+	if not data:
+		Error.throw("nullData", "Kubectl:createSecret")
+	try {
+		executeCommand([ "delete", "secret", name ], true)
+	}
+	catch e {
+		nop
+	}
+	var args = new vector<string>
+	args += "create"
+	args += "secret"
+	args += "generic"
+	args += name
+	foreach key in data.getKeys() {
+		var value = data.getString(key)
+		if not value:
+			value = ""
+		args += "--from-literal=" .. key .. "=" .. value
+	}
+	return executeCommandVector(args)
+}
+
+func applyFile(file as File) as string
+{
+	assert file
+	var args = new vector<string>
+	args += "apply"
+	args += "-f"
+	args += file.getPath()
+	return executeCommandVector(args)
+}
+
+func applyString(content as string) as string
+{
+	if not content:
+		Error.throw("noContent", "Kubectl:applyString")
+	var tmpdir = TemporaryDirectory.create()
+	if not tmpdir:
+		Error.throw("failedToCreateTemporaryDirectory", null)
+	var file = tmpdir.entry("content.yml")
+	if String.startsWith(content, "{"):
+		file = tmpdir.entry("content.json")
+	file.setContentsUTF8("")
+	file.setMode(384)
+	file.setContentsUTF8(content)
+	var v as string
+	var error as dynamic
+	try {
+		v = applyFile(file)
+	}
+	catch e {
+		error = e
+	}
+	tmpdir.removeRecursive()
+	if error:
+		throw error
+	return v
+}
+
+func executeSlingScript(script as string)
+{
+	var ss = assert script
+	if String.endsWith(ss, "\n") == false:
+		ss = ss .. "\n"
+	var scriptId = "script-" .. String.forLongInteger(SystemClock.asUTCSeconds()) .. "-" .. String.forInteger(Random.getSharedInstance().nextIntegerWithMaximum(1000))
+	Log.status(ctx, "[Executing] " .. scriptId .. " ..")
+	var r = executeCommand([ "run", "-i", "--rm", "--image=eqela/sushivm:1.3.0", "--restart=Never", scriptId, "--", "/sushi", "ss-0.21", "-s", ss ])
+	Log.status(ctx, null)
+}
