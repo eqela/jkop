@@ -140,6 +140,31 @@ model SubscriptionCriteria public
 	limit as int
 }
 
+model Invoice public
+{
+	id as string
+	description as string
+	customer as string
+	status as string
+	autoAdvance as bool
+	collectionMethod as string
+	daysUntilDue as int
+	metadata as Metadata
+}
+
+model InvoiceLineItems public
+{
+	id as string
+	amount as int
+	currency as string
+	limit as int
+	startingBefore as int
+	endingBefore as int
+	description as string
+	period as Metadata
+	metadata as Metadata
+}
+
 func forApiKey(ctx as LoggingContext, stripeApiKey as string) static as this
 {
 	var v = new this(ctx)
@@ -835,4 +860,240 @@ func transformToSubscriptionItemModel(data as DynamicMap) as SubscriptionItem
 		subscriptionItem.productId = price.getString("product")
 	}
 	return subscriptionItem
+}
+
+// INVOICE
+
+func createInvoice(invoice as Invoice) async as Invoice
+{
+	meta {
+		description "This endpoint creates a draft invoice for a given customer. The invoice remains a draft until you finalize the invoice, which allows you to pay or send the invoice to your customers."
+	}
+	assert invoice
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices", headers, encodeBodyToBuffer(transformToStripeInvoice(invoice)))
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func retrieveInvoice(invoiceId as string) async as Invoice
+{
+	meta {
+		description "Retrieves the invoice with the given ID"
+	}
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("GET", "https://api.stripe.com/v1/invoices/" .. invoiceId, headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func transformToStripeInvoice(invoice as Invoice) as DynamicMap
+{
+	assert invoice
+	var data = assert invoice.toDynamicMap()
+	if invoice.autoAdvance {
+		data.setBoolean("auto_advance", invoice.autoAdvance)
+		data.remove("autoAdvance")
+	}
+	if invoice.collectionMethod {
+		data.setString("collection_method", invoice.collectionMethod)
+		data.remove("collectionMethod")
+	}
+	if invoice.daysUntilDue {
+		data.setInteger("days_until_due", invoice.daysUntilDue)
+		data.remove("daysUntilDue")
+	}
+	return data
+}
+
+func updateInvoice(invoiceId as string, invoice as Invoice) async as Invoice
+{
+	meta {
+		description "Draft invoices are fully editable. Once an invoice is finalized, monetary values, as well as collection_method, become uneditable."
+	}
+	assert invoice
+	var data = transformToStripeInvoice(invoice)
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId, headers, encodeBodyToBuffer(data))
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func deleteInvoice(invoiceId as string) async as Invoice
+{
+	meta {
+		description "Permanently deletes a one-off invoice draft. This cannot be undone. Attempts to delete invoices that are no longer in a draft state will fail; once an invoice has been finalized or if an invoice is for a subscription, it must be voided."
+	}
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("DELETE", "https://api.stripe.com/v1/invoices/" .. invoiceId, headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = assert JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func finalizeInvoice(invoiceId as string, invoice as Invoice) async as Invoice
+{
+	meta {
+		description "Stripe automatically finalizes drafts before sending and attempting payment on invoices. However, if you’d like to finalize a draft invoice manually, you can do so using this method."
+	}
+	assert invoiceId
+	var data = transformToStripeInvoice(invoice)
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId .. "/finalize", headers, encodeBodyToBuffer(data))
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func payInvoice(invoiceId as string, invoice as Invoice) async as Invoice
+{
+	meta {
+		description "Stripe automatically creates and then attempts to collect payment on invoices for customers on subscriptions according to your subscriptions settings."
+	}
+	assert invoiceId
+	var data = transformToStripeInvoice(invoice)
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId .. "/pay", headers, encodeBodyToBuffer(data))
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func sendInvoice(invoiceId as string) async as Invoice
+{
+	meta {
+		description "Stripe will automatically send invoices to customers according to your subscriptions settings. However, if you’d like to manually send an invoice to your customer out of the normal schedule, you can do so."
+	}
+	assert invoiceId
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId .. "/send ", headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func voidInvoice(invoiceId as string) async as Invoice
+{
+	meta {
+		description "Mark a finalized invoice as void. This cannot be undone. Voiding an invoice is similar to deletion, however it only applies to finalized invoices and maintains a papertrail where the invoice can still be found."
+	}
+	assert invoiceId
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId .. "/void", headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func markUncollectableInvoice(invoiceId as string) async as Invoice
+{
+	meta {
+		description "Marking an invoice as uncollectible is useful for keeping track of bad debts that can be written off for accounting purposes."
+	}
+	assert invoiceId
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("POST", "https://api.stripe.com/v1/invoices/" .. invoiceId .. "/mark_uncollectible ", headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	return Invoice.forData(bodyMap)
+}
+
+func transformToStripeInvoiceLineItem(invoice as InvoiceLineItems) as DynamicMap
+{
+	assert invoice
+	var data = assert invoice.toDynamicMap()
+	if invoice.startingBefore {
+		data.setInteger("starting_before", invoice.startingBefore)
+		data.remove("startingBefore")
+	}
+	if invoice.endingBefore {
+		data.setInteger("ending_before", invoice.endingBefore)
+		data.remove("endingBefore")
+	}
+	return data
+}
+
+func transformToInvoiceLineItem(invoice as DynamicMap) as InvoiceLineItems
+{
+	assert invoice
+	var data = assert InvoiceLineItems.forData(invoice)
+	if invoice.getInteger("starting_before") > 0 {
+		data.startingBefore = invoice.getInteger("starting_before")
+	}
+	if invoice.getInteger("ending_before") > 0 {
+		data.startingBefore = invoice.getInteger("ending_before")
+	}
+	return data
+}
+
+func transformToInvoice(invoice as DynamicMap) as Invoice
+{
+	assert invoice
+	var data = assert Invoice.forData(invoice)
+	if invoice.getInteger("auto_advance") > 0 {
+		data.autoAdvance = invoice.getBoolean("auto_advance")
+	}
+	if invoice.getInteger("collection_method") > 0 {
+		data.collectionMethod = invoice.getString("collection_method")
+	}
+	return data
+}
+
+
+func getInvoiceLineItems(invoiceLineItemId as string) async as InvoiceLineItems[]
+{
+	meta {
+		description "When retrieving an invoice, you’ll get a lines property containing the total count of line items and the first handful of those items."
+	}
+	assert invoiceLineItemId
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("GET", "https://api.stripe.com/v1/invoices/" .. invoiceLineItemId .. "/lines ", headers, null)
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	var list = bodyMap.getDynamicVector("data")
+	var result = new vector<InvoiceLineItems>
+	foreach item in list.toVectorOfDynamicMaps():
+		result += transformToInvoiceLineItem(item)
+	return result
+}
+
+func listInvoices(limit as int) async as Invoice[]
+{
+	meta {
+		description "You can list all invoices, or list the invoices for a specific customer. The invoices are returned sorted by creation date, with the most recently created invoices appearing first."
+	}
+	INITIALIZE_AUTHORIZATION()
+	var resp = await request("GET", "https://api.stripe.com/v1/invoices", headers, encodeBodyToBuffer(new DynamicMap().setInteger("limit", limit)))
+	var statusCode = resp.statusCode
+	if statusCode != "200":
+		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
+	var bodyMap = JSONParser.parse(resp.body) as DynamicMap
+	var list = bodyMap.getDynamicVector("data")
+	var result = new vector<Invoice>
+	foreach item in list.toVectorOfDynamicMaps():
+		result += transformToInvoice(item)
+	return result
 }

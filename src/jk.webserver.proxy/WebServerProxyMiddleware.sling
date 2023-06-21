@@ -1,0 +1,87 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.webserver
+import jk.apiclient
+
+class is WebServerMiddleware:
+
+prop pathPrefix as string
+prop originUrl as string
+prop dynamicTokenKey as string
+prop staticToken as string
+prop staticApiKey as string
+prop staticAuthorization as string
+
+func getRedirectedPath(request as WebServerRequest) private as string
+{
+	if not pathPrefix:
+		return null
+	var pp = pathPrefix
+	if String.endsWith(pp, "/") == false:
+		pp = pp .. "/"
+	var path = request.getPath()
+	if not String.startsWith(path, pp):
+		return null
+	return String.getEndOfString(path, String.getLength(pp) - 1)
+}
+
+func handleRequest(request as WebServerRequest, next as function<promise>) async override
+{
+	var redirectPath = getRedirectedPath(request)
+	if not redirectPath {
+		await next()
+		return
+	}
+	if String.isEmpty(originUrl):
+		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
+	var token = staticToken
+	if dynamicTokenKey {
+		var dynamicToken = String.asString(request.getUserData(dynamicTokenKey))
+		if dynamicToken:
+			token = dynamicToken
+	}
+	var apikey = staticApiKey
+	var client = new ApiClient(ctx) {
+		ctx ctx
+		baseUrl originUrl
+		bearerToken token
+		apiKey apikey
+		authorization staticAuthorization
+	}
+	var requestBody = await request.readBodyAsBuffer()
+	var response = await client.request(request.getMethod(), redirectPath, null, requestBody)
+	if not response:
+		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
+	var status = response.statusCode
+	if String.isEmpty(status):
+		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
+	request.setResponseStatus(String.toInteger(status))
+	request.setResponseHeaderList(response.headers)
+	// FIXME: The response should be streamed, not read-written as one big buffer
+	var responseBody = response.getBodyAsBuffer()
+	if responseBody:
+		await request.writeResponseData(responseBody)
+	await request.endResponse()
+}
