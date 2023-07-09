@@ -23,30 +23,43 @@
  */
 
 import jk.log
+import jk.lang
+import jk.json
+import jk.nodejs
 
-class abstract:
+class is EventHubProducer:
 
-model Event public
-{
-	body as buffer
-	properties as DynamicMap
-	offset as string
-	sequenceNumber as int
-	enqueuedTimeUtc as long
-	partitionKey as int
-	systemProperties as DynamicMap
-}
+depend "npm:@azure/event-hubs:5.2"
 
-prop ctx as LoggingContext
+var producer as dynamic
 
-ctor(ctx as LoggingContext):
-	this.ctx = ctx
-
-ctor(ctx as LoggingContext, eventHubName  as string, connectionString as string, consumerGroup as string)
+ctor(ctx as LoggingContext, eventHubName as string, connectionString as string)
 {
 	this.ctx = ctx
-	initialize(eventHubName, connectionString, consumerGroup)
+	initialize(eventHubName, connectionString)
 }
 
-func initialize(eventHubName  as string, connectionString as string, consumerGroup as string) abstract
-func receiveEvents abstract async as Event[]
+func initialize(eventHubName  as string, connectionString as string) private
+{
+	var api = NodeModule.require("@azure/event-hubs")
+	var producer  = api.EventHubProducerClient
+	lang "js" {{{
+		this.producer = new producer(connectionString, eventHubName)
+	}}}
+}
+
+func sendEvents(events as EventHubEvent[]) async override
+{
+	var batch = await producer.createBatch()
+	foreach e in events {
+		var ee = JSONEncoder.toString(e)
+		lang "js" {{{
+			var parse = JSON.parse(ee)
+			var buff = Buffer.from(parse.body, 'base64')
+			parse.body = buff
+			batch.tryAdd(parse)
+		}}}
+	}
+	await producer.sendBatch(batch)
+	await producer.close()
+}

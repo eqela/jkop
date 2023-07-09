@@ -271,11 +271,100 @@ func getLastInsertId(table as string) override async as long
 	return v.getLongInteger("id")
 }
 
-func checkIfColumnExists(table as string, name as string) override async as bool:
-	return false
+func prepareTypeAsString(tt as int) as string
+{
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
+		return "INTEGER PRIMARY KEY AUTOINCREMENT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
+		return "BIGINT PRIMARY KEY AUTOINCREMENT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
+		return "TEXT PRIMARY KEY"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
+		return "INTEGER"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG {
+		return "BIGINT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
+		return "VARCHAR(255)"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
+		return "TEXT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
+		return "BLOB"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
+		return "REAL"
+	}
+	Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
+	return "UNKNOWN"
+}
 
-func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool:
-	return false
+func checkIfAutoIncrement(table as string) async as bool
+{
+	var stmtx = await prepareStatement("SELECT name FROM sqlite_master WHERE type='table' AND name=? AND sql LIKE '%AUTOINCREMENT%';")
+	stmtx.addParamString(table)
+	if not await executeSingleRowQueryStatement(stmtx):
+		return false
+	return true
+}
+
+func getType(type as string, pk as string, table as string) async as string
+{
+	if type == "INTEGER" && pk == "1" {
+		if not await checkIfAutoIncrement(table):
+			return "INTEGER PRIMARY KEY"
+		return "INTEGER PRIMARY KEY AUTOINCREMENT"
+	}
+	else if type == "BIGINT" && pk == "1" {
+		if not await checkIfAutoIncrement(table):
+			return "BIGINT PRIMARY KEY"
+		return "BIGINT PRIMARY KEY AUTOINCREMENT"
+	}
+	else if type == "TEXT" && pk == "1":
+		return "TEXT PRIMARY KEY"
+	return type
+}
+
+func checkIfColumnExists(table as string, column as string) override async as bool
+{
+	meta {
+		description [[
+			Returns a boolean value which indicates if the
+			supplied column name exists within the supplied table in the database.
+		]]
+	}
+	assert table
+	assert column
+	var stmt = assert await prepareStatement("SELECT name FROM pragma_table_info('" .. table .. "') WHERE name=?;")
+	stmt.addParamString(column)
+	var v = assert await executeSingleRowQueryStatement(stmt)
+	return String.equalsIgnoreCase(v.getString("name"), column)
+}
+
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
+{
+	meta {
+		description [[
+			Returns a boolean value which indicates if the
+			type of the supplied column within the supplied table matches the data type in database.
+		]]
+	}
+	assert table
+	assert column
+	var stmt = assert await prepareStatement("SELECT type, pk FROM pragma_table_info('" .. table .. "') WHERE name=?;")
+	stmt.addParamString(column.getName())
+	var typk = assert await executeSingleRowQueryStatement(stmt)
+	var type = prepareTypeAsString(column.getType())
+	var vtype = typk.getString("type")
+	var pk = typk.getString("pk")
+	var ctype = await getType(vtype, pk, table)
+	return String.equalsIgnoreCase(type, ctype)
+}
 
 func getIdentityColumnName(table as string) stub override async as string
 func getPrimaryKeyColumnName(table as string) stub override async as string
