@@ -873,6 +873,135 @@ model NamespaceList public
 	metadata as ListMeta
 }
 
+model NetworkPolicyPodSelector public
+{
+	matchLabels as KeyValueObject
+}
+
+model NamespaceSelector public
+{
+	matchLabels as KeyValueObject
+}
+
+model IngressFrom public
+{
+	ipBlock as IpBlock
+	namespaceSelector as NamespaceSelector
+	podSelector as NetworkPolicyPodSelector
+}
+
+model Ports public
+{
+	port as int
+	protocol as string
+}
+
+model SpecIngress public
+{
+	from as IngressFrom[]
+	ports as Ports[]
+}
+
+model IpBlock public
+{
+	cidr as string
+	except as string[]
+}
+
+model EgressTo public
+{
+	ipBlock as IpBlock
+	namespaceSelector as NamespaceSelector
+	podSelector as NetworkPolicyPodSelector
+}
+
+model SpecEgress public
+{
+	ports as Ports[]
+	to as EgressTo[]
+}
+
+model NetworkPolicySpec public
+{
+	podSelector as NetworkPolicyPodSelector
+	policyTypes as string[]
+	ingress as SpecIngress[]
+	egress as SpecEgress[]
+}
+
+model NetworkPolicy public
+{
+	apiVersion as string
+	kind as string
+	metadata as ObjectMeta
+	spec as NetworkPolicySpec
+}
+
+model IngressTls public
+{
+	secretName as string
+}
+
+model IngressPort public
+{
+	number as int
+}
+
+model IngressService public
+{
+	name as string
+	port as IngressPort
+}
+
+model IngressBackend public
+{
+	service as IngressService
+}
+
+model IngressPaths public
+{
+	path as string
+	pathType as string
+	backend as IngressBackend
+}
+
+model IngressHttp public
+{
+	paths as IngressPaths[]
+}
+
+model IngressRules public
+{
+	http as IngressHttp
+}
+
+model DefaultBackendResource public
+{
+	apiGroup as string
+	kind as string
+	name as string
+}
+
+model IngressDefaultBackend public
+{
+	resource as DefaultBackendResource
+}
+
+model IngressSpec public
+{
+	tls as IngressTls[]
+	rules as IngressRules[]
+	defaultBackend as IngressDefaultBackend
+}
+
+model Ingress public
+{
+	apiVersion as string
+	kind as string
+	metadata as ObjectMeta
+	spec as IngressSpec
+}
+
 func forCurrentCluster(ctx as LoggingContext) static as this
 {
 	var v = new this(ctx)
@@ -892,6 +1021,7 @@ func forApiServer(ctx as LoggingContext, serverUrl as string, token as string) s
 func forKubeconfig(ctx as LoggingContext, kubeconfig as string) static as this
 {
 	var v = new this(ctx)
+	v.kubeconfig = kubeconfig
 	v.configure(kubeconfig)
 	return v
 }
@@ -906,6 +1036,7 @@ ctor(ctx as LoggingContext):
 
 prop url as string
 prop token as string
+prop kubeconfig as string
 
 func configure(kubeconfig as string)
 {
@@ -1255,8 +1386,59 @@ func deleteSecret(namespace as string, name as string) async
 	await requestMap("DELETE", url, null)
 }
 
-// statefulsets
+// network policies
+
+func getNetworkPolicy(namespace as string, name as string) async as NetworkPolicy
+{
+	var url = "/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/networkpolicies/" .. name
+	var response = await requestMap("GET", url, null)
+	var v = new NetworkPolicy()
+	v.fromJsonObject(response)
+	return v
+}
+
+func applyNetworkPolicy(networkPolicy as NetworkPolicy) async as NetworkPolicy
+{
+	var namespace = String.asString(networkPolicy.metadata.namespace)
+	var result = await applyGenericObject("/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/networkpolicies", getMetadataName(networkPolicy.metadata), networkPolicy.toDynamicMap())
+	var v = new NetworkPolicy()
+	v.fromJsonObject(result)
+	return v
+}
+
+func deleteNetworkPolicy(namespace as string, name as string) async
+{
+	var url = "/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/networkpolicies/" .. name
+	await requestMap("DELETE", url, null)
+}
+
 // ingresses
+
+func getIngress(namespace as string, name as string) async as Ingress
+{
+	var url = "/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/ingresses/" .. name
+	var response = await requestMap("GET", url, null)
+	var v = new Ingress()
+	v.fromJsonObject(response)
+	return v
+}
+
+func applyIngress(ingress as Ingress) async as Ingress
+{
+	var namespace = String.asString(ingress.metadata.namespace)
+	var result = await applyGenericObject("/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/ingresses",  getMetadataName(ingress.metadata), ingress.toDynamicMap())
+	var v = new Ingress()
+	v.fromJsonObject(result)
+	return v
+}
+
+func deleteIngress(namespace as string, name as string) async
+{
+	var url = "/apis/networking.k8s.io/v1/namespaces/" .. toFinalNamespace(namespace) .. "/ingresses/" .. name
+	await requestMap("DELETE", url, null)
+}
+
+// statefulsets
 // cronjobs
 // nodes
 // configmaps
@@ -1296,7 +1478,6 @@ func deleteSecret(namespace as string, name as string) async
 // endpointslices
 // events
 // ingressclasses
-// networkpolicies
 // runtimeclasses
 // poddisruptionbudgets
 // podsecuritypolicies
