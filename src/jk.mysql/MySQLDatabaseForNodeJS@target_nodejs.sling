@@ -1,0 +1,343 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+import jk.nodejs
+import jk.json
+
+class is MySQLDatabase:
+
+depend "npm:mysql:2.18.1"
+
+var pool as dynamic
+var databaseName as string
+var connectionLimit as int = 10
+
+class Statement is SQLStatement
+{
+	var pcounter = 0
+	var params as vector
+	var columns as vector<string>
+	var sqlString public as string
+	var isStoredProcedure = false
+
+	func forSql(sql as string) static as this
+	{
+		assert String.isNotEmpty(sql)
+		var v = new this()
+		v.sqlString = sql
+		return v
+	}
+
+	func setIsStoredProcedure(v as bool) as SQLStatement
+	{
+		isStoredProcedure = v
+		return this
+	}
+
+	func getIsStoredProcedure as bool:
+		return isStoredProcedure
+
+	func getNextParamName as string:
+		return "@p" .. String.forInteger(++ pcounter)
+
+	func addToParams(value as dynamic)
+	{
+		if not params:
+			params = new vector
+		params += value
+	}
+
+	func addToColumns(column as string)
+	{
+		if not columns:
+			columns = new vector<string>
+		columns += column
+	}
+
+	func addParamString(val as string) as SQLStatement:
+		return setParamString(null, val)
+
+	func addParamInteger(val as int) as SQLStatement:
+		return setParamInteger(null, val)
+
+	func addParamLongInteger(val as long) as SQLStatement:
+		return setParamLongInteger(null, val)
+
+	func addParamDouble(val as double) as SQLStatement:
+		return setParamDouble(null, val)
+
+	func addParamBlob(val as buffer) as SQLStatement:
+		return setParamBlob(null, val)
+
+	func setParamString(name as string, val as string) as SQLStatement
+	{
+		addToColumns(name)
+		addToParams(val)
+		return this
+	}
+
+	func setParamInteger(name as string, val as int) as SQLStatement
+	{
+		addToColumns(name)
+		addToParams(val)
+		return this
+	}
+
+	func setParamLongInteger(name as string, val as long) as SQLStatement
+	{
+		addToColumns(name)
+		addToParams(val)
+		return this
+	}
+
+	func setParamDouble(name as string, val as double) as SQLStatement
+	{
+		addToColumns(name)
+		addToParams(val)
+		return this
+	}
+
+	func setParamBlob(name as string, val as buffer) as SQLStatement
+	{
+		addToColumns(name)
+		addToParams(val)
+		return this
+	}
+
+	func resetStatement
+	{
+		columns = null
+		params = null
+		sqlString = null
+		pcounter = 0
+	}
+
+	func getError as string:
+		return null
+
+	func close:
+		nop
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var current as DynamicMap
+	var rows as vector
+	var fields as vector
+	var index = 0
+	var increment = 1
+
+	func next override as DynamicMap
+	{
+		if rows == null:
+			return null
+		assert hasNext()
+		var map = new DynamicMap()
+		lang "js" {{{
+			var v = this.rows[this.index]
+			Object.keys(v).forEach(key => {
+				map.setObject(key, v[key])
+			})
+		}}}
+		index += increment
+		current = map
+		return map
+	}
+
+	func nextValues(values as vector<object>) override as bool
+	{
+		assert values
+		assert step()
+		Vector.clear(values)
+		values = current.getValues() as vector<object>
+		return true
+	}
+
+	func step override as bool
+	{
+		assert next()
+		return true
+	}
+
+	func getColumnCount override as int:
+		return current.getCount()
+
+	func getColumnNames override as vector<string>:
+		return current.getKeys()
+
+	func getColumnName(n as int) override as string:
+		return current.getKeys()[n]
+
+	func getColumnObject(n as int) override as object:
+		return current.getValues()[n] as object
+
+	func getColumnInt(n as int) override as int:
+		return current.getValues()[n] as int
+
+	func getColumnLong(n as int) override as long:
+		return current.getValues()[n] as long
+
+	func getColumnDouble(n as int) override as double:
+		return current.getValues()[n] as double
+
+	func getColumnBuffer(n as int) override as buffer:
+		return current.getValues()[n] as buffer
+
+	func hasNext override as bool
+	{
+		assert rows
+		var length = lang "js" int {{{ this.rows.length }}}
+		assert index < length
+		return true
+	}
+
+	func close override
+	{
+		current = null
+		rows = null
+		fields = null
+	}
+}
+
+func getConnectionLimit as int:
+	return this.connectionLimit
+
+func setConnectionLimit(limit as int):
+	this.connectionLimit = limit
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+{
+	var mysql = NodeModule.require("mysql")
+	var enableSSL as bool
+	if sslMode != MySQLDatabase.SSL_MODE_NONE:
+		enableSSL = true
+	lang "js" {{{
+		this.pool = mysql.createPool({
+			host: serverAddress,
+			user: username,
+			password: password,
+			database: database,
+			ssl: enableSSL,
+			connectionLimit: this.connectionLimit
+		})
+	}}}
+	databaseName = database
+}
+
+func closeConnection async override:
+	pool.end()
+
+func execute(sqlString as string, params as vector) private async as !"MySQL.Response"
+{
+	var sql = sqlString
+	var parameters = params
+	return lang "js" promise<!"MySQL.Response"> {{{
+		new Promise((resolve, reject) => {
+			this.pool.getConnection((err, conn) => {
+				if (err) {
+					reject({
+						error: err,
+						status: false
+					});
+				}
+				conn.query(sql, parameters, (err, rows, fields) => {
+					conn.release();
+					if (err) {
+						reject({
+							error: err,
+							status: false
+						});
+					}
+					resolve({
+						rows: rows,
+						fields: fields,
+						status: true
+					});
+				});
+			});
+		});
+	}}}
+}
+
+func prepareStatement(sql as string) async override as SQLStatement
+{
+	assert sql
+	return Statement.forSql(sql)
+}
+
+func executeStatement(stmt as SQLStatement) override async as bool
+{
+	assert pool
+	assert stmt
+	var v as !"MySQL.Response"
+	var b as bool
+	var ss = stmt as Statement
+	if ss {
+		v = await execute(ss.sqlString, ss.params)
+		if not v.status:
+			Log.error(ctx, String.asString(v.error))
+		if v.status:
+			b = v.status
+	}
+	return b
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	assert pool
+	assert stmt
+	var v as !"MySQL.Response"
+	var i as int = 0
+	var ss = stmt as Statement
+	if ss {
+		v = await execute(ss.sqlString, ss.params)
+		if not v.status:
+			Log.error(ctx, String.asString(v.error))
+		if v.status:
+			i = Integer.asInteger(v.rows.affectedRows)
+	}
+	return i
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	assert pool
+	assert stmt
+	var v as !"MySQL.Response"
+	var r as ResultSet = null
+	var ss = stmt as Statement
+	if ss {
+		v = await execute(ss.sqlString, ss.params)
+		if not v.status:
+			Log.error(ctx, String.asString(v.error))
+		if v.status {
+			r = new ResultSet()
+			r.rows = v.rows as vector
+			r.fields = v.fields as vector
+		}
+	}
+	return r
+}
