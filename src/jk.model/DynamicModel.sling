@@ -32,33 +32,6 @@ func asDynamicMap(object as this) static as DynamicMap
 	return object.toDynamicMap()
 }
 
-prop data:dataValue as DynamicMap
-{
-	get {
-		if not dataValue:
-			dataValue = new DynamicMap()
-		return dataValue
-	}
-	set {
-		dataValue = value
-	}
-}
-
-prop fields:fieldsValue as vector<DynamicModelField>
-{
-	get {
-		if not fieldsValue {
-			fieldsValue = new vector<DynamicModelField>
-			foreach name in getFieldInformation():
-				fieldsValue += name
-		}
-		return fieldsValue
-	}
-	set {
-		fieldsValue = value
-	}
-}
-
 macro SET_VECTOR_FIELD(name, value)
 {
 	setField(name, null)
@@ -90,35 +63,68 @@ macro RETURN_VECTOR_VECTOR_FIELD_OBJECTS(name, type)
 	return v
 }
 
-ctor:
-	this.data = null
+var dataValue as DynamicMap
+var fieldsValue as vector<DynamicModelField>
 
-func getDataMap as DynamicMap:
-	return this.data
+ctor:
+	this.dataValue = null
+
+ctor(data as map):
+	this.dataValue = filterMapToModel(DynamicMap.forMap(data))
+
+func getDataMap as DynamicMap
+{
+	if not dataValue:
+		dataValue = new DynamicMap()
+	return dataValue
+}
 
 func toString as string:
 	return JSONEncoder.toString(toDynamicMap())
 
 func toDynamicMap as DynamicMap:
-	return data
+	return getDataMap()
 
-func fromDynamicMap(data as DynamicMap):
-	this.data = filterMapToModel(data)
+func fromMap(data as map) as this:
+	return fromDynamicMap(DynamicMap.forMap(data))
 
-func fromRawDynamicMap(data as DynamicMap):
-	this.data = data
+func fromDynamicMap(data as DynamicMap) as this
+{
+	this.dataValue = filterMapToModel(data)
+	return this
+}
+
+func fromRawDynamicMap(data as DynamicMap) as this
+{
+	this.dataValue = data
+	return this
+}
 
 func toJsonObject as object:
 	return toDynamicMap()
 
-func setField(name as string, value as dynamic):
-	data.setDynamic(name, value)
+func getFields as vector<DynamicModelField>
+{
+	if not fieldsValue {
+		fieldsValue = new vector<DynamicModelField>
+		foreach name in getFieldInformation():
+			fieldsValue += name
+	}
+	return fieldsValue
+}
+
+func setField(name as string, value as dynamic) as this
+{
+	getDataMap().setDynamic(name, value)
+	return this
+}
 
 func getField(name as string) as dynamic:
-	return data.get(name)
+	return getDataMap().get(name)
 
 func getOrCreateFieldAsDynamicVector(name as string) as DynamicVector
 {
+	var data = getDataMap()
 	var v = data.getDynamicVector(name)
 	if not v {
 		v = new DynamicVector()
@@ -128,7 +134,7 @@ func getOrCreateFieldAsDynamicVector(name as string) as DynamicVector
 }
 
 func getFieldAsDynamicVector(name as string) as DynamicVector:
-	return data.getDynamicVector(name)
+	return getDataMap().getDynamicVector(name)
 
 func getFieldAsStringVector(name as string) as vector<string>
 {
@@ -247,7 +253,7 @@ func fromJsonObject(o as object) as bool
 func containsField(field as string) as bool
 {
 	assert field
-	foreach ff in fields {
+	foreach ff in getFields() {
 		if String.equals(ff.name, field):
 			return true
 	}
@@ -257,7 +263,7 @@ func containsField(field as string) as bool
 func hasValue(key as string) as bool
 {
 	assert key
-	return data.containsKey(key)
+	return getDataMap().containsKey(key)
 }
 
 func removeNullValues
@@ -271,7 +277,8 @@ func clear:
 
 func setAllFields
 {
-	foreach field in fields {
+	var data = getDataMap()
+	foreach field in getFields() {
 		if not data.containsKey(field.name):
 			data.setObject(field.name, null)
 	}
@@ -286,7 +293,7 @@ func getFieldInformation virtual as vector<DynamicModelField>:
 func copyFrom(other as this, mapping as DynamicMap)
 {
 	assert other
-	foreach field in fields {
+	foreach field in getFields() {
 		var fname = field.name
 		var oname as string
 		if mapping && mapping.containsKey(fname) {
@@ -305,7 +312,7 @@ func filterMapToModel(data as DynamicMap) as DynamicMap
 	assert data
 	var finalMap = new DynamicMap()
 	var fieldMap = new DynamicMap()
-	foreach field in fields:
+	foreach field in getFields():
 		fieldMap.setObject(field.name, field)
 	if fieldMap.getCount() > 0 {
 		foreach key in data.getKeys() {
@@ -381,10 +388,10 @@ func filterVectorToModels(data as DynamicVector, typeinfo as typeinfo) as Dynami
 
 func toFlatDynamicMap as DynamicMap
 {
-	assert data
+	var data = getDataMap()
 	var finalMap = new DynamicMap()
 	var fieldMap = new DynamicMap()
-	foreach field in fields:
+	foreach field in getFields():
 		fieldMap.setObject(field.name, field)
 	foreach key in data.getKeys() {
 		if not fieldMap.containsKey(key):
