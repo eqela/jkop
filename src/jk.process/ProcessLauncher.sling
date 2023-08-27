@@ -32,14 +32,14 @@ meta
 {
 	description [[
 		The ProcessLauncher class provides a mechanism for starting and controlling
-		additional processes.
+		external processes.
 	]]
 }
 
 class MyStringPipeHandler is BufferDataReceiver
 {
-	pvar builder as StringBuilder
-	pvar encoding as string
+	prop builder as StringBuilder
+	prop encoding as string
 
 	ctor
 	{
@@ -58,7 +58,7 @@ class MyStringPipeHandler is BufferDataReceiver
 
 class MyBufferPipeHandler is BufferDataReceiver
 {
-	pvar data as buffer
+	prop data as buffer
 
 	func onBufferData(newData as buffer, size as int) as bool
 	{
@@ -75,29 +75,9 @@ class QuietPipeHandler is BufferDataReceiver
 	}
 }
 
-func asProcessLauncher(o as dynamic) static as this
+func forSelf static as this!
 {
-	assert o
-	if o is string:
-		return forString(o as! string)
-	var vector = Vector.asObjectVector(o)
-	if vector {
-		var vsz = Vector.getSize(vector)
-		if vsz > 0 {
-			var pl = forCommand(String.asString(Vector.get(vector, 0)))
-			if not pl:
-				return null
-			for(var n=1; n<vsz; n++):
-				pl.addToParams(String.asString(Vector.get(vector, n)))
-			return pl
-		}
-	}
-	return null
-}
-
-func forSelf static as this
-{
-	var exe = assert CurrentProcess.getExecutableFile()
+	var exe = CurrentProcess.requireExecutableFile()
 	var v = new this()
 	IFDEF "target_uwp" {
 	}
@@ -107,17 +87,17 @@ func forSelf static as this
 			var ff = File.forPath(filename)
 			var bn = ff.getBasename()
 			if bn && String.startsWith(bn, "mono") {
-				v.setFile(ff)
+				v.file = ff
 				v.addToParams(exe.getPath())
 				return v
 			}
 		}
 	}
-	v.setFile(exe)
+	v.file = exe
 	return v
 }
 
-func forFile(file as File, parameters as vector<string> = null) static as this
+func forFile(file as File, parameters as vector<string> = null) static as this!
 {
 	meta {
 		description [[
@@ -126,15 +106,15 @@ func forFile(file as File, parameters as vector<string> = null) static as this
 		]]
 	}
 	if file == null || file.isFile() == false:
-		return null
+		Error.throw("noSuchFile", file)
 	var v = new this()
-	v.setFile(file)
+	v.file = file
 	foreach param in parameters:
 		v.addToParams(param)
 	return v
 }
 
-func forCommand(command as string, parameters as vector<string> = null) static as this
+func forCommand(command as string, parameters as vector<string> = null) static as this!
 {
 	meta {
 		description [[
@@ -146,7 +126,7 @@ func forCommand(command as string, parameters as vector<string> = null) static a
 		]]
 	}
 	if String.isEmpty(command):
-		return null
+		Error.throw("emptyCommand", null)
 	var file as File
 	var delim = PathInfo.getPathSeparator()
 	if String.getIndexOfCharacter(command, delim) >= 0 {
@@ -157,11 +137,13 @@ func forCommand(command as string, parameters as vector<string> = null) static a
 	}
 	else {
 		file = ExternalCommand.findInPath(command)
+		if not file:
+			Error.throw("commandNotFound", command)
 	}
 	return forFile(file, parameters)
 }
 
-func forString(str as string) static as this
+func forString(str as string) static as this!
 {
 	meta {
 		description [[
@@ -173,10 +155,10 @@ func forString(str as string) static as this
 		]]
 	}
 	if String.isEmpty(str):
-		return null
+		Error.throw("emptyCommandString", str)
 	var arr = StringUtil.quotedStringToVector(str, ' ')
 	if arr == null || Vector.getSize(arr) < 1:
-		return null
+		Error.throw("invalidCommandString", str)
 	var vsz = Vector.getSize(arr)
 	var cmd = arr[0]
 	var parameters as vector<string>
@@ -189,20 +171,20 @@ func forString(str as string) static as this
 	return forCommand(cmd, parameters)
 }
 
-pvar file as File
-pvar params as vector<string>
-pvar env as map<string,string>
-pvar cwd as File
-pvar uid = -1
-pvar gid = -1
-pvar trapSigint = true
-pvar replaceSelf = false
-pvar pipePty = false
-pvar startGroup = false
-pvar noCmdWindow = false
-pvar errorBuffer as StringBuilder
-pvar detachFromTerminal = false
-pvar inheritEnvironmentVariables = true
+prop file as File
+prop params as vector<string>
+prop env as map<string,string>
+prop cwd as File
+prop uid = -1
+prop gid = -1
+prop trapSigint = true
+prop replaceSelf = false
+prop pipePty = false
+prop startGroup = false
+prop noCmdWindow = false
+prop errorBuffer as StringBuilder
+prop detachFromTerminal = false
+prop inheritEnvironmentVariables = true
 
 ctor
 {
@@ -343,7 +325,7 @@ func executeSilent as int
 func executeToStringBuilder(output as StringBuilder) as int
 {
 	var msp = new MyStringPipeHandler()
-	msp.setBuilder(output)
+	msp.builder = output
 	var cp = startProcess(true, msp)
 	if cp == null:
 		return -1
@@ -364,7 +346,7 @@ func executeToBuffer as buffer
 	var cp = startProcess(true, ph)
 	if cp == null:
 		return null
-	return ph.getData()
+	return ph.data
 }
 
 func executeToPipe(pipeHandler as BufferDataReceiver) as int
