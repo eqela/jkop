@@ -30,38 +30,31 @@ import jk.webclient
 
 class:
 
-func forDefaultDirectory static as this
+func forDefaultDirectory(ctx as LoggingContext) static as this
 {
 	var dd = CommonPath.getHomeDirectory()
 	if not dd:
 		Error.throw("noHomeDirectory", null)
-	return forDirectory(dd.entry(".sushivm").entry("cache"))
+	return forDirectory(ctx, dd.entry(".sushivm").entry("cache"))
 }
 
-func forDirectory(dir as File) static as this
-{
-	var v = new this()
-	v.setCacheDirectory(dir)
-	return v
-}
+func forDirectory(ctx as LoggingContext, dir as File) static as this:
+	return new this() {
+		ctx ctx
+		cacheDirectory dir
+	}
 
-pvar ctx as LoggingContext
-pvar cacheDirectory as File
+prop ctx as LoggingContext
+prop cacheDirectory as File
 
 class QueryValues private
 {
-	var status public as string
-	var data public as buffer
+	var status public as string?
+	var data public as buffer?
 }
 
 func downloadVM(version as string, platform as string) async as File
 {
-	if not cacheDirectory:
-		Error.throw("noCacheDirectory", null)
-	if String.isEmpty(version):
-		Error.throw("missingParameter", "version")
-	if String.isEmpty(platform):
-		Error.throw("missingParameter", "platform")
 	var cachedir = cacheDirectory.entry(platform).entry(version)
 	if cachedir.isDirectory():
 		return cachedir
@@ -69,38 +62,32 @@ func downloadVM(version as string, platform as string) async as File
 	Log.debug(ctx, "Trying to retrieve URL: `" .. url .. "' ..")
 	Log.status(ctx, "[Downloading] " .. url .. " .. ")
 	var client = WebClient.instance()
-	if not client:
-		Error.throw("failedToCreateWebClient", null)
 	var o = new QueryValues()
 	var response = await client.executeQuery(ctx, "GET", url, null, null)
 	o.status = response.statusCode
 	o.data = response.getBodyAsBuffer()
 	Log.status(ctx, null)
-	if o.status == "200" && o.data {
+	var ostatus = o.status
+	var odata = o.data
+	if ostatus == "200" && odata {
 		Log.debug(ctx, "Successfully downloaded: `" .. url .. "'")
 		var listener = func(file as File) {
 			Log.status(ctx, "[Installing] " .. file.getPath() .. " .. ")
 		}
-		var r = ZipReader.extractZipBufferToDirectory(o.data, cachedir, listener)
+		var r = ZipReader.extractZipBufferToDirectory(odata, cachedir, listener)
 		Log.status(ctx, null)
 		if not r:
 			Error.throw("failedToInstall", "sushi:" .. version .. ":" .. platform)
-		return null // FIXME
+		ERROR "notImplemented"
 	}
 	else {
 		Error.throw("downloadFailed", url)
 	}
-	return null // FIXME
+	ERROR "notImplemented"
 }
 
 func getVM(version as string, platform as string) async as File
 {
-	if not cacheDirectory:
-		Error.throw("noCacheDirectory", null)
-	if String.isEmpty(version):
-		Error.throw("missingParameter", "version")
-	if String.isEmpty(platform):
-		Error.throw("missingParameter", "platform")
 	var cachedir = cacheDirectory.entry(platform).entry(version)
 	if not cachedir.isDirectory():
 		await downloadVM(version, platform)

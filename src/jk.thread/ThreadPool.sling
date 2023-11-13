@@ -24,6 +24,23 @@
 
 class:
 
+class TaskRunner is Runnable public
+{
+	prop runnable as Runnable
+	prop myParent as parent
+
+	func run
+	{
+		loop {
+			runnable.run()
+			var next = myParent.getTaskFromQueue()
+			if not next:
+				break
+			runnable = next
+		}
+	}
+}
+
 func forMaxPoolSize(maximumPoolSize as int) static as this
 {
 	var v = new this()
@@ -31,16 +48,10 @@ func forMaxPoolSize(maximumPoolSize as int) static as this
 	return v
 }
 
-ctor
-{
-	queue = new vector<Runnable>
-	mutex = Mutex.create()
-}
-
 var maximumPoolSize as int
-var queue as vector<Runnable>
+var queue = new vector<Runnable>
 var runningThreadsCount as int
-var mutex as Mutex
+var mutex = Mutex.create()
 
 func getRunningThreadsCount as int:
 	return runningThreadsCount
@@ -56,16 +67,17 @@ func submitTasks(tasks as vector<Runnable>)
 
 func execute(task as Runnable)
 {
-	assert task
 	mutex.lockMutex()
 	if runningThreadsCount < maximumPoolSize {
-		var runner = new TaskRunner()
-		runner.setMyParent(this)
-		runner.setRunnable(task)
-		if Thread.start(runner) != null {
+		var runner = new TaskRunner() {
+			myParent this
+			runnable task
+		}
+		try {
+			Thread.start(runner)
 			runningThreadsCount ++
 		}
-		else {
+		catch {
 			queue += task
 		}
 	}
@@ -75,29 +87,14 @@ func execute(task as Runnable)
 	mutex.unlockMutex()
 }
 
-func getTaskFromQueue as Runnable
+func getTaskFromQueue as Runnable?
 {
 	mutex.lockMutex()
-	var item = Vector.popFirst(queue) as Runnable
+	var item as Runnable?
+	if Vector.getSize(queue) > 0:
+		item = Vector.popFirstValue(queue) as Runnable
 	if not item:
 		runningThreadsCount --
 	mutex.unlockMutex()
 	return item
-}
-
-class TaskRunner is Runnable public
-{
-	pvar runnable as Runnable
-	pvar myParent as parent
-
-	func run
-	{
-		loop {
-			runnable.run()
-			var next = myParent.getTaskFromQueue()
-			if not next:
-				break
-			runnable = next
-		}
-	}
 }

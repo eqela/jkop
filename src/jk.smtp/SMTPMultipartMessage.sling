@@ -33,14 +33,12 @@ ctor
 	setContentType("multipart/mixed")
 }
 
-pvar attachments as DynamicVector
-var message as string
+pvar attachments as DynamicVector?
+var message as string?
 
 func getMessageBody override as string
 {
-	if attachments == null || attachments.getSize() < 1:
-		return null
-	if String.isEmpty(message) == false:
+	if String.isNotEmpty(message):
 		return message
 	var subject = getSubject()
 	var date = getDate()
@@ -53,12 +51,15 @@ func getMessageBody override as string
 	var replyTo = getReplyTo()
 	var sb = new StringBuilder()
 	sb.appendString("From: ")
-	sb.appendString(myName)
-	sb.appendString(" <")
-	sb.appendString(myAddress)
-	if String.isEmpty(replyTo) == false {
-		sb.appendString(">\r\nReply-To: ")
+	if myName:
 		sb.appendString(myName)
+	sb.appendString(" <")
+	if myAddress:
+		sb.appendString(myAddress)
+	if String.isNotEmpty(replyTo) {
+		sb.appendString(">\r\nReply-To: ")
+		if myName:
+			sb.appendString(myName)
 		sb.appendString(" <")
 		sb.appendString(replyTo)
 	}
@@ -83,16 +84,22 @@ func getMessageBody override as string
 		}
 	}
 	// FIXME - How about the BCC?
-	sb.appendString("\r\nSubject: ")
-	sb.appendString(subject)
+	if subject {
+		sb.appendString("\r\nSubject: ")
+		sb.appendString(subject)
+	}
 	sb.appendString("\r\nMIME-Version: 1.0")
 	sb.appendString("\r\nContent-Type: ")
 	sb.appendString("multipart/mixed")
 	sb.appendString("; boundary=\"XXXXboundarytext\"")
-	sb.appendString("\r\nDate: ")
-	sb.appendString(date)
-	sb.appendString("\r\nMessage-ID: <")
-	sb.appendString(messageID)
+	if date {
+		sb.appendString("\r\nDate: ")
+		sb.appendString(date)
+	}
+	if messageID {
+		sb.appendString("\r\nMessage-ID: <")
+		sb.appendString(messageID)
+	}
 	sb.appendString(">\r\n\r\n")
 	sb.appendString("This is a multipart message in MIME format.")
 	sb.appendString("\r\n")
@@ -100,12 +107,13 @@ func getMessageBody override as string
 	sb.appendString("\r\nContent-Type: text/plain")
 	sb.appendString("\r\n")
 	sb.appendString("\r\n")
-	sb.appendString(text)
-	foreach file as File in attachments.toVector() {
+	if text:
+		sb.appendString(text)
+	if attachments: foreach file as File in attachments.toVector() {
 		sb.appendString("\r\n--XXXXboundarytext")
 		sb.appendString("\r\nContent-Type: ")
 		var contentType = MimeTypeRegistry.getSharedInstance().getTypeForFile(file)
-		if String.isEmpty(contentType) == false && String.getIndexOfString(contentType, "text") == 0 {
+		if String.isNotEmpty(contentType) && String.getIndexOfString(contentType, "text") == 0 {
 			sb.appendString(contentType)
 			sb.appendString("\r\nContent-Disposition: attachment; filename=")
 			sb.appendString(file.getBasename())
@@ -125,5 +133,7 @@ func getMessageBody override as string
 	}
 	sb.appendString("\r\n")
 	sb.appendString("\r\n--XXXXboundarytext--")
-	return message = sb.toString()
+	var v = sb.toString()
+	message = v
+	return v
 }

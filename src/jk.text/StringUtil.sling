@@ -38,13 +38,7 @@ class:
 
 func padToLength(value as string, length as int, align as int = -1, paddingCharacter as char = ' ') static as string
 {
-	var ll as int
-	if value == null {
-		ll = 0
-	}
-	else {
-		ll = String.getLength(value)
-	}
+	var ll = String.getLength(value)
 	if ll >= length:
 		return value
 	var add = length - ll
@@ -83,28 +77,23 @@ func padToLength(value as string, length as int, align as int = -1, paddingChara
 func quotedStringToVector(str as string, delim as char, ignoreRepeatedDelimiters as bool = true, escapeCharacter as char = '\\') static as vector<string>
 {
 	var v = new vector<string>
-	if str == null:
-		return v
 	var dquote = false
 	var quote = false
-	var sb as StringBuilder = null
-	var it = String.iterate(str)
+	var sb as StringBuilder? = null
+	var it = String.iterateAsCharacterIterator(str)
 	loop {
 		var c = it.getNextChar()
 		if Character.isEOF(c):
 			break
 		if c == '"' && quote == false {
-			dquote = !dquote
+			dquote = not dquote
 		}
 		else if c == '\'' && dquote == false {
-			quote = !quote
+			quote = not quote
 		}
 		else if quote == false && dquote == false && c == delim {
 			if sb {
-				var r = sb.toString()
-				if r == null:
-					r = ""
-				v += r
+				v += sb.toString()
 			}
 			else if ignoreRepeatedDelimiters == false {
 				v += ""
@@ -124,12 +113,8 @@ func quotedStringToVector(str as string, delim as char, ignoreRepeatedDelimiters
 		if (quote == true || dquote == true) && sb == null:
 			sb = new StringBuilder()
 	}
-	if sb {
-		var r = sb.toString()
-		if r == null:
-			r = ""
-		v += r
-	}
+	if sb:
+		v += sb.toString()
 	return v
 }
 
@@ -145,10 +130,10 @@ func quotedStringToMap(str as string, delim as char) static as map<string,string
 	var vector = quotedStringToVector(str, delim)
 	foreach c in vector {
 		var sp = String.split(c, '=', 2)
-		var key = sp[0]
-		var val = sp[1]
-		if String.isEmpty(key) == false:
-			v[key] = val
+		var key = Vector.getValue(sp, 0)
+		var val = Vector.getValue(sp, 1)
+		if String.isNotEmpty(key):
+			v[key] = val ?? ""
 	}
 	return v
 }
@@ -163,17 +148,15 @@ func quotedStringToMap(str as string, delim as char) static as map<string,string
 func combine(strings as vector<string>, delim as char, unique as bool = false, index as int = 0) static as string
 {
 	var sb = new StringBuilder()
-	var flags as map<string,string>
+	var flags as map<string,string>?
 	if unique:
 		flags = new map<string,string>
 	var i = index
 	while i < sizeof strings {
 		var o = strings[i]
 		i++
-		if o == null:
-			continue
 		if flags {
-			if Map.get(flags, o):
+			if Map.getValue(flags, o):
 				continue
 			Map.set(flags, o, "true")
 		}
@@ -191,12 +174,7 @@ func combine(strings as vector<string>, delim as char, unique as bool = false, i
 
 func validateCharacters(str as string, validator as function<bool,char>) static as bool
 {
-	assert str
-	var it = assert String.iterate(str)
-	loop {
-		var c = it.getNextChar()
-		if c < 1:
-			break
+	foreach c in String.iterate(str) {
 		if validator(c) == false:
 			return false
 	}
@@ -210,12 +188,12 @@ func validateCharacters(str as string, validator as function<bool,char>) static 
 ** will be omitted from the resulting vector.
 **
 
-func toStringVector(vector as vector, allowConversion as bool = true) static as vector<string>
+func toStringVector(vector as vector<dynamic>, allowConversion as bool = true) static as vector<string>
 {
 	var v = new vector<string>
 	foreach o in vector {
 		if allowConversion {
-			var s = String.asString(o)
+			var s = String.asValueOrNull(o)
 			if s:
 				v += s
 		}
@@ -241,7 +219,7 @@ func toObjectVector(vector as vector<string>) static as vector<object>
 	}
 	ELSE {
 		var v = new vector<object>
-		foreach o as object in vector:
+		foreach o as object #skipnull in vector:
 			v += o
 		return v
 	}
@@ -254,12 +232,11 @@ func toObjectVector(vector as vector<string>) static as vector<object>
 
 func wrapToLines(text as string, charactersPerLine as int) static as vector<string>
 {
-	assert text
 	var v = new vector<string>
-	var it = String.iterate(text)
-	var lineBuilder as StringBuilder
-	var wordBuilder as StringBuilder
-	while it {
+	var it = String.iterateAsCharacterIterator(text)
+	var lineBuilder as StringBuilder?
+	var wordBuilder as StringBuilder?
+	loop {
 		var c = it.getNextChar()
 		if c == ' ' || c == '\t' || c == '\n' || c < 1 {
 			if wordBuilder {
@@ -299,12 +276,8 @@ func wrapToLines(text as string, charactersPerLine as int) static as vector<stri
 func stripLeadingZeros(str as string) static as string
 {
 	if String.getChar(str, 0) == '0' {
-		var iter = assert String.iterate(str)
 		var i = 0
-		loop {
-			var c = iter.getNextChar()
-			if Character.isEOF(c):
-				break
+		foreach c in String.iterate(str) {
 			if c != '0':
 				return String.getEndOfString(str, i)
 			i++
@@ -321,14 +294,9 @@ func stripLeadingZeros(str as string) static as string
 
 func formatNumberString(vv as string, delimiter as char) static as string
 {
-	assert vv
-	var it = assert String.iterate(vv)
 	var rr = String.getLength(vv)
 	var sb = new StringBuilder()
-	loop {
-		var c = it.getNextChar()
-		if c < 1:
-			break
+	foreach c in String.iterate(vv) {
 		sb.appendCharacter(c)
 		rr --
 		if rr < 1:
@@ -364,11 +332,8 @@ func formatLongInteger(vv as long, delimiter as char) static as string:
 
 func sanitizeResourceName(name as string) static as string
 {
-	assert name
 	var sb = new StringBuilder()
-	var it = String.iterate(name)
-	var c as char
-	while (c = it.getNextChar()) > 0 {
+	foreach c in String.iterate(name) {
 		if c >= 'A' && c <= 'Z' {
 			sb.appendCharacter(c)
 		}

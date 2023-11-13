@@ -27,7 +27,7 @@ class:
 func getAll static as map<string,string>
 {
 	IFDEF "target_kotlin" {
-		var vars as map<string,string>
+		var vars = new map<string,string>
 		lang "kotlin" {{{
 			val vs = java.lang.System.getenv()
 			vs!!.forEach { (a, b) -> vars!!.set(a, b) }
@@ -36,12 +36,12 @@ func getAll static as map<string,string>
 	}
 	ELSE IFDEF "target_sushi" {
 		var v = new map<string,string>
-		var envs = lang "lua" vector<string> {{{ _os:get_all_environment_variables() }}}
+		var envs = lang "lua" as vector<string> {{{ _os:get_all_environment_variables() }}}
 		if envs {
 			foreach env in envs {
 				var comps = String.split(env, '=', 2)
-				var key = Vector.get(comps, 0)
-				var val = Vector.get(comps, 1)
+				var key = Vector.getValue(comps, 0)
+				var val = Vector.getValue(comps, 1)
 				if not key:
 					continue
 				if not val:
@@ -51,7 +51,7 @@ func getAll static as map<string,string>
 		}
 		return v
 	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		var v = new map<string,string>
 		lang "js" {{{
 			for(const key in process.env) {
@@ -61,80 +61,84 @@ func getAll static as map<string,string>
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func get(key as string) static as string
+func get(key as string) static as string?
 {
-	assert key
-	IFDEF "target_cs" {
-		var v as string
+	IFDEF "target_dotnet_cs" {
+		var v as string?
 		lang "cs" {{{
 			v = System.Environment.GetEnvironmentVariable(key);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_java" {
-		var v as string
+		var v as string?
 		lang "java" {{{
 			v = java.lang.System.getenv(key);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		var v as string
+		var v as string?
 		lang "objc" {{{
 			v = [[[NSProcessInfo processInfo] environment] objectForKey:key];
 		}}}
 		return v
 	}
-	ELSE IFDEF "target_nodejs" {
-		var v as string
+	ELSE IFDEF "target_node_js" {
+		var v as string?
 		lang "js" {{{
 			v = process.env[key];
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		var v as string
+		var v as string?
 		lang "kotlin" {{{
 			v = java.lang.System.getenv(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_stdlua" {
-		var v as string
+		var v as string?
 		lang "lua" {{{
 			v = os.getenv(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		var v as string
+		var v as string?
 		lang "lua" {{{
 			v = _os:get_environment_variable(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as string
+		var v as string?
 		lang "swift" {{{
 			v = ProcessInfo.processInfo.environment[key]
 		}}}
 		return v
 	}
 	ELSE {
-		var vars = assert getAll()
-		return Map.get(vars, key)
+		return Map.getValue(getAll(), key)
 	}
 }
 
-func set(key as string, val as string) static
+func require(key as string) static as string
 {
-	assert key
-	IFDEF "target_cs" {
+	var v = get(key)
+	if not v:
+		Error.throw("environmentVariableIsNotSet", key)
+	return v
+}
+
+func set(key as string, val as string?) static
+{
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			System.Environment.SetEnvironmentVariable(key, val);
 		}}}
@@ -144,24 +148,24 @@ func set(key as string, val as string) static
 			_os:set_environment_variable(key, val)
 		}}}
 	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		lang "js" {{{
 			process.env[key] = val
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
 func unset(key as string) static
 {
-	 IFDEF "target_nodejs" {
+	 IFDEF "target_node_js" {
 		lang "js" {{{
 			delete process.env[key];
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }

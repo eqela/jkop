@@ -30,117 +30,103 @@ import jk.base64
 
 class:
 
-func encodeUrlSafe(buff as buffer) static as string
-{
-	assert buff
+func encodeUrlSafe(buff as buffer) static as string:
 	return Base64Encoder.toUrlSafeFormat(Base64Encoder.encode(buff))
-}
 
-func decode(token as string, keys as map) static as this
+func decode(token as string, keys as map?) static as this
 {
-	assert token
 	var comps = String.split(token, '.', 3)
-	assert Vector.getSize(comps) == 3
-	var headerBuffer = assert Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 0)))
-	var headerJson = assert String.forUTF8Buffer(headerBuffer)
-	var header = assert JSONParser.parseString(headerJson) as DynamicMap
-	var claimsBuffer = assert Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 1)))
-	var claimsJson = assert String.forUTF8Buffer(claimsBuffer)
-	var claims = assert JSONParser.parseString(claimsJson) as DynamicMap
-	var signature = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.get(comps, 2)))
+	if Vector.getSize(comps) != 3:
+		Error.throw("invalidJwtTokenFormat", token)
+	var headerBuffer = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.getValue(comps, 0) ?? ""))
+	var headerJson = String.forUTF8Buffer(headerBuffer)
+	var header = JSONParser.parseStringAsMap(headerJson)
+	var claimsBuffer = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.getValue(comps, 1) ?? ""))
+	var claimsJson = String.forUTF8Buffer(claimsBuffer)
+	var claims = JSONParser.parseStringAsMap(claimsJson)
+	var signature = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(Vector.getValue(comps, 2) ?? ""))
 	var alg = header.getString("alg")
 	if String.isEmpty(alg) || String.equalsIgnoreCase(alg, "none") {
 		nop // token was not signed, so no need to check.
 	}
 	else if keys {
 		if String.equalsIgnoreCase(alg, "HS256") {
-			var key = assert Buffer.asBuffer(Map.get(keys, "hs256"))
-			var data = Vector.get(comps, 0) .. "." .. Vector.get(comps, 1)
+			var key = Buffer.asValueOrThrowError(Map.getValue(keys, "hs256"))
+			var data = Vector.getValue(comps, 0) .. "." .. Vector.getValue(comps, 1)
 			var sigdata = encodeUrlSafe(HmacSha256.encode(String.toUTF8Buffer(data), key))
-			assert sigdata == Vector.get(comps, 2)
+			if sigdata != Vector.getValue(comps, 2):
+				Error.throw("invalidJwtSignature", token)
 		}
 		else if String.equalsIgnoreCase(alg, "RS256") {
-			var rsa = assert RS256.instance()
-			var key = assert String.asString(Map.get(keys, "rs256"))
-			var data = Vector.get(comps, 0) .. "." .. Vector.get(comps, 1)
-			assert rsa.validate(String.toUTF8Buffer(data), signature, key)
+			var rsa = RS256.instance()
+			var key = String.asValueOrThrowError(Map.getValue(keys, "rs256"))
+			var data = Vector.getValue(comps, 0) .. "." .. Vector.getValue(comps, 1)
+			if not rsa.validate(String.toUTF8Buffer(data), signature, key):
+				Error.throw("invalidJwtSignature", token)
 		}
 		else {
-			return null
+			Error.throw("unsupportedJwtAlgorithm", alg)
 		}
 	}
 	else {
 		nop // explicitly requested NOT to check the signature
 	}
-	var v = new this()
-	v.setClaims(claims)
-	return v
-}
-
-var claims = new DynamicMap()
-
-func setClaims(v as DynamicMap)
-{
-	if not v {
-		claims = new DynamicMap()
-	}
-	else {
-		claims = v
+	return new this() {
+		claims claims
 	}
 }
 
-func getClaims as DynamicMap:
-	return claims
+prop claims as DynamicMap
 
-func setIssuer(v as string):
+func setIssuer(v as string?):
 	claims.setString("iss", v)
 
-func getIssuer as string:
+func getIssuer as string?:
 	return claims.getString("iss")
 
-func setSubject(v as string):
+func setSubject(v as string?):
 	claims.setString("sub", v)
 
-func getSubject as string:
+func getSubject as string?:
 	return claims.getString("sub")
 
-func setAudience(v as string):
+func setAudience(v as string?):
 	claims.setString("aud", v)
 
-func getAudience as string:
+func getAudience as string?:
 	return claims.getString("aud")
 
 func setExpirationTime(v as long):
 	claims.setString("exp", String.forLongInteger(v))
 
 func getExpirationTime as long:
-	return claims.getLongInteger("exp", 0)
+	return claims.getLongIntegerOrDefaultValue("exp", 0)
 
 func setNotBefore(v as long):
 	claims.setString("nbf", String.forLongInteger(v))
 
 func getNotBefore as long:
-	return claims.getLongInteger("nbf", 0)
+	return claims.getLongIntegerOrDefaultValue("nbf", 0)
 
 func setIssuedAt(v as long):
 	claims.setString("iat", String.forLongInteger(v))
 
 func getIssuedAt as long:
-	return claims.getLongInteger("iat", 0)
+	return claims.getLongIntegerOrDefaultValue("iat", 0)
 
-func setJwtId(v as string):
+func setJwtId(v as string?):
 	claims.setString("jti", v)
 
-func getJwtId as string:
+func getJwtId as string?:
 	return claims.getString("jti")
 
 func setClaim(key as string, value as string):
 	claims.setString(key, value)
 
-func getClaim(key as string) as string:
+func getClaim(key as string) as string?:
 	return claims.getString(key)
 
-func validate(issuer as string, audience as string) as bool
+func validate(issuer as string?, audience as string?) as bool
 {
 	assert isActive()
 	if issuer:
@@ -159,7 +145,7 @@ func isAudience(value as string) as bool:
 func isActive as bool
 {
 	assert isExpired() == false
-	var nbf = claims.getLongInteger("nbf", 0)
+	var nbf = claims.getLongIntegerOrDefaultValue("nbf", 0)
 	if nbf < 1:
 		return true
 	if SystemClock.asUTCSeconds() < nbf:
@@ -169,7 +155,7 @@ func isActive as bool
 
 func isExpired private as bool
 {
-	var exp = claims.getLongInteger("exp", 0)
+	var exp = claims.getLongIntegerOrDefaultValue("exp", 0)
 	if exp < 1:
 		return false
 	if SystemClock.asUTCSeconds() < exp:
@@ -182,15 +168,15 @@ func generateHeaderContent(alg as string) as string
 	var v = new DynamicMap()
 	v.setString("alg", alg)
 	v.setString("typ", "JWT")
-	return JSONEncoder.encode(v, false)
+	return JSONEncoder.toString(v)
 }
 
 func generateClaimsContent as string:
-	return JSONEncoder.encode(claims, false)
+	return JSONEncoder.toString(claims)
 
 func generateTokenWithRS256(privateKey as string) as string
 {
-	var rsa = assert RS256.instance()
+	var rsa = RS256.instance()
 	var sb = new StringBuilder()
 	sb.appendString(encodeUrlSafe(String.toUTF8Buffer(generateHeaderContent("RS256"))))
 	sb.appendCharacter('.')

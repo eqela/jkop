@@ -51,12 +51,11 @@ model GithubRepositoryDetails public
 	clone_url as string
 }
 
-func forAccessToken(ctx as LoggingContext, accessToken as string) static as this
-{
-	var v = new this(ctx)
-	v.accessToken = accessToken
-	return v
-}
+func forAccessToken(ctx as LoggingContext, accessToken as string) static as this:
+	return new this() {
+		ctx ctx
+		accessToken accessToken
+	}
 
 prop accessToken as string
 
@@ -77,9 +76,8 @@ func getUserEmailAddress async as string
 	hrs.add("Authorization", "Bearer " .. accessToken)
 	var response = await request("GET", "https://api.github.com/user/emails", hrs, null)
 	var body = response.getBodyAsBuffer()
-	var res = assert JSONParser.parseBuffer(body) as DynamicVector:
-		Error.throw("httpResponseIsNotJsonArray", "HTTP response is not a JSON array")
-	var emailAddress as string
+	var res = JSONParser.parseBufferAsVector(body)
+	var emailAddress as string?
 	foreach data as DynamicMap in res.toVector() {
 		var primary = data.getBoolean("primary")
 		if primary {
@@ -87,6 +85,8 @@ func getUserEmailAddress async as string
 			break
 		}
 	}
+	if not emailAddress:
+		Error.throw("noEmailAddress", null)
 	return emailAddress
 }
 
@@ -97,8 +97,7 @@ func getUserRepositories async as vector<GithubRepositoryDetails>
 	hrs.add("Authorization", "Bearer " .. accessToken)
 	var response = await request("GET", "https://api.github.com/user/repos", hrs, null)
 	var body = response.getBodyAsBuffer()
-	var res = assert JSONParser.parseBuffer(body) as DynamicVector:
-		Error.throw("httpResponseIsNotJsonArray", "HTTP response is not a JSON array")
+	var res = JSONParser.parseBufferAsVector(body)
 	var v = new vector<GithubRepositoryDetails>
 	foreach data as DynamicMap in res.toVector() {
 		var repo = GithubRepositoryDetails.forData(data)

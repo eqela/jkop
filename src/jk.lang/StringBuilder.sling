@@ -34,39 +34,40 @@ func forString(initial as string) static as this
 func dup(initial as this) static as this
 {
 	var v = new this()
-	if initial:
-		v.appendString(initial.toString())
+	v.appendString(initial.toString())
 	return v
 }
 
 IFDEF "target_objc" {
-	var data as !"NSMutableString*"
+	var data as native<"NSMutableString*">?
 }
-ELSE IFDEF "target_cs" {
-	var builder as !"System.Text.StringBuilder"
+ELSE IFDEF "target_dotnet_cs" {
+	var builder as native<System.Text.StringBuilder>?
 }
 ELSE IFDEF "target_java" {
-	var builder as !"java.lang.StringBuilder"
+	var builder as native<java.lang.StringBuilder>?
 }
 ELSE IFDEF "target_js" {
-	var builder as !"String" #used
+	var builder as native<String>?
 }
 ELSE IFDEF "target_stdlua" {
-	var builder as string
+	var builder as string?
 }
 ELSE IFDEF "target_kotlin" {
-	var builder as !"kotlin.text.StringBuilder" #used
+	var builder as native<kotlin.text.StringBuilder>?
 }
 ELSE IFDEF "target_swift" {
-	var builder as !"NSMutableString" #used
+	var builder as native<NSMutableString>?
 }
 ELSE {
-	var buffer as buffer
+	var buffer as buffer?
 	var position = 0
 
 	func resizeTo(size as long)
 	{
-		var osz = sizeof buffer
+		var osz = 0
+		if buffer:
+			osz = sizeof buffer
 		if osz < size {
 			while osz < size:
 				osz += 1024
@@ -85,7 +86,7 @@ func initialize
 			data = [[NSMutableString alloc] init];
 		}}}
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			builder = new System.Text.StringBuilder();
 		}}}
@@ -114,7 +115,7 @@ func initialize
 		}}}
 	}
 	ELSE {
-		buffer = malloc 1024
+		buffer = Buffer.allocate(1024)
 	}
 }
 
@@ -123,7 +124,7 @@ func clear
 	IFDEF "target_objc" {
 		initialize()
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			builder.Clear();
 		}}}
@@ -148,7 +149,7 @@ func clear
 		builder = ""
 	}
 	ELSE {
-		buffer = malloc 1024
+		buffer = Buffer.allocate(1024)
 		position = 0
 	}
 }
@@ -156,25 +157,25 @@ func clear
 func count as int
 {
 	IFDEF "target_objc" {
-		return lang "objc" int {{{ [data length] }}}
+		return lang "objc" as int {{{ [data length] }}}
 	}
-	ELSE IFDEF "target_cs" {
-		return lang "cs" int {{{ builder.Length }}}
+	ELSE IFDEF "target_dotnet_cs" {
+		return lang "cs" as int {{{ builder.Length }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" int {{{ builder.length() }}}
+		return lang "java" as int {{{ builder.length() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" int {{{ this.builder.length }}}
+		return lang "js" as int {{{ this.builder.length }}}
 	}
 	ELSE IFDEF "target_stdlua" {
-		return lang "lua" int {{{ string.len(self.builder) }}}
+		return lang "lua" as int {{{ string.len(self.builder) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" int {{{ builder!!.length }}}
+		return lang "kotlin" as int {{{ builder!!.length }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ (builder! as NSString).length }}}
+		return lang "swift" as int {{{ (builder! as NSString).length }}}
 	}
 	ELSE {
 		return position
@@ -200,7 +201,7 @@ func appendCharacter(c as char) as this
 	IFDEF "target_objc" {
 		return appendString(String.forCharacter(c))
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		return appendString(String.forCharacter(c))
 	}
 	ELSE IFDEF "target_java" {
@@ -221,7 +222,8 @@ func appendCharacter(c as char) as this
 	ELSE {
 		if c <= 0x7F {
 			resizeTo(position + 1)
-			buffer[position] = c as uint8
+			if buffer:
+				buffer[position] = c as uint8
 			position++
 		}
 		else {
@@ -231,17 +233,15 @@ func appendCharacter(c as char) as this
 	}
 }
 
-func appendString(str as string #used) as this
+func appendString(str as string) as this
 {
-	if str == null:
-		return this
 	IFDEF "target_objc" {
 		lang "objc" {{{
 			[data appendString:str];
 		}}}
 		return this
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			builder.Append(str);
 		}}}
@@ -276,12 +276,11 @@ func appendString(str as string #used) as this
 	}
 	ELSE {
 		var nbuf = String.toUTF8Buffer(str)
-		if nbuf {
-			var nsz = sizeof nbuf
-			resizeTo(position + nsz)
+		var nsz = sizeof nbuf
+		resizeTo(position + nsz)
+		if buffer:
 			Buffer.copyFrom(buffer, nbuf, 0, position, nsz)
-			position += nsz
-		}
+		position += nsz
 		return this
 	}
 }
@@ -304,14 +303,12 @@ func insertFloat(index as int, c as float) as this:
 
 func insertString(index as int, str as string) as this
 {
-	if str == null:
-		return this
 	IFDEF "target_objc" {
 		lang "objc" {{{
 			[data insertString:str atIndex:index];
 		}}}
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			builder.Insert(index, str);
 		}}}
@@ -322,8 +319,8 @@ func insertString(index as int, str as string) as this
 		}}}
 	}
 	ELSE IFDEF "target_js" {
-		var fp #used
-		var lp #used
+		var fp as dynamic?
+		var lp as dynamic?
 		lang "js" {{{
 			fp = this.builder.substring(0, index);
 			lp = this.builder.substring(index, this.builder.length);
@@ -342,13 +339,13 @@ func insertString(index as int, str as string) as this
 	}
 	ELSE {
 		var nbuf = String.toUTF8Buffer(str)
-		if nbuf {
-			var nsz = sizeof nbuf
-			resizeTo(position + nsz)
+		var nsz = sizeof nbuf
+		resizeTo(position + nsz)
+		if buffer {
 			Buffer.copyFrom(buffer, buffer, index, index+nsz, position-index)
 			Buffer.copyFrom(buffer, nbuf, 0, index, nsz)
-			position += nsz
 		}
+		position += nsz
 	}
 	return this
 }
@@ -357,7 +354,7 @@ func remove(index as int, targetLength as int) as this
 {
 	if targetLength < 1:
 		return this
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			if(index >= 0 && index < builder.Length) {
 				builder.Remove(index, targetLength);
@@ -365,8 +362,8 @@ func remove(index as int, targetLength as int) as this
 		}}}
 	}
 	ELSE IFDEF "target_js" {
-		var fp #used
-		var lp #used
+		var fp as dynamic?
+		var lp as dynamic?
 		lang "js" {{{
 			fp = this.builder.substring(0, index);
 			lp = this.builder.substring(index+targetLength, this.builder.length);
@@ -384,11 +381,13 @@ func remove(index as int, targetLength as int) as this
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		var ss as string
+		var ss as string?
 		lang "kotlin" {{{
 			var cs = builder!!.removeRange(index, index+targetLength)
 			ss = cs.toString()
 		}}}
+		if not ss:
+			ss = ""
 		clear()
 		appendString(ss)
 	}
@@ -403,7 +402,8 @@ func remove(index as int, targetLength as int) as this
 			var limit = position - index
 			if ll > limit:
 				ll = limit
-			Buffer.copyFrom(buffer, buffer, index+ll, index, position-index-ll)
+			if buffer:
+				Buffer.copyFrom(buffer, buffer, index+ll, index, position-index-ll)
 			position -= ll
 		}
 	}
@@ -421,30 +421,51 @@ func removeLastCharacter as this
 func toString as string
 {
 	IFDEF "target_objc" {
-		return lang "objc" string {{{ [NSString stringWithString:data] }}}
+		var v = lang "objc" as string? {{{ [NSString stringWithString:data] }}}
+		if not v:
+			v = ""
+		return v
 	}
-	ELSE IFDEF "target_cs" {
-		return lang "cs" string {{{ builder.ToString() }}}
+	ELSE IFDEF "target_dotnet_cs" {
+		var v = lang "cs" as string? {{{ builder.ToString() }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" string {{{ builder.toString() }}}
+		var v = lang "java" as string? {{{ builder.toString() }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" string {{{ this.builder.toString() }}}
+		var v = lang "js" as string? {{{ this.builder.toString() }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_stdlua" {
-		return builder
+		var v = builder
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" string {{{ builder!!.toString() }}}
+		var v = lang "kotlin" as string? {{{ builder!!.toString() }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ builder as Swift.String? }}}
+		var v = lang "swift" as string? {{{ builder as Swift.String? }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE {
-		if not buffer || position < 1:
-			return ""
 		var bb = buffer
+		if not bb || position < 1:
+			return ""
 		if position < sizeof bb:
 			bb = Buffer.getSubBuffer(bb, 0, position)
 		return String.forUTF8Buffer(bb)

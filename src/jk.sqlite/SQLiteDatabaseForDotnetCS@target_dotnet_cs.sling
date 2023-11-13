@@ -1,0 +1,416 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.sql
+
+class is SQLiteDatabase:
+
+depend "nuget:Microsoft.Data.SQLite@2.1.*"
+
+class Statement is SQLStatement
+{
+	var pcounter = 0
+	pvar sqlString as string?
+
+	lang "cs" {{{
+		public Microsoft.Data.Sqlite.SqliteCommand command;
+
+		public bool create(Microsoft.Data.Sqlite.SqliteConnection db, string sql) {
+			if(db == null || sql == null) {
+				return(false);
+			}
+			var cmd = db.CreateCommand();
+			if(cmd == null) {
+				return(false);
+			}
+			cmd.CommandText = SQLAdoNet.convertSQLString(sql);
+			command = cmd;
+			sqlString = sql;
+			return(true);
+		}
+	}}}
+
+	func addParamString(val as string) override
+	{
+		var vv = val
+		lang "cs" {{{
+			if(vv == null) {
+				vv = "";
+			}
+			if(command != null) {
+				var name = "@p" + (pcounter+1);
+				var param = command.Parameters.Add(name, Microsoft.Data.Sqlite.SqliteType.Text);
+				if(param != null) {
+					pcounter ++;
+					param.Value = vv;
+				}
+			}
+		}}}
+	}
+
+	func addParamInteger(val as int) override
+	{
+		lang "cs" {{{
+			if(command != null) {
+				var param = command.Parameters.Add("@p" + (pcounter+1), Microsoft.Data.Sqlite.SqliteType.Integer);
+				if(param != null) {
+					pcounter ++;
+					param.Value = val;
+				}
+			}
+		}}}
+	}
+
+	func addParamLongInteger(val as long) override
+	{
+		lang "cs" {{{
+			if(command != null) {
+				var param = command.Parameters.Add("@p" + (pcounter+1), Microsoft.Data.Sqlite.SqliteType.Integer);
+				if(param != null) {
+					pcounter ++;
+					param.Value = val;
+				}
+			}
+		}}}
+	}
+
+	func addParamDouble(val as double) override
+	{
+		lang "cs" {{{
+			if(command != null) {
+				var param = command.Parameters.Add("@p" + (pcounter+1), Microsoft.Data.Sqlite.SqliteType.Real);
+				if(param != null) {
+					pcounter ++;
+					param.Value = val;
+				}
+			}
+		}}}
+	}
+
+	func addParamBlob(val as buffer) override
+	{
+		lang "cs" {{{
+			if(command != null) {
+				var param = command.Parameters.Add("@p" + (pcounter+1), Microsoft.Data.Sqlite.SqliteType.Blob);
+				if(param != null) {
+					pcounter ++;
+					param.Value = val;
+				}
+			}
+		}}}
+	}
+
+	func setParamString(name as string, val as string) override:
+		addParamString(val)
+
+	func setParamInteger(name as string, val as int) override:
+		addParamInteger(val)
+
+	func setParamLongInteger(name as string, val as long) override:
+		addParamLongInteger(val)
+
+	func setParamDouble(name as string, val as double) override:
+		addParamDouble(val)
+
+	func setParamBlob(name as string, val as buffer) override:
+		addParamBlob(val)
+
+	func resetStatement override
+	{
+		lang "cs" {{{
+			if(command != null) {
+				command.Parameters.Clear();
+			}
+		}}}
+		pcounter = 0
+	}
+}
+
+lang "cs" {{{
+	Microsoft.Data.Sqlite.SqliteConnection db;
+}}}
+
+func initialize(file as File, openCreate as bool) override
+{
+	if openCreate == false && file.isFile() == false:
+		Error.throw("databaseDoesNotExist", file)
+	var nativepath = file.getPath()
+	lang "cs" {{{
+		var db = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + nativepath);
+		db.Open();
+		this.db = db;
+	}}}
+}
+
+func closeConnection async override
+{
+	lang "cs" {{{
+		if(db != null) {
+			db.Close();
+			db = null;
+		}
+	}}}
+}
+
+func prepareStatement(sql as string) async override as SQLStatement
+{
+	var v = new Statement()
+	var ss = sql
+	lang "cs" {{{
+		if(v.create(db, ss) == false) {
+			return(null);
+		}
+	}}}
+	return v
+}
+
+func executeStatement(stmt as SQLStatement) override async
+{
+	lang "cs" {{{
+		var cmd = ((Statement)stmt).command;
+		if(cmd != null) {
+			cmd.ExecuteNonQuery();
+		}
+	}}}
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	var v = 0
+	lang "cs" {{{
+		var cmd = ((Statement)stmt).command;
+		if(cmd == null) {
+			return(0);
+		}
+		v = cmd.ExecuteNonQuery();
+	}}}
+	return v
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var reader public as native<Microsoft.Data.Sqlite.SqliteDataReader>?
+	var hasNextRecord as bool
+
+	dtor:
+		close()
+
+	func close override
+	{
+		if reader {
+			reader.Close!()
+			reader = null
+		}
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		var cols = getColumnCount()
+		var n as int
+		for(n = 0; n < cols; n++) {
+			var o = getColumnObject(n)
+			values += o
+		}
+	}
+
+	func step override
+	{
+		assert reader
+		if hasNextRecord {
+			hasNextRecord = false
+		}
+		lang "cs" {{{
+			if(reader.Read() == false) {
+				reader.Close();
+				reader = null;
+			}
+		}}}
+	}
+
+	func getColumnCount override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.FieldCount;
+			}
+		}}}
+		return v
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		var v = new vector<string>
+		var n as int
+		var c = getColumnCount()
+		for(n = 0; n < c; n++) {
+			var nn = getColumnName(n)
+			v += nn
+		}
+		return v
+	}
+
+	func getColumnName(n as int) override as string
+	{
+		var v as string? = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetName(n);
+			}
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		var v as string? = null
+		lang "cs" {{{
+			if(reader.IsDBNull(n)) {
+				return(null);
+			}
+			if(reader.GetFieldType(n) == typeof(byte[])) {
+				var b = (byte[])reader.GetValue(n);
+				return(jk.lang.Buffer.wrapValue(b));
+			}
+			var o = reader.GetValue(n);
+			if(o == null) {
+				return(null);
+			}
+			v = o.ToString();
+			if(v == null) {
+				return(null);
+			}
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnInt(n as int) override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetInt32(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnLong(n as int) override as long
+	{
+		var v as long = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetInt64(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnDouble(n as int) override as double
+	{
+		var v as double = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetDouble(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnBuffer(n as int) override as buffer
+	{
+		var v as buffer?
+		lang "cs" {{{
+			if(reader != null) {
+				v = (byte[])reader.GetValue(n);
+			}
+		}}}
+		if not v:
+			Error.throw("noBufferValueAvailable", String.forInteger(n))
+		return v
+	}
+
+	func next override as DynamicMap
+	{
+		step()
+		var names = getColumnNames()
+		if Vector.getSize(names) < 1:
+			Error.throw("noColumnNames", null)
+		var v = new DynamicMap()
+		var n as int
+		for(n = 0; n < Vector.getSize(names); n++):
+			v.setObject(names[n], getColumnObject(n))
+		return v
+	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		var v = step()
+		hasNextRecord = true
+		return true
+	}
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	var v as ResultSet? = null
+	lang "cs" {{{
+		var cmd = ((Statement)stmt).command;
+		if(cmd == null) {
+	}}}
+	Log.debug(ctx, "SQLite query: null command")
+	lang "cs" {{{
+		return(null);
+		}
+		Microsoft.Data.Sqlite.SqliteDataReader rdr = null;
+		rdr = cmd.ExecuteReader();
+		if(rdr != null) {
+			v = new ResultSet();
+			v.reader = rdr;
+		}
+	}}}
+	if not v:
+		Error.throw("failedToExecuteQueryStatement", stmt)
+	return v
+}
+
+func getPrimaryKeyColumnName(table as string) override async as string?
+{
+	var itr = await executeQueryStatement(await prepareStatement("PRAGMA TABLE_INFO(" .. table .. ");"))
+	foreach v in itr {
+		if v.getInteger("pk") == 1:
+			return v.getString("name")
+	}
+	return null
+}

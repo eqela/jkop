@@ -26,51 +26,52 @@ class:
 
 func createClassInstanceByName(qualifiedName as string) static as dynamic
 {
-	assert String.isNotEmpty(qualifiedName)
 	IFDEF "target_sushi" {
 		var code = " return _g." .. qualifiedName .. "._construct0(_g." .. qualifiedName .. "._create())"
-		var ff = assert lang "lua" function<dynamic> {{{ _vm:parse_to_function(code) }}}
+		var ff = assert lang "lua" as function<dynamic> {{{ _vm:parse_to_function(code) }}}
 		return ff()
 	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		var lin = String.getLastIndexOfCharacter(qualifiedName, '.')
 		var length = String.getLength(qualifiedName)
 		var className = String.getSubString(qualifiedName, lin, length - lin)
 		var module = String.getSubString(qualifiedName, 0, lin)
-		var ff as dynamic
+		var ff as dynamic?
 		lang "js" {{{
 			const ev = "require(\'./" + module + "\')" + className + ".NEW()";
 			ff = eval(ev);
 		}}}
+		if not ff:
+			Error.throw("failedToCreateClassInstance", qualifiedName)
 		return ff
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }
 
 func createClassInstanceByTypeinfo(type as typeinfo) static as dynamic
 {
 	IFDEF "target_sushi" {
-		var typename = lang "lua" string {{{ type }}}
+		var typename = lang "lua" as string {{{ type }}}
 		assert String.startsWith(typename, "class:")
 		typename = String.getEndOfString(typename, 6)
 		return createClassInstanceByName(typename)
 	}
-	ELSE IFDEF "target_nodejs" {
-		var ff as dynamic
+	ELSE IFDEF "target_node_js" {
+		var ff as dynamic?
 		lang "js" {{{
 			ff = _type.NEW();
 		}}}
+		if not ff:
+			Error.throw("failedToCreateClassInstance", type)
 		return ff
 	}
-	ELSE IFDEF "target_browser" {
-		return lang "js" dynamic {{{ _type.NEW() }}}
+	ELSE IFDEF "target_browser_js" {
+		return lang "js" as dynamic {{{ _type.NEW() }}}
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }
 
@@ -91,20 +92,19 @@ func callMethod(objectInstance as object, methodName as string, arguments as arr
 		}
 		sb.appendString(") end")
 		var code = sb.toString()
-		var ff = assert lang "lua" function<function<dynamic,object,array<dynamic>>> {{{ _vm:parse_to_function(code) }}}
+		var ff = assert lang "lua" as function<function<dynamic,object,array<dynamic>>> {{{ _vm:parse_to_function(code) }}}
 		var ffx = assert ff()
 		return ffx(objectInstance, arguments)
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }
 
 func getDataTypeInfo(variable as dynamic) static as typeinfo:
 	return typeof variable
 
-func isSameType(primary as object, other as object) static as bool
+func isSameType(primary as object?, other as object?) static as bool
 {
 	if primary == null && other == null:
 		return true
@@ -119,17 +119,16 @@ func isSameType(primary as object, other as object) static as bool
 
 func isInstanceOf(objectInstance as object, type as typeinfo) static as bool
 {
-	assert objectInstance
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			if(type == null) {
 				return false;
 			}
 		}}}
-		return lang "cs" bool {{{ type.IsAssignableFrom(objectInstance.GetType()) }}}
+		return lang "cs" as bool {{{ type.IsAssignableFrom(objectInstance.GetType()) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" bool {{{ _vm:is_instance_of(objectInstance, type) }}}
+		return lang "lua" as bool {{{ _vm:is_instance_of(objectInstance, type) }}}
 	}
 	ELSE IFDEF "target_js" {
 		var tt = type
@@ -144,7 +143,6 @@ func isInstanceOf(objectInstance as object, type as typeinfo) static as bool
 		return false
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return false
+		ERROR "notImplemented"
 	}
 }

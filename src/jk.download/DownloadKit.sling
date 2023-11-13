@@ -31,14 +31,10 @@ import jk.webclient
 
 class:
 
-var ctx as LoggingContext
+prop ctx as LoggingContext
 
-ctor(ctx as LoggingContext):
-	this.ctx = ctx
-
-func getBasename(name as string) as string
+func getBasename(name as string) as string?
 {
-	assert name
 	var slash = String.getLastIndexOfCharacter(name, '/')
 	assert slash >= 0
 	return String.getEndOfString(name, slash+1)
@@ -46,12 +42,8 @@ func getBasename(name as string) as string
 
 func downloadToDirectory(url as dynamic, destdir as dynamic) async as File
 {
-	var urls = String.asString(url)
-	if not urls:
-		Error.throw("missingParameter", "url")
-	var destdirf = File.asFile(destdir)
-	if not destdirf:
-		Error.throw("missingParameter", "destdir")
+	var urls = String.asValueOrThrowError(url)
+	var destdirf = File.asValueOrThrowError(destdir)
 	var name = getBasename(urls)
 	if String.isEmpty(name):
 		name = SHAEncoder.forSha1().getHashForString(urls)
@@ -62,20 +54,16 @@ func downloadToDirectory(url as dynamic, destdir as dynamic) async as File
 
 class QueryValues private
 {
-	var ss public as string
-	var hh public as KeyValueList<string,string>
-	var bb public as buffer
+	var ss public as string?
+	var hh public as KeyValueList<string,string>?
+	var bb public as buffer?
 }
 
 func downloadToFile(url as dynamic, destfile as dynamic) async as File
 {
-	var urls = String.asString(url)
-	if not urls:
-		Error.throw("missingParameter", "url")
+	var urls = String.asValueOrThrowError(url)
 	var ourls = urls
-	var destfilef = File.asFile(destfile)
-	if not destfilef:
-		Error.throw("missingParameter", "destfile")
+	var destfilef = File.asValueOrThrowError(destfile)
 	if destfilef.isFile() {
 		Log.debug(ctx, "File already exists: `" .. destfilef.getPath() .. "'")
 		return destfilef
@@ -91,14 +79,11 @@ func downloadToFile(url as dynamic, destfile as dynamic) async as File
 		o.bb = response.body
 		Log.status(ctx, null)
 		if o.ss == "301" || o.ss == "302" {
-			if not o.hh:
+			var ohh = o.hh
+			if not ohh:
 				break
-			var location as string
-			var it = o.hh.iterate()
-			while it {
-				var pp = it.next()
-				if not pp:
-					break
+			var location as string?
+			foreach pp in ohh.iterate() {
 				if String.equalsIgnoreCase(pp.key, "location") {
 					location = pp.value
 					break
@@ -114,27 +99,24 @@ func downloadToFile(url as dynamic, destfile as dynamic) async as File
 	}
 	if o.ss != "200":
 		Error.throw("httpError", o.ss)
-	if not o.bb:
+	var obb = o.bb
+	if not obb:
 		Error.throw("noContent", null)
-	new FileKit(ctx).writeBuffer(destfilef, o.bb)
+	new FileKit() { ctx ctx }.writeBuffer(destfilef, obb)
 	return destfilef
 }
 
 func downloadAndExtract(url as dynamic, destdir as dynamic) async as File
 {
-	var urls = String.asString(url)
-	if not urls:
-		Error.throw("missingParameter", "url")
-	var destdirf = File.asFile(destdir)
-	if not destdirf:
-		Error.throw("missingParameter", "destdir")
+	var urls = String.asValueOrThrowError(url)
+	var destdirf = File.asValueOrThrowError(destdir)
 	if destdirf.isDirectory():
 		return destdirf
 	var tempfile = TemporaryFile.create()
-	if not tempfile:
-		Error.throw("failedToCreateTemporaryFile", null)
 	tempfile.remove()
-	var file = new FileKit(ctx)
+	var file = new FileKit() {
+		ctx ctx
+	}
 	try {
 		await downloadToFile(urls, tempfile)
 	}

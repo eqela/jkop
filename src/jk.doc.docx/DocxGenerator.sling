@@ -31,28 +31,26 @@ import jk.archive
 
 class:
 
-pvar styleXml as string
-pvar fontXml as string
-pvar defaultParagraphStyle as string
-pvar defaultListParagraphStyle as string
-pvar defaultTableStyle as string
+pvar styleXml as string?
+pvar fontXml as string?
+pvar defaultParagraphStyle as string?
+pvar defaultListParagraphStyle as string?
+pvar defaultTableStyle as string?
 
 var numIdCounter = 1
 var bulletNumIds = new vector<string>
 
 func dumpContainer(xml as XMLMaker, stack as Stack<BaseNode>, node as ContainerNode) private
 {
-	assert node
-	foreach child as BaseNode in node.nodes:
+	if var nodes = node.nodes: foreach child in nodes:
 		dumpNode(xml, stack, child)
 }
 
 func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) private
 {
-	assert node
 	stack.push(node)
 	if node is DocumentNode {
-		xml.startWithAttributeMap("w:document", new map {
+		xml.startWithAttributeMap("w:document", new map<string,string> {
 			@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 			@{"xmlns:r"} "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 			@{"xmlns:o"} "urn:schemas-microsoft-com:office:office"
@@ -71,7 +69,7 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 	else if node is SectionNode {
 		dumpContainer(xml, stack, node as! SectionNode)
 		var stackdata = stack.getData()
-		var parent = Vector.get(stackdata, Vector.getSize(stackdata)-2)
+		var parent = Vector.getValue(stackdata, Vector.getSize(stackdata)-2)
 		var isTopLevel = parent is DocumentNode
 		if not isTopLevel {
 			xml.start("w:p")
@@ -108,7 +106,7 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 	else if node is HeadingNode {
 		xml.start("w:p")
 		xml.start("w:pPr")
-		xml.element("w:pStyle", new map {
+		xml.element("w:pStyle", new map<string,string> {
 			@{"w:val"} "Heading" .. String.forInteger((node as! HeadingNode).level)
 		})
 		xml.end("w:pPr")
@@ -124,7 +122,7 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 			style = defaultParagraphStyle
 		if String.isNotEmpty(style) {
 			xml.start("w:pPr")
-			xml.element("w:pStyle", new map {
+			xml.element("w:pStyle", new map<string,string> {
 				@{"w:val"} style
 			})
 			xml.end("w:pPr")
@@ -145,29 +143,29 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 		if String.isEmpty(style):
 			style = defaultTableStyle
 		if String.isNotEmpty(style):
-			xml.element("w:tblStyle", new map {
+			xml.element("w:tblStyle", new map<string,string> {
 				@{"w:val"} style
 			})
 		var width = table.width
 		if width <= 0.0 {
-			xml.element("w:tblW", new map {
+			xml.element("w:tblW", new map<string,string> {
 				@{"w:type"} "auto"
 			})
 		}
 		else {
-			xml.element("w:tblW", new map {
+			xml.element("w:tblW", new map<string,string> {
 				@{"w:type"} "pct"
 				@{"w:w"} String.forInteger(width * 100)
 			})
 		}
 		xml.end("w:tblPr")
-		foreach row as TableRowNode in table.rows:
+		if var rows = table.rows: foreach row in rows:
 			dumpNode(xml, stack, row)
 		xml.end("w:tbl")
 	}
 	else if node is TableRowNode {
 		xml.start("w:tr")
-		foreach cell as BaseNode in (node as! TableRowNode).nodes {
+		if var nodes = (node as! TableRowNode).nodes: foreach cell in nodes {
 			xml.start("w:tc")
 			xml.start("w:tcPr")
 			// FIXME: Cell properties
@@ -183,7 +181,7 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 	}
 	else if node is BulletListNode {
 		var id = String.forInteger(numIdCounter)
-		foreach entry as ParagraphNode in (node as! BulletListNode).entries {
+		if var entries = (node as! BulletListNode).entries: foreach entry in entries {
 			stack.push(entry)
 			xml.start("w:p")
 			xml.start("w:pPr")
@@ -191,14 +189,14 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 			if String.isEmpty(style):
 				style = defaultParagraphStyle
 			if String.isNotEmpty(style):
-				xml.element("w:pStyle", new map {
+				xml.element("w:pStyle", new map<string,string> {
 					@{"w:val"} style
 				})
 			xml.start("w:numPr")
-			xml.element("w:ilvl", new map {
+			xml.element("w:ilvl", new map<string,string> {
 				@{"w:val"} "0"
 			})
-			xml.element("w:numId", new map {
+			xml.element("w:numId", new map<string,string> {
 				@{"w:val"} id
 			})
 			xml.end("w:numPr")
@@ -220,8 +218,7 @@ func dumpNode(xml as XMLMaker, stack as Stack<BaseNode>, node as BaseNode) priva
 
 func addToZip(ctx as LoggingContext, zip as ZipWriter, filename as string, content as string) as bool
 {
-	var tmpf = assert TemporaryFile.create():
-		Log.error(ctx, "Failed to create temporary file")
+	var tmpf = TemporaryFile.create()
 	tmpf.setContentsUTF8(content)
 	var v = zip.addFile(tmpf, filename)
 	tmpf.remove()
@@ -234,31 +231,31 @@ func createContentTypesXml as string
 {
 	var xml = new XMLMaker()
 	xml.startWithAttribute("Types", "xmlns", "http://schemas.openxmlformats.org/package/2006/content-types")
-	xml.element("Default", new map {
+	xml.element("Default", new map<string,string> {
 		Extension "png"
 		ContentType "image/png"
 	})
-	xml.element("Default", new map {
+	xml.element("Default", new map<string,string> {
 		Extension "rels"
 		ContentType "application/vnd.openxmlformats-package.relationships+xml"
 	})
-	xml.element("Default", new map {
+	xml.element("Default", new map<string,string> {
 		Extension "xml"
 		ContentType "application/xml"
 	})
-	xml.element("Override", new map {
+	xml.element("Override", new map<string,string> {
 		PartName "/word/document.xml"
 		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"
 	})
-	xml.element("Override", new map {
+	xml.element("Override", new map<string,string> {
 		PartName "/word/numbering.xml"
 		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"
 	})
-	xml.element("Override", new map {
+	xml.element("Override", new map<string,string> {
 		PartName "/word/fontTable.xml"
 		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"
 	})
-	xml.element("Override", new map {
+	xml.element("Override", new map<string,string> {
 		PartName "/word/styles.xml"
 		ContentType "application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"
 	})
@@ -270,16 +267,16 @@ func createTopLevelRels as string
 {
 	var xml = new XMLMaker()
 	xml.startWithAttribute("Relationships", "xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")
-	xml.element("Relationship", new map {
+	xml.element("Relationship", new map<string,string> {
 		Id "rId1"
 		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
 		Target "word/document.xml"
 	})
-	// xml.element("Relationship", new map {
+	// xml.element("Relationship", new map<string,string> {
 	//	Id "rId2"
 	//	Type "http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties", "Target" : "docProps/core.xml"
 	// })
-	// xml.element("Relationship", new map {
+	// xml.element("Relationship", new map<string,string> {
 	//	Id "rId3"
 	//	Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties", "Target" : "docProps/app.xml"
 	// })
@@ -291,17 +288,17 @@ func createDocumentRels as string
 {
 	var xml = new XMLMaker()
 	xml.startWithAttribute("Relationships", "xmlns", "http://schemas.openxmlformats.org/package/2006/relationships")
-	xml.element("Relationship", new map {
+	xml.element("Relationship", new map<string,string> {
 		Id "rId1"
 		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering"
 		Target "numbering.xml"
 	})
-	xml.element("Relationship", new map {
+	xml.element("Relationship", new map<string,string> {
 		Id "rId2"
 		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable"
 		Target "fontTable.xml"
 	})
-	xml.element("Relationship", new map {
+	xml.element("Relationship", new map<string,string> {
 		Id "rId3"
 		Type "http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
 		Target "styles.xml"
@@ -321,32 +318,32 @@ func createDocumentXml(document as DocumentNode) as string
 func createNumberingXml as string
 {
 	var xml = new XMLMaker()
-	xml.startWithAttributeMap("w:numbering", new map {
+	xml.startWithAttributeMap("w:numbering", new map<string,string> {
 		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 	})
 	var bulletId = "0"
 	{
-		xml.startWithAttributeMap("w:abstractNum", new map { @{"w:abstractNumId"} bulletId })
-		xml.element("w:multiLevelType", new map { @{"w:val"} "multilevel" })
-		xml.startWithAttributeMap("w:lvl", new map { @{"w:ilvl"} "0" })
-		xml.element("w:start", new map { @{"w:val"} "1" })
-		xml.element("w:numFmt", new map { @{"w:val"} "bullet" })
-		xml.element("w:lvlText", new map { @{"w:val"} String.forCharacter(0xf0b7 as char) })
-		xml.element("w:lvlJc", new map { @{"w:val"} "left" })
+		xml.startWithAttributeMap("w:abstractNum", new map<string,string> { @{"w:abstractNumId"} bulletId })
+		xml.element("w:multiLevelType", new map<string,string> { @{"w:val"} "multilevel" })
+		xml.startWithAttributeMap("w:lvl", new map<string,string> { @{"w:ilvl"} "0" })
+		xml.element("w:start", new map<string,string> { @{"w:val"} "1" })
+		xml.element("w:numFmt", new map<string,string> { @{"w:val"} "bullet" })
+		xml.element("w:lvlText", new map<string,string> { @{"w:val"} String.forCharacter(0xf0b7 as char) })
+		xml.element("w:lvlJc", new map<string,string> { @{"w:val"} "left" })
 		xml.start("w:pPr")
 		xml.start("w:tabs")
-		xml.element("w:tab", new map {
+		xml.element("w:tab", new map<string,string> {
 			@{"w:val"} "num"
 			@{"w:pos"} "720"
 		})
 		xml.end("w:tabs")
-		xml.element("w:ind", new map {
+		xml.element("w:ind", new map<string,string> {
 			@{"w:left"} "720"
 			@{"w:hanging"} "360"
 		})
 		xml.end("w:pPr")
 		xml.start("w:rPr")
-		xml.element("w:rFonts", new map {
+		xml.element("w:rFonts", new map<string,string> {
 			@{"w:ascii"} "Symbol"
 			@{"w:hAnsi"} "Symbol"
 			@{"w:hint"} "default"
@@ -356,8 +353,8 @@ func createNumberingXml as string
 		xml.end("w:abstractNum")
 	}
 	foreach bulletNumId in bulletNumIds {
-		xml.startWithAttributeMap("w:num", new map { @{"w:numId"} bulletNumId })
-		xml.element("w:abstractNumId", new map { @{"w:val"} bulletId })
+		xml.startWithAttributeMap("w:num", new map<string,string> { @{"w:numId"} bulletNumId })
+		xml.element("w:abstractNumId", new map<string,string> { @{"w:val"} bulletId })
 		xml.end("w:num")
 	}
 	xml.end("w:numbering")
@@ -366,12 +363,12 @@ func createNumberingXml as string
 
 func addFont(xml as XMLMaker, name as string, panose as string, charset as string, family as string, pitch as string, usb0 as string, usb1 as string, usb2 as string, usb3 as string, csb0 as string, csb1 as string)
 {
-	xml.startWithAttributeMap("w:font", new map { @{"w:name"} name })
-	xml.element("w:panose1", new map { @{"w:val"} panose })
-	xml.element("w:charset", new map { @{"w:val"} charset })
-	xml.element("w:family", new map { @{"w:val"} family })
-	xml.element("w:pitch", new map { @{"w:val"} pitch })
-	xml.element("w:sig", new map {
+	xml.startWithAttributeMap("w:font", new map<string,string> { @{"w:name"} name })
+	xml.element("w:panose1", new map<string,string> { @{"w:val"} panose })
+	xml.element("w:charset", new map<string,string> { @{"w:val"} charset })
+	xml.element("w:family", new map<string,string> { @{"w:val"} family })
+	xml.element("w:pitch", new map<string,string> { @{"w:val"} pitch })
+	xml.element("w:sig", new map<string,string> {
 		@{"w:usb0"} usb0
 		@{"w:usb1"} usb1
 		@{"w:usb2"} usb2
@@ -385,7 +382,7 @@ func addFont(xml as XMLMaker, name as string, panose as string, charset as strin
 func createFontTable as string
 {
 	var xml = new XMLMaker()
-	xml.startWithAttributeMap("w:fonts", new map {
+	xml.startWithAttributeMap("w:fonts", new map<string,string> {
 		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 	})
 	addFont(xml, "Symbol", "05050102010706020507", "02", "decorative", "variable", "00000000", "10000000", "00000000", "00000000", "80000000", "00000000")
@@ -398,7 +395,7 @@ func createFontTable as string
 func createStylesXml as string
 {
 	var xml = new XMLMaker()
-	xml.startWithAttributeMap("w:styles", new map {
+	xml.startWithAttributeMap("w:styles", new map<string,string> {
 		@{"xmlns:w"} "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 	})
 	if styleXml:
@@ -409,12 +406,7 @@ func createStylesXml as string
 
 func generate(ctx as LoggingContext, document as DocumentNode, file as File) as bool
 {
-	assert document:
-		Log.error(ctx, "Null document")
-	assert file:
-		Log.error(ctx, "Null file")
-	var zip = assert ZipWriter.forOutputFile(file):
-		Log.error(ctx, "Failed to start writing file: `" .. file.getPath() .. "'")
+	var zip = ZipWriter.forOutputFile(file)
 	assert addToZip(ctx, zip, "[Content_Types].xml", createContentTypesXml())
 	assert addToZip(ctx, zip, "_rels/.rels", createTopLevelRels())
 	// FIXME: docProps/core.xml, docProps/app.xml

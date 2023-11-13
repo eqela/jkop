@@ -28,20 +28,20 @@ import jk.webclient
 class:
 
 prop ctx as LoggingContext
-prop webClient as WebClient
-prop baseUrl as string
-prop bearerToken as string
-prop apiKey as string
-prop authorization as string
+prop webClient as WebClient?
+prop baseUrl as string?
+prop bearerToken as string?
+prop apiKey as string?
+prop authorization as string?
 
-ctor(ctx as jk.log.LoggingContext):
-	this.ctx = ctx
-
-func request(method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async as WebClient.Response
+func request(method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async as WebClient.Response
 {
-	if not webClient:
+	var webClient = this.webClient
+	if not webClient {
 		webClient = WebClient.instance()
-	var callUrl as string
+		this.webClient = webClient
+	}
+	var callUrl = ""
 	if String.isNotEmpty(baseUrl) {
 		callUrl = baseUrl .. url
 	}
@@ -64,16 +64,16 @@ func request(method as string, url as string, headers as KeyValueList<string,str
 		hdrs.add("Authorization", authHeader)
 	}
 	var v = await webClient.executeQuery(ctx, method, callUrl, hdrs, body)
-	if ctx && ctx.isInDebugMode():
+	if ctx.isInDebugMode():
 		Log.debug(ctx, "HTTP " .. method .. " to " .. callUrl .. ": status " .. v.statusCode)
 	return v
 }
 
-func requestAndValidate(method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async as WebClient.Response
+func requestAndValidate(method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async as WebClient.Response
 {
 	var v = await request(method, url, headers, body)
 	var statusCode = v.statusCode
 	if statusCode != "200":
-		throw ExceptionWithError.forCode(statusCode, v.statusMessage)
+		Error.throw("httpError" .. statusCode, v.statusMessage)
 	return v
 }

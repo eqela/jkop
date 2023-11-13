@@ -42,37 +42,55 @@ func forName(name as string) static as this
 			specified table name.
 		]]
 	}
-	return new this().setName(name)
+	return new this() {
+		name name
+	}
 }
 
-func forDetails(name as string, columns as array<SQLTableColumnInfo> = null, indexes as array<string> = null, uniqueIndexes as array<string> = null) static as this
+func forDetails(name as string, columns as vector<SQLTableColumnInfo>? = null, indexes as vector<string>? = null, uniqueIndexes as vector<string>? = null) static as this
 {
-	var v = new this()
-	v.setName(name)
-	foreach column in columns:
+	var v = new this() {
+		name name
+	}
+	if columns: foreach column in columns:
 		v.addColumn(column)
-	foreach index in indexes:
+	if indexes: foreach index in indexes:
 		v.addIndex(index)
-	foreach uniqueIndex in uniqueIndexes:
+	if uniqueIndexes: foreach uniqueIndex in uniqueIndexes:
 		v.addUniqueIndex(uniqueIndex)
 	return v
 }
 
+func forDynamicModelType(tableName as string, modelType as typeinfo) static as this
+{
+	var o = Reflection.createClassInstanceByTypeinfo(modelType)
+	var model = o as DynamicModel
+	if not model:
+		Error.throw("objectIsNotDynamicModel", o)
+	return forDynamicModel(tableName, model)
+}
+
 func forDynamicModel(tableName as string, model as DynamicModel) static as this
 {
-	assert model
 	var table = tableName
 	if String.isEmpty(table) {
-		var meta = JSONParser.parseString(model.getModelMetadata()) as DynamicMap
-		if meta:
-			table = meta.getString("table")
+		var metadata = model.getModelMetadata()
+		if metadata {
+			var meta = JSONParser.parseStringAsMap(metadata)
+			var vv = meta.getString("table")
+			if vv:
+				table = vv
+		}
 	}
-	assert String.isNotEmpty(table)
+	if String.isEmpty(table):
+		Error.throw("emptyTableNameForDynamicModel", model)
 	var v = forName(table)
 	foreach field in model.getFields() {
 		var fieldName = field.encodedName
 		if String.isEmpty(fieldName):
 			fieldName = field.name
+		if String.isEmpty(fieldName):
+			continue
 		if field.type == DynamicModelField.TYPE_STRING {
 			if field.hasTag("key") {
 				v.addStringKeyColumn(fieldName)
@@ -129,11 +147,11 @@ func forDynamicModel(tableName as string, model as DynamicModel) static as this
 	return v
 }
 
-pvar name as string
-pvar columns as vector<SQLTableColumnInfo>
-pvar indexes as vector<SQLTableColumnIndexInfo>
+prop name as string
+prop columns = new vector<SQLTableColumnInfo>
+prop indexes = new vector<SQLTableColumnIndexInfo>
 
-func addColumn(info as SQLTableColumnInfo) as this
+func addColumn(info as SQLTableColumnInfo)
 {
 	meta {
 		description [[
@@ -142,15 +160,10 @@ func addColumn(info as SQLTableColumnInfo) as this
 			this class instance and returns itself.
 		]]
 	}
-	if info == null:
-		return this
-	if columns == null:
-		columns = new vector<SQLTableColumnInfo>
 	columns += info
-	return this
 }
 
-func addIntegerColumn(name as string) as this
+func addIntegerColumn(name as string)
 {
 	meta {
 		description [[
@@ -160,10 +173,10 @@ func addIntegerColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forInteger(name))
+	addColumn(SQLTableColumnInfo.forInteger(name))
 }
 
-func addLongColumn(name as string) as this
+func addLongColumn(name as string)
 {
 	meta {
 		description [[
@@ -173,10 +186,10 @@ func addLongColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forLongInteger(name))
+	addColumn(SQLTableColumnInfo.forLongInteger(name))
 }
 
-func addStringColumn(name as string) as this
+func addStringColumn(name as string)
 {
 	meta {
 		description [[
@@ -186,10 +199,10 @@ func addStringColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forString(name))
+	addColumn(SQLTableColumnInfo.forString(name))
 }
 
-func addStringKeyColumn(name as string) as this
+func addStringKeyColumn(name as string)
 {
 	meta {
 		description [[
@@ -199,10 +212,10 @@ func addStringKeyColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forStringKey(name))
+	addColumn(SQLTableColumnInfo.forStringKey(name))
 }
 
-func addTextColumn(name as string) as this
+func addTextColumn(name as string)
 {
 	meta {
 		description [[
@@ -212,10 +225,10 @@ func addTextColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forText(name))
+	addColumn(SQLTableColumnInfo.forText(name))
 }
 
-func addIntegerKeyColumn(name as string) as this
+func addIntegerKeyColumn(name as string)
 {
 	meta {
 		description [[
@@ -225,10 +238,10 @@ func addIntegerKeyColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forIntegerKey(name))
+	addColumn(SQLTableColumnInfo.forIntegerKey(name))
 }
 
-func addLongKeyColumn(name as string) as this
+func addLongKeyColumn(name as string)
 {
 	meta {
 		description [[
@@ -238,10 +251,10 @@ func addLongKeyColumn(name as string) as this
 			this class instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forLongIntegerKey(name))
+	addColumn(SQLTableColumnInfo.forLongIntegerKey(name))
 }
 
-func addDoubleColumn(name as string) as this
+func addDoubleColumn(name as string)
 {
 	meta {
 		description [[
@@ -251,10 +264,10 @@ func addDoubleColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forDouble(name))
+	addColumn(SQLTableColumnInfo.forDouble(name))
 }
 
-func addBlobColumn(name as string) as this
+func addBlobColumn(name as string)
 {
 	meta {
 		description [[
@@ -264,10 +277,10 @@ func addBlobColumn(name as string) as this
 			instance and returns itself.
 		]]
 	}
-	return addColumn(SQLTableColumnInfo.forBlob(name))
+	addColumn(SQLTableColumnInfo.forBlob(name))
 }
 
-func addIndex(column as string) as this
+func addIndex(column as string)
 {
 	meta {
 		description [[
@@ -277,15 +290,15 @@ func addIndex(column as string) as this
 			The index constraint is not a unique index constraint.
 		]]
 	}
-	if String.isEmpty(column) == false {
-		if indexes == null:
-			indexes = new vector<SQLTableColumnIndexInfo>
-		indexes += new SQLTableColumnIndexInfo().addColumn(column).setUnique(false)
+	indexes += new SQLTableColumnIndexInfo() {
+		columns [
+			column
+		]
+		unique false
 	}
-	return this
 }
 
-func addMultiColumnIndex(columns as vector<string>) as this
+func addMultiColumnIndex(columns as vector<string>)
 {
 	meta {
 		description [[
@@ -295,19 +308,13 @@ func addMultiColumnIndex(columns as vector<string>) as this
 			The index constraint is not a unique index constraint.
 		]]
 	}
-	if columns != null && sizeof columns > 0 {
-		if indexes == null:
-			indexes = new vector<SQLTableColumnIndexInfo>
-		var index = new SQLTableColumnIndexInfo()
-		index.setUnique(false)
-		foreach column in columns:
-			index.addColumn(column)
-		indexes += index
+	indexes += new SQLTableColumnIndexInfo() {
+		columns columns
+		unique false
 	}
-	return this
 }
 
-func addUniqueIndex(column as string) as this
+func addUniqueIndex(column as string)
 {
 	meta {
 		description [[
@@ -317,15 +324,15 @@ func addUniqueIndex(column as string) as this
 			The index constraint is a unique index constraint.
 		]]
 	}
-	if String.isEmpty(column) == false {
-		if indexes == null:
-			indexes = new vector<SQLTableColumnIndexInfo>
-		indexes += new SQLTableColumnIndexInfo().addColumn(column).setUnique(true)
+	indexes += new SQLTableColumnIndexInfo() {
+		columns [
+			column
+		]
+		unique true
 	}
-	return this
 }
 
-func addUniqueMultiColumnIndex(columns as vector<string>) as this
+func addUniqueMultiColumnIndex(columns as vector<string>)
 {
 	meta {
 		description [[
@@ -335,14 +342,8 @@ func addUniqueMultiColumnIndex(columns as vector<string>) as this
 			The index constraint is a unique index constraint.
 		]]
 	}
-	if columns != null && sizeof columns > 0 {
-		if indexes == null:
-			indexes = new vector<SQLTableColumnIndexInfo>
-		var index = new SQLTableColumnIndexInfo()
-		index.setUnique(true)
-		foreach column in columns:
-			index.addColumn(column)
-		indexes += index
+	indexes += new SQLTableColumnIndexInfo() {
+		columns columns
+		unique true
 	}
-	return this
 }

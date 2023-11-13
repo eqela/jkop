@@ -26,7 +26,7 @@ class is StringObject:
 
 class CData is StringObject public
 {
-	pvar text as string
+	pvar text as string?
 	pvar simple = false
 	pvar singleLine = false
 
@@ -37,11 +37,13 @@ class CData is StringObject public
 	{
 		var sb = new StringBuilder()
 		if simple {
-			sb.appendString(text)
+			if text:
+				sb.appendString(text)
 		}
 		else {
 			sb.appendString("<![CDATA[")
-			sb.appendString(text)
+			if text:
+				sb.appendString(text)
 			sb.appendString("]]>")
 		}
 		return sb.toString()
@@ -59,30 +61,25 @@ class Element is StartElement public
 
 class EndElement is StringObject public
 {
-	pvar name as string
+	pvar name as string?
 
-	ctor(n as string)
-	{
+	ctor(n as string):
 		name = n
-	}
 
-	func toString as string
-	{
+	func toString as string:
 		return "</" .. getName() .. ">"
-	}
 }
 
 class StartElement is StringObject public
 {
-	pvar name as string
-	pvar attributes as map<string, string>
+	pvar name as string?
+	pvar attributes = new map<string,string>
 	pvar single = false
 	pvar singleLine = false
 
 	ctor(n as string)
 	{
 		name = n
-		attributes = new map<string,string>
 	}
 
 	func attribute(key as string, value as string) as this
@@ -91,7 +88,7 @@ class StartElement is StringObject public
 		return this
 	}
 
-	func escapeAttribute(str as string) private as string
+	func escapeAttribute(str as string?) private as string?
 	{
 		if str == null:
 			return str
@@ -120,15 +117,16 @@ class StartElement is StringObject public
 	{
 		var sb = new StringBuilder()
 		sb.appendCharacter('<')
-		sb.appendString(name)
-		var keys as vector<string> #force = Map.getKeys(attributes)
-		foreach key in keys {
+		if name:
+			sb.appendString(name)
+		foreach key in Map.getKeys(attributes) {
 			sb.appendCharacter(' ')
 			sb.appendString(key)
 			sb.appendCharacter('=')
 			sb.appendCharacter('"')
 			var val = escapeAttribute(Map.getValue(attributes, key))
-			sb.appendString(val)
+			if val:
+				sb.appendString(val)
 			sb.appendCharacter('"')
 		}
 		if single {
@@ -142,21 +140,20 @@ class StartElement is StringObject public
 
 class CustomXML public
 {
-	pvar string as string
+	pvar string as string?
 
 	ctor(s as string):
 		string = s
 }
 
-pvar elements as vector
-pvar customHeader as string
+pvar elements = new vector<dynamic>
+pvar customHeader as string?
 pvar singleLine = false
-pvar header as string
+pvar header as string?
 pvar indentWithTab = false
 
 ctor
 {
-	elements = new vector
 	header = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
 }
 
@@ -170,43 +167,36 @@ func startWithAttribute(element as string, k1 as string, v1 as string, singleLin
 {
 	var v = new StartElement(element)
 	v.setSingleLine(singleLine)
-	if k1:
-		v.attribute(k1, v1)
+	v.attribute(k1, v1)
 	add(v)
 	return this
 }
 
-func startWithAttributeMap(element as string, attrs as map, singleLine as bool = false) as this
+func startWithAttributeMap(element as string, attrs as map<string,string>?, singleLine as bool = false) as this
 {
 	var v = new StartElement(element)
 	v.setSingleLine(singleLine)
 	if attrs {
-		var keys = Map.getKeys(attrs)
-		foreach key in keys {
-			var val = attrs[key]
-			v.attribute(key, String.asString(val))
-		}
+		foreach key in Map.getKeys(attrs):
+			v.attribute(key, attrs[key])
 	}
 	add(v)
 	return this
 }
 
-func startWithDynamicAttributeMap(element as string, attrs as DynamicMap, singleLine as bool = false) as this
+func startWithDynamicAttributeMap(element as string, attrs as DynamicMap?, singleLine as bool = false) as this
 {
 	if attrs == null:
-		return startWithAttributeMap(element, null as! map, singleLine)
-	return startWithAttributeMap(element, attrs.toMap(), singleLine)
+		return startWithAttributeMap(element, null, singleLine)
+	return startWithAttributeMap(element, attrs.toStringMap(), singleLine)
 }
 
-func element(element as string, attrs as map) as this
+func element(element as string, attrs as map<string,string>?) as this
 {
 	var v = new Element(element)
 	if attrs {
-		var keys = Map.getKeys(attrs)
-		foreach key in keys {
-			var val = attrs[key]
-			v.attribute(key, String.asString(val))
-		}
+		foreach key in Map.getKeys(attrs):
+			v.attribute(key, attrs[key])
 	}
 	add(v)
 	return this
@@ -230,16 +220,13 @@ func cdata(element as string) as this
 	return this
 }
 
-func textElement(element as string, text as string, attrs as map = null) as this
+func textElement(element as string, text as string, attrs as map<string,string>? = null) as this
 {
 	var se = new StartElement(element)
 	se.setSingleLine(true)
 	if attrs {
-		var keys = Map.getKeys(attrs)
-		foreach key in keys {
-			var val = attrs[key]
-			se.attribute(key, String.asString(val))
-		}
+		foreach key in Map.getKeys(attrs):
+			se.attribute(key, attrs[key])
 	}
 	add(se)
 	add(text)
@@ -247,10 +234,10 @@ func textElement(element as string, text as string, attrs as map = null) as this
 	return this
 }
 
-func add(o as object) as this
+func add(o as object?) as this
 {
 	if o:
-		Vector.append(elements, o)
+		Vector.appendValue(elements, o)
 	return this
 }
 
@@ -276,26 +263,24 @@ func append(sb as StringBuilder, level as int, str as string, noIndent as bool, 
 func escapeString(str as string) private as string
 {
 	var sb = new StringBuilder()
-	if str {
-		foreach c in String.toCharArray(str) {
-			if c == '"' {
-				sb.appendString("&quot;")
-			}
-			else if c == '\'' {
-				sb.appendString("&apos;")
-			}
-			else if c == '<' {
-				sb.appendString("&lt;")
-			}
-			else if c == '>' {
-				sb.appendString("&gt;")
-			}
-			else if c == '&' {
-				sb.appendString("&amp;")
-			}
-			else {
-				sb.appendCharacter(c)
-			}
+	foreach c in String.toCharArray(str) {
+		if c == '"' {
+			sb.appendString("&quot;")
+		}
+		else if c == '\'' {
+			sb.appendString("&apos;")
+		}
+		else if c == '<' {
+			sb.appendString("&lt;")
+		}
+		else if c == '>' {
+			sb.appendString("&gt;")
+		}
+		else if c == '&' {
+			sb.appendString("&amp;")
+		}
+		else {
+			sb.appendCharacter(c)
 		}
 	}
 	return sb.toString()
@@ -326,7 +311,7 @@ func toString as string
 			singleLine = false
 		}
 		else if o is CustomXML {
-			append(sb, level, (o as! CustomXML).getString(), singleLine, singleLine)
+			append(sb, level, String.safeString((o as! CustomXML).getString()), singleLine, singleLine)
 		}
 		else if o is string {
 			append(sb, level, escapeString(o as! string), singleLine, singleLine)

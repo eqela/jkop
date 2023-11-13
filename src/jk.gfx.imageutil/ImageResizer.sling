@@ -26,6 +26,18 @@ import jk.math
 
 class:
 
+class IndexMovingBuffer public
+{
+	prop buf as buffer
+	prop index as long = 0L
+
+	func move(n as int) as this:
+		return new this() {
+			buf buf
+			index index + n
+		}
+}
+
 func li(src1 as double, src2 as double, a as double) static as int
 {
 	var v = ((a*src2) + (1-a)*src1) as int
@@ -41,7 +53,7 @@ func bilinearInterpolation(q11 as int, q21 as int, q12 as int, q22 as int, tx as
 	)
 }
 
-func resizeBilinear(bmpbuf as BitmapBuffer, anw as int, anh as int) static as BitmapBuffer
+func resizeBilinear(bmpbuf as BitmapBuffer, anw as int, anh as int) static as BitmapBuffer?
 {
 	if anw == 0 || anh == 0:
 		return null
@@ -68,7 +80,7 @@ func resizeBilinear(bmpbuf as BitmapBuffer, anw as int, anh as int) static as Bi
 		nw = ((ow as double) * scaler) as int
 		nh = ((oh as double) * scaler) as int
 	}
-	var dest = assert malloc nw*nh*4
+	var dest = Buffer.allocate(nw*nh*4)
 	var desp = dest
 	var srcp = src
 	var dx as int
@@ -314,38 +326,24 @@ func sampleAdapt(src as RGBAPixelIntegerBuffer, xc as double, yc as double, x0 a
 	if cc == 0:
 		cc = 1
 	var aa = c[3]/cc
-	Buffer.setByte(dest.getBuf(),3, aa as byte)
+	Buffer.setByte(dest.buf,3, aa as byte)
 	if aa != 0 {
 		for(i = 0; i < 3; i++):
-			Buffer.setByte(dest.getBuf(), i, (((c[i]/cc) * 255) / aa) as byte)
+			Buffer.setByte(dest.buf, i, (((c[i]/cc) * 255) / aa) as byte)
 	}
 	else {
 		for(i = 0; i < 3; i++):
-			Buffer.setByte(dest.getBuf(), i, 0 as byte)
+			Buffer.setByte(dest.buf, i, 0 as byte)
 	}
 }
 
 func drawableTransformCubic(x as double, jm1 as int, j as int, jp1 as int, jp2 as int) static as double:
 	return j as double + 0.5 * x*(jp1 as double - jm1 as double + x*(2.0*jm1 - 5.0*j + 4.0*jp1 - jp2 + x*(3.0*(j - jp1) + jp2 - jm1)))
 
-class IndexMovingBuffer public
-{
-	pvar buf as buffer
-	pvar index as long
-
-	func move(n as int) as this
-	{
-		var v = new this()
-		v.setBuf(buf)
-		v.setIndex(v.getIndex() + n)
-		return v
-	}
-}
-
 func cubicRow(dx as double, row as IndexMovingBuffer) static as int
 {
 	return drawableTransformCubic(
-		dx, Buffer.getByte(row.getBuf(), 0), Buffer.getByte(row.getBuf(), 4), Buffer.getByte(row.getBuf(), 8), Buffer.getByte(row.getBuf(), 12)
+		dx, Buffer.getByte(row.buf, 0), Buffer.getByte(row.buf, 4), Buffer.getByte(row.buf, 8), Buffer.getByte(row.buf, 12)
 	) as int
 }
 
@@ -353,10 +351,10 @@ func cubicScaledRow(dx as double, row as IndexMovingBuffer, arow as IndexMovingB
 {
 	return drawableTransformCubic(
 		dx,
-		Buffer.getByte(row.getBuf(), 0) * Buffer.getByte(arow.getBuf(), 0),
-		Buffer.getByte(row.getBuf(), 4) * Buffer.getByte(arow.getBuf(), 4),
-		Buffer.getByte(row.getBuf(), 8) * Buffer.getByte(arow.getBuf(), 8),
-		Buffer.getByte(row.getBuf(), 12) * Buffer.getByte(arow.getBuf(), 12)
+		Buffer.getByte(row.buf, 0) * Buffer.getByte(arow.buf, 0),
+		Buffer.getByte(row.buf, 4) * Buffer.getByte(arow.buf, 4),
+		Buffer.getByte(row.buf, 8) * Buffer.getByte(arow.buf, 8),
+		Buffer.getByte(row.buf, 12) * Buffer.getByte(arow.buf, 12)
 	) as int
 }
 
@@ -370,8 +368,8 @@ func sampleCubic(src as PixelRegionBuffer, su as double, sv as double, dest as I
 	var stride = src.getStride()
 	var du as double
 	var dv as double
-	var br = assert src.getBufferRegion(iu - 1, iv -1)
-	dest.setBuf(br)
+	var br = src.getBufferRegion(iu - 1, iv -1)
+	dest.buf = br
 	du = su - iu
 	dv = sv - iv
 	aval = drawableTransformCubic(dv,
@@ -381,15 +379,15 @@ func sampleCubic(src as PixelRegionBuffer, su as double, sv as double, dest as I
 		cubicRow(du, dest.move(3 + stride * 3)))
 	if aval <= 0 {
 		arecip = 0.0
-		Buffer.setByte(dest.getBuf(), 3, 0 as byte)
+		Buffer.setByte(dest.buf, 3, 0 as byte)
 	}
 	else if aval > 255.0 {
 		arecip = 1.0/aval
-		Buffer.setByte(dest.getBuf(), 3, 255 as byte)
+		Buffer.setByte(dest.buf, 3, 255 as byte)
 	}
 	else {
 		arecip = 1.0/aval
-		Buffer.setByte(dest.getBuf(), 3, Math.round(aval) as byte)
+		Buffer.setByte(dest.buf, 3, Math.round(aval) as byte)
 	}
 	for(i = 0; i < 3; i++) {
 		var v = Math.round((arecip *
@@ -399,11 +397,11 @@ func sampleCubic(src as PixelRegionBuffer, su as double, sv as double, dest as I
 				cubicScaledRow(du, dest.move(i + stride * 2), dest.move(3 + stride * 2)),
 				cubicScaledRow(du, dest.move(i + stride * 3), dest.move(3 + stride * 3))))
 		) as int
-		Buffer.setByte(dest.getBuf(), i, ImageFilterUtil.clamp(v) as byte)
+		Buffer.setByte(dest.buf, i, ImageFilterUtil.clamp(v) as byte)
 	}
 }
 
-func resizeBicubic(bb as BitmapBuffer, anw as int, anh as int) static as BitmapBuffer
+func resizeBicubic(bb as BitmapBuffer, anw as int, anh as int) static as BitmapBuffer?
 {
 	if anw == 0 || anh == 0:
 		return null
@@ -425,9 +423,10 @@ func resizeBicubic(bb as BitmapBuffer, anw as int, anh as int) static as BitmapB
 		nw = ((w as double) * scaler) as int
 		nh = ((h as double) * scaler) as int
 	}
-	var v = malloc nw*nh*4
-	var destp as IndexMovingBuffer
-	destp.setBuf(v)
+	var v = Buffer.allocate(nw*nh*4)
+	var destp = new IndexMovingBuffer() {
+		buf v
+	}
 	var y as int
 	var sx = (nw as double) / (w as double)
 	var sy = (nh as double) / (h as double)

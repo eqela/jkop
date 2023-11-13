@@ -26,30 +26,31 @@ class:
 
 func encode(data as buffer, width as int, height as int) static as buffer
 {
-	assert sizeof data > 0
-	var buffer as buffer
-	IFDEF "target_dotnet" {
-		var des = new !"System.IO.MemoryStream"()
+	IFDEF "target_dotnet_cs" {
+		var des = new native<System.IO.MemoryStream>()
 		lang "cs" {{{
-			try {
-				System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(width, height);
-				System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
-					new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
-					System.Drawing.Imaging.ImageLockMode.WriteOnly,
-					bmp.PixelFormat
-				);
-				System.Runtime.InteropServices.Marshal.Copy(data, 0, bmpData.Scan0, data.Length);
-				bmp.UnlockBits(bmpData);
-				bmp.Save(des, System.Drawing.Imaging.ImageFormat.Png);
-			}
-			catch(System.Exception e) {
-				return(null);
-			}
+			System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(width, height);
+			System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
+				new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
+				System.Drawing.Imaging.ImageLockMode.WriteOnly,
+				bmp.PixelFormat
+			);
+			System.Runtime.InteropServices.Marshal.Copy(data, 0, bmpData.Scan0, data.Length);
+			bmp.UnlockBits(bmpData);
+			bmp.Save(des, System.Drawing.Imaging.ImageFormat.Png);
 		}}}
-		buffer = lang "cs" buffer {{{ des.GetBuffer() }}}
+		var v = lang "cs" as buffer? {{{ des.GetBuffer() }}}
+		if v == null:
+			Error.throw("failedToEncode", data)
+		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" buffer {{{ _image:encode_png_data(data, width, height) }}}
+		var v = lang "lua" as buffer? {{{ _image:encode_png_data(data, width, height) }}}
+		if v == null:
+			Error.throw("failedToEncode", data)
+		return v
 	}
-	return buffer
+	ELSE {
+		ERROR "notImplemented"
+	}
 }

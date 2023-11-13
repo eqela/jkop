@@ -24,27 +24,27 @@
 
 class is Reader is SizedReader is SeekableReader:
 
-func readFrom(reader as Reader) static as buffer
+func readFrom(reader as Reader) static as buffer?
 {
-	assert reader
-	var v as buffer
-	var tmp = malloc 1024
+	var v as buffer?
+	var tmp = Buffer.allocate(1024)
 	loop {
 		var r = reader.read(tmp)
 		if r < 1:
 			break
 		v = Buffer.append(v, tmp, r)
-		if v == null:
-			break
 	}
 	return v
 }
 
 func forBuffer(buf as buffer) static as this:
-	return new this().setBuffer(buf)
+	return new this() {
+		sourceBuffer buf
+	}
 
-var buffer as buffer = null
-pvar pos = 0
+prop sourceBuffer as buffer
+
+var pos = 0
 
 func setCurrentPosition(n as int64) as bool
 {
@@ -56,38 +56,30 @@ func getCurrentPosition as int64:
 	return pos
 
 func getBuffer as buffer:
-	return buffer
+	return sourceBuffer
 
 func setBuffer(buf as buffer) as this
 {
-	buffer = buf
+	sourceBuffer = buf
 	pos = 0
 	return this
 }
 
-func rewind as void
-{
+func rewind as void:
 	pos = 0
-}
 
-func getSize as int
-{
-	if buffer == null:
-		return 0
-	return (sizeof buffer) as int
-}
+func getSize as long:
+	return sizeof sourceBuffer
 
 func read(buf as buffer) as int
 {
-	if buf == null || buffer == null:
-		return 0
-	var buffersz = (sizeof buffer) as int
+	var buffersz = (sizeof sourceBuffer) as int
 	if pos >= buffersz:
 		return 0
 	var size = (sizeof buf) as int
 	if size > buffersz - pos:
 		size = buffersz - pos
-	Buffer.copyFrom(buf, buffer, pos, 0, size)
+	Buffer.copyFrom(buf, sourceBuffer, pos, 0, size)
 	pos += size
 	return size
 }

@@ -41,7 +41,7 @@ var blocking private = true
 dtor:
 	close()
 
-func getRemoteAddress override as string
+func getRemoteAddress override as string?
 {
 	var r as int
 	lang "objc" {{{
@@ -51,7 +51,7 @@ func getRemoteAddress override as string
 	}}}
 	if r < 0:
 		return null
-	var v as string = null
+	var v as string? = null
 	lang "objc" {{{
 		char* adds = (char*)inet_ntoa(new_addr.sin_addr);
 		if(adds != NULL) {
@@ -77,7 +77,7 @@ func getRemotePort override as int
 	return r
 }
 
-func getLocalAddress override as string
+func getLocalAddress override as string?
 {
 	var r as int
 	lang "objc" {{{
@@ -87,7 +87,7 @@ func getLocalAddress override as string
 	}}}
 	if r < 0:
 		return null
-	var v as string = null
+	var v as string? = null
 	lang "objc" {{{
 		char* adds = (char*)inet_ntoa(new_addr.sin_addr);
 		if(adds != NULL) {
@@ -122,7 +122,7 @@ func close override
 		r = close(fileDescriptor);
 	}}}
 	if r < 0 {
-		var err as string
+		var err as string?
 		lang "objc" {{{
 			const char* ee = strerror(errno);
 			if(ee != NULL) {
@@ -160,19 +160,19 @@ func setBlocking(blocking as bool) override as bool
 func getBlocking override as bool:
 	return blocking
 
-func connect(address as string, port as int) override as bool
+func connect(address as string, port as int) override
 {
-	if address == null || port < 1 || fileDescriptor >= 0:
-		return false
+	if port < 1:
+		Error.throw("invalidPortNumber", String.forInteger(port))
+	if fileDescriptor >= 0:
+		close()
 	var fd as int
 	lang "objc" {{{
 		fd = socket(AF_INET, SOCK_STREAM, 0);
 	}}}
-	if fd < 0 {
-		println "Failed to create a new TCP (stream) socket"
-		return false
-	}
-	var err as string = null
+	if fd < 0:
+		Error.throw("failedToCreateTcpStreamSocket", null)
+	var err as string? = null
 	lang "objc" {{{
 		int sai_size = sizeof(struct sockaddr_in);
 		struct sockaddr_in svr_addr;
@@ -192,27 +192,25 @@ func connect(address as string, port as int) override as bool
 		lang "objc" {{{
 			close(fd);
 		}}}
-		println "Failed to connect to `" .. address .. ":" .. String.forInteger(port) .. "': " .. err
-		return false
+		Error.throw("failedToConnectTcpSocket", address .. ":" .. String.forInteger(port) .. "': " .. err)
 	}
 	fileDescriptor = fd
-	return true
 }
 
-func listen(port as int) override as bool
+func listen(port as int) override
 {
-	if fileDescriptor >= 0 || port < 1:
-		return false
+	if port < 1:
+		Error.throw("invalidPortNumber", String.forInteger(port))
+	if fileDescriptor >= 0:
+		close()
 	var fd as int
 	lang "objc" {{{
 		int reuseaddr = 1;
 		fd = socket(AF_INET, SOCK_STREAM, 0);
 		setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&reuseaddr, sizeof(int));
 	}}}
-	if fd < 0 {
-		println "Failed to create a new TCP (stream) socket"
-		return false
-	}
+	if fd < 0:
+		Error.throw("failedToCreateTcpStreamSocket", null)
 	var v = false
 	lang "objc" {{{
 		struct sockaddr_in addr;
@@ -229,13 +227,12 @@ func listen(port as int) override as bool
 		lang "objc" {{{
 			close(fd);
 		}}}
-		return false
+		Error.throw("failedToListenToTcpPort", String.forInteger(port))
 	}
 	fileDescriptor = fd
-	return true
 }
 
-func accept override as TCPSocket
+func accept override as TCPSocket?
 {
 	if fileDescriptor < 0:
 		return null

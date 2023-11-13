@@ -28,7 +28,7 @@ class is JcoComponent #jco:
 
 class ContextMenuItem is JcoComponent #jco
 {
-	prop clickHandler as function
+	prop clickHandler as function<void>?
 	prop itemName as string
 	prop parent as ContextMenuPopup
 
@@ -56,13 +56,15 @@ class ContextMenuItem is JcoComponent #jco
 	{
 		var cc = item
 		if cc {
-			lang "js" {{{
-				cc.addEventListener('click', (event) => {
-					event.stopPropagation();
-					event.preventDefault();
-					this.onClicked();
-				})
-			}}}
+			IFDEF "target_browser_js" {
+				lang "js" {{{
+					cc.addEventListener('click', (event) => {
+						event.stopPropagation();
+						event.preventDefault();
+						this.onClicked();
+					})
+				}}}
+			}
 		}
 	}
 
@@ -77,7 +79,7 @@ class ContextMenuItem is JcoComponent #jco
 
 class ContextMenuPopup is JcoComponent #jco
 {
-	prop menuItems as KeyValueList<string, function>
+	prop menuItems as KeyValueList<string,function<void>>
 
 	stylesheet
 	{
@@ -98,23 +100,17 @@ class ContextMenuPopup is JcoComponent #jco
 	{
 		<div var options id="context-menu">
 			{
-				var itr = menuItems.iterate()
-				loop {
-					var it = itr.next()
-					if not it:
-						break
+				foreach it in menuItems.iterate():
 					render createMenuItem(it)
-				}
 			}
 		</div>
 	}
 
-	func createMenuItem(item as KeyValuePair<string, function>) as markup
+	func createMenuItem(item as KeyValuePair<string,function<void>>) as markup
 	{
-		var name = item.key as string
-		var handler = item.value as function
+		var handler = item.value as function<void>
 		return new markup {
-			<ContextMenuItem itemName=@{name} clickHandler=@{handler} parent=@{this}>
+			<ContextMenuItem itemName=@{item.key} clickHandler=@{handler} parent=@{this}>
 			</ContextMenuItem>
 		}
 	}
@@ -122,21 +118,25 @@ class ContextMenuPopup is JcoComponent #jco
 	func showpopup
 	{
 		var celement = options
-		lang "js" {{{
-			celement.classList.add("visible");
-		}}}
+		IFDEF "target_browser_js" {
+			lang "js" {{{
+				celement.classList.add("visible");
+			}}}
+		}
 	}
 
 	func closePopup
 	{
 		var celement = options
-		lang "js" {{{
-			celement.classList.remove("visible");
-		}}}
+		IFDEF "target_browser_js" {
+			lang "js" {{{
+				celement.classList.remove("visible");
+			}}}
+		}
 	}
 }
 
-prop menuItems as KeyValueList<string, function>
+prop menuItems as KeyValueList<string,function<void>>
 
 stylesheet
 {
@@ -162,22 +162,24 @@ func onRendered override
 {
 	var melement = contextMenu
 	var celement = contextMenuPopup
-	lang "js" {{{
-		melement.addEventListener("contextmenu", (event) => {
-			event.preventDefault();
-			celement.style.position = "absolute";
-			const rect = melement.getBoundingClientRect();
-			const x = event.clientX - rect.left;
-			const y = event.clientY - rect.top;
-			celement.style.top = `${y}px`;
-			celement.style.left = `${x}px`;
-			celement.showpopup();
-		});
-		const body = document.querySelector("body");
-		body.addEventListener("click", (e) => {
-			if (e.target.offsetParent != celement) {
-				celement.closePopup();
-			}
-		});
-	}}}
+	IFDEF "target_browser_js" {
+		lang "js" {{{
+			melement.addEventListener("contextmenu", (event) => {
+				event.preventDefault();
+				celement.style.position = "absolute";
+				const rect = melement.getBoundingClientRect();
+				const x = event.clientX - rect.left;
+				const y = event.clientY - rect.top;
+				celement.style.top = `${y}px`;
+				celement.style.left = `${x}px`;
+				celement.showpopup();
+			});
+			const body = document.querySelector("body");
+			body.addEventListener("click", (e) => {
+				if (e.target.offsetParent != celement) {
+					celement.closePopup();
+				}
+			});
+		}}}
+	}
 }

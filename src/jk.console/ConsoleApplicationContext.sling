@@ -29,7 +29,7 @@ import jk.log
 import jk.env
 import jk.process
 
-class is ApplicationContext is LoggingContext:
+class is ApplicationContext:
 
 meta
 {
@@ -46,7 +46,7 @@ func forApplicationName(name as string) static as this
 	return v
 }
 
-pvar applicationName as string
+pvar applicationName as string?
 pvar enableColor = true
 pvar dumbMode = false
 pvar showInfo = true
@@ -56,7 +56,7 @@ pvar showDebug = false
 pvar enableStatus = true
 pvar enableOutput = true
 pvar autoClearStatus = true
-pvar currentPrefix as string
+pvar currentPrefix as string?
 var lastStatus = false
 var lastStatusLength = 0
 var errorCounter = 0
@@ -64,40 +64,32 @@ var warningCounter = 0
 var infoCounter = 0
 var debugCounter = 0
 
-IFDEF "target_dotnet" {
-}
-ELSE {
-	var stdout as PrintWriter
-}
+var stdout as PrintWriter?
 
 ctor
 {
-	IFDEF "target_dotnet" {
-	}
-	ELSE {
-		stdout = Stdout.instance()
-		var term = EnvironmentVariable.get("TERM")
-		if term == null || term == "cygwin":
-			enableColor = false
-	}
+	stdout = Stdout.getIfAvailable()
+	var term = EnvironmentVariable.get("TERM")
+	if term == null || term == "cygwin":
+		enableColor = false
 	var logColor = EnvironmentVariable.get("CONSOLE_LOG_COLOR")
 	if logColor:
-		enableColor = Boolean.asBoolean(logColor)
+		enableColor = Boolean.asValueOrThrowError(logColor)
 	var logDebug = EnvironmentVariable.get("CONSOLE_LOG_DEBUG")
 	if not logDebug:
 		logDebug = EnvironmentVariable.get("CONSOLE_DEBUG")
 	if not logDebug:
 		logDebug = EnvironmentVariable.get("EQELA_DEBUG")
 	if logDebug:
-		setEnableDebugMessages(Boolean.asBoolean(logDebug))
+		setEnableDebugMessages(Boolean.asValueOrThrowError(logDebug))
 }
 
 IFDEF "target_android" {
-	func getAndroidActivityContext as !"android.content.Context":
+	func getAndroidActivityContext as native<android.content.Context>:
 		return null
 }
 
-func isInDebugMode as bool:
+func isInDebugMode override as bool:
 	return showDebug
 
 func setEnableDebugMessages(v as bool) as this
@@ -113,7 +105,7 @@ func useApplicationNameAsPrefix
 		currentPrefix = CurrentProcess.getProcessName()
 }
 
-func resetCounters
+func resetCounters override
 {
 	errorCounter = 0
 	warningCounter = 0
@@ -121,47 +113,47 @@ func resetCounters
 	debugCounter = 0
 }
 
-func getErrorCount as int:
+func getErrorCount override as int:
 	return errorCounter
 
-func getWarningCount as int:
+func getWarningCount override as int:
 	return warningCounter
 
-func getInfoCount as int:
+func getInfoCount override as int:
 	return infoCounter
 
-func getDebugCount as int:
+func getDebugCount override as int:
 	return debugCounter
 
-func logError(message as string)
+func logError(message as string) override
 {
 	if showError && enableOutput:
 		doPrintLine("ERROR", 91, currentPrefix, message)
 	errorCounter ++
 }
 
-func logWarning(message as string)
+func logWarning(message as string) override
 {
 	if showWarning && enableOutput:
 		doPrintLine("WARNING", 95, currentPrefix, message)
 	warningCounter ++
 }
 
-func logInfo(message as string)
+func logInfo(message as string) override
 {
 	if showInfo && enableOutput:
 		doPrintLine("INFO", -1, currentPrefix, message)
 	infoCounter ++
 }
 
-func logDebug(message as string)
+func logDebug(message as string) override
 {
 	if showDebug && enableOutput:
 		doPrintLine("DEBUG", 96, currentPrefix, message)
 	debugCounter ++
 }
 
-func logStatus(message as string)
+func logStatus(message as string?) override
 {
 	if enableOutput && enableStatus {
 		if currentPrefix && message {
@@ -173,102 +165,61 @@ func logStatus(message as string)
 	}
 }
 
-func getApplicationDataDirectory as File:
+func getApplicationDataDirectory override as File?:
 	return getApplicationDataDirectoryForAppId(applicationName)
 
-func getApplicationDataDirectoryForAppId(appId as string = null) as File
+func getApplicationDataDirectoryForAppId(appId as string? = null) as File?
 {
 	var applicationName = appId
 	if String.isEmpty(applicationName):
 		applicationName = CurrentProcess.getProcessName()
 	if String.isEmpty(applicationName):
 		return null
-	var v as File
-	IFDEF "target_dotnet4cs" {
-		if OS.isWindows() {
-			v = File.forPath(lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData) }}}).entry(applicationName)
-		}
-	}
-	if v == null:
-		v = File.forRelativePath("." .. applicationName, CommonPath.getHomeDirectory())
+	var v as File?
+	var hd = CommonPath.getHomeDirectory()
+	if hd:
+		v = File.forRelativePath("." .. applicationName, hd)
 	return v
 }
 
-func doPrintLine(type as string #preserve, color as int #preserve, prefix as string #preserve, message as string #preserve) private
+func doPrintLine(type as string? #preserve, color as int #preserve, prefix as string? #preserve, message as string? #preserve) private
 {
 	if autoClearStatus:
 		doPrintStatus(null)
-	IFDEF "target_dotnet" {
-		if lastStatus {
-			lang "cs" {{{
-				System.Console.WriteLine("");
-			}}}
-		}
-		lang "cs" {{{
-			System.Console.ResetColor();
-			if(type != null || prefix != null) {
-				System.Console.Write("[");
-				if(enableColor && dumbMode == false) {
-					if(color == 91) {
-						System.Console.ForegroundColor = System.ConsoleColor.Red;
-					}
-					else if(color == 95) {
-						System.Console.ForegroundColor = System.ConsoleColor.Magenta;
-					}
-					else if(color == 96) {
-						System.Console.ForegroundColor = System.ConsoleColor.Cyan;
-					}
-				}
-				if(type != null) {
-					System.Console.Write(type);
-					if(prefix != null) {
-						System.Console.Write(":");
-					}
-				}
-				System.Console.ResetColor();
-				if(prefix != null) {
-					System.Console.Write(prefix);
-				}
-				System.Console.Write("] ");
-			}
-			System.Console.WriteLine(message);
-		}}}
-	}
-	ELSE {
-		var sb = new StringBuilder()
-		if lastStatus:
-			sb.appendCharacter('\n')
-		if type || prefix {
-			sb.appendCharacter('[')
-			if dumbMode == false && enableColor && color >= 0 {
-				sb.appendCharacter(0x1b as char)
-				sb.appendCharacter('[')
-				sb.appendInteger(color)
-				sb.appendCharacter('m')
-			}
-			if type {
-				sb.appendString(type)
-				if prefix:
-					sb.appendCharacter(':')
-			}
-			if prefix:
-				sb.appendString(prefix)
-			if dumbMode == false && enableColor && color >= 0 {
-				sb.appendCharacter(0x1b as char)
-				sb.appendString("[39m")
-			}
-			sb.appendCharacter(']')
-			sb.appendCharacter(' ')
-		}
-		sb.appendString(message)
+	var sb = new StringBuilder()
+	if lastStatus:
 		sb.appendCharacter('\n')
-		if stdout:
-			stdout.print(sb.toString())
+	if type || prefix {
+		sb.appendCharacter('[')
+		if dumbMode == false && enableColor && color >= 0 {
+			sb.appendCharacter(0x1b as char)
+			sb.appendCharacter('[')
+			sb.appendInteger(color)
+			sb.appendCharacter('m')
+		}
+		if type {
+			sb.appendString(type)
+			if prefix:
+				sb.appendCharacter(':')
+		}
+		if prefix:
+			sb.appendString(prefix)
+		if dumbMode == false && enableColor && color >= 0 {
+			sb.appendCharacter(0x1b as char)
+			sb.appendString("[39m")
+		}
+		sb.appendCharacter(']')
+		sb.appendCharacter(' ')
 	}
+	if message:
+		sb.appendString(message)
+	sb.appendCharacter('\n')
+	if stdout:
+		stdout.print(sb.toString())
 	lastStatus = false
 }
 
-func doPrintStatus(m as string #preserve) private
+func doPrintStatus(m as string? #preserve) private
 {
 	if showDebug && m {
 		doPrintLine(null, -1, null, m)
@@ -277,15 +228,8 @@ func doPrintStatus(m as string #preserve) private
 	if dumbMode {
 		if m == null:
 			return
-		IFDEF "target_dotnet" {
-			lang "cs" {{{
-				System.Console.WriteLine(m);
-			}}}
-		}
-		ELSE {
-			if stdout:
-				stdout.print(m .. "\n")
-		}
+		if stdout:
+			stdout.print(m .. "\n")
 		return
 	}
 	if lastStatusLength < 1 && m == null {
@@ -299,23 +243,13 @@ func doPrintStatus(m as string #preserve) private
 	var rm = m
 	if rm {
 		var width = 0
-		IFDEF "target_dotnet" {
-			width = lang "cs" int {{{ System.Console.WindowWidth }}}
-		}
 		if width > 0 && String.getLength(rm) >= width:
 			rm = String.getSubString(rm, 0, width - 4) .. " .."
 		sb.appendString(rm)
 	}
-	IFDEF "target_dotnet" {
-		lang "cs" {{{
-			System.Console.Write(sb.toString());
-		}}}
-	}
-	ELSE {
-		if stdout:
-			stdout.print(sb.toString())
-	}
-	if m {
+	if stdout:
+		stdout.print(sb.toString())
+	if m && rm {
 		lastStatusLength = String.getLength(rm)
 	}
 	else {

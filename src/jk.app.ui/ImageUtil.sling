@@ -37,13 +37,12 @@ IFDEF "target_ios" {
 
 func createCircularImageSync(m as Image) static as Image
 {
-	assert m
 	var image = m
 	var minSize = Math.min(image.getPixelWidth(), image.getPixelHeight()) as int
 	image = image.cropSync(0, 0, minSize, minSize)
 	IFDEF "target_ios" {
-		var outputImage as !"UIImage"
-		var bytesData #used = image.toPNGData()
+		var outputImage as native<UIImage>?
+		var bytesData = image.toPNGData()
 		IFDEF "target_objc" {
 			lang "objc" {{{
 				NSData *imageData = [NSData dataWithBytes:[bytesData bytes] length:[bytesData length]];
@@ -75,10 +74,10 @@ func createCircularImageSync(m as Image) static as Image
 		return ImageForIOS.forUIImage(outputImage)
 	}
 	ELSE IFDEF "target_android" {
-		var w #used = image.getPixelWidth()
-		var h #used = image.getPixelHeight()
+		var w = image.getPixelWidth()
+		var h = image.getPixelHeight()
 		var img = assert (image as ImageForAndroid).getAndroidBitmap()
-		var output as !"android.graphics.Bitmap"
+		var output as native<android.graphics.Bitmap>?
 		IFDEF "target_java" {
 			lang "java" {{{
 				output = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888);
@@ -110,22 +109,18 @@ func createCircularImageSync(m as Image) static as Image
 		return ImageForAndroid.forAndroidBitmap(output)
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func createCircularImage(oimage as Image, callback as function<void, Image>) static
+func createCircularImage(oimage as Image, callback as function<void,Image?>) static
 {
-	assert callback
-	assert oimage:
-		callback(null)
-	IFNDEF "target_html" {
+	IFNDEF "target_browser_js" {
 		callback(createCircularImageSync(oimage))
 	}
 	ELSE {
 		var minSize = Math.min(oimage.getPixelWidth(), oimage.getPixelHeight()) as int
-		oimage.crop(0, 0, minSize, minSize, func(image as Image) {
+		oimage.crop(0, 0, minSize, minSize, func(image as Image?) {
 			assert image:
 				callback(null)
 			lang "js" {{{
@@ -151,7 +146,7 @@ func createCircularImage(oimage as Image, callback as function<void, Image>) sta
 				var src = cnv.toDataURL();
 				var imo = new Image();
 				imo.onload = function() {
-					var img = JkUiImageForBrowser.NEW();
+					var img = JkAppUiImageForBrowserJS.NEW();
 					img.image = imo;
 					callback(img);
 				};

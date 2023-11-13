@@ -28,7 +28,7 @@ import jk.thread
 
 class:
 
-func forCommonDetails(serverAddress as string, serverUsername as string, serverPassword as string, senderName as string, senderAddress as string) static as this
+func forCommonDetails(ctx as LoggingContext, serverAddress as string, serverUsername as string, serverPassword as string, senderName as string, senderAddress as string) static as this
 {
 	var config = new DynamicMap()
 	config.setString("server_type", "smtp+ssl")
@@ -37,44 +37,47 @@ func forCommonDetails(serverAddress as string, serverUsername as string, serverP
 	config.setString("server_address", serverAddress)
 	config.setString("sender_name", senderName)
 	config.setString("sender_address", senderAddress)
-	return forConfiguration(config)
+	return forConfiguration(ctx, config)
 }
 
-func forRemoteServerUrl(url as string) static as this
+func forRemoteServerUrl(ctx as LoggingContext, url as string) static as this
 {
-	var v = new this()
+	var v = new this() {
+		ctx ctx
+	}
 	v.setServer(url)
 	return v
 }
 
-func forServerAddress(name as string, ctx as LoggingContext) static as this:
-	return new this().setThisServerAddress(name).setCtx(ctx)
+func forServerAddress(ctx as LoggingContext, name as string) static as this:
+	return new this() {
+		ctx ctx
+		thisServerAddress name
+	}
 
-func forConfiguration(config as DynamicMap, ctx as LoggingContext = null) static as this:
-	return new this().setCtx(ctx).configure(config)
+func forConfiguration(ctx as LoggingContext, config as DynamicMap) static as this:
+	return new this() { ctx ctx }.configure(config)
 
-pvar thisServerAddress as string
-pvar server as string
-pvar myName as string
-pvar myAddress as string
-pvar ctx as LoggingContext
+prop ctx as LoggingContext
+prop thisServerAddress as string = "smtpclient.jkop"
+
+pvar server as string?
+pvar myName as string?
+pvar myAddress as string?
 pvar maxSenderCount = 0
 pvar acceptInvalidCertificate = false
-var serverInternal as string
+var serverInternal as string?
 var senderCount = 0
-
-ctor:
-	thisServerAddress = "smtpclient.jkop"
 
 func getDescription as string
 {
 	var sb = new StringBuilder()
-	if String.isEmpty(myName) == false {
+	if String.isNotEmpty(myName) {
 		sb.appendCharacter('"')
 		sb.appendString(myName)
 		sb.appendCharacter('"')
 	}
-	if String.isEmpty(myAddress) == false {
+	if String.isNotEmpty(myAddress) {
 		var hasName = false
 		if sb.count() > 0:
 			hasName = true
@@ -89,7 +92,7 @@ func getDescription as string
 	var s = serverInternal
 	if String.isEmpty(s):
 		s = server
-	if String.isEmpty(s) == false {
+	if String.isNotEmpty(s) {
 		sb.appendCharacter(' ')
 		sb.appendCharacter('(')
 		sb.appendString(s)
@@ -102,10 +105,8 @@ func getDescription as string
 
 func configure(config as DynamicMap) as this
 {
-	if config == null:
-		return this
 	var defaultPort = "25"
-	var scheme = config.getString("server_type", "smtp")
+	var scheme = config.getStringOrDefaultValue("server_type", "smtp")
 	if String.equals("smtp+ssl", scheme):
 		defaultPort = "465"
 	var url = new URL()
@@ -113,14 +114,15 @@ func configure(config as DynamicMap) as this
 		.setUsername(config.getString("server_username"))
 		.setPassword(config.getString("server_password"))
 		.setHost(config.getString("server_address"))
-		.setPort(config.getString("server_port", defaultPort))
+		.setPort(config.getStringOrDefaultValue("server_port", defaultPort))
 	setServer(url.toString())
 	url.setPassword(null)
 	serverInternal = url.toString()
-	setMyName(config.getString("sender_name", "SMTP"))
-	setMyAddress(config.getString("sender_address", "my@address.com"))
-	setThisServerAddress(config.getString("this_server_address", thisServerAddress))
-	setAcceptInvalidCertificate(config.getBoolean("accept_invalid_certificate", acceptInvalidCertificate))
+	setMyName(config.getStringOrDefaultValue("sender_name", "SMTP"))
+	setMyAddress(config.getStringOrDefaultValue("sender_address", "my@address.com"))
+	if var sa = config.getString("this_server_address"):
+		thisServerAddress = sa
+	setAcceptInvalidCertificate(config.getBooleanOrDefaultValue("accept_invalid_certificate", acceptInvalidCertificate))
 	return this
 }
 
@@ -136,15 +138,10 @@ func onSendEnd
 	Log.debug(ctx, "SMTP send end: Now " .. String.forInteger(senderCount) .. " sender(s)")
 }
 
-func send(msg as SMTPMessage, listener as SMTPSenderListener = null)
+func send(msg as SMTPMessage, listener as SMTPSenderListener? = null)
 {
-	if msg == null {
-		if listener:
-			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("No message to send"))
-		return
-	}
 	var rcpts = msg.getAllRcpts()
-	if rcpts == null || rcpts.getSize() < 1 {
+	if rcpts.getSize() < 1 {
 		if listener:
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forSuccess())
 		return
@@ -155,32 +152,28 @@ func send(msg as SMTPMessage, listener as SMTPSenderListener = null)
 			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("Maximum number of SMTP senders has been exceeded."))
 		return
 	}
-	if String.isEmpty(myName) == false:
+	if String.isNotEmpty(myName):
 		msg.setMyName(myName)
-	if String.isEmpty(myAddress) == false:
+	if String.isNotEmpty(myAddress):
 		msg.setMyAddress(myAddress)
-	var sct = new SMTPClientTask()
-	if String.isEmpty(server) == false:
-		sct.setServer(URL.forString(server))
-	sct.setCtx(ctx)
-	sct.setServerAddress(thisServerAddress)
-	sct.setMsg(msg)
-	sct.setListener(listener)
-	sct.setSender(this)
-	sct.setAcceptInvalidCertificate(acceptInvalidCertificate)
-	if Thread.start(sct) == null {
-		Log.error(ctx, "Failed to start SMTP sender background task")
-		if listener:
-			listener.onSMTPSendComplete(msg, SMTPClientResult.forError("Failed to start SMTP sender background task"))
-		return
+	var serverUrl as URL?
+	if String.isNotEmpty(server):
+		serverUrl = URL.forString(server)
+	var sct = new SMTPClientTask() {
+		ctx ctx
+		server serverUrl
+		senderDomain thisServerAddress
+		message msg
+		listener listener
+		sender this
+		acceptInvalidCertificate acceptInvalidCertificate
 	}
+	Thread.start(sct)
 	onSendStart()
 }
 
 func sendSync(msg as SMTPMessage) as SMTPClientResult
 {
-	if not msg:
-		return SMTPClientResult.forError("No message was given to SMTPClientTask", msg)
 	if maxSenderCount > 0 && senderCount > maxSenderCount {
 		Log.warning(ctx, "Reached maximum sender count " .. String.forInteger(maxSenderCount))
 		return SMTPClientResult.forError("Maximum number of SMTP senders has been exceeded.")
@@ -189,13 +182,11 @@ func sendSync(msg as SMTPMessage) as SMTPClientResult
 		msg.setMyName(myName)
 	if String.isNotEmpty(myAddress):
 		msg.setMyAddress(myAddress)
-	var sct = new SMTPClientTask()
-	if String.isEmpty(server) == false:
-		sct.setServer(URL.forString(server))
+	var serverUrl as URL?
+	if String.isNotEmpty(server):
+		serverUrl = URL.forString(server)
 	onSendStart()
-	var r = SMTPClient.sendMessage(msg, URL.forString(server), thisServerAddress, ctx, acceptInvalidCertificate)
-	if not r:
-		r = SMTPClientResult.forError("Unknown error", msg)
+	var r = new SMTPClient() { ctx ctx }.sendMessage(msg, thisServerAddress, serverUrl, acceptInvalidCertificate)
 	onSendEnd()
 	return r
 }

@@ -1,0 +1,233 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.url
+import jk.awsapi
+
+class is AwsApi:
+
+model CreateBucketConfigurationData public
+{
+	Bucket as string #required #[location=uri] #[locationName=Bucket]
+	ACL as string #[location=header] #[locationName=x-amz-acl]
+	LocationConstraint as string
+}
+
+model BucketNotification public
+{
+	CloudFunctionConfiguration as CloudFunctionConfigurationData
+	TopicConfiguration as TopicConfigurationDeprecatedData
+	QueueConfiguration as QueueConfigurationDeprecatedData
+}
+
+model CloudFunctionConfigurationData public
+{
+	Event as string
+	Events as vector<string> #[locationName=Event]
+	CloudFunction as string
+	InvocationRole as string
+	Id as string
+}
+
+model TopicConfigurationDeprecatedData public
+{
+	Topic as string
+	Event as string
+	Events as vector<string> #[locationName=Event]
+	Id as string
+}
+
+model QueueConfigurationDeprecatedData public
+{
+	Queue as string
+	Event as string
+	Events as vector<string> #[locationName=Event]
+	Id as string
+}
+
+model PutObjectRequestData public
+{
+	Body as buffer #payload
+	ContentLength as long #[location=header] #[locationName=Content-Length]
+	ContentType as string #[location=header] #[locationName=Content-Type]
+	Key as string #required #[location=uri] #[locationName=Key]
+	Bucket as string #required #[location=uri] #[locationName=Bucket]
+	Expect as string #[location=header] #[locationName=Expect]
+}
+
+model ObjectData public
+{
+	AcceptRanges as string #[location=header] #[locationName=accept-ranges]
+	ContentLength as long #[location=header] #[locationName=Content-Length]
+	ContentRange as string #[location=header] #[locationName=Content-Range]
+	ContentType as string #[location=header] #[locationName=Content-Type]
+	ETag as string #[location=header] #[locationName=ETag]
+	LastModified as long #[location=header] #[locationName=Last-Modified]
+	Metadata as DynamicMap #[location=headers] #[locationName=x-amz-meta-]
+	VersionId as string #[location=header] #[locationName=x-amz-version-id]
+	TagCount as int #[location=header] #[locationName=x-amz-tagging-count]
+	Expires as long #[location=header] #[locationName=Expires]
+	Body as buffer #payload
+}
+
+model CopyObjectRequestData public
+{
+	CopySource as string #required #[location=header] #[locationName=x-amz-copy-source]
+	Key as string #required #[location=uri] #[locationName=Key]
+	Bucket as string #required #[location=uri] #[locationName=Bucket]
+	ContentType as string #[location=header] #[locationName=Content-Type]
+	ACL as string #[location=header] #[locationName=x-amz-acl]
+	Metadata as DynamicMap #[location=headers] #[locationName=x-amz-meta-]
+}
+
+model CopyObjectOutputData public
+{
+	CopySourceVersionId as string #[location=header] #[locationName=x-amz-copy-source-version-id]
+	Expiration as string #[location=header] #[locationName=x-amz-expiration]
+	CopyObjectResult as CopyObjectResultData #payload
+	VersionId as string #[location=header] #[locationName=x-amz-version-id]
+	RequestCharged as string #[location=header] #[locationName=x-amz-request-charged]
+	SSECustomerKeyMD5 as string #[location=header] #[locationName=x-amz-server-side-encryption-customer-key-MD5]
+	SSECustomerAlgorithm as string #[location=header] #[locationName=x-amz-server-side-encryption-customer-algorithm]
+	SSEKMSEncryptionContext as string #[location=header] #[locationName=x-amz-server-side-encryption-context]
+	ServerSideEncryption as string #[location=header] #[locationName=x-amz-server-side-encryption]
+	BucketKeyEnabled as bool #[location=header] #[locationName=x-amz-server-side-encryption-bucket-key-enabled]
+	SSEKMSKeyId as string #[location=header] #[locationName=x-amz-server-side-encryption-aws-kms-key-id]
+}
+
+model CopyObjectResultData public
+{
+	LastModified as long
+	ETag as string
+}
+
+prop s3Endpoint as string
+
+func forAccount(ctx as LoggingContext, region as string, accessKey as string, secretKey as string, endpoint as string) static as this
+{
+	var aac = AwsApiContext.forCredentials(ctx, region, accessKey, secretKey, null)
+	return new this() {
+		context aac
+		s3Endpoint endpoint
+	}
+}
+
+func execute(method as string, path as string, action as string, parameters as DynamicModel?, result as DynamicModel? = null, protocol as string = "rest-xml") async
+{
+	var v = new map
+	Map.set(v, "protocol", protocol)
+	Map.set(v, "service", "s3")
+	Map.set(v, "version", "2006-03-01")
+	Map.set(v, "endpoint", s3Endpoint)
+	Map.set(v, "method", method)
+	Map.set(v, "path", path)
+	Map.set(v, "action", action)
+	if parameters:
+		Map.set(v, "parameters", parameters)
+	await callAwsApi(v, result)
+}
+
+func encodeUrl(value as string) as string:
+	return URLEncoder.encode(value, false, false)
+
+func createBucket(input as CreateBucketConfigurationData, bucketName as string) async:
+	await execute("PUT", "/" .. encodeUrl(bucketName), "CreateBucket", input)
+
+func deleteBucket(bucketName as string) async:
+	await execute("DELETE", "/" .. encodeUrl(bucketName), "DeleteBucket", null)
+
+func getBucketNotification(bucketName as string) async as BucketNotification
+{
+	var url = "/" .. encodeUrl(bucketName) .. "?notification"
+	var v = new BucketNotification()
+	await execute("GET", url, "GetBucketNotification", null, v)
+	return v
+}
+
+func createDirectory(bucketName as string, directoryName as string, path as string) async
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var url = "/" .. encodeUrl(bucketName) .. path .. encodeUrl(directoryName) .. "/"
+	await execute("PUT", url, "CreateDirectory", null)
+}
+
+func deleteDirectory(bucketName as string, directoryName as string, path as string) async
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var url = "/" .. encodeUrl(bucketName) .. path .. encodeUrl(directoryName) .. "/"
+	await execute("DELETE", url, "DeleteDirectory", null)
+}
+
+func putObject(bucketName as string, path as string, objectKey as string, contentType as string, file as buffer) async
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var data = new PutObjectRequestData() {
+		Body file
+		Key objectKey
+		Bucket bucketName
+		ContentLength Buffer.getSize(file)
+		ContentType contentType
+		Expect "100-continue"
+	}
+	var url = "/{Bucket}" .. path .. "{Key}"
+	await execute("PUT", url, "PutObject", data)
+}
+
+func getObject(bucketName as string, path as string, objectKey as string) async as ObjectData
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var url = "/" .. encodeUrl(bucketName) .. path .. encodeUrl(objectKey)
+	var v = new ObjectData()
+	await execute("GET", url, "GetObject", null, v)
+	return v
+}
+
+func copyObject(bucketName as string, path as string, objectKey as string, input as CopyObjectRequestData) async as CopyObjectOutputData
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var url = "/" .. encodeUrl(bucketName) .. path .. encodeUrl(objectKey)
+	var v = new CopyObjectOutputData()
+	await execute("PUT", url, "CopyObject", input, v)
+	return v
+}
+
+func deleteObject(bucketName as string, path as string, objectKey as string) async
+{
+	var path = "/" .. path .. "/"
+	if String.isEmpty(path):
+		path = "/"
+	var url = "/" .. encodeUrl(bucketName) .. path .. encodeUrl(objectKey)
+	await execute("DELETE", url, "DeleteObject", null)
+}

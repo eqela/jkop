@@ -1,0 +1,213 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.env
+
+class:
+
+class MyRunningProcess is Process
+{
+	var cp as dynamic?
+
+	ctor(cp as dynamic):
+		this.cp = cp
+
+	func getId as string
+	{
+		var pid as int
+		lang "js" {{{
+			pid = this.cp.pid;
+		}}}
+		return String.forInteger(pid)
+	}
+
+	func isRunning as bool
+	{
+		var running = false
+		lang "js" {{{
+			running = this.cp.exitCode == null;
+		}}}
+		return running
+	}
+
+	func getExitStatus as int
+	{
+		var ec = -1
+		if isRunning():
+			return ec
+		lang "js" {{{
+			ec = this.cp.exitCode;
+		}}}
+		return ec
+	}
+
+	func sendInterrupt
+	{
+		lang "js" {{{
+			cp.kill('SIGINT');
+		}}}
+	}
+
+	func killRequest
+	{
+		lang "js" {{{
+			this.cp.kill('SIGTERM');
+		}}}
+	}
+
+	func killForce
+	{
+		lang "js" {{{
+			this.cp.kill('SIGKILL');
+		}}}
+	}
+
+	func kill(timeout as int)
+	{
+		killRequest()
+		if (isRunning()) {
+			lang "js" {{{
+				setTimeout(() => {
+					this.killForce();
+				}, timeout);
+			}}}
+		}
+	}
+
+	func waitForExit as int:
+		ERROR "notImplemented"
+}
+
+class MyCompletedProcess is Process
+{
+	var process as dynamic?
+
+	ctor(process as dynamic):
+		this.process = process
+
+	func getId as string
+	{
+		if not process:
+			return ""
+		return String.forInteger(process.pid as int)
+	}
+
+	func isRunning as bool:
+		return false
+
+	func getExitStatus as int
+	{
+		if not process:
+			return -1
+		return process.status as int
+	}
+
+	func sendInterrupt:
+		nop
+
+	func killRequest:
+		nop
+
+	func killForce:
+		nop
+
+	func kill(timeout as int):
+		nop
+
+	func waitForExit as int:
+		return getExitStatus()
+}
+
+func mergeStringMap(from as map<string,string>, to as dynamic) static private
+{
+	foreach key in Map.getKeys(from):
+		lang "js" {{{
+			to[key] = from.get(key)
+		}}}
+}
+
+func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver?) static as Process
+{
+	var ff = launcher.file
+	var params = launcher.params
+	var cwdp as string?
+	var cwd = launcher.cwd
+	if cwd != null:
+		cwdp = cwd.getPath()
+	var env = lang "js" as dynamic {{{ {} }}}
+	if launcher.inheritEnvironmentVariables:
+		mergeStringMap(EnvironmentVariable.getAll(), env)
+	mergeStringMap(launcher.env, env)
+	var cp = lang "js" as dynamic {{{ require('child_process') }}}
+	var options = lang "js" as dynamic {{{
+		{
+			cwd: cwdp,
+			env: env,
+			encoding: 'buffer',
+			shell: false,
+			windowsHide: true,
+			stdio: pipeHandler ? [ 'pipe', 'pipe', 'pipe' ] : [ 'inherit', 'inherit', 'inherit' ]
+		}
+	}}}
+	if wait {
+		lang "js" {{{
+			let ignoreSignal = () => {}
+		}}}
+		if launcher.trapSigint {
+			lang "js" {{{
+				process.on("SIGINT", ignoreSignal);
+			}}}
+		}
+		var r = lang "js" as dynamic {{{
+			cp.spawnSync(ff.getPath(), params, options);
+		}}}
+		if pipeHandler {
+			if r.stdout:
+				pipeHandler.onBufferData(r.stdout as! buffer, r.stdout!.byteLength as int)
+			if r.stderr:
+				pipeHandler.onBufferData(r.stderr as! buffer, r.stderr!.byteLength as int)
+		}
+		if launcher.trapSigint {
+			lang "js" {{{
+				process.removeListener("SIGINT", ignoreSignal);
+			}}}
+		}
+		return new MyCompletedProcess(r)
+	}
+	var r = lang "js" as dynamic {{{
+		cp.spawn(ff.getPath(), params, options)
+	}}}
+	var v = new MyRunningProcess(r)
+	if pipeHandler {
+		lang "js" {{{
+			r.stdout.on('data', (data) => {
+				pipeHandler.onBufferData(data, data.byteLength)
+			});
+			r.stderr.on('data', (data) => {
+				pipeHandler.onBufferData(data, data.byteLength)
+			});
+		}}}
+	}
+	return v
+}

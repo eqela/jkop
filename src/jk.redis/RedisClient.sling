@@ -23,61 +23,24 @@
  */
 
 import jk.log
-import jk.nodejs
 
-class:
+class abstract:
 
-depend "npm:@redis/client:1.5.5"
+func instance(ctx as LoggingContext) static as this
+{
+    IFDEF "target_node_js" {
+        return new RedisClientForNodeJS() {
+            ctx ctx
+        }
+    }
+    ELSE {
+        ERROR "notImplemented"
+    }
+}
 
 prop ctx as LoggingContext
 
-var redisClient as dynamic
-
-ctor:
-	nop
-
-ctor(redisAddress as string):
-	connect(redisAddress)
-
-func connect(redisAddress as string) async
-{
-	await disconnect()
-	var api = NodeModule.require("@redis/client")
-	redisClient = api.createClient({
-		url redisAddress
-		socket {
-			reconnectStrategy func as dynamic {
-				return 1000
-			}
-		}
-	})
-	redisClient.on("error", func {
-		redisClient = null
-	})
-	await redisClient.connect()
-}
-
-func disconnect async
-{
-	if redisClient {
-		await redisClient.disconnect()
-		redisClient = null
-	}
-}
-
-func set(key as string, value as string, options as map) async
-{
-	assert redisClient
-	if ctx && ctx.isInDebugMode():
-		Log.debug(ctx, "Redis SET `" .. key .. "' = `" .. value .. "'")
-	redisClient.set(key, value, lang "js" dynamic {{{ Object.fromEntries(options) }}})
-}
-
-func get(key as string) async as string
-{
-	assert redisClient
-	var value = String.asString(await redisClient.get(key))
-	if ctx && ctx.isInDebugMode():
-		Log.debug(ctx, "Redis GET `" .. key .. "' = `" .. value .. "'")
-	return value
-}
+func connect(url as string) async abstract
+func disconnect async abstract
+func set(key as string, value as string, options as map<string,dynamic>) async abstract
+func get(key as string) async abstract as string?

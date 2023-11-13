@@ -26,21 +26,22 @@ import jk.log
 
 class abstract:
 
-func createDefault static as this:
-	return new HTTPClientOperation()
+func createDefault(ctx as LoggingContext) static as this:
+	return new HTTPClientOperation() {
+		ctx ctx
+	}
 
-func executeWithClient(client as this, request as HTTPClientRequest, listener as HTTPClientListener) static
+func executeWithClient(client as this, request as HTTPClientRequest?, listener as HTTPClientListener?) static
 {
-	assert client
 	client.executeRequest(request, listener)
 }
 
 class MyListener is HTTPClientListener
 {
-	pvar response as HTTPClientResponse
-	pvar buffer as buffer
-	pvar errorHandler as function<void,string>
-	pvar ctx as LoggingContext
+	pvar response as HTTPClientResponse?
+	pvar buffer as buffer?
+	pvar errorHandler as function<void,string>?
+	pvar ctx as LoggingContext?
 
 	func onResponseReceived(response as HTTPClientResponse) override as bool
 	{
@@ -58,7 +59,7 @@ class MyListener is HTTPClientListener
 	{
 	}
 
-	func onStatus(message as string) override
+	func onStatus(message as string?) override
 	{
 		if message:
 			Log.debug(ctx, message)
@@ -76,7 +77,7 @@ class MyListener is HTTPClientListener
 	}
 }
 
-func execute(ctx as LoggingContext, client as this, request as HTTPClientRequest, listener as function<void,HTTPClientResponse>, errorHandler as function<void,string> = null) static
+func execute(ctx as LoggingContext, client as this, request as HTTPClientRequest?, listener as function<void,HTTPClientResponse?>?, errorHandler as function<void,string>? = null) static
 {
 	var ll = new MyListener()
 	ll.setCtx(ctx)
@@ -86,7 +87,7 @@ func execute(ctx as LoggingContext, client as this, request as HTTPClientRequest
 		listener(ll.getResponse())
 }
 
-func executeForBuffer(ctx as LoggingContext, client as this, request as HTTPClientRequest, listener as function<void,HTTPClientResponse,buffer>, errorHandler as function<void,string> = null) static
+func executeForBuffer(ctx as LoggingContext, client as this, request as HTTPClientRequest?, listener as function<void,HTTPClientResponse?,buffer?>?, errorHandler as function<void,string>? = null) static
 {
 	var ll = new MyListener()
 	ll.setCtx(ctx)
@@ -96,14 +97,14 @@ func executeForBuffer(ctx as LoggingContext, client as this, request as HTTPClie
 		listener(ll.getResponse(), ll.getBuffer())
 }
 
-func executeForString(ctx as LoggingContext, client as this, request as HTTPClientRequest, listener as function<void,HTTPClientResponse,string>, errorHandler as function<void,string> = null) static
+func executeForString(ctx as LoggingContext, client as this, request as HTTPClientRequest?, listener as function<void,HTTPClientResponse?,string?>?, errorHandler as function<void,string>? = null) static
 {
 	var ll = new MyListener()
 	ll.setCtx(ctx)
 	ll.setErrorHandler(errorHandler)
 	executeWithClient(client, request, ll)
 	if listener:
-		listener(ll.getResponse(), String.forUTF8Buffer(ll.getBuffer()))
+		listener(ll.getResponse(), String.forUTF8Buffer(ll.getBuffer() ?? Buffer.allocate(0)))
 }
 
-func executeRequest(request as HTTPClientRequest, listener as HTTPClientListener) abstract
+func executeRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) abstract

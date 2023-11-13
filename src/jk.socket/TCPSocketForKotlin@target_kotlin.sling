@@ -24,59 +24,67 @@
 
 class is TCPSocket:
 
-IFDEF "target_android_kotlin" {
+IFDEF "target_android" {
 	depend "androidPermission:android.permission.INTERNET"
 }
 
-var socket as !"java.nio.channels.SocketChannel"
-var serverSocket as !"java.nio.channels.ServerSocketChannel"
+var socket as native<java.nio.channels.SocketChannel>?
+var serverSocket as native<java.nio.channels.ServerSocketChannel>?
 var blocking private = true
 
-func getJavaClientSocket as !"java.net.Socket"
+func getJavaClientSocket as native<java.net.Socket>
 {
-	assert socket
-	var s as !"java.net.Socket"
+	if not socket:
+		ERROR "noSocket"
+	var s as native<java.net.Socket>?
 	lang "kotlin" {{{
 		s = socket!!.socket()
 	}}}
+	if not s:
+		ERROR "noJavaClientSocket"
 	return s
 }
 
-func getJavaServerSocket as !"java.net.ServerSocket"
+func getJavaServerSocket as native<java.net.ServerSocket>
 {
-	assert serverSocket
-	var ss as !"java.net.ServerSocket"
+	if not serverSocket:
+		ERROR "noServerSocket"
+	var ss as native<java.net.ServerSocket>?
 	lang "kotlin" {{{
 		ss = serverSocket!!.socket()
 	}}}
+	if not ss:
+		ERROR "noJavaServerSocket"
 	return ss
 }
 
 func getRemoteAddress override as string
 {
-	var socket = assert getJavaClientSocket()
-	var address as string
+	var socket = getJavaClientSocket()
+	var address as string?
 	lang "kotlin" {{{
 		var a = socket!!.getInetAddress() as java.net.InetAddress
 		if(a != null) {
 			address = a.getHostAddress()
 		}
 	}}}
+	if not address:
+		address = ""
 	return address
 }
 
 func getRemotePort override as int
 {
-	var socket = assert getJavaClientSocket()
-	return lang "kotlin" int {{{ socket!!.getPort() }}}
+	var socket = getJavaClientSocket()
+	return lang "kotlin" as int {{{ socket!!.getPort() }}}
 }
 
 func getLocalAddress override as string
 {
-	var a as !"java.net.InetAddress"
-	var socket = assert getJavaClientSocket()
-	var serverSocket = assert getJavaServerSocket()
-	var address as string
+	var a as native<java.net.InetAddress>?
+	var socket = getJavaClientSocket()
+	var serverSocket = getJavaServerSocket()
+	var address as string?
 	lang "kotlin" {{{
 		if(socket != null) {
 			a = socket!!.getLocalAddress()
@@ -88,21 +96,26 @@ func getLocalAddress override as string
 			address = a.getHostAddress()
 		}
 	}}}
+	if not address:
+		address = ""
 	return address
 }
 
 func getLocalPort override as int
 {
-	var socket = assert getJavaClientSocket():
-		return lang "kotlin" int {{{ socket!!.getLocalPort() }}}
-	var serverSocket = assert getJavaServerSocket():
-		return lang "kotlin" int {{{ serverSocket!!.getLocalPort() }}}
+	if this.socket {
+		var socket = getJavaClientSocket()
+		return lang "kotlin" as int {{{ socket.getLocalPort() }}}
+	}
+	if this.serverSocket {
+		var serverSocket = getJavaServerSocket()
+		return lang "kotlin" as int {{{ serverSocket.getLocalPort() }}}
+	}
 	return -1
 }
 
-func connect(address as string, port as int) override as bool
+func connect(address as string, port as int) override
 {
-	var v = true
 	lang "kotlin" {{{
 		try {
 			var serverAddress = java.net.InetAddress.getByName(address)
@@ -110,33 +123,28 @@ func connect(address as string, port as int) override as bool
 			socket!!.socket().setKeepAlive(true)
 		}
 		catch(e: kotlin.Exception) {
-			e.printStackTrace()
-			v = false
+			throw new RuntimeException(e)
 		}
 	}}}
-	return v
 }
 
-func listen(port as int) override as bool
+func listen(port as int) override
 {
-	var v = true
 	lang "kotlin" {{{
 		try {
 			serverSocket = java.nio.channels.ServerSocketChannel.open()
 			serverSocket!!.bind(java.net.InetSocketAddress(port))
 		}
 		catch(e: kotlin.Exception) {
-			e.printStackTrace()
-			v = false
+			throw new RuntimeException(e)
 		}
 	}}}
-	return v
 }
 
-func accept override as TCPSocket
+func accept override as TCPSocket?
 {
 	assert serverSocket
-	var nsocket as !"java.nio.channels.SocketChannel"
+	var nsocket as native<java.nio.channels.SocketChannel>?
 	lang "kotlin" {{{
 		try {
 			nsocket = serverSocket!!.accept()
@@ -197,8 +205,6 @@ func close override
 
 func read(buffer as buffer) override as int
 {
-	if buffer == null:
-		return -1
 	var v = 0
 	lang "kotlin" {{{
 		try {
@@ -221,8 +227,6 @@ func read(buffer as buffer) override as int
 
 func write(buffer as buffer, size as int) override as int
 {
-	if buffer == null:
-		return -1
 	var v = 0
 	lang "kotlin" {{{
 		try {

@@ -32,10 +32,11 @@ import jk.cache
 
 class:
 
-prop templateFile as File
+prop ctx as LoggingContext
 prop storage as ArticleStorageProvider
+prop templateFile as File?
+prop htmlPageCache as KeyValueCache?
 prop articleMetadataCacheTtl as int = 300
-prop htmlPageCache as KeyValueCache
 prop htmlPageCacheTtlSeconds as int = 3600
 prop bannerPathResolver as function<string,string> = func(bannerName as string) as string {
 	return "/" .. bannerName .. ".jpg"
@@ -44,30 +45,32 @@ prop articlePathResolver as function<string,string> = func(articleName as string
 	return "/" .. articleName .. "/"
 }
 
-var ctx as LoggingContext
 var articleCacheUpdated as long = 0L
-var articleCacheById as map<string,ArticleMetadata>
-var articleCacheByBackendId as map<string,ArticleMetadata>
-var articleCache as vector<ArticleMetadata>
+var articleCacheById as map<string,ArticleMetadata>?
+var articleCacheByBackendId as map<string,ArticleMetadata>?
+var articleCache as vector<ArticleMetadata>?
 
 model HtmlPageCacheEntry
 {
-	timestamp as long
-	content as string
+	timestamp as long!
+	content as string!
 }
 
 ctor(ctx as LoggingContext):
 	this.ctx = ctx
 
-func getArticleById(articleId as string) async as ArticleMetadata
+func getArticleById(articleId as string) async as ArticleMetadata?
 {
 	await updateArticleMetadataCache()
-	return Map.get(articleCacheById, articleId)
+	assert articleCacheById
+	return Map.getValue(articleCacheById, articleId)
 }
 
 func getAllArticles async as vector<ArticleMetadata>
 {
 	await updateArticleMetadataCache()
+	if not articleCache:
+		Error.throw("articleCacheNotAvailable", null)
 	return articleCache
 }
 
@@ -79,11 +82,11 @@ func updateArticleMetadataCache async
 	var articles = await storage.getAllArticlesMetadata()
 	var byId = new map<string,ArticleMetadata>
 	var byBackendId = new map<string,ArticleMetadata>
-	foreach article in articles {
-		if article.id:
-			Map.set(byId, article.id, article)
-		if article.backendId:
-			Map.set(byBackendId, article.backendId, article)
+	if articles: foreach article in articles {
+		if var aid = article.id:
+			Map.set(byId, aid, article)
+		if var abid = article.backendId:
+			Map.set(byBackendId, abid, article)
 	}
 	articleCacheById = byId
 	articleCacheByBackendId = byBackendId
@@ -91,13 +94,13 @@ func updateArticleMetadataCache async
 	articleCacheUpdated = now
 }
 
-func formatDate(date as string) private as string
+func formatDate(date as string?) private as string?
 {
 	assert date
 	return VerboseDateTimeString.getDateStringForDateTime(DateTime.forString(date))
 }
 
-func sortArticleCategoriesByDate(articleCategories as vector<ArticleMetadata>) private as DynamicVector
+func sortArticleCategoriesByDate(articleCategories as vector<ArticleMetadata>) private as DynamicVector?
 {
 	if Vector.getSize(articleCategories) > 0 {
 		Vector.sort(articleCategories, func(a as ArticleMetadata, b as ArticleMetadata) as int {
@@ -125,7 +128,7 @@ func sortArticleCategoriesByDate(articleCategories as vector<ArticleMetadata>) p
 	return null
 }
 
-func getRelatedCategoryIdForArticleId(articleId as string) private as string
+func getRelatedCategoryIdForArticleId(articleId as string) private as string?
 {
 	if articleId == "index":
 		return "index"
@@ -137,13 +140,14 @@ func getRelatedCategoryIdForArticleId(articleId as string) private as string
 func getRelatedArticles(article as ArticleMetadata) private async as vector<ArticleMetadata>
 {
 	var v = new vector<ArticleMetadata>
-	if not article:
+	var articleId = article.id
+	if not articleId:
 		return v
-	var categoryId = getRelatedCategoryIdForArticleId(article.id)
+	var categoryId = getRelatedCategoryIdForArticleId(articleId)
 	if not categoryId:
 		return v
-	foreach article in articleCache {
-		foreach acat in article.categories {
+	if articleCache: foreach article in articleCache {
+		if var cats = article.categories: foreach acat in cats {
 			if acat == categoryId {
 				v += article
 				break
@@ -157,25 +161,26 @@ func getBannerUrl(banner as string) as string
 {
 	var bannerName = banner
 	var resolver = bannerPathResolver
-	if resolver:
-		bannerName = resolver(banner)
+	bannerName = resolver(banner)
 	return bannerName
 }
 
-func generateArticleHtml(articleId as string, includeAttachments as bool) private async as ArticleHtmlWithAttachments
+func generateArticleHtml(articleId as string, includeAttachments as bool) private async as ArticleHtmlWithAttachments?
 {
 	var article = assert await getArticleById(articleId)
 	var settings = new ArticleStorageProvider.ArticleHtmlSettings() {
-		pageLinkResolver func(backendId as string) async as ArticleStorageProvider.PageLinkInfo {
+		pageLinkResolver func(backendId as string) async as ArticleStorageProvider.PageLinkInfo? {
 			await updateArticleMetadataCache()
-			var url as string
-			var text as string
-			var article = Map.get(articleCacheByBackendId, backendId)
+			var url as string?
+			var text as string?
+			var article as ArticleMetadata?
+			if articleCacheByBackendId:
+				article = Map.getValue(articleCacheByBackendId, backendId)
 			if article {
 				text = article.title
 				url = article.id
 				var resolver = articlePathResolver
-				if resolver:
+				if url:
 					url = resolver(url)
 			}
 			else {
@@ -191,7 +196,7 @@ func generateArticleHtml(articleId as string, includeAttachments as bool) privat
 			}
 		}
 	}
-	var result as ArticleHtmlWithAttachments
+	var result as ArticleHtmlWithAttachments?
 	if includeAttachments {
 		result = await storage.getArticleHtmlWithAttachments(article, settings)
 	}
@@ -201,10 +206,11 @@ func generateArticleHtml(articleId as string, includeAttachments as bool) privat
 			htmlContent = ""
 		result = new ArticleHtmlWithAttachments() {
 			html htmlContent
-			attachments null
+			attachments new vector<ArticleAttachment>
 		}
 	}
-	if templateFile {
+	var templateFile = this.templateFile
+	if result && templateFile {
 		var content = new DynamicMap()
 		content.setString("title", article.title)
 		content.setString("intro", article.intro)
@@ -215,30 +221,29 @@ func generateArticleHtml(articleId as string, includeAttachments as bool) privat
 		content.setString("banner", getBannerUrl(banner))
 		content.setString("modifiedDateFormatted", formatDate(article.modifiedDate))
 		content.setObject("categories", article.categories)
-		var sortedRelatedArticles as DynamicVector
+		var sortedRelatedArticles as DynamicVector?
 		var relatedArticles = await getRelatedArticles(article)
-		if relatedArticles:
-			sortedRelatedArticles = sortArticleCategoriesByDate(relatedArticles)
+		sortedRelatedArticles = sortArticleCategoriesByDate(relatedArticles)
 		if sortedRelatedArticles && sortedRelatedArticles.getSize() > 0:
 			content.setObject("relatedArticles", sortedRelatedArticles)
 		content.setString("htmlContent", result.html)
 		if not templateFile.isFile():
 			Error.throw("invalidTemplateFile", templateFile)
-		var template = TextTemplate.forHTMLFile(templateFile)
+		var template = TextTemplate.forHTMLFile(ctx, templateFile)
 		if not template:
 			Error.throw("failedToProcessTemplate", templateFile)
 		var vars = new DynamicMap()
 		vars.setObject("content", content)
-		result.html = template.execute(vars)
+		result.html = template.execute(vars) ?? ""
 	}
 	return result
 }
 
-func getArticleHtmlPage(articleId as string) async as string
+func getArticleHtmlPage(articleId as string) async as string?
 {
-	assert articleId
 	var cacheId = "article-" .. articleId
-	var cachedPage as HtmlPageCacheEntry
+	var cachedPage as HtmlPageCacheEntry?
+	var htmlPageCache = this.htmlPageCache
 	if htmlPageCache {
 		var cachedData = await htmlPageCache.get(cacheId)
 		if cachedData {
@@ -249,25 +254,25 @@ func getArticleHtmlPage(articleId as string) async as string
 	}
 	if cachedPage && cachedPage.timestamp + htmlPageCacheTtlSeconds > SystemClock.asUTCSeconds() {
 		// always return cached article if within the TTL
-		if ctx && ctx.isInDebugMode():
+		if ctx.isInDebugMode():
 			Log.debug(ctx, "Using cached copy of article HTML `" .. articleId .. "'.")
 		return cachedPage.content
 	}
 	try {
-		if ctx && ctx.isInDebugMode():
+		if ctx.isInDebugMode():
 			Log.debug(ctx, "Generating article HTML: `" .. articleId .. "' ..")
-		var html as string
+		var html as string?
 		var pageData = await generateArticleHtml(articleId, false)
 		if pageData:
 			html = pageData.html
 		if htmlPageCache {
 			var cacheEntry = new HtmlPageCacheEntry() {
 				timestamp SystemClock.asUTCSeconds()
-				content html
+				content html ?? ""
 			}
-			await htmlPageCache.set(cacheId, JSONEncoder.encode(cacheEntry), 0)
+			await htmlPageCache.set(cacheId, JSONEncoder.toString(cacheEntry), 0)
 		}
-		if ctx && ctx.isInDebugMode() {
+		if ctx.isInDebugMode() {
 			if html {
 				Log.debug(ctx, "Article HTML generated: `" .. articleId .. "'.")
 			}
@@ -278,21 +283,22 @@ func getArticleHtmlPage(articleId as string) async as string
 		return html
 	}
 	catch e {
-		Log.error(ctx, "Failed to generate article HTML: `" .. articleId .. "' (" .. String.asString(e) .. ")")
+		Log.error(ctx, "Failed to generate article HTML: `" .. articleId .. "' (" .. String.asValueOrEmptyString(e) .. ")")
 		if not cachedPage:
 			throw e
 	}
 	// if we fail to get the most recent version of the article, we return the latest
 	// cached article anyway, even if it has already expired.
-	return cachedPage.content
+	if cachedPage:
+		return cachedPage.content
+	return null
 }
 
-func getArticleAttachment(articleId as string, attachmentId as string) async as ArticleAttachment
+func getArticleAttachment(articleId as string, attachmentId as string) async as ArticleAttachment?
 {
-	assert storage
 	var article = assert await getArticleById(articleId)
 	return await storage.getArticleAttachment(article, attachmentId)
 }
 
-func getArticleHtmlWithAttachments(articleId as string) async as ArticleHtmlWithAttachments:
+func getArticleHtmlWithAttachments(articleId as string) async as ArticleHtmlWithAttachments?:
 	return await generateArticleHtml(articleId, true)

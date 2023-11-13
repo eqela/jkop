@@ -24,33 +24,24 @@
 
 class is Iterator<File>:
 
-func forRoot(root as File) static as this
-{
-	return new this().setRoot(root)
-}
-
 class Pattern
 {
-	var pattern as string
-	var suffix as string
-	var prefix as string
+	var pattern as string?
+	var suffix as string?
+	var prefix as string?
 
 	func setPattern(pattern as string) as this
 	{
 		this.pattern = pattern
-		if pattern {
-			if String.startsWith(pattern, "*"):
-				suffix = String.getEndOfString(pattern, 1)
-			if String.endsWith(pattern, "*"):
-				prefix = String.getSubString(pattern, 0, String.getLength(pattern)-1)
-		}
+		if String.startsWith(pattern, "*"):
+			suffix = String.getEndOfString(pattern, 1)
+		if String.endsWith(pattern, "*"):
+			prefix = String.getSubString(pattern, 0, String.getLength(pattern)-1)
 		return this
 	}
 
 	func match(check as string) as bool
 	{
-		if not check:
-			return false
 		if pattern == check:
 			return true
 		if suffix && String.endsWith(check, suffix):
@@ -61,25 +52,19 @@ class Pattern
 	}
 }
 
-var root as File
-var patterns as vector<Pattern>
-var excludePatterns as vector<Pattern>
-var stack as Stack<Iterator<File>>
-pvar includeMatchingDirectories = false
-pvar includeDirectories = false
+func forRoot(root as File) static as this:
+	return new this() {
+		root root
+	}
 
-ctor
-{
-	patterns = new vector<Pattern>
-	excludePatterns = new vector<Pattern>
-}
+prop root as File
+prop includeMatchingDirectories = false
+prop includeDirectories = false
 
-func setRoot(root as File) as this
-{
-	this.root = root
-	stack = null
-	return this
-}
+var patterns = new vector<Pattern>
+var excludePatterns = new vector<Pattern>
+var stack as Stack<Iterator<File>>?
+var nextValue as File?
 
 func addPattern(pattern as string) as this
 {
@@ -95,8 +80,6 @@ func addExcludePattern(pattern as string) as this
 
 func matchPattern(file as File) as bool
 {
-	if not file:
-		return false
 	if Vector.getSize(patterns) < 1:
 		return true
 	var filename = file.getBasename()
@@ -109,8 +92,6 @@ func matchPattern(file as File) as bool
 
 func matchExcludePattern(file as File) as bool
 {
-	if not file:
-		return false
 	if Vector.getSize(excludePatterns) < 1:
 		return false
 	var filename = file.getBasename()
@@ -121,30 +102,22 @@ func matchExcludePattern(file as File) as bool
 	return false
 }
 
-func next as File
+func tryGetNextValue as File?
 {
+	if not stack {
+		stack = new Stack<Iterator<File>>()
+		stack.push(root.entries())
+	}
 	loop {
-		if not stack {
-			if not root:
-				break
-			var es = root.entries()
-			root = null
-			if not es {
-				break
-			}
-			stack = new Stack<Iterator<File>>()
-			stack.push(es)
-		}
 		var entries = stack.peek()
-		if not entries {
-			stack = null
+		if not entries:
 			break
+		if entries.hasNext() == false {
+			stack.pop()
+			continue
 		}
 		var e = entries.next()
-		if not e {
-			stack.pop()
-		}
-		else if matchExcludePattern(e) {
+		if matchExcludePattern(e) {
 			nop // skip
 		}
 		else if e.isFile() {
@@ -156,8 +129,7 @@ func next as File
 		}
 		else if e.isDirectory() && e.isLink() == false {
 			var ees = e.entries()
-			if ees:
-				stack.push(ees)
+			stack.push(ees)
 			if includeDirectories:
 				return e
 		}
@@ -165,9 +137,24 @@ func next as File
 	return null
 }
 
+func next as File
+{
+	if nextValue {
+		var v = nextValue
+		nextValue = null
+		return v
+	}
+	var v = tryGetNextValue()
+	if not v:
+		Error.throw("noMoreFilesFound", null)
+	return v
+}
+
 func hasNext as bool
 {
-	assert stack
-	var it = assert stack.peek()
-	return it.hasNext()
+	if not nextValue:
+		nextValue = tryGetNextValue()
+	if nextValue:
+		return true
+	return false
 }

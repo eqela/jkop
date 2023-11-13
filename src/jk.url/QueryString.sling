@@ -33,16 +33,14 @@ func parse(queryString as string) static as map<string, string>
 		if String.isEmpty(qs):
 			continue
 		if String.getIndexOfCharacter(qs, '=') < 0 {
-			Map.set(v, qs, null)
+			Map.set(v, qs, "")
 			continue
 		}
 		var qsps = String.split(qs, '=', 2)
-		var key = qsps[0]
-		var val = qsps[1]
-		if val == null:
-			val = ""
-		if String.isEmpty(key) == false:
-			Map.set(v, URLDecoder.decode(key), URLDecoder.decode(val))
+		var key = Vector.getValue(qsps, 0)
+		var val = Vector.getValue(qsps, 1)
+		if String.isNotEmpty(key):
+			Map.set(v, URLDecoder.decode(key), URLDecoder.decode(val ?? ""))
 	}
 	return v
 }
@@ -51,11 +49,13 @@ func encode(queryString as map<string, string>) static as string
 {
 	var str = new StringBuilder()
 	var first = true
-	var keys as vector<string> #force = Map.getKeys(queryString)
+	var keys = Map.getKeys(queryString)
 	foreach key as string in keys {
 		if String.isEmpty(key):
 			continue
 		var val = Map.getValue(queryString, key)
+		if not val:
+			val = ""
 		if not first:
 			str.appendString("&")
 		str.appendString(URLEncoder.encode(key))
@@ -68,7 +68,6 @@ func encode(queryString as map<string, string>) static as string
 
 func appendDynamicVectorToFormData(sb as StringBuilder, key as string, items as DynamicVector) private static
 {
-	assert items
 	foreach item in items.toVectorOfDynamicMaps() {
 		var index = 0
 		foreach ikey in item.getKeys() {
@@ -82,7 +81,10 @@ func appendDynamicVectorToFormData(sb as StringBuilder, key as string, items as 
 			sb.appendString(ikey)
 			sb.appendString("]")
 			sb.appendString("=")
-			sb.appendString(URLEncoder.encode(item.getString(ikey)))
+			var rr = item.getString(ikey)
+			if not rr:
+				rr = ""
+			sb.appendString(URLEncoder.encode(rr))
 		}
 		index++
 	}
@@ -90,7 +92,6 @@ func appendDynamicVectorToFormData(sb as StringBuilder, key as string, items as 
 
 func appendDynamicMapToFormData(sb as StringBuilder, key as string, map as DynamicMap) private static
 {
-	assert map
 	foreach ikey in map.getKeys() {
 		if sb.count() > 0:
 			sb.appendString("&")
@@ -99,32 +100,31 @@ func appendDynamicMapToFormData(sb as StringBuilder, key as string, map as Dynam
 		sb.appendString(ikey)
 		sb.appendString("]")
 		sb.appendString("=")
-		sb.appendString(URLEncoder.encode(map.getString(ikey)))
+		var rr = map.getString(ikey)
+		if not rr:
+			rr = ""
+		sb.appendString(URLEncoder.encode(rr))
 	}
 }
 
 func encodeDynamicMapToString(data as DynamicMap) static as string
 {
-	assert data
 	var sb = new StringBuilder()
-	var keys = data.iterateKeys()
-	while keys {
-		var key = keys.next()
-		if not key:
-			break
+	foreach key in data.iterateKeys() {
 		var value = data.getDynamic(key)
-		if value is DynamicVector {
-			appendDynamicVectorToFormData(sb, key, value as DynamicVector)
+		if var valueDynamicVector = value as DynamicVector {
+			appendDynamicVectorToFormData(sb, key, valueDynamicVector)
 		}
-		else if value is DynamicMap {
-			appendDynamicMapToFormData(sb, key, value as DynamicMap)
+		else if var valueDynamicMap = value as DynamicMap {
+			appendDynamicMapToFormData(sb, key, valueDynamicMap)
 		}
 		else {
 			if sb.count() > 0:
 				sb.appendString("&")
 			sb.appendString(key)
 			sb.appendString("=")
-			sb.appendString(URLEncoder.encode(String.asString(value)))
+			var vs = String.asValueOrEmptyString(value)
+			sb.appendString(URLEncoder.encode(vs))
 		}
 	}
 	return sb.toString()

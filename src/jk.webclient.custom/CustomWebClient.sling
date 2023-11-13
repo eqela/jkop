@@ -45,8 +45,8 @@ class HTTPRequest public
 
 class MyHTTPClientListener is HTTPClientListener
 {
-	prop response as HTTPClientResponse
-	prop body as buffer
+	pvar response as HTTPClientResponse?
+	pvar body as buffer?
 
 	func onError(message as string) override
 	{
@@ -66,7 +66,6 @@ class MyHTTPClientListener is HTTPClientListener
 
 	func onResponseReceived(response as HTTPClientResponse) override as bool
 	{
-		assert response
 		this.response = response
 		return true
 	}
@@ -77,7 +76,6 @@ class MyHTTPClientListener is HTTPClientListener
 	}
 }
 
-prop ctx as LoggingContext
 prop followRedirects as bool = true
 
 func getFinalRedirectUrl(url as string, location as string) private as string
@@ -93,7 +91,7 @@ func getFinalRedirectUrl(url as string, location as string) private as string
 		o.setPath(n.getPath())
 	}
 	else {
-		var op = o.getPath()
+		var op = o.getPath() ?? ""
 		if String.endsWith(op, "/") {
 			o.setPath(op .. location)
 		}
@@ -110,11 +108,11 @@ func getFinalRedirectUrl(url as string, location as string) private as string
 	return o.toString()
 }
 
-func doExecuteQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer, redirectCount as int, redirectLimit as int) async private as Response
+func doExecuteQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?, redirectCount as int, redirectLimit as int) async private as Response
 {
 	if redirectCount > redirectLimit:
 		Error.throw("maximumRedirectionsExceeded", redirectLimit)
-	var contentType as string
+	var contentType as string?
 	if headers {
 		foreach kvp in headers.asVector() as! vector<KeyValuePair<string, string>> {
 			if String.equalsIgnoreCase(kvp.key, "Content-Type") {
@@ -123,7 +121,7 @@ func doExecuteQuery(ctx as LoggingContext, method as string, url as string, head
 			}
 		}
 	}
-	var req as HTTPClientRequest
+	var req as HTTPClientRequest?
 	if String.equalsIgnoreCase(method, "GET") {
 		req = HTTPClientRequest.forGET(url)
 	}
@@ -145,6 +143,8 @@ func doExecuteQuery(ctx as LoggingContext, method as string, url as string, head
 	else {
 		Error.throw("invalidHttpMethod", method)
 	}
+	if not req:
+		Error.throw("noHttpClientRequest", null)
 	if headers {
 		foreach kvp in headers.asVector() as! vector<KeyValuePair<string, string>> {
 			if String.equals(kvp.key, "Content-Type") && String.isNotEmpty(req.getHeader("content-type")):
@@ -152,23 +152,42 @@ func doExecuteQuery(ctx as LoggingContext, method as string, url as string, head
 			req.addHeader(kvp.key, kvp.value)
 		}
 	}
-	if ctx && ctx.isInDebugMode():
-		Log.debug(ctx, "Executing HTTP query: `" .. String.asString(req) .. "'")
-	var op = new HTTPClientOperation()
+	if ctx.isInDebugMode():
+		Log.debug(ctx, "Executing HTTP query: `" .. String.asValueOrEmptyString(req) .. "'")
+	var op = new HTTPClientOperation() {
+		ctx ctx
+	}
 	op.setAcceptInvalidCertificate(true)
 	var listener = new MyHTTPClientListener()
 	op.executeRequest(req, listener)
 	op.closeConnection(null)
-	var v = new WebClient.Response
-	var response = listener.response
+	var vstatusCode as string?
+	var vstatusMessage as string?
+	var vheaders as KeyValueListForStrings?
+	var vbody as buffer?
+	var response = listener.getResponse()
 	if response {
-		v.statusCode = response.getHttpStatus()
-		v.statusMessage = response.getHttpStatusDescription()
-		v.headers = response.getRawHeaders()
+		vstatusCode = response.getHttpStatus()
+		vstatusMessage = response.getHttpStatusDescription()
+		vheaders = response.getRawHeaders()
 	}
-	v.body = listener.body
-	if followRedirects && v.headers && String.startsWith(v.statusCode, "3") {
-		var location as string
+	vbody = listener.getBody()
+	if not vstatusCode:
+		vstatusCode = ""
+	if not vstatusMessage:
+		vstatusMessage = ""
+	if not vheaders:
+		vheaders = new KeyValueListForStrings()
+	if not vbody:
+		vbody = Buffer.allocate(0)
+	var v = new WebClient.Response {
+		statusCode vstatusCode
+		statusMessage vstatusMessage
+		headers vheaders
+		body vbody
+	}
+	if followRedirects && String.startsWith(v.statusCode, "3") {
+		var location as string?
 		foreach kvp in v.headers.asVector() {
 			if String.equalsIgnoreCase(kvp.key, "Location") {
 				location = kvp.value
@@ -184,5 +203,5 @@ func doExecuteQuery(ctx as LoggingContext, method as string, url as string, head
 	return v
 }
 
-func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async override as Response:
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override as Response:
 	return await doExecuteQuery(ctx, method, url, headers, body, 0, 5)

@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class is TCPClient is ConnectedSocket implements !"NSStreamDelegate":
+class is TCPClient is ConnectedSocket implements native<NSStreamDelegate>:
 
 class ReadQueueItem
 {
@@ -32,24 +32,24 @@ class ReadQueueItem
 		setSize(size)
 	}
 
-	pvar buffer as buffer
+	pvar buffer as buffer?
 	pvar size as int
 }
 
 class SendTask
 {
-	pvar data as buffer
+	pvar data as buffer?
 	pvar size as int
-	pvar callback as function<void, Error>
+	pvar callback as function<void, Error?>?
 }
 
-var inputStream private as !"NSInputStream*"
-var outputStream private as !"NSOutputStream*"
-var sendTaskQueue private as vector<SendTask>
+var inputStream private as native<"NSInputStream*">?
+var outputStream private as native<"NSOutputStream*">?
+var sendTaskQueue private as vector<SendTask>?
 var sendTaskQueueMaxSize private = 1024 * 1024
-var connectCallback private as function<void, Error>
-var receiveCallback private as function<void, buffer, int>
-var readQueue as Queue<ReadQueueItem>
+var connectCallback private as function<void, Error?>?
+var receiveCallback private as function<void, buffer, int>?
+var readQueue as Queue<ReadQueueItem>?
 
 lang "objc" {{{
 	-(void)stream:(NSStream *)theStream handleEvent:(NSStreamEvent)streamEvent
@@ -116,7 +116,7 @@ func onStreamClosed private
 
 func onBytesAvailable private
 {
-	var rb = malloc 64 * 1024
+	var rb = Buffer.allocate(64 * 1024)
 	var r = read(rb)
 	if r < 0:
 		close()
@@ -156,7 +156,7 @@ func onSendTask(st as SendTask) private
 {
 	assert st
 	assert outputStream
-	var data #used = st.getData()
+	var data = st.getData()
 	var sz = st.getSize()
 	var cb = st.getCallback()
 	if sz < 0 {
@@ -164,7 +164,7 @@ func onSendTask(st as SendTask) private
 			sz = [data length];
 		}}}
 	}
-	if lang "objc" bool {{{ outputStream.hasSpaceAvailable }}} == false {
+	if lang "objc" as bool {{{ outputStream.hasSpaceAvailable }}} == false {
 		if sendTaskQueue == null:
 			sendTaskQueue = new vector<SendTask>
 		if Vector.getSize(sendTaskQueue) > sendTaskQueueMaxSize {
@@ -211,7 +211,7 @@ func close private
 	}
 }
 
-func connectSSL(address as string, port as int, callback as function<void,Error>) override
+func connectSSL(address as string, port as int, callback as function<void,Error?>?) override
 {
 	assert callback
 	assert address:
@@ -235,7 +235,7 @@ func connectSSL(address as string, port as int, callback as function<void,Error>
 	}}}
 }
 
-func connect(address as string, port as int, callback as function<void,Error>) override
+func connect(address as string, port as int, callback as function<void,Error?>?) override
 {
 	assert callback
 	assert address:
@@ -257,14 +257,14 @@ func connect(address as string, port as int, callback as function<void,Error>) o
 	}}}
 }
 
-func receive(callback as function<void,buffer,int>) override
+func receive(callback as function<void,buffer?,int>?) override
 {
 	assert (callback && inputStream)
 	receiveCallback = callback
 	onReadUpdate()
 }
 
-func send(data as buffer, size as int, callback as function<void,Error>) override
+func send(data as buffer, size as int, callback as function<void,Error?>?) override
 {
 	assert callback
 	assert inputStream:
@@ -274,7 +274,7 @@ func send(data as buffer, size as int, callback as function<void,Error>) overrid
 	onSendTask(new SendTask().setData(data).setSize(size).setCallback(callback))
 }
 
-func disconnect(callback as function<void,Error>) override
+func disconnect(callback as function<void,Error?>?) override
 {
 	assert callback
 	assert (inputStream && outputStream):

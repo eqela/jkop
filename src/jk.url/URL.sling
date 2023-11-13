@@ -31,16 +31,16 @@ func forString(str as string, normalizePath as bool = false) static as this
 	return v
 }
 
-pvar scheme as string
-pvar username as string
-pvar password as string
-pvar host as string
-pvar port as string
-pvar path as string
-pvar fragment as string
-pvar rawQueryParameters as KeyValueList<string,string>
-pvar queryParameters as map<string,string>
-pvar original as string
+pvar scheme as string?
+pvar username as string?
+pvar password as string?
+pvar host as string?
+pvar port as string?
+pvar path as string?
+pvar fragment as string?
+pvar rawQueryParameters as KeyValueList<string,string>?
+pvar queryParameters as map<string,string>?
+pvar original as string?
 pvar percentOnly = false
 pvar encodeUnreservedChars = true
 
@@ -95,11 +95,7 @@ func toStringDo(userhost as bool) private as string
 		sb.appendString(String.replaceCharacter(path, ' ', '+'))
 	if rawQueryParameters && rawQueryParameters.count() > 0 {
 		var first = true
-		var it as Iterator<string> #force = Map.iterateKeys(queryParameters)
-		while it {
-			var key = it.next() as string
-			if key == null:
-				break
+		if queryParameters: foreach key in Map.iterateKeys(queryParameters) {
 			if first {
 				sb.appendCharacter('?')
 				first = false
@@ -108,7 +104,7 @@ func toStringDo(userhost as bool) private as string
 				sb.appendCharacter('&')
 			}
 			sb.appendString(key)
-			var val = Map.get(queryParameters, key)
+			var val = Map.getValue(queryParameters, key)
 			if val {
 				sb.appendCharacter('=')
 				sb.appendString(URLEncoder.encode(val, percentOnly, encodeUnreservedChars))
@@ -130,7 +126,6 @@ func clearQueryParameters
 
 func normalizePath(path as string) private as string
 {
-	assert path
 	var v = new StringBuilder()
 	var comps = String.split(path, '/')
 	foreach comp in comps {
@@ -143,11 +138,9 @@ func normalizePath(path as string) private as string
 		else if comp == ".." {
 			var str = v.toString()
 			v.clear()
-			if str {
-				var slash = String.getLastIndexOfCharacter(str, '/')
-				if slash > 0:
-					v.appendString(String.getSubString(str, 0, slash))
-			}
+			var slash = String.getLastIndexOfCharacter(str, '/')
+			if slash > 0:
+				v.appendString(String.getSubString(str, 0, slash))
 		}
 		else {
 			v.appendCharacter('/')
@@ -164,14 +157,17 @@ func normalizePath(path as string) private as string
 func parse(astr as string, doNormalizePath as bool)
 {
 	setOriginal(astr)
-	assert astr
 	var fsp = String.split(astr, '#', 2)
-	var str = Vector.get(fsp, 0)
-	fragment = Vector.get(fsp, 1)
+	var str = Vector.getValue(fsp, 0)
+	if not str:
+		str = ""
+	fragment = Vector.getValue(fsp, 1)
 	var qsplit = String.split(str, '?', 2)
-	str = Vector.get(qsplit, 0)
-	var queryString = Vector.get(qsplit, 1)
-	if String.isEmpty(queryString) == false {
+	str = Vector.getValue(qsplit, 0)
+	if not str:
+		str = ""
+	var queryString = Vector.getValue(qsplit, 1)
+	if String.isNotEmpty(queryString) {
 		var qss = String.split(queryString, '&')
 		foreach qs in qss {
 			if not rawQueryParameters:
@@ -179,16 +175,14 @@ func parse(astr as string, doNormalizePath as bool)
 			if not queryParameters:
 				queryParameters = new map<string,string>
 			if String.getIndexOfCharacter(qs, '=') < 0 {
-				Map.set(queryParameters, qs, null)
-				rawQueryParameters.add(qs, null)
+				Map.set(queryParameters, qs, "")
+				rawQueryParameters.add(qs, "")
 				continue
 			}
 			var qsps = String.split(qs, '=', 2)
-			var key = Vector.get(qsps, 0)
-			var val = Vector.get(qsps, 1)
-			if String.isEmpty(key) == false {
-				if not val:
-					val = ""
+			var key = Vector.getValue(qsps, 0)
+			var val = Vector.getValue(qsps, 1) ?? ""
+			if String.isNotEmpty(key) {
 				var udv = URLDecoder.decode(val)
 				Map.set(queryParameters, key, udv)
 				rawQueryParameters.add(key, udv)
@@ -205,28 +199,28 @@ func parse(astr as string, doNormalizePath as bool)
 			str = String.getEndOfString(str, css+3)
 		}
 	}
-	var pp as string
+	var pp as string = ""
 	if String.getChar(str, 0) == '/' {
 		pp = str
 	}
 	else {
 		if String.getIndexOfCharacter(str, '/') >= 0 {
 			var sssplit = String.split(str, '/', 2)
-			str = Vector.get(sssplit, 0)
-			pp = Vector.get(sssplit, 1)
-			if not pp:
-				pp = ""
+			str = Vector.getValue(sssplit, 0)
+			pp = Vector.getValue(sssplit, 1) ?? ""
 			if String.getChar(pp, 0) != '/':
 				pp = String.appendString("/", pp)
 		}
 		if String.getIndexOfCharacter(str, '@') >= 0 {
 			var asplit = String.split(str, '@', 2)
-			var auth = Vector.get(asplit, 0)
-			str = Vector.get(asplit, 1)
+			var auth = Vector.getValue(asplit, 0)
+			if not auth:
+				auth = ""
+			str = Vector.getValue(asplit, 1)
 			if String.getIndexOfCharacter(auth, ':') >= 0 {
 				var acsplit = String.split(auth, ':', 2)
-				username = URLDecoder.decode(Vector.get(acsplit, 0))
-				password = URLDecoder.decode(Vector.get(acsplit, 1))
+				username = URLDecoder.decode(Vector.getValue(acsplit, 0) ?? "")
+				password = URLDecoder.decode(Vector.getValue(acsplit, 1) ?? "")
 			}
 			else {
 				username = auth
@@ -234,8 +228,8 @@ func parse(astr as string, doNormalizePath as bool)
 		}
 		if String.getIndexOfCharacter(str, ':') >= 0 {
 			var hcsplit = String.split(str, ':', 2)
-			str = Vector.get(hcsplit, 0)
-			port = Vector.get(hcsplit, 1)
+			str = Vector.getValue(hcsplit, 0)
+			port = Vector.getValue(hcsplit, 1)
 		}
 		host = str
 	}
@@ -253,14 +247,14 @@ func getPortInt as int
 {
 	if not port:
 		return 0
-	return String.toInteger(port)
+	return Integer.forStringOrDefaultValue(port)
 }
 
-func getQueryParameter(key as string) as string
+func getQueryParameter(key as string) as string?
 {
 	if not queryParameters:
 		return null
-	return Map.get(queryParameters, key)
+	return Map.getValue(queryParameters, key)
 }
 
 func addQueryParameter(key as string, value as string)

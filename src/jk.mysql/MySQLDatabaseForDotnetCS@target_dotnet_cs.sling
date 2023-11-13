@@ -1,0 +1,378 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+
+class is MySQLDatabase:
+
+depend "nuget:MySql.Data@8.0.11"
+
+class Statement is SQLStatement
+{
+	func forSql(sql as string) static as this
+	{
+		var v = new this()
+		v.sql = SQLAdoNet.convertSQLString(sql)
+		return v
+	}
+
+	var pcounter = 0
+	var sql public as string?
+	var params as vector<native<MySql.Data.MySqlClient.MySqlParameter>>?
+
+	func getParamArray as array<native<MySql.Data.MySqlClient.MySqlParameter>?>
+	{
+		var sz = 0
+		if params:
+			sz = Vector.getSize(params)
+		var arr = new native<MySql.Data.MySqlClient.MySqlParameter>?[sz]
+		if params {
+			var i = 0
+			foreach n as native<MySql.Data.MySqlClient.MySqlParameter> in Vector.iterate(params) {
+				arr[i] = n
+				i++
+			}
+		}
+		return arr
+	}
+
+	func addToParams(param as native<MySql.Data.MySqlClient.MySqlParameter>)
+	{
+		if not params:
+			params = new vector<native<MySql.Data.MySqlClient.MySqlParameter>>
+		params += param
+	}
+
+	func getNextParamName as string:
+		return "@p" .. String.forInteger(++ pcounter)
+
+	func addParamString(val as string) override:
+		setParamString("", val)
+
+	func addParamInteger(val as int) override:
+		setParamInteger("", val)
+
+	func addParamLongInteger(val as long) override:
+		setParamLongInteger("", val)
+
+	func addParamDouble(val as double) override:
+		setParamDouble("", val)
+
+	func addParamBlob(val as buffer) override:
+		setParamBlob("", val)
+
+	func setParamString(name as string, val as string) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		var vv = val
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.String);
+			param.Value = vv;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamInteger(name as string, val as int) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Int32);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamLongInteger(name as string, val as long) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Int64);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamDouble(name as string, val as double) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Double);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamBlob(name as string, val as buffer) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.Binary);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func resetStatement override
+	{
+		params = null
+		pcounter = 0
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var ctx public as LoggingContext?
+	var reader public as native<MySql.Data.MySqlClient.MySqlDataReader>?
+	var hasNextRecord as bool
+
+	dtor:
+		close()
+
+	func close override
+	{
+		if reader {
+			reader.Close!()
+			reader = null
+		}
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		var cols = getColumnCount()
+		var n as int
+		for(n = 0; n < cols; n++) {
+			var o = getColumnObject(n)
+			values += o
+		}
+	}
+
+	func step override
+	{
+		if not reader:
+			ERROR "noReader"
+		if hasNextRecord {
+			hasNextRecord = false
+			return
+		}
+		var v = lang "cs" as bool {{{ reader.Read() }}}
+		if not v:
+			ERROR "failedToReadNextRecord"
+	}
+
+	func getColumnCount override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.FieldCount;
+			}
+		}}}
+		return v
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		var v = new vector<string>
+		var n as int
+		var c = getColumnCount()
+		for(n = 0; n < c; n++) {
+			var nn = getColumnName(n)
+			v += nn
+		}
+		return v
+	}
+
+	func getColumnName(n as int) override as string
+	{
+		var v as string? = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetName(n);
+			}
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		if not reader:
+			ERROR "noReader"
+		var v as string? = null
+		lang "cs" {{{
+			if(reader.IsDBNull(n)) {
+				return(null);
+			}
+			if(reader.GetFieldType(n) == typeof(byte[])) {
+				var b = (byte[])reader.GetValue(n);
+				return(jk.lang.Buffer.wrapValue(b));
+			}
+			var o = reader.GetValue(n);
+			if(o == null) {
+				return(null);
+			}
+			v = o.ToString();
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnInt(n as int) override as int
+	{
+		var v = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetInt32(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnLong(n as int) override as long
+	{
+		var v as long = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetInt64(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnDouble(n as int) override as double
+	{
+		var v as double = 0
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetDouble(n);
+			}
+		}}}
+		return v
+	}
+
+	func getColumnBuffer(n as int) override as buffer
+	{
+		var v as buffer? = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = (byte[])reader.GetValue(n);
+			}
+		}}}
+		if not v:
+			v = Buffer.allocate(0)
+		return v
+	}
+
+	func next override as DynamicMap
+	{
+		step()
+		var names = getColumnNames()
+		if Vector.getSize(names) < 1:
+			ERROR "noColumnNames"
+		var v = new DynamicMap()
+		var n as int
+		for(n = 0; n < Vector.getSize(names); n++):
+			v.setObject(names[n], getColumnObject(n))
+		return v
+	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		try {
+			step()
+		}
+		catch {
+			return false
+		}
+		hasNextRecord = true
+		return true
+	}
+}
+
+var connectionString as string?
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+{
+	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Protocol=" .. protocol .. ";Password=" .. password .. ";SslMode=" .. sslMode .. ";"
+	if enableUTF8:
+		connectionString = connectionString .. "charset=utf8mb4;"
+	Log.debug(ctx, "MySQL connection string: `" .. connectionString .. "'")
+}
+
+func closeConnection async override:
+	connectionString = null
+
+func prepareStatement(sql as string) async override as SQLStatement:
+	return Statement.forSql(sql)
+
+func executeStatement(stmt as SQLStatement) override async
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatement", stmt)
+	lang "cs" {{{
+		MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray());
+	}}}
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatement", stmt)
+	return lang "cs" as int {{{ MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray()) }}}
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatement", stmt)
+	var rdr = lang "cs" as native<MySql.Data.MySqlClient.MySqlDataReader>? {{{
+		MySql.Data.MySqlClient.MySqlHelper.ExecuteReader(connectionString, ss.sql, ss.getParamArray())
+	}}}
+	if not rdr:
+		Error.throw("failedToExecuteQueryStatement", stmt)
+	var v = new ResultSet()
+	v.ctx = ctx
+	v.reader = rdr
+	return v
+}

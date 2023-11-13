@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+import jk.log
 import jk.time
 
 class is WSProtocolSource:
@@ -31,17 +32,19 @@ const STATE_DISCONNECTED = 1
 const STATE_CONNECTING = 2
 const STATE_CONNECTED = 3
 
-var url as string
-var protocols as vector<string>
-var eventLoop as EventLoop
-var socket as WSSocket
+prop ctx as LoggingContext
+
+var url as string?
+var protocols as vector<string>?
+var eventLoop as EventLoop?
+var socket as WSSocket?
 var state = STATE_STOPPED
 var lastActivity = 0L
 pvar reconnectInterval = 5000000L
 pvar connectionTimeoutInterval = 30000000L
 pvar pingInterval = 30000000L
-pvar protocol as WSProtocol
-pvar stateChangeHandler as function<void,int>
+pvar protocol as WSProtocol?
+pvar stateChangeHandler as function<void,int>?
 
 func getTickInterval as long
 {
@@ -56,7 +59,7 @@ func getTickInterval as long
 	return 0L
 }
 
-func start(url as string, protocols as vector<string>, eventLoop as EventLoop, protocol as WSProtocol)
+func start(url as string, protocols as vector<string>, eventLoop as EventLoop, protocol as WSProtocol?)
 {
 	this.url = url
 	this.eventLoop = eventLoop
@@ -96,7 +99,7 @@ func updateState(state as int) private
 	}
 }
 
-func failConnection(error as Error)
+func failConnection(error as Error?)
 {
 	if error:
 		onConnectionError(error)
@@ -111,7 +114,7 @@ func scheduleTick private
 		var ti = getTickInterval()
 		if ti > 0L {
 			nextTick ++
-			var tc final = nextTick
+			var tc = nextTick
 			eventLoop.runScheduled(getTickInterval(), RunnableFunction.forFunction(func {
 				tick(tc)
 			}))
@@ -137,11 +140,7 @@ func onActivity:
 func doTick private
 {
 	if state == STATE_DISCONNECTED {
-		socket = WSSocket.create()
-		if not socket {
-			failConnection(Error.forCode("failedToCreateWebSocket"))
-			return
-		}
+		socket = WSSocket.create(ctx)
 		updateState(STATE_CONNECTING)
 		socket.setOnOpenCallback(func {
 			onActivity()
@@ -159,6 +158,14 @@ func doTick private
 		socket.setOnErrorCallback(func(error as Error) {
 			failConnection(error)
 		})
+		if not url {
+			failConnection(Error.forCode("noUrl"))
+			return
+		}
+		if not protocols {
+			failConnection(Error.forCode("noProtocols"))
+			return
+		}
 		socket.connect(url, protocols)
 		return
 	}
@@ -203,12 +210,12 @@ func onConnectionClosed virtual
 
 func onConnectionMessage(message as WSMessage) virtual
 {
-	if protocol && message {
-		if message.isText() {
-			protocol.onStringMessage(message.getDataAsString())
+	if protocol {
+		if var text = message.getDataAsString() {
+			protocol.onStringMessage(text)
 		}
-		else {
-			protocol.onBinaryMessage(message.getData())
+		else if var data = message.getData() {
+			protocol.onBinaryMessage(data)
 		}
 	}
 }

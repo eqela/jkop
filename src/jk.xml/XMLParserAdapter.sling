@@ -30,9 +30,9 @@ class abstract:
 
 class StringElement public
 {
-	pvar name as string
-	pvar params as DynamicMap
-	pvar content as string
+	pvar name as string?
+	pvar params as DynamicMap?
+	pvar content as string?
 }
 
 class Position public
@@ -41,61 +41,55 @@ class Position public
 	pvar column as int
 }
 
-pvar fileName as string
-pvar xmlString as string
-var values as vector<MarkupLanguageParser.Value>
-var lines as vector<string>
+pvar fileName as string?
+pvar xmlString as string?
+var values as vector<MarkupLanguageParser.Value>?
+var lines as vector<string>?
 pvar currentPosition = 0
 pvar autoSkipTextAndComments = true
 pvar skipCommentsInText = true
 
-func initializeForFile(file as File, fileName as string) as bool
+func initializeForFile(file as File, fileName as string?) as bool
 {
-	assert file
 	var fn = fileName
 	if fn == null:
 		fn = file.getPath()
-	var buffer = assert file.getContentsBuffer()
-	var text = assert StringBufferDecoder.decodeBufferWithBOM(buffer, false)
+	var buffer = file.getContentsBuffer()
+	var text = StringBufferDecoder.decodeBufferWithBOM(buffer, false)
 	return initializeForString(text, fn)
 }
 
-func initializeForString(text as string, fileName as string) as bool
+func initializeForString(text as string, fileName as string?) as bool
 {
-	assert text
-	var pp = assert XMLParser.forString(text)
+	var pp = XMLParser.forString(text)
 	setFileName(fileName)
 	setXmlString(text)
 	initialize(pp)
 	return true
 }
 
-func executeForFile(ctx as LoggingContext, file as File, fileName as string = null) as bool
+func executeForFile(ctx as LoggingContext, file as File, fileName as string? = null) as bool
 {
-	assert file:
-		Log.error(ctx, "null file")
 	assert initializeForFile(file, fileName):
 		Log.error(ctx, "Failed to process XML file: `" .. file.getPath() .. "'")
 	try {
 		execute()
 	}
-	catch(e as ExceptionWithString) {
+	catch e as ExceptionWithString {
 		Log.error(ctx, e.toString())
 		return false
 	}
 	return true
 }
 
-func executeForString(ctx as LoggingContext, text as string, fileName as string = null) as bool
+func executeForString(ctx as LoggingContext, text as string, fileName as string? = null) as bool
 {
-	assert text:
-		Log.error(ctx, "null text")
 	assert initializeForString(text, fileName):
 		Log.error(ctx, "Failed to process XML string")
 	try {
 		execute()
 	}
-	catch(e as ExceptionWithString) {
+	catch e as ExceptionWithString {
 		Log.error(ctx, e.toString())
 		return false
 	}
@@ -105,34 +99,32 @@ func executeForString(ctx as LoggingContext, text as string, fileName as string 
 func initialize(parser as XMLParser) private
 {
 	values = new vector<MarkupLanguageParser.Value>
-	if parser {
-		var first = true
-		loop {
-			var vv = parser.next()
-			if not vv:
-				break
-			if first {
-				if vv is MarkupLanguageParser.CharacterData || vv is MarkupLanguageParser.Comment || vv is MarkupLanguageParser.TextData {
-					nop // do nothing
-				}
-				else if vv is MarkupLanguageParser.StartElement && (vv as! MarkupLanguageParser.StartElement).getName() == "?xml" {
-					first = false
-					continue
-				}
-				else {
-					first = false
-				}
+	var first = true
+	loop {
+		var vv = parser.next()
+		if not vv:
+			break
+		if first {
+			if vv is MarkupLanguageParser.CharacterData || vv is MarkupLanguageParser.Comment || vv is MarkupLanguageParser.TextData {
+				nop // do nothing
 			}
-			values += vv
+			else if vv is MarkupLanguageParser.StartElement && (vv as! MarkupLanguageParser.StartElement).getName() == "?xml" {
+				first = false
+				continue
+			}
+			else {
+				first = false
+			}
 		}
+		values += vv
 	}
 	currentPosition = 0
 }
 
-func expect(text as string):
+func expect(text as string) #throws:
 	error("Expecting: " .. text)
 
-func unsupported(element as MarkupLanguageParser.StartElement)
+func unsupported(element as MarkupLanguageParser.StartElement?)
 {
 	if element {
 		error("Unsupported element inside `" .. element.getName() .. "'")
@@ -142,13 +134,13 @@ func unsupported(element as MarkupLanguageParser.StartElement)
 	}
 }
 
-func error(message as string)
+func error(message as string?) #throws
 {
 	var sb = new StringBuilder()
 	var value = parserPeek()
 	if value {
 		var name = getFileName()
-		var token as string
+		var token as string?
 		if value is MarkupLanguageParser.StartElement {
 			token = (value as! MarkupLanguageParser.StartElement).getName()
 		}
@@ -172,7 +164,8 @@ func error(message as string)
 		var lineNumber = pp.getRow()
 		var columnNumber = pp.getColumn()
 		var contentLine = getContentLine(pp.getRow())
-		sb.appendString(name)
+		if name:
+			sb.appendString(name)
 		if lineNumber >= 0 {
 			sb.appendCharacter(':')
 			sb.appendInteger(lineNumber+1)
@@ -181,18 +174,17 @@ func error(message as string)
 				sb.appendInteger(columnNumber+1)
 			}
 		}
-		if String.isEmpty(token) == false {
+		if String.isNotEmpty(token) {
 			sb.appendString(" (`")
 			sb.appendString(token)
 			sb.appendString("')")
 		}
 		sb.appendString(": ")
-		sb.appendString(message)
+		if message:
+			sb.appendString(message)
 		if contentLine {
 			sb.appendCharacter('\n')
-			var it = String.iterate(contentLine)
-			var c as char
-			while (c = it.getNextChar()) > 0 {
+			foreach c in String.iterate(contentLine) {
 				if c == '\t' {
 					sb.appendCharacter(' ')
 				}
@@ -213,20 +205,17 @@ func error(message as string)
 		}
 	}
 	else {
-		sb.appendString(message)
+		if message:
+			sb.appendString(message)
 	}
 	throw ExceptionWithString.forString(sb.toString())
 }
 
-func isEmptyString(string as string) private as bool
+func isEmptyString(string as string?) private as bool
 {
 	if String.isEmpty(string):
 		return true
-	var it = String.iterate(string)
-	while it {
-		var c = it.getNextChar()
-		if c < 1:
-			break
+	foreach c in String.iterate(string) {
 		if c == ' ' || c == '\t' || c == '\r' || c == '\n':
 			continue
 		return false
@@ -252,7 +241,7 @@ macro TRY_ACCEPT(x)
 		return true
 }
 
-func parserPeek as MarkupLanguageParser.Value
+func parserPeek as MarkupLanguageParser.Value?
 {
 	assert values
 	assert currentPosition >= 0
@@ -260,7 +249,7 @@ func parserPeek as MarkupLanguageParser.Value
 	return values[currentPosition]
 }
 
-func parserNext as MarkupLanguageParser.Value
+func parserNext as MarkupLanguageParser.Value?
 {
 	var v = parserPeek()
 	if v:
@@ -268,7 +257,7 @@ func parserNext as MarkupLanguageParser.Value
 	return v
 }
 
-func parserPrev as MarkupLanguageParser.Value
+func parserPrev as MarkupLanguageParser.Value?
 {
 	if currentPosition < 1:
 		return null
@@ -276,7 +265,7 @@ func parserPrev as MarkupLanguageParser.Value
 	return parserPeek()
 }
 
-func acceptStartElement(name as string = null) as MarkupLanguageParser.StartElement
+func acceptStartElement(name as string? = null) as MarkupLanguageParser.StartElement?
 {
 	var oo = getCurrentPosition()
 	if autoSkipTextAndComments:
@@ -290,7 +279,7 @@ func acceptStartElement(name as string = null) as MarkupLanguageParser.StartElem
 	return null
 }
 
-func parseStartElement(name as string = null) as MarkupLanguageParser.StartElement
+func parseStartElement(name as string? = null) as MarkupLanguageParser.StartElement?
 {
 	var v = acceptStartElement(name)
 	if not v {
@@ -304,10 +293,10 @@ func parseStartElement(name as string = null) as MarkupLanguageParser.StartEleme
 	return v
 }
 
-func acceptAnyEndElement as MarkupLanguageParser.EndElement:
+func acceptAnyEndElement as MarkupLanguageParser.EndElement?:
 	return acceptEndElementWithName(null)
 
-func acceptEndElementWithName(name as string) as MarkupLanguageParser.EndElement
+func acceptEndElementWithName(name as string?) as MarkupLanguageParser.EndElement?
 {
 	var oo = getCurrentPosition()
 	if autoSkipTextAndComments:
@@ -321,17 +310,17 @@ func acceptEndElementWithName(name as string) as MarkupLanguageParser.EndElement
 	return null
 }
 
-func acceptEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
+func acceptEndElement(element as MarkupLanguageParser.StartElement?) as MarkupLanguageParser.EndElement?
 {
 	if not element:
 		return acceptEndElementWithName(null)
 	return acceptEndElementWithName(element.getName())
 }
 
-func parseAnyEndElement as MarkupLanguageParser.EndElement:
+func parseAnyEndElement as MarkupLanguageParser.EndElement?:
 	return parseEndElementWithName(null)
 
-func parseEndElementWithName(name as string) as MarkupLanguageParser.EndElement
+func parseEndElementWithName(name as string?) as MarkupLanguageParser.EndElement?
 {
 	var v = acceptEndElementWithName(name)
 	if not v {
@@ -345,14 +334,14 @@ func parseEndElementWithName(name as string) as MarkupLanguageParser.EndElement
 	return v
 }
 
-func parseEndElement(element as MarkupLanguageParser.StartElement) as MarkupLanguageParser.EndElement
+func parseEndElement(element as MarkupLanguageParser.StartElement?) as MarkupLanguageParser.EndElement?
 {
 	if not element:
 		return parseEndElementWithName(null)
 	return parseEndElementWithName(element.getName())
 }
 
-func acceptSingleElement(name as string = null) as MarkupLanguageParser.StartElement
+func acceptSingleElement(name as string? = null) as MarkupLanguageParser.StartElement?
 {
 	var oo = getCurrentPosition()
 	var element = assert acceptStartElement(name)
@@ -361,7 +350,7 @@ func acceptSingleElement(name as string = null) as MarkupLanguageParser.StartEle
 	return element
 }
 
-func parseSingleElement(name as string = null) as MarkupLanguageParser.StartElement
+func parseSingleElement(name as string? = null) as MarkupLanguageParser.StartElement?
 {
 	var v = acceptSingleElement(name)
 	if not v {
@@ -375,7 +364,7 @@ func parseSingleElement(name as string = null) as MarkupLanguageParser.StartElem
 	return v
 }
 
-func acceptStringElement(tagName as string = null) as StringElement
+func acceptStringElement(tagName as string? = null) as StringElement?
 {
 	var oo = getCurrentPosition()
 	var start = assert acceptStartElement(tagName)
@@ -391,27 +380,27 @@ func acceptStringElement(tagName as string = null) as StringElement
 	return v
 }
 
-func parseStringElement(tagName as string = null) as StringElement
+func parseStringElement(tagName as string? = null) as StringElement?
 {
 	var v = assert acceptStringElement(tagName):
 		expect("String element")
 	return v
 }
 
-func acceptStringElementData(tagName as string = null) as string
+func acceptStringElementData(tagName as string? = null) as string?
 {
 	var v = assert acceptStringElement(tagName)
 	return v.getContent()
 }
 
-func parseStringElementData(tagName as string = null) as string
+func parseStringElementData(tagName as string? = null) as string?
 {
 	var v = assert acceptStringElementData(tagName):
 		expect("String element")
 	return v
 }
 
-func acceptElementTree(name as string, startHandler as function<void,MarkupLanguageParser.StartElement>, childHandler as function<bool>) as bool
+func acceptElementTree(name as string?, startHandler as function<void,MarkupLanguageParser.StartElement>?, childHandler as function<bool>?) as bool
 {
 	var element = assert acceptStartElement(name)
 	if startHandler:
@@ -426,9 +415,9 @@ func acceptElementTree(name as string, startHandler as function<void,MarkupLangu
 	return true
 }
 
-func acceptText(force as bool = false) as string
+func acceptText(force as bool = false) as string?
 {
-	var sb as StringBuilder
+	var sb as StringBuilder?
 	loop {
 		var cc = parserPeek()
 		if not cc:
@@ -456,13 +445,10 @@ func acceptText(force as bool = false) as string
 			return ""
 		return null
 	}
-	var v = sb.toString()
-	if v == null && force:
-		return ""
-	return v
+	return sb.toString()
 }
 
-func parseText as string
+func parseText as string?
 {
 	var v = acceptText()
 	if not v:
@@ -491,7 +477,7 @@ func skipTextAndComments
 	}
 }
 
-func acceptKeyValuePair as KeyValuePair<string,string>
+func acceptKeyValuePair as KeyValuePair<string,string>?
 {
 	var oo = getCurrentPosition()
 	var ss = assert acceptStartElement():
@@ -500,10 +486,10 @@ func acceptKeyValuePair as KeyValuePair<string,string>
 		setCurrentPosition(oo)
 	var ee = assert acceptEndElementWithName(ss.getName()):
 		setCurrentPosition(oo)
-	var v = new KeyValuePair<string,string>()
-	v.key = ss.getName()
-	v.value = tt
-	return v
+	return new KeyValuePair<string,string>() {
+		key String.safeString(ss.getName())
+		value tt
+	}
 }
 
 func parseKeyValuePair as KeyValuePair<string,string>
@@ -516,7 +502,6 @@ func parseKeyValuePair as KeyValuePair<string,string>
 
 func calculatePosition(pos as int, result as Position)
 {
-	assert result
 	result.setRow(0)
 	result.setColumn(0)
 	var text = getXmlString()
@@ -524,8 +509,8 @@ func calculatePosition(pos as int, result as Position)
 		var p = 0
 		var nr = 0
 		var nc = 0
-		var it = String.iterate(text)
-		while it {
+		var it = String.iterateAsCharacterIterator(text)
+		loop {
 			if p == pos {
 				result.setRow(nr)
 				result.setColumn(nc)
@@ -546,7 +531,7 @@ func calculatePosition(pos as int, result as Position)
 	}
 }
 
-func getTextData(elem as MarkupLanguageParser.Value) private as string
+func getTextData(elem as MarkupLanguageParser.Value?) private as string?
 {
 	if elem is MarkupLanguageParser.CharacterData:
 		return (elem as! MarkupLanguageParser.CharacterData).getData()
@@ -555,7 +540,7 @@ func getTextData(elem as MarkupLanguageParser.Value) private as string
 	return null
 }
 
-func getLines private as vector<string>
+func getLines private as vector<string>?
 {
 	if not lines {
 		var text = getXmlString()
@@ -565,7 +550,7 @@ func getLines private as vector<string>
 	return lines
 }
 
-func getContentLine(n as int) as string
+func getContentLine(n as int) as string?
 {
 	if n < 0:
 		return null

@@ -61,8 +61,8 @@ model Database public
 	properties as DynamicMap
 	parent as DynamicMap
 	url as string
-	archived as boolean
-	is_inline as boolean
+	archived as bool
+	is_inline as bool
 }
 
 model User public
@@ -137,8 +137,8 @@ model Block public
 	created_by as User
 	last_edited_by as User
 	last_edited_time as string
-	archived as boolean
-	has_children as boolean
+	archived as bool
+	has_children as bool
 	paragraph as Paragraph
 	heading_1 as Paragraph
 	heading_2 as Paragraph
@@ -188,7 +188,7 @@ model PageResultList public
 	object as string
 	results as Page[]
 	next_cursor as string
-	has_more as boolean
+	has_more as bool
 	type as string
 	page as Page
 }
@@ -198,7 +198,7 @@ model BlockResultList public
 	object as string
 	results as Block[]
 	next_cursor as string
-	has_more as boolean
+	has_more as bool
 	type as string
 	block as Block
 }
@@ -302,7 +302,7 @@ model Icon public
 model ToDo public
 {
 	rich_text as RichText[]
-	checked as boolean
+	checked as bool
 	color as string
 	children as DynamicMap
 }
@@ -350,29 +350,12 @@ ctor(ctx as LoggingContext, authKey as string)
 	this.authKey = authKey
 }
 
-func onInvalidResponse(response as dynamic):
+func onInvalidResponse(response as dynamic) #throws:
 	Error.throw("notionInvalidResponse", response)
 
-func toPostBody(data as dynamic) as buffer
-{
-	if data == null:
-		return null
-	if data is JSONObject {
-		var jo = assert (data as! JSONObject).toJsonObject()
-		var jostr = assert JSONEncoder.toString(jo)
-		return String.toUTF8Buffer(jostr)
-	}
-	if data is object {
-		return String.toUTF8Buffer(JSONEncoder.toString(data as! object))
-	}
-	return null
-}
-
-func callToNotion(method as string, path as string, postBody as dynamic) async private as DynamicMap
+func callToNotion(method as string, path as string, postBody as dynamic?) async private as DynamicMap
 {
 	var key = authKey
-	if not key:
-		Error.throw("notionMissingAuthKey", null)
 	if rateLimitedUntil > 0L {
 		var now = SystemClock.asUTCSeconds()
 		if now < rateLimitedUntil:
@@ -385,25 +368,22 @@ func callToNotion(method as string, path as string, postBody as dynamic) async p
 	var headers = new KeyValueList<string,string>()
 	headers.add("Authorization", "Bearer " .. key)
 	headers.add("Notion-Version", apiVersion)
-	var pb = toPostBody(postBody)
+	var pb = WebClient.toPostBody(postBody)
 	if pb {
 		headers.add("accept", "application/json")
 		headers.add("content-type", "application/json")
 	}
-	var responseValue as DynamicMap
+	var responseValue as DynamicMap?
 	var retries = 0
 	while not responseValue {
-		if ctx && ctx.isInDebugMode():
+		var ctx = this.ctx
+		if ctx.isInDebugMode():
 			Log.debug(ctx, "Calling Notion API: `" .. method .. " " .. url .. " ..")
 		var response = await WebClient.instance().executeQuery(ctx, method, url, headers, pb)
-		if not response:
-			Error.throw("notionNoApiResponse", url)
-		var status = response.statusCode
+		var status = String.safeString(response.statusCode)
 		var message = response.statusMessage
-		var responseBody as string
-		if response.body:
-			responseBody = response.getBodyAsString()
-		if responseBody && ctx && ctx.isInDebugMode():
+		var responseBody = response.getBodyAsString()
+		if ctx.isInDebugMode():
 			Log.debug(ctx, "Received from Notion: " .. responseBody)
 		if String.startsWith(status, "2") == false {
 			if String.startsWith(status, "5") {
@@ -417,7 +397,7 @@ func callToNotion(method as string, path as string, postBody as dynamic) async p
 			}
 			if status == "429" {
 				// rate limited
-				var retryAfter = String.toInteger(response.getHeaderValue("retry-after"))
+				var retryAfter = Integer.forStringOrDefaultValue(response.getHeaderValue("retry-after") ?? "0")
 				if retryAfter < 1:
 					retryAfter = 60
 				rateLimitedUntil = SystemClock.asUTCSeconds() + retryAfter
@@ -427,49 +407,34 @@ func callToNotion(method as string, path as string, postBody as dynamic) async p
 			}
 			Error.throw("notionApiError", response)
 		}
-		responseValue = JSONParser.parseString(responseBody) as DynamicMap
+		responseValue = JSONParser.parseStringAsMap(responseBody)
 	}
+	if not responseValue:
+		Error.throw("failedToGetResponseValue", null)
 	return responseValue
 }
 
 func createPage(data as Page) async as Page
 {
 	var response = await callToNotion("POST", "/pages/", data)
-	var v = Page.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return Page.forData(response)
 }
 
 func getPage(pageId as string) async as Page
 {
 	var response = await callToNotion("GET", "/pages/" .. pageId, null)
-	var z = Page.forData(response)
-	if not z:
-		onInvalidResponse(response)
-	return z
+	return Page.forData(response)
 }
 
 func updatePage(pageId as string, data as Page) async as Page
 {
 	var response = await callToNotion("PATCH", "/pages/" .. pageId, data)
-	var r = Page.forData(response)
-	if not r:
-		onInvalidResponse(response)
-	return r
+	return Page.forData(response)
 }
 
 func getPropertyItem(databaseId as string, pageId as string, propertyName as string) async as PropertyItem
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
-	if String.isEmpty(pageId):
-		Error.throw("missingParameter", "pageId")
-	if String.isEmpty(propertyName):
-		Error.throw("missingParameter", "propertyName")
 	var properties = await getPropertiesList(databaseId)
-	if not properties:
-		onInvalidResponse(properties)
 	var property = properties.getDynamicMap(propertyName)
 	if not property:
 		Error.throw("propertyNotFound", propertyName)
@@ -478,77 +443,49 @@ func getPropertyItem(databaseId as string, pageId as string, propertyName as str
 		Error.throw("noPropertyId", property)
 	var propertyUrl = "/pages/" .. pageId .. "/properties/" .. propertyId
 	var response = await callToNotion("GET", propertyUrl, null)
-	var v = PropertyItem.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return PropertyItem.forData(response)
 }
 
 func getPropertiesList(databaseId as string) async as DynamicMap
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
 	var dbDetails = await getDatabaseDetails(databaseId)
-	return dbDetails.properties
+	var v = dbDetails.properties
+	if not v:
+		v = new DynamicMap()
+	return v
 }
 
 func createDatabase(data as Database) async as Database
 {
-	if not data:
-		Error.throw("missingParameter", "data")
 	var createDatabaseUrl = "/databases"
 	var response = await callToNotion("POST", createDatabaseUrl, data)
-	var v = Database.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return Database.forData(response)
 }
 
 func updateDatabase(databaseId as string, data as Database) async as Database
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
-	if not data:
-		Error.throw("missingParameter", "data")
 	var databaseApiUrl = "/databases/" .. databaseId
 	var response = await callToNotion("PATCH", databaseApiUrl, data)
-	var v = Database.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return Database.forData(response)
 }
 
 func getDatabaseDetails(databaseId as string) async as Database
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
 	var databaseApiUrl = "/databases/" .. databaseId
 	var response = await callToNotion("GET", databaseApiUrl, null)
 	var propList = response.get("properties")
-	var v = Database.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return Database.forData(response)
 }
 
 func queryDatabase(databaseId as string, data as DynamicMap) async as PageResultList
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
-	if not data:
-		Error.throw("missingParameter", "data")
 	var queryUrl = "/databases/" .. databaseId .. "/query"
 	var response = await callToNotion("POST", queryUrl, data)
-	var v = PageResultList.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return PageResultList.forData(response)
 }
 
-func queryPageFromDatabase(databaseId as string, key as string, value as string) async as Page
+func queryPageFromDatabase(databaseId as string, key as string, value as string) async as Page?
 {
-	if String.isEmpty(databaseId):
-		Error.throw("missingParameter", "databaseId")
 	var s = new map {
 		equals value
 	}
@@ -561,61 +498,45 @@ func queryPageFromDatabase(databaseId as string, key as string, value as string)
 	var queryUrl = "/databases/" .. databaseId .. "/query"
 	var response = await callToNotion("POST", queryUrl, filter)
 	var r = PageResultList.forData(response)
-	if not r:
-		onInvalidResponse(response)
-	return Vector.get(r.results, 0)
+	var rresults = assert r.results
+	return Vector.getValue(rresults, 0)
 }
 
 func getUser(userId as string) async as User
 {
-	if String.isEmpty(userId):
-		Error.throw("missingParameter", "userId")
 	var userUrl = "/users/" .. userId
 	var response = await callToNotion("GET", userUrl, null)
-	var v = User.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return User.forData(response)
 }
 
 func getAllUsers async as UsersList
 {
 	var usersListUrl = "/users"
 	var response = await callToNotion("GET", usersListUrl, null)
-	var v = UsersList.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return UsersList.forData(response)
 }
 
 func getBlock(blockId as string) async as Block
 {
-	if String.isEmpty(blockId):
-		Error.throw("missingParameter", "blockId")
 	var blockUrl = "/blocks/" .. blockId
 	var response = await callToNotion("GET", blockUrl , null)
-	var v = Block.forData(response)
-	if not v:
-		onInvalidResponse(response)
-	return v
+	return Block.forData(response)
 }
 
 func getChildrenBlocks(blockId as string) async as vector<Block>
 {
-	if String.isEmpty(blockId):
-		Error.throw("missingParameter", "blockId")
 	var blockChildren = "/blocks/" .. blockId .. "/children"
 	var response = await callToNotion("GET", blockChildren, null)
 	var v = BlockResultList.forData(response)
-	if not v:
-		onInvalidResponse(response)
 	var b = new vector<Block>
-	foreach block in v.results {
+	if var vresults = v.results: foreach block in vresults {
 		b += block
 		if block.has_children {
-			var a = await getChildrenBlocks(block.id)
-			foreach item in a:
-				b += item
+			if var blockId = block.id {
+				var a = await getChildrenBlocks(blockId)
+				foreach item in a:
+					b += item
+			}
 		}
 	}
 	return b

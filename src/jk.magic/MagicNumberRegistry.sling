@@ -28,12 +28,12 @@ class:
 
 class MagicNumberInfo public
 {
-	var magic public as string
-	var description public as string
-	var mimeType public as string
+	prop magic as string
+	prop description as string
+	prop mimeType as string?
 }
 
-var myInstance static private as this
+var myInstance static private as this?
 
 func instance static as this
 {
@@ -42,23 +42,17 @@ func instance static as this
 	return myInstance
 }
 
-func createUnknown private static as MagicNumberInfo
-{
-	var v = new MagicNumberInfo()
-	v.magic = ""
-	v.description = "Unknown"
-	v.mimeType = "application/unknown"
-	return v
-}
+func createUnknown private static as MagicNumberInfo:
+	return new MagicNumberInfo() {
+		magic ""
+		description "Unknown"
+		mimeType "application/unknown"
+	}
 
 func determineTypeForFile(file as File) static as MagicNumberInfo
 {
-	if not file:
-		return createUnknown()
 	var reader = file.read()
-	if not reader:
-		return createUnknown()
-	var buffer = malloc 32
+	var buffer = Buffer.allocate(32)
 	var r = reader.read(buffer)
 	reader.close()
 	if r < 1:
@@ -70,8 +64,6 @@ func determineTypeForFile(file as File) static as MagicNumberInfo
 
 func determineMimeTypeForBuffer(buffer as buffer) static as MagicNumberInfo
 {
-	if not buffer:
-		return createUnknown()
 	var sz = sizeof buffer
 	if sz < 1:
 		return createUnknown()
@@ -84,12 +76,11 @@ func determineMimeTypeForBuffer(buffer as buffer) static as MagicNumberInfo
 	var v = o.determineTypeForContentString(sb.toString())
 	if v == null:
 		return createUnknown()
-	var w = new MagicNumberInfo()
-	w.magic = v.magic
-	w.description = v.description
-	w.mimeType = v.mimeType
-	if w.magic == null:
-		w.magic = ""
+	var w = new MagicNumberInfo() {
+		magic v.magic
+		description v.description
+		mimeType v.mimeType
+	}
 	if String.isEmpty(w.description):
 		w.description = "Unknown"
 	if String.isEmpty(w.mimeType):
@@ -200,13 +191,17 @@ ctor private
 	add("78DA", "Zlib Compression (best compression)", "application/x-zlib")
 }
 
+func add(ident as string, description as string, mimeType as string?) private:
+	entries += new MagicNumberInfo() {
+		magic ident
+		description description
+		mimeType mimeType
+	}
+
 func isEntryMatching(entry as MagicNumberInfo, str as string) private as bool
 {
-	assert str
-	assert entry
-	assert entry.magic
-	var sit = assert String.iterate(str)
-	var mit = assert String.iterate(entry.magic)
+	var sit = String.iterateAsCharacterIterator(str)
+	var mit = String.iterateAsCharacterIterator(entry.magic)
 	loop {
 		var sc = sit.getNextChar()
 		var mc = mit.getNextChar()
@@ -221,22 +216,11 @@ func isEntryMatching(entry as MagicNumberInfo, str as string) private as bool
 	return true
 }
 
-func determineTypeForContentString(str as string) private as MagicNumberInfo
+func determineTypeForContentString(str as string) private as MagicNumberInfo?
 {
-	assert str
 	foreach entry in entries {
 		if isEntryMatching(entry, str):
 			return entry
 	}
 	return null
-}
-
-func add(ident as string, description as string, mimeType as string) private
-{
-	assert ident
-	var v = new MagicNumberInfo()
-	v.magic = ident
-	v.description = description
-	v.mimeType = mimeType
-	entries += v
 }

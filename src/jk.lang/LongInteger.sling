@@ -22,87 +22,191 @@
  * SOFTWARE.
  */
 
-class is LongIntegerObject:
+class:
 
-func forValue(value as long) static as this:
-	return new this(value)
+class MyLongIntegerObject is LongIntegerObject private
+{
+	prop value as long
 
-func asLong(obj as dynamic, defval as long = 0L) static as long #deprecated:
-	return asValue(obj, defval)
+	func toLongInteger as long:
+		return value
+}
 
-func asValue(obj as dynamic, defval as long) static as long
+func wrapValue(value as long) static as LongIntegerObject:
+	return new MyLongIntegerObject() {
+		value value
+	}
+
+func asValueOrDefaultValue(obj as dynamic?, defaultValue as long = 0L) static as long
 {
 	var v = asObject(obj)
 	if not v:
-		return defval
-	return v.toLong()
+		return defaultValue
+	return v.toLongInteger()
 }
 
-func asObject(obj as dynamic) static as this
+func asValueOrThrowError(obj as dynamic?) static as long
+{
+	var v = asObject(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToLongInteger", obj)
+	return v.toLongInteger()
+}
+
+func asObject(obj as dynamic?) static as LongIntegerObject?
 {
 	if not obj:
 		return null
 	if obj is long:
-		return new this(obj as long)
-	if obj is this:
-		return obj as! this
+		return wrapValue(obj as long)
 	if obj is LongIntegerObject {
 		var oi = obj as! LongIntegerObject
-		return new this(oi.toLong())
+		return wrapValue(oi.toLongInteger())
 	}
 	if obj is int {
 		var v = obj as int
-		return new this(v as long)
+		return wrapValue(v as long)
 	}
 	if obj is IntegerObject {
 		var oi = obj as! IntegerObject
-		return new this(oi.toInteger() as long)
+		return wrapValue(oi.toInteger() as long)
 	}
-	if obj is string:
-		return new this(String.toLong(obj as! string))
-	if obj is StringObject:
-		return new this(String.toLong((obj as! StringObject).toString()))
+	if obj is string {
+		var ii = forStringOrNull(obj as! string)
+		if ii == null:
+			return null
+		return wrapValue(ii)
+	}
+	if obj is StringObject {
+		var ii = forStringOrNull((obj as! StringObject).toString())
+		if ii == null:
+			return null
+		return wrapValue(ii)
+	}
 	if obj is double {
 		var v = obj as double
 		var vv = v as long
-		return new this(vv)
+		return wrapValue(vv)
 	}
 	if obj is DoubleObject {
 		var od = obj as! DoubleObject
 		var vv = od.toDouble() as long
-		return new this(vv)
+		return wrapValue(vv)
 	}
 	if obj is bool {
 		if obj as bool == true:
-			return new this(1L)
-		return new this(0L)
+			return wrapValue(1L)
+		return wrapValue(0L)
 	}
 	if obj is BooleanObject {
 		if (obj as! BooleanObject).toBoolean():
-			return new this(1L)
-		return new this(0L)
+			return wrapValue(1L)
+		return wrapValue(0L)
 	}
 	if obj is char {
 		var v = obj as char
-		return new this(v as long)
+		return wrapValue(v as long)
 	}
 	if obj is CharacterObject {
 		var oc = obj as! CharacterObject
-		return new this(oc.toCharacter() as long)
+		return wrapValue(oc.toCharacter() as long)
 	}
 	return null
 }
 
-ctor:
-	nop
+**
+** Converts the string to a long integer. If the string does not represent a valid
+** integer, than a null value is returned.
+**
+** Eg. forStringOrNull("99") = 99
+** Eg. forStringOrNull("asdf") = null
+**
 
-ctor(value as long):
-	setValue(value)
+func forStringOrNull(str as string) static as long?
+{
+	if String.isEmpty(str):
+		return null
+	var v = 0L
+	var first = true
+	var negative = false
+	foreach c in String.iterate(str) {
+		if first && c == '-' {
+			negative = true
+			first = false
+			continue
+		}
+		if c >= '0' && c <= '9' {
+			v = v * 10
+			v += (c - '0') as long
+		}
+		else {
+			return null
+		}
+		first = false
+	}
+	if negative:
+		v *= -1
+	return v
+}
 
-pvar value as long
+**
+** Converts the string to a long integer. If the string does not represent a valid
+** integer, then the value "0" is returned.
+**
+** Eg. forStringOrDefaultValue("99", 10L) = 99L
+** Eg. forStringOrDefaultValue("asdf", 10L) = 10L
+**
 
-func add(amount as long):
-	value += amount
+func forStringOrDefaultValue(str as string, defaultValue as long = 0L) static as long
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		return defaultValue
+	return v
+}
 
-func toLong as long:
-	return value
+**
+** Converts the string to a long integer. If the string does not represent a valid
+** integer, then an exception is thrown.
+**
+** Eg. forStringOrThrowError("99") = 99L
+** Eg. forStringOrThrowError("asdf") throws exception
+**
+
+func forStringOrThrowError(str as string) static as long
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		Error.throw("stringCannotBeConvertedToLongInteger", str)
+	return v
+}
+
+**
+** Converts the string to an long integer, while treating the string as a hexadecimal
+** representation of a number, eg. forHexStringOrDefaultValue("a") = 10
+**
+
+func forHexStringOrDefaultValue(str as string, defaultValue as long = 0L) static as long
+{
+	if String.isEmpty(str):
+		return defaultValue
+	var v = 0L
+	foreach c in String.iterate(str) {
+		if c >= '0' && c <= '9' {
+			v = v * 16
+			v += (c - '0') as long
+		}
+		else if c >= 'a' && c <= 'f' {
+			v = v * 16
+			v += (10 + c - 'a') as long
+		}
+		else if c >= 'A' && c <= 'F' {
+			v = v * 16
+			v += (10 + c - 'A') as long
+		}
+		else {
+			return defaultValue
+		}
+	}
+	return v
+}

@@ -34,11 +34,11 @@ class is WebServerMiddleware:
 
 model Settings public
 {
-	issuerBaseUrl as string
-	applicationBaseUrl as string
-	applicationSecret as string
-	clientId as string
-	clientSecret as string
+	issuerBaseUrl as string!
+	applicationBaseUrl as string!
+	applicationSecret as string!
+	clientId as string!
+	clientSecret as string!
 	cookieName as string
 	loginFailedUrl as string
 	loginSuccessfulUrl as string
@@ -57,36 +57,7 @@ model TokenResponse
 	id_token as string
 }
 
-func forSettings(ctx as LoggingContext, settings as Settings) async static as this
-{
-	var v = new this()
-	v.ctx = ctx
-	v.settings = settings
-	if not v.settings:
-		v.settings = new Settings()
-	if String.isEmpty(v.settings.cookieName):
-		v.settings.cookieName = "webAppSession"
-	if v.settings.sessionTimeoutSeconds < 1:
-		v.settings.sessionTimeoutSeconds = 3600
-	if String.isEmpty(v.settings.scope):
-		v.settings.scope = "openid profile email"
-	await v.initialize()
-	return v
-}
-
-prop settings as Settings
-prop idTokenUserDataKey as string = "oidc-id-token"
-var oidcConfiguration as OidcConfiguration
-var jwtValidator as JWTValidator
-
-func initialize async
-{
-	oidcConfiguration = await getOpenidConfiguration()
-	jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, settings.issuerBaseUrl)
-	Log.debug(ctx, "OIDC configuration: `" .. SLONEncoder.toString(oidcConfiguration.toDynamicMap()) .. "'")
-}
-
-func getOpenidConfiguration async private as OidcConfiguration
+func getOpenidConfigurationForSettings(settings as Settings) async static private as OidcConfiguration
 {
 	if String.isEmpty(settings.issuerBaseUrl):
 		Error.throw("valueMissing", "issuerBaseUrl")
@@ -94,8 +65,6 @@ func getOpenidConfiguration async private as OidcConfiguration
 	Log.status(ctx, "Retrieving OpenID configuration: `" .. url .. "' .. ")
 	var response = await WebClient.instance().executeQuery(ctx, "GET", url, null, null)
 	Log.status(ctx, null)
-	if not response:
-		Error.throw("failedToQueryUrl", url)
 	if String.equals(response.statusCode, "200") == false:
 		Error.throw("failedToGetOpenIdConfiguration", String.forUTF8Buffer(response.body))
 	var str = String.forUTF8Buffer(response.body)
@@ -106,6 +75,23 @@ func getOpenidConfiguration async private as OidcConfiguration
 		Error.throw("invalidOidcConfiguration", str)
 	return OidcConfiguration.forData(data)
 }
+
+func createAndInitialize(ctx as LoggingContext, settings as Settings) async static as this
+{
+	var oidcConfiguration = await getOpenidConfigurationForSettings(settings)
+	var jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, settings.issuerBaseUrl)
+	Log.debug(ctx, "OIDC configuration: `" .. SLONEncoder.toString(oidcConfiguration.toDynamicMap()) .. "'")
+	return new this() {
+		settings settings
+		oidcConfiguration oidcConfiguration
+		jwtValidator jwtValidator
+	}
+}
+
+prop settings as Settings
+prop oidcConfiguration as OidcConfiguration
+prop jwtValidator as JWTValidator
+prop idTokenUserDataKey as string = "oidc-id-token"
 
 func getRedirectUri as string:
 	return settings.applicationBaseUrl .. "/.oidc/callback"
@@ -126,64 +112,60 @@ func getLoginSuccessfulUrl as string
 	return v
 }
 
+func getCookieName as string
+{
+	var v = settings.cookieName
+	if String.isEmpty(v):
+		v = "webAppSession"
+	return v
+}
+
+func getScope as string
+{
+	var v = settings.scope
+	if String.isEmpty(v):
+		v = "openid profile email"
+	return v
+}
+
+func getSessionTimeoutSeconds as int
+{
+	var v = settings.sessionTimeoutSeconds
+	if v == null:
+		v = 3600
+	return v
+}
+
 func handleCallbackRequest(req as WebServerRequest) async private
 {
 	var code = req.getQueryParameter("code")
-	if String.isEmpty(code) {
-		Log.debug(ctx, "Callback URL received no code: Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
+	if String.isEmpty(code):
+		Error.throw("noCodeInCallbackRequest", req)
 	var data = new map<string,string>
 	Map.set(data, "client_id", settings.clientId)
 	Map.set(data, "client_secret", settings.clientSecret)
-	Map.set(data, "scope", settings.scope)
+	Map.set(data, "scope", getScope())
 	Map.set(data, "code", code)
 	Map.set(data, "redirect_uri", getRedirectUri())
 	Map.set(data, "grant_type", "authorization_code")
 	var qs = QueryString.encode(data)
 	var hdrs = new KeyValueList<string,string>
 	hdrs.add("Content-Type", "application/x-www-form-urlencoded")
-	var response = await WebClient.instance().executeQuery(ctx, "POST", oidcConfiguration.token_endpoint, hdrs, String.toUTF8Buffer(qs))
-	if not response {
-		Log.debug(ctx, "Token exchange URL call failed: Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
-	if response.statusCode != "200" {
-		Log.debug(ctx, "Token exchange URL call return error status " .. response.statusCode .. "': Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
-	var tr = TokenResponse.forData(JSONParser.parseBuffer(response.body) as DynamicMap)
+	var endpoint = oidcConfiguration.token_endpoint
+	if String.isEmpty(endpoint):
+		Error.throw("noTokenEndpointInOidcConfiguration", oidcConfiguration)
+	var response = await WebClient.instance().executeQuery(ctx, "POST", endpoint, hdrs, String.toUTF8Buffer(qs))
+	if response.statusCode != "200":
+		Error.throw("tokenExchangeReturnedErrorStatus", response.statusCode)
+	var tr = TokenResponse.forData(JSONParser.parseBufferAsMap(response.body))
 	Log.debug(ctx, "Token response: `" .. SLONEncoder.toString(tr.toDynamicMap()) .. "'")
 	var idToken = tr.id_token
-	if String.isEmpty(idToken) {
-		Log.debug(ctx, "No ID token received. Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
-	var validateSign = await jwtValidator.validateSignature(idToken)
-	if not validateSign {
-		Log.debug(ctx, "Invalid ID token. Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
-	var idContent = JWT.decode(idToken, null)
-	if not idContent {
-		Log.debug(ctx, "Invalid ID token received. Login failed.")
-		req.setResponseRedirect(getLoginFailedUrl())
-		req.endResponse()
-		return
-	}
+	if String.isEmpty(idToken):
+		Error.throw("noIdTokenReceived", null)
+	await jwtValidator.validateSignatureOrThrowError(idToken)
 	var encryptedString = CipherHelper.forSecret(settings.applicationSecret).encrypt(idToken)
-	var cookie = WebServerCookie.forKeyValue(settings.cookieName, encryptedString)
-	cookie.setMaxAge(settings.sessionTimeoutSeconds)
+	var cookie = WebServerCookie.forKeyValue(getCookieName(), encryptedString)
+	cookie.setMaxAge(getSessionTimeoutSeconds())
 	cookie.setPath("/")
 	cookie.setSecure(true)
 	cookie.setHttpOnly(true)
@@ -199,11 +181,11 @@ func handleLogoutRequest(req as WebServerRequest) async private
 	if String.isEmpty(url):
 		url = settings.applicationBaseUrl
 	req.setResponseRedirect(url)
-	req.setResponseHeader("Set-Cookie", WebServerCookie.forDeleteKey(settings.cookieName).toString())
+	req.setResponseHeader("Set-Cookie", WebServerCookie.forDeleteKey(getCookieName()).toString())
 	req.endResponse()
 }
 
-func handleRequest(req as WebServerRequest, next as function<promise>) async override
+func handleRequest(req as WebServerRequest, next as function<promise<void>>) async override
 {
 	if req.isForResource("/.oidc/failed") {
 		req.setResponseStatus(500)
@@ -216,24 +198,33 @@ func handleRequest(req as WebServerRequest, next as function<promise>) async ove
 		return
 	}
 	if req.isForResource("/.oidc/callback") {
-		await handleCallbackRequest(req)
+		try {
+			await handleCallbackRequest(req)
+		}
+		catch e {
+			Log.error(ctx, "Callback request handling failed: `" .. String.asValueOrEmptyString(e) .. "'")
+			req.setResponseRedirect(getLoginFailedUrl())
+			req.endResponse()
+		}
 		return
 	}
-	var cookie = req.getCookie(settings.cookieName)
+	var cookie = req.getCookie(getCookieName())
 	if String.isNotEmpty(cookie) {
-		var cookieString = CipherHelper.forSecret(settings.applicationSecret).decrypt(cookie)
-		if cookieString {
+		try {
+			var cookieString = CipherHelper.forSecret(settings.applicationSecret).decrypt(cookie)
 			req.setUserData(idTokenUserDataKey, cookieString)
 		}
-		else {
+		catch e {
+			Log.warning(ctx, "Cookie decryption failed: `" .. String.asValueOrEmptyString(e) .. "'. Ignoring cookie.")
 			cookie = null
 		}
 	}
 	if String.isEmpty(cookie) {
-		var url = URL.forString(oidcConfiguration.authorization_endpoint)
-		if not url:
-			Error.throw("invalidOidcAuthorizationEndpoint", oidcConfiguration.authorization_endpoint)
-		url.addQueryParameter("scope", settings.scope)
+		var endpoint = oidcConfiguration.authorization_endpoint
+		if String.isEmpty(endpoint):
+			Error.throw("noAuthorizationEndpointInOidcConfiguration", oidcConfiguration)
+		var url = URL.forString(endpoint)
+		url.addQueryParameter("scope", getScope())
 		url.addQueryParameter("response_type", "code")
 		url.addQueryParameter("response_mode", "query")
 		url.addQueryParameter("client_id", settings.clientId)
@@ -243,8 +234,8 @@ func handleRequest(req as WebServerRequest, next as function<promise>) async ove
 		return
 	}
 	// This will renew the cookie expiration.
-	var cc = WebServerCookie.forKeyValue(settings.cookieName, cookie)
-	cc.setMaxAge(settings.sessionTimeoutSeconds)
+	var cc = WebServerCookie.forKeyValue(getCookieName(), cookie)
+	cc.setMaxAge(getSessionTimeoutSeconds())
 	cc.setPath("/")
 	cc.setSecure(true)
 	cc.setHttpOnly(true)

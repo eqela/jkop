@@ -24,18 +24,18 @@
 
 class:
 
-IFDEF "target_netcore"
+IFDEF "target_dotnet_cs"
 {
 	depend "nuget:System.Threading.Thread@4.3.*"
 
 	class MyThread is RunningThread
 	{
-		pvar thread as !"System.Threading.Thread"
+		pvar thread as native<System.Threading.Thread>?
 
 		func isAlive as bool
 		{
 			assert thread
-			return lang "cs" bool {{{ thread.IsAlive }}}
+			return lang "cs" as bool {{{ thread.IsAlive }}}
 		}
 	}
 }
@@ -47,7 +47,7 @@ IFDEF "target_posix"
 		#include <signal.h>
 	}}}
 
-	func threadFunction(arg as ptr) static as ptr
+	func threadFunction(arg as ptr<uint8>) static as ptr<uint8>
 	{
 		lang "c" {{{
 			sigset_t ss;
@@ -83,7 +83,7 @@ IFDEF "target_win32"
 		#include <windows.h>
 	}}}
 
-	func threadFunction(arg as ptr) static as ptr
+	func threadFunction(arg as ptr<uint8>) static as ptr<uint8>
 	{
 		(arg as Runnable).run()
 		lang "c" {{{
@@ -109,21 +109,21 @@ IFDEF "target_java"
 
 	class MyThread is RunningThread
 	{
-		pvar thread as !"java.lang.Thread"
+		pvar thread as native<java.lang.Thread>?
 
 		func isAlive as bool
 		{
 			assert thread
-			return lang "java" bool {{{ thread.isAlive() }}}
+			return lang "java" as bool {{{ thread.isAlive() }}}
 		}
 	}
 }
 
 IFDEF "target_objc"
 {
-	class MyThread is !"NSThread"
+	class MyThread is native<NSThread>
 	{
-		pvar runnable as Runnable
+		pvar runnable as Runnable?
 
 		ctor:
 			base()
@@ -137,19 +137,19 @@ IFDEF "target_objc"
 
 	class MyRunningThread is RunningThread
 	{
-		pvar thread as !"NSThread"
+		pvar thread as native<NSThread>?
 
 		func isAlive as bool
 		{
 			assert thread
-			return lang "objc" bool {{{ [thread isExecuting] }}}
+			return lang "objc" as bool {{{ [thread isExecuting] }}}
 		}
 	}
 }
 
 IFDEF "target_swift"
 {
-	class MyThread extends !"Foundation.Thread"
+	class MyThread extends native<Foundation.Thread>
 	{
 		ctor override
 		{
@@ -158,7 +158,7 @@ IFDEF "target_swift"
 			}}}
 		}
 
-		pvar runnable as Runnable
+		pvar runnable as Runnable?
 
 		func main override
 		{
@@ -172,12 +172,12 @@ IFDEF "target_swift"
 
 	class MyRunningThread is RunningThread
 	{
-		pvar thread as !"Foundation.Thread"
+		pvar thread as native<Foundation.Thread>?
 
 		func isAlive as bool
 		{
 			assert thread
-			return lang "swift" bool {{{ thread.isExecuting }}}
+			return lang "swift" as bool {{{ thread.isExecuting }}}
 		}
 	}
 }
@@ -186,12 +186,12 @@ IFDEF "target_kotlin"
 {
 	class MyThread is RunningThread
 	{
-		pvar thread as !"java.lang.Thread"
+		pvar thread as native<java.lang.Thread>?
 
 		func isAlive as bool
 		{
 			assert thread
-			return lang "kotlin" bool {{{ thread.isAlive() }}}
+			return lang "kotlin" as bool {{{ thread.isAlive() }}}
 		}
 	}
 }
@@ -209,7 +209,7 @@ func setLocalValue(id as string, value as object) static
 			given id, and can only be accessed from the current thread.
 		]]
 	}
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), value);
 		}}}
@@ -224,11 +224,11 @@ func setLocalValue(id as string, value as object) static
 			localValues[id] = value
 	}
 	ELSE {
-		ERROR "Not implemented."
+		ERROR "notImplemented"
 	}
 }
 
-func getLocalValue(id as string) static as object
+func getLocalValueIfExists(id as string) static as object?
 {
 	meta {
 		description [[
@@ -236,8 +236,8 @@ func getLocalValue(id as string) static as object
 			given id, and must have been set by a prior call to setLocalValue in the same thread where this method is called.
 		]]
 	}
-	IFDEF "target_cs" {
-		return lang "cs" object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		lang "swift" {{{
@@ -245,13 +245,21 @@ func getLocalValue(id as string) static as object
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		assert id
-		return Map.get(localValues, id)
+		if Map.containsValue(localValues, id) == false:
+			return null
+		return Map.getValue(localValues, id)
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
+}
+
+func getLocalValue(id as string) static as object
+{
+	var v = getLocalValueIfExists(id)
+	if not v:
+		Error.throw("threadLocalValueDoesNotExist", id)
+	return v
 }
 
 func removeLocalValue(id as string) static
@@ -262,7 +270,7 @@ func removeLocalValue(id as string) static
 			given id, and would have been set by a previous call to setLocalValue in the same thread where this method is called.
 		]]
 	}
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), null);
 		}}}
@@ -277,44 +285,30 @@ func removeLocalValue(id as string) static
 			Map.remove(localValues, id)
 	}
 	ELSE {
-		ERROR "Not implemented."
+		ERROR "notImplemented"
 	}
 }
 
 func start(runnable as Runnable) static as RunningThread
 {
-	assert runnable
-	IFDEF "target_cs" {
-		IFDEF "target_uwp" {
-			ERROR "Not implemented"
-			return false
-		}
-		ELSE {
-			var th as !"System.Threading.Thread"
-			lang "cs" {{{
-				th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
-				try {
-					th.Start();
-				}
-				catch(System.Exception e) {
-					return null;
-				}
-			}}}
-			var thread = new MyThread()
-			thread.setThread(th)
-			return thread
-		}
+	IFDEF "target_uwp" {
+		ERROR "notImplemented"
+	}
+	ELSE IFDEF "target_dotnet_cs" {
+		var th as native<System.Threading.Thread>?
+		lang "cs" {{{
+			th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
+			th.Start();
+		}}}
+		var thread = new MyThread()
+		thread.setThread(th)
+		return thread
 	}
 	ELSE IFDEF "target_java" {
-		var th as !"java.lang.Thread"
+		var th as native<java.lang.Thread>?
 		lang "java" {{{
 			th = new java.lang.Thread(new ThreadRunnable(runnable));
-			try {
-				th.start();
-			}
-			catch(Exception e) {
-				return null;
-			}
+			th.start();
 		}}}
 		var thread = new MyThread()
 		thread.setThread(th)
@@ -341,7 +335,7 @@ func start(runnable as Runnable) static as RunningThread
 		return rt
 	}
 	ELSE IFDEF "target_kotlin" {
-		var th as !"java.lang.Thread"
+		var th as native<java.lang.Thread>?
 		lang "kotlin" {{{
 			try {
 				th = kotlin.concurrent.thread() {
@@ -356,7 +350,6 @@ func start(runnable as Runnable) static as RunningThread
 		return thread
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }

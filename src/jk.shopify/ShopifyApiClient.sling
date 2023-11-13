@@ -244,17 +244,16 @@ model SmartCollectionRequest public
 	smart_collection as SmartCollection
 }
 
-func forClientIdAndSecret(ctx as LoggingContext, clientId as string, clientSecret as string) static as this
-{
-	var v = new this(ctx)
-	v.clientId = clientId
-	v.clientSecret = clientSecret
-	return v
-}
+func forClientIdAndSecret(ctx as LoggingContext, clientId as string, clientSecret as string) static as this:
+	return new this() {
+		ctx ctx
+		clientId clientId
+		clientSecret clientSecret
+	}
 
 prop clientId as string
 prop clientSecret as string
-prop apiVersion as string = "2021-01"
+prop apiVersion = "2021-01"
 
 func getFullURL(shop as string, path as string) private as string
 {
@@ -268,20 +267,20 @@ func getFullURL(shop as string, path as string) private as string
 }
 
 func toUTF8Buffer(data as DynamicMap) private as buffer:
-	return String.toUTF8Buffer(JSONEncoder.encode(data))
+	return String.toUTF8Buffer(JSONEncoder.toString(data))
 
-func executeShopifyRequest(method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async private as WebClient.Response
+func executeShopifyRequest(method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async private as WebClient.Response
 {
 	var v = await request(method, url, headers, body)
-	var dm as DynamicMap
+	var dm as DynamicMap?
 	try {
 		dm = v.getBodyAsDynamicMap()
 	}
 	catch {
 		dm = null
 	}
-	Log.debug(ctx, "[Response] " .. JSONEncoder.encode(dm))
 	if dm {
+		Log.debug(ctx, "[Response] " .. JSONEncoder.toString(dm))
 		var error = dm.getDynamicMap("error")
 		if error {
 			var code = error.getString("type")
@@ -314,9 +313,12 @@ func getShopDetails(shop as string, token as string) async as Shop
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
-	var response = assert await executeShopifyRequest("GET", getFullURL(shop, "/shop.json"), headers, null)
-	var data = assert response.getBodyAsDynamicMap()
-	return Shop.forData(data.getDynamicMap("shop"))
+	var response = await executeShopifyRequest("GET", getFullURL(shop, "/shop.json"), headers, null)
+	var data = response.getBodyAsDynamicMap()
+	var shopData = data.getDynamicMap("shop")
+	if not shopData:
+		Error.throw("noShopDataInResponse", data)
+	return Shop.forData(shopData)
 }
 
 func insertScriptTag(shop as string, token as string, tag as ScriptTag) async as ScriptTag
@@ -326,9 +328,12 @@ func insertScriptTag(shop as string, token as string, tag as ScriptTag) async as
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
-	var response = assert await executeShopifyRequest("POST", getFullURL(shop, "/script_tags.json"), headers, toUTF8Buffer(scriptRequest.toDynamicMap()))
-	var data = assert response.getBodyAsDynamicMap()
-	return ScriptTag.forData(data.getDynamicMap("script_tag"))
+	var response = await executeShopifyRequest("POST", getFullURL(shop, "/script_tags.json"), headers, toUTF8Buffer(scriptRequest.toDynamicMap()))
+	var data = response.getBodyAsDynamicMap()
+	var scriptTagData = data.getDynamicMap("script_tag")
+	if not scriptTagData:
+		Error.throw("noScriptTagDataInResponse", data)
+	return ScriptTag.forData(scriptTagData)
 }
 
 func insertProduct(shop as string, token as string, product as Product) async as Product
@@ -338,9 +343,11 @@ func insertProduct(shop as string, token as string, product as Product) async as
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
-	var response = assert await executeShopifyRequest("POST", getFullURL(shop, "/products.json"), headers, toUTF8Buffer(productRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
+	var response = await executeShopifyRequest("POST", getFullURL(shop, "/products.json"), headers, toUTF8Buffer(productRequest.toDynamicMap()))
+	var v = response.getBodyAsDynamicMap()
 	var productResponse = v.getDynamicMap("product")
+	if not productResponse:
+		Error.throw("noProductDataInResponse", v)
 	return Product.forData(productResponse)
 }
 
@@ -353,15 +360,15 @@ func getProducts(shop as string, collectionId as string, token as string) async 
 	if String.isNotEmpty(collectionId):
 		url = url .. "?collection_id=" .. collectionId
 	var response = await executeShopifyRequest("GET", getFullURL(shop, url), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	var vv = new vector<Product>
-	var productList = assert v.getDynamicVector("products")
-	foreach product as DynamicMap in productList.toVector():
+	var productList = v.getDynamicVector("products")
+	if productList: foreach product as DynamicMap #skipnull in productList.toVector():
 		vv += Product.forData(product)
 	return vv
 }
 
-func getProduct(productId as string, shop as string, token as string, fields as array<string>) async as Product
+func getProduct(productId as string, shop as string, token as string, fields as array<string>?) async as Product
 {
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
@@ -370,7 +377,7 @@ func getProduct(productId as string, shop as string, token as string, fields as 
 	if fields {
 		var sb = new StringBuilder()
 		var first = true
-		foreach field as string in fields {
+		foreach field in fields {
 			if not first:
 				sb.appendString(",")
 			sb.appendString(field)
@@ -390,8 +397,10 @@ func registerWebhook(shop as string, token as string, webhook as Webhook) async 
 	var webhookRequest = new WebhookRequest()
 	webhookRequest.webhook = webhook
 	var response = await executeShopifyRequest("POST", getFullURL(shop, "/webhooks.json"), headers, toUTF8Buffer(webhookRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
-	var webhookResponse = assert v.getDynamicMap("webhook")
+	var v = response.getBodyAsDynamicMap()
+	var webhookResponse = v.getDynamicMap("webhook")
+	if not webhookResponse:
+		Error.throw("noWebhookDataInResponse", v)
 	return Webhook.forData(webhookResponse)
 }
 
@@ -401,10 +410,10 @@ func getCustomCollections(shop as string, token as string) async as vector<Custo
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
 	var response = await executeShopifyRequest("GET", getFullURL(shop, "/custom_collections.json"), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	var collections = new vector<CustomCollection>
-	var list = assert v.getDynamicVector("custom_collections")
-	foreach collection as DynamicMap in list.toVector():
+	var list = v.getDynamicVector("custom_collections")
+	if list: foreach collection as DynamicMap in list.toVector():
 		collections += CustomCollection.forData(collection)
 	return collections
 }
@@ -416,9 +425,11 @@ func createRecurringCharge(shop as string, token as string, charge as RecurringA
 	headers.add("X-Shopify-Access-Token", token)
 	var chargeRequest = new RecurringApplicationChargeRequest()
 	chargeRequest.recurring_application_charge = charge
-	var response = assert await executeShopifyRequest("POST", getFullURL(shop, "/recurring_application_charges.json"), headers, toUTF8Buffer(chargeRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
+	var response = await executeShopifyRequest("POST", getFullURL(shop, "/recurring_application_charges.json"), headers, toUTF8Buffer(chargeRequest.toDynamicMap()))
+	var v = response.getBodyAsDynamicMap()
 	var chargeResponse = v.getDynamicMap("recurring_application_charge")
+	if not chargeResponse:
+		Error.throw("noChargeDataInResponse", v)
 	return RecurringApplicationCharge.forData(chargeResponse)
 }
 
@@ -427,7 +438,7 @@ func deleteRecurringCharge(shop as string, token as string, recurringChargeId as
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
-	var response = assert await executeShopifyRequest("DELETE", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. ".json"), headers, null)
+	var response = await executeShopifyRequest("DELETE", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. ".json"), headers, null)
 	assert String.isNotEqual(response.statusCode, "200")
 	return true
 }
@@ -437,9 +448,11 @@ func getRecurringCharge(shop as string, token as string, recurringChargeId as st
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
-	var response = assert await executeShopifyRequest("GET", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. ".json"), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
+	var response = await executeShopifyRequest("GET", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. ".json"), headers, null)
+	var v = response.getBodyAsDynamicMap()
 	var chargeResponse = v.getDynamicMap("recurring_application_charge")
+	if not chargeResponse:
+		Error.throw("noChargeDataInResponse", v)
 	return RecurringApplicationCharge.forData(chargeResponse)
 }
 
@@ -450,9 +463,11 @@ func createUsageCharge(shop as string, token as string, recurringChargeId as str
 	headers.add("X-Shopify-Access-Token", token)
 	var chargeRequest = new UsageChargeRequest()
 	chargeRequest.usage_charge = charge
-	var response = assert await executeShopifyRequest("POST", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. "/usage_charges.json"), headers, toUTF8Buffer(chargeRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
+	var response = await executeShopifyRequest("POST", getFullURL(shop, "/recurring_application_charges/" .. recurringChargeId .. "/usage_charges.json"), headers, toUTF8Buffer(chargeRequest.toDynamicMap()))
+	var v = response.getBodyAsDynamicMap()
 	var chargeResponse = v.getDynamicMap("usage_charge")
+	if not chargeResponse:
+		Error.throw("noChargeDataInResponse", v)
 	return UsageCharge.forData(chargeResponse)
 }
 
@@ -462,10 +477,10 @@ func getCurrencies(shop as string, token as string) async as vector<Currency>
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
 	var response = await executeShopifyRequest("GET", getFullURL(shop, "/currencies.json"), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	var currencies = new vector<Currency>
-	var list = assert v.getDynamicVector("currencies")
-	foreach currency as DynamicMap in list.toVector():
+	var list = v.getDynamicVector("currencies")
+	if list: foreach currency as DynamicMap in list.toVector():
 		currencies += Currency.forData(currency)
 	return currencies
 }
@@ -476,10 +491,10 @@ func getCountries(shop as string, token as string) async as vector<Country>
 	headers.add("Content-Type", "application/json; charset=UTF-8")
 	headers.add("X-Shopify-Access-Token", token)
 	var response = await executeShopifyRequest("GET", getFullURL(shop, "/countries.json"), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	var countries = new vector<Country>
-	var list = assert v.getDynamicVector("countries")
-	foreach country as DynamicMap in list.toVector():
+	var list = v.getDynamicVector("countries")
+	if list: foreach country as DynamicMap in list.toVector():
 		countries += Country.forData(country)
 	return countries
 }
@@ -492,7 +507,7 @@ func updateInventoryItem(shop as string, token as string, item as InventoryItem)
 	var inventoryRequest = new InventoryItemRequest()
 	inventoryRequest.inventory_item = item
 	var response = await executeShopifyRequest("PUT", getFullURL(shop, "/inventory_items/" .. item.id .. ".json"), headers, toUTF8Buffer(inventoryRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	assert v.getDynamicMap("inventory_item")
 	return true
 }
@@ -505,12 +520,14 @@ func createSmartCollection(shop as string, token as string, collection as SmartC
 	var smartCollectionRequest = new SmartCollectionRequest()
 	smartCollectionRequest.smart_collection = collection
 	var response = await executeShopifyRequest("POST", getFullURL(shop, "/smart_collections.json"), headers, toUTF8Buffer(smartCollectionRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
-	var smartCollection = assert v.getDynamicMap("smart_collection")
+	var v = response.getBodyAsDynamicMap()
+	var smartCollection = v.getDynamicMap("smart_collection")
+	if not smartCollection:
+		Error.throw("noSmartCollectionDataInResponse", v)
 	return SmartCollection.forData(smartCollection)
 }
 
-func getSmartCollections(shop as string, token as string, filters as map<string, string> = null) async as vector<SmartCollection>
+func getSmartCollections(shop as string, token as string, filters as map<string, string>? = null) async as vector<SmartCollection>
 {
 	var headers = new KeyValueList<string, string>()
 	headers.add("Content-Type", "application/json; charset=UTF-8")
@@ -519,7 +536,7 @@ func getSmartCollections(shop as string, token as string, filters as map<string,
 	if filters {
 		var sb = new StringBuilder()
 		var first = true
-		foreach key as string in Map.getKeys(filters) {
+		foreach key in Map.getKeys(filters) {
 			if not first:
 				sb.appendString(",")
 			if first {
@@ -528,15 +545,15 @@ func getSmartCollections(shop as string, token as string, filters as map<string,
 			}
 			sb.appendString(key)
 			sb.appendString("=")
-			sb.appendString(Map.getValue(filters, key))
+			sb.appendString(filters[key])
 		}
 		url = url .. sb.toString()
 	}
 	var response = await executeShopifyRequest("GET", getFullURL(shop, url), headers, null)
-	var v = assert response.getBodyAsDynamicMap()
-	var collections = assert v.getDynamicVector("smart_collections")
+	var v = response.getBodyAsDynamicMap()
+	var collections = v.getDynamicVector("smart_collections")
 	var sc = new vector<SmartCollection>
-	foreach c as DynamicMap in collections.toVector():
+	if collections: foreach c as DynamicMap in collections.toVector():
 		sc += SmartCollection.forData(c)
 	return sc
 }
@@ -549,7 +566,7 @@ func updateSmartCollectionById(shop as string, token as string, collection as Sm
 	var smartCollectionRequest = new SmartCollectionRequest()
 	smartCollectionRequest.smart_collection = collection
 	var response = await executeShopifyRequest("PUT", getFullURL(shop, "/smart_collections/" .. collection.id .. ".json"), headers, toUTF8Buffer(smartCollectionRequest.toDynamicMap()))
-	var v = assert response.getBodyAsDynamicMap()
+	var v = response.getBodyAsDynamicMap()
 	assert v.getDynamicMap("smart_collection")
 	return true
 }

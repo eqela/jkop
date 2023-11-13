@@ -22,71 +22,84 @@
  * SOFTWARE.
  */
 
-class is DoubleObject:
+class:
 
-func forValue(value as double) static as this:
-	return new this(value)
+class MyDoubleObject is DoubleObject private
+{
+	prop value as double
 
-func asDouble(obj as dynamic, defval as double = 0.0) static as double #deprecated:
-	return asValue(obj, defval)
+	func toDouble as double:
+		return value
+}
 
-func asValue(obj as dynamic, defval as double) static as double
+func wrapValue(value as double) static as DoubleObject:
+	return new MyDoubleObject() {
+		value value
+	}
+
+func asValueOrDefaultValue(obj as dynamic?, defaultValue as double = 0.0) static as double
 {
 	var v = asObject(obj)
 	if not v:
-		return defval
+		return defaultValue
 	return v.toDouble()
 }
 
-func asObject(obj as dynamic) static as this
+func asValueOrThrowError(obj as dynamic?) static as double
+{
+	var v = asObject(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToDouble", obj)
+	return v.toDouble()
+}
+
+func asObject(obj as dynamic?) static as DoubleObject?
 {
 	if not obj:
 		return null
 	if obj is double:
-		return new this(obj as double)
-	if obj is this:
-		return obj as! this
+		return wrapValue(obj as double)
 	if obj is DoubleObject {
 		var od = obj as! DoubleObject
-		return new this(od.toDouble())
+		return wrapValue(od.toDouble())
 	}
 	if obj is int {
 		var v = obj as int
-		return new this(v as double)
+		return wrapValue(v as double)
 	}
 	if obj is IntegerObject {
 		var oi = obj as! IntegerObject
-		return new this(oi.toInteger() as double)
+		return wrapValue(oi.toInteger() as double)
 	}
 	if obj is long {
 		var v = obj as long
-		return new this(v as double)
+		return wrapValue(v as double)
 	}
 	if obj is LongIntegerObject {
 		var oi = obj as! LongIntegerObject
-		return new this(oi.toLong() as double)
+		return wrapValue(oi.toLongInteger() as double)
 	}
 	if obj is string:
-		return new this(String.toDouble(obj as! string))
+		return wrapValue(forString(obj as! string))
 	if obj is StringObject:
-		return new this(String.toDouble((obj as! StringObject).toString()))
+		return wrapValue(forString((obj as! StringObject).toString()))
 	if obj is char {
 		var v = obj as char
-		return new this(v as double)
+		return wrapValue(v as double)
 	}
 	if obj is CharacterObject {
 		var oc = obj as! CharacterObject
-		return new this(oc.toCharacter() as double)
+		return wrapValue(oc.toCharacter() as double)
 	}
 	if obj is bool {
 		if obj as bool == true:
-			return new this(1.0)
-		return new this(0.0)
+			return wrapValue(1.0)
+		return wrapValue(0.0)
 	}
 	if obj is BooleanObject {
 		if (obj as! BooleanObject).toBoolean():
-			return new this(1.0)
-		return new this(0.0)
+			return wrapValue(1.0)
+		return wrapValue(0.0)
 	}
 	return null
 }
@@ -94,10 +107,10 @@ func asObject(obj as dynamic) static as this
 func longBitsToDouble(vv as long) static as double
 {
 	IFDEF "target_java" {
-		return lang "java" double {{{ Double.longBitsToDouble(vv) }}}
+		return lang "java" as double {{{ Double.longBitsToDouble(vv) }}}
 	}
-	ELSE IFDEF "target_cs" {
-		return lang "cs" double {{{ System.BitConverter.Int64BitsToDouble(vv) }}}
+	ELSE IFDEF "target_dotnet_cs" {
+		return lang "cs" as double {{{ System.BitConverter.Int64BitsToDouble(vv) }}}
 	}
 	ELSE IFDEF "target_js" {
 		lang "js" {{{
@@ -105,21 +118,20 @@ func longBitsToDouble(vv as long) static as double
 			const view = new DataView(buffer);
 			view.setBigInt64(0, BigInt(vv));
 		}}}
-		return lang "js" double {{{ view.getFloat64(0) }}}
+		return lang "js" as double {{{ view.getFloat64(0) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0.0
+		ERROR "notImplemented"
 	}
 }
 
 func doubleToLongBits(vv as double) static as long
 {
 	IFDEF "target_java" {
-		return lang "java" long {{{ Double.doubleToLongBits(vv) }}}
+		return lang "java" as long {{{ Double.doubleToLongBits(vv) }}}
 	}
-	ELSE IFDEF "target_cs" {
-		return lang "cs" long {{{ System.BitConverter.ToInt64(System.BitConverter.GetBytes(vv), 0) }}}
+	ELSE IFDEF "target_dotnet_cs" {
+		return lang "cs" as long {{{ System.BitConverter.ToInt64(System.BitConverter.GetBytes(vv), 0) }}}
 	}
 	ELSE IFDEF "target_js" {
 		lang "js" {{{
@@ -127,24 +139,84 @@ func doubleToLongBits(vv as double) static as long
 			const view = new DataView(buffer);
 			view.setFloat64(0, vv);
 		}}}
-		return lang "js" long {{{ view.getBigInt64(0) }}}
+		return lang "js" as long {{{ view.getBigInt64(0) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		ERROR "notImplemented"
 	}
 }
 
-ctor:
-	nop
+**
+** Converts the string to a double-precision floating point number. If the
+** string does not contain a valid representation of a floating point number,
+** then the value "0.0" is returned.
+**
 
-ctor(value as double):
-	setValue(value)
-
-pvar value as double
-
-func add(amount as double):
-	value += amount
-
-func toDouble as double:
-	return value
+func forString(str as string) static as double
+{
+	IFDEF "target_objc" {
+		return lang "objc" as double {{{ [str doubleValue] }}}
+	}
+	ELSE IFDEF "target_dotnet_cs" {
+		var v = 0.0
+		lang "cs" {{{
+			try {
+				v = System.Double.Parse(str);
+			}
+			catch {
+				v = 0.0;
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_java" {
+		var v = 0.0
+		lang "java" {{{
+			try {
+				if(str != null) {
+					v = java.lang.Double.parseDouble(str);
+				}
+			}
+			catch(java.lang.Exception e) {
+				v = 0.0;
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_js" {
+		var v as double
+		lang "js" {{{
+			v = parseFloat(str);
+			if (isNaN(v)) {
+				v =  0.0;
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_kotlin" {
+		var v = 0.0
+		lang "kotlin" {{{
+			try {
+				v = str.toDouble()
+			}
+			catch (e: NumberFormatException) {
+				v = 0.0
+			}
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_swift" {
+		var v as double
+		lang "swift" {{{
+			var d = Swift.Double(str)
+			v = d != nil ? d! : 0.0
+		}}}
+		return v
+	}
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" as double {{{ _util:to_number(str) }}}
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
+}

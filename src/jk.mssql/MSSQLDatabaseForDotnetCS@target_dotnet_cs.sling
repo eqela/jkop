@@ -1,0 +1,429 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+
+class is MSSQLDatabase:
+
+depend "nuget:System.Data.SqlClient@4.5.1"
+
+class Statement is SQLStatement
+{
+	func forSql(sql as string) static as this:
+		return new this() {
+			sql SQLAdoNet.convertSQLString(sql)
+		}
+
+	prop sql as string
+
+	var pcounter = 0
+	var params as vector<native<System.Data.SqlClient.SqlParameter>>?
+
+	func getParamArray as array<native<System.Data.SqlClient.SqlParameter>?>
+	{
+		var sz = 0
+		if params:
+			sz = Vector.getSize(params)
+		var arr = new native<System.Data.SqlClient.SqlParameter>?[sz]
+		if params {
+			var i = 0
+			var iter = Vector.iterate(params)
+			loop {
+				var n = iter.next() as native<System.Data.SqlClient.SqlParameter>
+				if not n:
+					break
+				arr[i] = n
+				i++
+			}
+		}
+		return arr
+	}
+
+	func addToParams(param as native<System.Data.SqlClient.SqlParameter>)
+	{
+		if not params:
+			params = new vector<native<System.Data.SqlClient.SqlParameter>>
+		params += param
+	}
+
+	func getNextParamName as string:
+		return "@p" .. String.forInteger(++ pcounter)
+
+	func addParamString(val as string) override:
+		setParamString("", val)
+
+	func addParamInteger(val as int) override:
+		setParamInteger("", val)
+
+	func addParamLongInteger(val as long) override:
+		setParamLongInteger("", val)
+
+	func addParamDouble(val as double) override:
+		setParamDouble("", val)
+
+	func addParamBlob(val as buffer) override:
+		setParamBlob("", val)
+
+	func setParamString(name as string, val as string) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		var vv = val
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.VarChar);
+			param.Value = vv;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamInteger(name as string, val as int) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.Int);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamLongInteger(name as string, val as long) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.BigInt);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamDouble(name as string, val as double) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.Float);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func setParamBlob(name as string, val as buffer) override
+	{
+		var n = name
+		if String.isEmpty(n):
+			n = getNextParamName()
+		lang "cs" {{{
+			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.VarBinary);
+			param.Value = val;
+			addToParams(param);
+		}}}
+	}
+
+	func resetStatement override
+	{
+		params = null
+		pcounter = 0
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var ctx public as LoggingContext?
+	var reader public as native<System.Data.SqlClient.SqlDataReader>?
+	var connection public as native<System.Data.SqlClient.SqlConnection>?
+	var columnCount = -1
+	var columnNames as vector<string>?
+	var hasNextRecord as bool
+
+	func close override
+	{
+		if reader {
+			reader.Close!()
+			reader = null
+		}
+		if connection {
+			connection.Close!()
+			connection = null
+		}
+	}
+
+	func getReader as native<System.Data.SqlClient.SqlDataReader>
+	{
+		var v = reader
+		if not v:
+			ERROR "noReader"
+		return v
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		var cols = getColumnCount()
+		for(var n = 0; n < cols; n++) {
+			var o = getColumnObject(n)
+			values += o
+		}
+	}
+
+	func step override
+	{
+		var reader = getReader()
+		if hasNextRecord {
+			hasNextRecord = false
+			return
+		}
+		lang "cs" {{{
+			reader.Read();
+		}}}
+	}
+
+	func getColumnCount override as int
+	{
+		if columnCount >= 0:
+			return columnCount
+		var v = -1
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.FieldCount;
+			}
+		}}}
+		columnCount = v
+		return v
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		if columnNames == null {
+			columnNames = new vector<string>
+			var c = getColumnCount()
+			for(var n = 0; n < c; n++) {
+				var nn = getColumnName(n)
+				columnNames += nn
+			}
+		}
+		return columnNames
+	}
+
+	func getColumnName(n as int) override as string
+	{
+		var v as string? = null
+		lang "cs" {{{
+			if(reader != null) {
+				v = reader.GetName(n);
+			}
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		var reader = getReader()
+		var v as string? = null
+		lang "cs" {{{
+			if(reader.IsDBNull(n)) {
+				return(null);
+			}
+			if(reader.GetFieldType(n) == typeof(byte[])) {
+				var b = (byte[])reader.GetValue(n);
+				return(jk.lang.Buffer.wrapValue(b));
+			}
+			var o = reader.GetValue(n);
+			if(o == null) {
+				return(null);
+			}
+			if(o is System.DateTime) {
+				return(((System.DateTime)o).ToString("yyyy-MM-dd HH:mm:ss"));
+			}
+			v = o.ToString();
+		}}}
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getColumnInt(n as int) override as int
+	{
+		var v = 0
+		var reader = getReader()
+		lang "cs" {{{
+			v = reader.GetInt32(n);
+		}}}
+		return v
+	}
+
+	func getColumnLong(n as int) override as long
+	{
+		var v as long = 0
+		var reader = getReader()
+		lang "cs" {{{
+			v = reader.GetInt64(n);
+		}}}
+		return v
+	}
+
+	func getColumnDouble(n as int) override as double
+	{
+		var v as double = 0
+		var reader = getReader()
+		lang "cs" {{{
+			v = reader.GetDouble(n);
+		}}}
+		return v
+	}
+
+	func getColumnBuffer(n as int) override as buffer
+	{
+		var v as buffer? = null
+		var reader = getReader()
+		lang "cs" {{{
+			v = (byte[])reader.GetValue(n);
+		}}}
+		if not v:
+			v = Buffer.allocate(0)
+		return v
+	}
+
+	func next override as DynamicMap
+	{
+		step()
+		var names = getColumnNames()
+		if sizeof names < 1:
+			ERROR "noColumnNames"
+		var v = new DynamicMap()
+		var sz = sizeof names
+		for(var n = 0; n < sz; n++):
+			v.setObject(names[n], getColumnObject(n))
+		return v
+	}
+
+	func hasNext override as bool
+	{
+		if hasNextRecord:
+			return true
+		step()
+		hasNextRecord = true
+		return true
+	}
+}
+
+var connectionString as string?
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string) override
+{
+	connectionString = "Asynchronous Processing=true;Data Source=tcp:" .. serverAddress .. ";Initial Catalog=" .. database .. ";User Id=" .. username .. ";Password=" .. password
+	Log.debug(ctx, "MS SQL connection string: '" .. connectionString .. "'")
+}
+
+func closeConnection async override:
+	connectionString = null
+
+func prepareStatement(sql as string) async override as SQLStatement:
+	return Statement.forSql(sql)
+
+func executeStatement(stmt as SQLStatement) override async
+{
+	var ss = assert stmt as Statement
+	var isStoredProcedureCall = ss.isStoredProcedureCall
+	lang "cs" {{{
+		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
+			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+			cmd.CommandTimeout = 0;
+			if(isStoredProcedureCall) {
+				cmd.CommandType = System.Data.CommandType.StoredProcedure;
+			}
+			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+			if(pa != null) {
+				cmd.Parameters.AddRange(ss.getParamArray());
+			}
+			conn.Open();
+			cmd.ExecuteNonQuery();
+		}
+	}}}
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	var ss = stmt as Statement
+	if not ss:
+		return 0
+	var isStoredProcedureCall = ss.isStoredProcedureCall
+	var v = 0
+	lang "cs" {{{
+		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
+			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
+			cmd.CommandTimeout = 0;
+			if(isStoredProcedureCall) {
+				cmd.CommandType = System.Data.CommandType.StoredProcedure;
+			}
+			System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+			if(pa != null) {
+				cmd.Parameters.AddRange(ss.getParamArray());
+			}
+			conn.Open();
+			v = cmd.ExecuteNonQuery();
+		}
+	}}}
+	return v
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidSqlStatementObject", stmt)
+	var isStoredProcedureCall = ss.isStoredProcedureCall
+	var reader as native<System.Data.SqlClient.SqlDataReader>?
+	var connection as native<System.Data.SqlClient.SqlConnection>?
+	lang "cs" {{{
+		connection = new System.Data.SqlClient.SqlConnection(connectionString);
+		System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
+		cmd.CommandTimeout = 0;
+		if(isStoredProcedureCall) {
+			cmd.CommandType = System.Data.CommandType.StoredProcedure;
+		}
+		System.Data.SqlClient.SqlParameter[] pa = ss.getParamArray();
+		if(pa != null) {
+			cmd.Parameters.AddRange(pa);
+		}
+		connection.Open();
+		reader = cmd.ExecuteReader();
+	}}}
+	if not reader:
+		ERROR "failedToExecuteQueryStatement"
+	var v = new ResultSet()
+	v.reader = reader
+	v.ctx = ctx
+	v.connection = connection
+	return v
+}

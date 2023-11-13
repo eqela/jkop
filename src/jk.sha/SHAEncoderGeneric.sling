@@ -26,8 +26,6 @@ class is SHAEncoder:
 
 func encodeBuffer(data as buffer) override as buffer
 {
-	if not data:
-		Error.throw("nullBufferToEncode", null)
 	var algorithm as int
 	if SHAEncoder.ANY == version || SHAEncoder.SHA1 == version {
 		algorithm = 128
@@ -64,16 +62,15 @@ class SHA
 	var block128 = 896
 	var digestLength as int
 	var blockBitSize as int
-	var k as array<uint32>
-	var k2 as array<uint64>
-	var hash1 as array<uint32>
-	var hash2 as array<uint64>
-	var input as buffer
-	var result as buffer
+	var k as array<uint32>?
+	var k2 as array<uint64>?
+	var hash1 as array<uint32>?
+	var hash2 as array<uint64>?
+	var input as buffer?
+	var result as buffer?
 
 	func encode(buf as buffer, version as int)
 	{
-		assert buf
 		input = buf
 		if version == sha384 || version == sha512 {
 			k2 = new array<uint64> [
@@ -135,14 +132,14 @@ class SHA
 		}
 	}
 
-	func digest as buffer
+	func digest as buffer?
 	{
 		assert input
 		if result:
 			return result
 		var ptr = bitPadding(input)
 		var messageBlocks = blocks(ptr, blockBitSize / 8)
-		foreach block as buffer in messageBlocks {
+		foreach block in messageBlocks {
 			if blockBitSize == blockSize512 {
 				shaProcess32(block)
 			}
@@ -150,9 +147,10 @@ class SHA
 				shaProcess64(block)
 			}
 		}
-		var ret = malloc digestLength / 8
+		var ret = Buffer.allocate(digestLength / 8)
 		if blockBitSize == blockSize512 {
 			var idx = 0
+			assert hash1
 			foreach element in hash1 {
 				var pos = idx * 4
 				ret[pos] = (((element >> 24) as uint32) & 0xff) as uint8
@@ -164,6 +162,7 @@ class SHA
 		}
 		else {
 			var idx = 0
+			assert hash2
 			foreach element in hash2 {
 				if digestLength == sha384 && idx == 6:
 					break
@@ -185,6 +184,8 @@ class SHA
 
 	func shaProcess32(block as buffer)
 	{
+		assert hash1
+		assert k
 		var kcount as int
 		if digestLength == sha128 {
 			kcount = 80
@@ -289,7 +290,8 @@ class SHA
 
 	func shaProcess64(block as buffer)
 	{
-		assert block
+		assert k2
+		assert hash2
 		var output = new uint64[sizeof k2]
 		for(var t = 0; t < sizeof output; t++) {
 			if t <= 15 {
@@ -345,7 +347,6 @@ class SHA
 
 	func bitPadding(input as buffer) as buffer
 	{
-		assert input
 		var inputBitLength = Buffer.getSize(input) * 8
 		var newBuf = Buffer.resize(input, Buffer.getSize(input) + 1)
 		Buffer.setByte(newBuf, Buffer.getSize(newBuf) - 1, 0x80 as uint8)
@@ -394,7 +395,7 @@ class SHA
 	{
 		var msgBlocks = new vector<buffer>
 		for(var i = 0; i < Buffer.getSize(buf); i += size) {
-			var buff = malloc size
+			var buff = Buffer.allocate(size)
 			buff = Buffer.getSubBuffer(buf, i, size)
 			msgBlocks += buff
 		}

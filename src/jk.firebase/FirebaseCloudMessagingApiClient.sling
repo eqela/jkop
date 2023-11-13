@@ -28,29 +28,24 @@ import jk.apiclient
 
 class is ApiClient:
 
-func forFcmServerKey(ctx as LoggingContext, fcmServerKey as string) static as this
-{
-	var v = new this(ctx)
-	v.fcmServerKey = fcmServerKey
-	return v
-}
+func forFcmServerKey(ctx as LoggingContext, fcmServerKey as string) static as this:
+	return new this() {
+		ctx ctx
+		fcmServerKey fcmServerKey
+	}
 
 prop fcmServerKey as string
 
-func send(registrationIds as DynamicVector, notification as DynamicMap, data as DynamicMap) async as DynamicMap
+func send(registrationIds as DynamicVector, notification as DynamicMap?, data as DynamicMap?) async as DynamicMap
 {
-	assert String.isNotEmpty(fcmServerKey):
-		throw ExceptionWithError.forCode("missingFCMServerKey", "Missing FCM server key")
-	var sz = registrationIds.getSize()
 	var body = new DynamicMap()
-	assert sz > 0:
-		throw ExceptionWithError.forCode("missingRegistrationId", "Missing registration ID")
-	if sz == 1 {
-		body.setString("to", String.asString(registrationIds.get(0)))
-	}
-	else if sz > 1 {
+	var sz = registrationIds.getSize()
+	if sz < 1:
+		Error.throw("noFirebaseRegistrationIds", null)
+	else if sz == 1:
+		body.setString("to", String.asValueOrThrowError(registrationIds.get(0)))
+	else:
 		body.setObject("registration_ids", registrationIds)
-	}
 	body.setString("priority", "high")
 	body.setBoolean("content_available", true)
 	if notification:
@@ -60,16 +55,9 @@ func send(registrationIds as DynamicVector, notification as DynamicMap, data as 
 	var v = new JSONEncoder()
 	v.setNiceFormatting(false)
 	var json = v.execute(body)
-	assert String.isNotEmpty(json):
-		throw ExceptionWithError.forCode("jsonEncodingFailed", "JSON encoding failed")
 	var headers = new KeyValueList<string,string>()
 	headers.add("Content-Type", "application/json")
 	headers.add("Authorization", "key=" .. fcmServerKey)
-	var resp = await request("POST", "https://fcm.googleapis.com/fcm/send", headers, String.toUTF8Buffer(json))
-	assert resp
-	Log.info(ctx, resp.statusCode .. " : " .. resp.statusMessage)
-	var statusCode = resp.statusCode
-	if statusCode != "200":
-		throw ExceptionWithError.forCode(statusCode, resp.statusMessage)
-	return JSONParser.parse(resp.body) as DynamicMap
+	var resp = await requestAndValidate("POST", "https://fcm.googleapis.com/fcm/send", headers, String.toUTF8Buffer(json))
+	return JSONParser.parseBufferAsMap(resp.body)
 }

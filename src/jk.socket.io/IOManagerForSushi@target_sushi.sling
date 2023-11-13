@@ -30,17 +30,17 @@ class is IOManager:
 
 class MyTimer is FileDescriptor is IOManagerTimer
 {
-	pvar entry as IOManagerEntry
-	pvar handler as function<bool>
+	pvar entry as IOManagerEntry?
+	pvar handler as function<bool>?
 	pvar delay as long
-	var reader as FileDescriptorReader
+	var reader as FileDescriptorReader?
 
 	func initialize as bool
 	{
 		var osec = delay * 0.000001
 		var nsec = (osec % 1.0) * 1000000 as long
 		var fsec = osec as int
-		var fd = lang "lua" int {{{ _io:start_timer(fsec, nsec) }}}
+		var fd = lang "lua" as int {{{ _io:start_timer(fsec, nsec) }}}
 		assert fd > -1
 		reader = FileDescriptorReader.forFileDescriptor(fd)
 		return true
@@ -62,9 +62,9 @@ class MyTimer is FileDescriptor is IOManagerTimer
 	{
 		var ee final = entry
 		var cc final = handler
-		var ff final = Boolean.forValue(true)
+		var ff final = Boolean.wrapValue(true)
 		ee.setReadListener(func {
-			var b = malloc 8
+			var b = Buffer.allocate(8)
 			if reader:
 				reader.read(b)
 			if ff.toBoolean() == true {
@@ -80,11 +80,11 @@ class MyTimer is FileDescriptor is IOManagerTimer
 
 class MyEntry is IOManagerEntry
 {
-	pvar mgrfd as object
+	pvar mgrfd as object?
 	pvar fd as int
 	var objref = 0
-	var rrl as function
-	var wrl as function
+	var rrl as function<void>?
+	var wrl as function<void>?
 
 	func onReadReady
 	{
@@ -110,20 +110,20 @@ class MyEntry is IOManagerEntry
 			wrl()
 	}
 
-	func setListeners(rrl as function, wrl as function) as bool
+	func setListeners(rrl as function<void>?, wrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		this.wrl = wrl
 		return update()
 	}
 
-	func setReadListener(rrl as function) as bool
+	func setReadListener(rrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		return update()
 	}
 
-	func setWriteListener(wrl as function) as bool
+	func setWriteListener(wrl as function<void>?) as bool
 	{
 		this.wrl = wrl
 		return update()
@@ -151,7 +151,7 @@ class MyEntry is IOManagerEntry
 		else {
 			if objref > 0 {
 				var objref = this.objref
-				var r = lang "lua" int {{{
+				var r = lang "lua" as int {{{
 					_net:update_io_listener(mgrfd, fd, mode, objref)
 				}}}
 				if r != 0:
@@ -176,7 +176,7 @@ class MyEntry is IOManagerEntry
 		var mgrfd = this.mgrfd
 		var fd = this.fd
 		var objref = this.objref
-		var r = lang "lua" int {{{
+		var r = lang "lua" as int {{{
 			_net:remove_io_listener(mgrfd, fd, objref)
 		}}}
 		this.objref = 0
@@ -191,7 +191,7 @@ var running = false
 var mgrfd as object = null
 
 ctor:
-	mgrfd = lang "lua" object {{{ _net:create_io_manager() }}}
+	mgrfd = lang "lua" as object {{{ _net:create_io_manager() }}}
 
 dtor:
 	close()
@@ -218,7 +218,7 @@ func doExecute(ctx as LoggingContext) override as bool
 	var trap2 = PosixSignal.trapSignal(PosixSignal.SIGINT, true)
 	var trap15 = PosixSignal.trapSignal(PosixSignal.SIGTERM, true)
 	while exitflag == false {
-		var r = lang "lua" int {{{ _net:execute_io_manager(mgrfd, -1) }}}
+		var r = lang "lua" as int {{{ _net:execute_io_manager(mgrfd, -1) }}}
 		if r < 0 {
 			Log.error(ctx, "_net:execute_io_manager returned error status " .. String.forInteger(r) .. ". Exiting loop.")
 			break
@@ -241,7 +241,7 @@ func stop override:
 func isRunning as bool:
 	return running
 
-func add(o as object) override as IOManagerEntry
+func add(o as object) override as IOManagerEntry?
 {
 	assert mgrfd
 	var fdo = assert o as FileDescriptor
@@ -253,7 +253,7 @@ func add(o as object) override as IOManagerEntry
 	return v
 }
 
-func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer
+func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer?
 {
 	var timer = new MyTimer()
 	timer.setHandler(handler)

@@ -22,15 +22,19 @@
  * SOFTWARE.
  */
 
+import jk.log
+import jk.socket
+import jk.socket.ssl
+
 class is IOManager:
 
 class MyEntry is IOManagerEntry
 {
-	pvar master as IOManager
-	pvar source as object
-	var key as !"java.nio.channels.SelectionKey"
-	var rrl as function
-	var wrl as function
+	pvar master as IOManager?
+	pvar source as object?
+	var key as native<java.nio.channels.SelectionKey>?
+	var rrl as function<void>?
+	var wrl as function<void>?
 	var added = false
 
 	func onReadReady
@@ -47,37 +51,37 @@ class MyEntry is IOManagerEntry
 			wrl()
 	}
 
-	func setListeners(rrl as function, wrl as function) as bool
+	func setListeners(rrl as function<void>?, wrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		this.wrl = wrl
 		return update()
 	}
 
-	func setReadListener(rrl as function) as bool
+	func setReadListener(rrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		return update()
 	}
 
-	func setWriteListener(wrl as function) as bool
+	func setWriteListener(wrl as function<void>?) as bool
 	{
 		this.wrl = wrl
 		return update()
 	}
 
-	func getClientSocket as !"java.net.Socket"
+	func getClientSocket as native<java.net.Socket>?
 	{
 		if source is TCPSocketForKotlin {
 			return (source as! TCPSocketForKotlin).getJavaClientSocket()
 		}
-		else if source is SSLSocketKotlin {
-			return (source as! SSLSocketKotlin).getJavaClientSocket()
+		else if source is SSLSocketForKotlin {
+			return (source as! SSLSocketForKotlin).getJavaClientSocket()
 		}
 		return null
 	}
 
-	func getServerSocket as !"java.net.ServerSocket"
+	func getServerSocket as native<java.net.ServerSocket>?
 	{
 		if source is TCPSocketForKotlin {
 			return (source as! TCPSocketForKotlin).getJavaServerSocket()
@@ -141,6 +145,7 @@ class MyEntry is IOManagerEntry
 				}
 			}}}
 		}
+		return false
 	}
 
 	func remove as bool
@@ -157,7 +162,7 @@ class MyEntry is IOManagerEntry
 	}
 }
 
-var selector as !"java.nio.channels.Selector"
+var selector as native<java.nio.channels.Selector>?
 var exitFlag = false
 
 ctor
@@ -172,7 +177,7 @@ ctor
 	}}}
 }
 
-func getSelector as !"java.nio.channels.Selector":
+func getSelector as native<java.nio.channels.Selector>?:
 	return selector
 
 func doExecute(ctx as LoggingContext) override as bool
@@ -220,16 +225,15 @@ func doExecute(ctx as LoggingContext) override as bool
 	return true
 }
 
-func add(o as object) override as IOManagerEntry
+func add(o as object) override as IOManagerEntry?
 {
-	assert o
 	var entry = new MyEntry()
 	entry.setMaster(this)
 	entry.setSource(o)
 	return entry
 }
 
-func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer:
+func startTimer(delay as long, handler as function<bool>) override as IOManagerTimer?:
 	return null
 
 func stop override:

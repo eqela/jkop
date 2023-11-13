@@ -33,24 +33,25 @@ func generate static as string
 			Generates a new Universally Unique Identifier (UUID)
 		]]
 	}
-	IFDEF "target_cs" {
-		return lang "cs" string {{{ System.Guid.NewGuid().ToString() }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as string {{{ System.Guid.NewGuid().ToString() }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" string {{{ java.util.UUID.randomUUID().toString() }}}
+		return lang "kotlin" as string {{{ java.util.UUID.randomUUID().toString() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" string {{{ (NSUUID().uuidString).lowercased() }}}
+		return lang "swift" as string {{{ (NSUUID().uuidString).lowercased() }}}
 	}
 	ELSE {
 		var random = Random.getSharedInstance()
-		var bytes = malloc 16
+		var bytes = Buffer.allocate(16)
 		for(var n=0; n<16; n++):
 			bytes[n] = random.nextIntegerWithMaximum(0xff) as uint8
 		bytes[6] = (0x40 | (bytes[6] & 0xf))
 		bytes[8] = (0x80 | (bytes[8] & 0x3f))
 		var hex = String.forBufferHex(bytes)
-		return String.getSubString(hex, 0, 8) .. "-" .. String.getSubString(hex, 8, 4) .. "-" .. String.getSubString(hex, 12, 4) .. "-" .. String.getSubString(hex, 16, 4) .. "-" .. String.getSubString(hex, 20, 12)
+		var v = String.getSubString(hex, 0, 8) .. "-" .. String.getSubString(hex, 8, 4) .. "-" .. String.getSubString(hex, 12, 4) .. "-" .. String.getSubString(hex, 16, 4) .. "-" .. String.getSubString(hex, 20, 12)
+		return String.safeString(v)
 	}
 }
 
@@ -63,28 +64,28 @@ func forString(value as string) static as string
 			UUID will always be given.
 		]]
 	}
-	IFDEF "target_cs" {
-		var v as string
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			System.Security.Cryptography.MD5CryptoServiceProvider provider = new System.Security.Cryptography.MD5CryptoServiceProvider();
 			byte[] inputBytes = System.Text.Encoding.Default.GetBytes(value);
 			byte[] hashBytes = provider.ComputeHash(inputBytes);
 			System.Guid hashGuid = new System.Guid(hashBytes);
-			v = hashGuid.ToString();
 		}}}
-		return v
+		return lang "cs" as string {{{ hashGuid.ToString() }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		var v as string
+		var v as string?
 		lang "kotlin" {{{
 			var inputBytes = value!!.toByteArray(kotlin.text.charset("UTF-8"))?.toUByteArray()
 			var uid = java.util.UUID.nameUUIDFromBytes(inputBytes.toByteArray())
 			v = uid.toString()
 		}}}
+		if not v:
+			v = ""
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as string
+		var v as string?
 		lang "swift" {{{
 			let buffer: [UInt8]! = [UInt8](value.utf8)
 			let id = NSUUID(uuidBytes: buffer!)
@@ -93,7 +94,6 @@ func forString(value as string) static as string
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }

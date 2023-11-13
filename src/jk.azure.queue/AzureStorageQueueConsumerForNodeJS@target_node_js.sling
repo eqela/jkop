@@ -1,0 +1,118 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.nodejs
+import jk.lang
+
+class is AzureStorageQueueConsumer:
+
+depend "npm@azure/storage-queue:12.14.0"
+
+prop account as string
+prop accountKey as string
+
+func getStorageQueueApi private static as dynamic:
+	return NodeModule.require("@azure/storage-queue")
+
+func getQueueServiceClient private as native<QueueServiceClient>
+{
+	var api = getStorageQueueApi()
+	var accountName = account
+	var storageSharedKey = accountKey
+	var endpoint = "https://" .. account .. ".queue.core.windows.net"
+	var storageSharedKeyCredential = lang "js" as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
+	return lang "js" as dynamic {{{ new api.QueueServiceClient(endpoint, storageSharedKeyCredential) }}}
+}
+
+func getQueueClient(queueName as string) private as native<QueueClient>
+{
+	var queueServiceClient = getQueueServiceClient()
+	var v = queueServiceClient.getQueueClient!(queueName)
+	if v == null:
+		Error.throw("failedToGetQueueClient", null)
+	return v
+}
+
+func peekMessages(queueName as string, numberOfMessages as int = 1) override async as QueuePeekMessagesList
+{
+	var list = new QueuePeekMessagesList()
+	var queueClient = getQueueClient(queueName)
+	var option = {
+		numberOfMessages numberOfMessages
+	}
+	var messages = await queueClient.peekMessages!(option)
+	if messages {
+		var peekMessages = messages.peekedMessageItems
+		if peekMessages {
+			for (var n=0; n <= (Integer.asValueOrDefaultValue(peekMessages.length, 0) - 1); n++) {
+				var message = peekMessages[n]
+				if message == null:
+					continue
+				var v = new QueuePeekMessagesModel()
+				v.messageId = String.asValueOrNull(message.messageId)
+				v.insertedOn = String.asValueOrNull(message.insertedOn)
+				v.expiresOn = String.asValueOrNull(message.expiresOn)
+				v.dequeueCount = Integer.asValueOrDefaultValue(message.dequeueCount, 0)
+				v.messageText = String.asValueOrNull(message.messageText)
+				list.addObjectToVectorField("list", v)
+			}
+		}
+	}
+	return list
+}
+
+func receiveMessage(queueName as string) override async as ReceivedMessageModel?
+{
+	var queueClient = getQueueClient(queueName)
+	var messages = await queueClient.receiveMessages!()
+	if not messages:
+		return null
+	var items = messages.receivedMessageItems
+	if items == null:
+		return null
+	if lang "js" as int {{{ items.length }}} < 1:
+		return null
+	var receivedMessageItem = items[0]
+	if receivedMessageItem == null:
+		return null
+	var v = new ReceivedMessageModel()
+	v.messageId = String.asValueOrNull(receivedMessageItem.messageId)
+	v.insertedOn = String.asValueOrNull(receivedMessageItem.insertedOn)
+	v.expiresOn = String.asValueOrNull(receivedMessageItem.expiresOn)
+	v.popReceipt = String.asValueOrNull(receivedMessageItem.popReceipt)
+	v.nextVisibleOn = String.asValueOrNull(receivedMessageItem.nextVisibleOn)
+	v.dequeueCount = Integer.asValueOrDefaultValue(receivedMessageItem.dequeueCount, 0)
+	v.messageText = String.asValueOrNull(receivedMessageItem.messageText)
+	return v
+}
+
+func acknowledgeMessage(queueName as string, messageId as string, popReceipt as string) override async
+{
+	if String.isEmpty(messageId):
+		Error.throw("emptyMessageId", null)
+	if String.isEmpty(popReceipt):
+		Error.throw("emptyPopReceipt", null)
+	var queueClient = getQueueClient(queueName)
+	await queueClient.deleteMessage!(messageId, popReceipt)
+}

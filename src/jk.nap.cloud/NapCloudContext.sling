@@ -1,0 +1,191 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.env
+import jk.json
+import jk.kafka
+import jk.nap.api
+
+class is NapContext:
+
+func forDefault(ctx as LoggingContext) static as this
+{
+	var config = EnvironmentVariable.get("NAP_CONFIG")
+	if String.isEmpty(config):
+		Error.throw("environmentVariableIsNotSet", "NAP_CONFIG")
+	return forConfiguration(ctx, config)
+}
+
+func forConfiguration(ctx as LoggingContext, config as string) static as this
+{
+	var settings = JSONParser.parseStringAsMap(config)
+	return new this() {
+		ctx ctx
+		settings NapCloudSettings.forData(settings)
+	}
+}
+
+section "Models" public
+{
+	model NapKafkaConnectionSettings
+	{
+		clientId as string
+		topicName as string
+		consumerGroupId as string
+		brokerAddresses as string[]
+		enableSsl as bool
+		username as string
+		password as string
+	}
+
+	model NapAzureEventHubConnectionSettings
+	{
+		clientId as string
+		eventHubName as string
+		consumerGroupId as string
+		connectionString as string
+	}
+
+	model UrlSettings
+	{
+		url as string
+	}
+
+	model NapResource
+	{
+		id as string
+		kafkaConnectionSettings as NapKafkaConnectionSettings
+		azureEventHubConnectionSettings as NapAzureEventHubConnectionSettings
+		urlSettings as UrlSettings
+	}
+
+	model NapCloudSettings
+	{
+		resources as NapResource[]
+	}
+}
+
+prop ctx as LoggingContext
+prop settings as NapCloudSettings
+
+section private
+{
+	func getResource(id as string) as NapResource
+	{
+		var v as NapResource?
+		if var resources = settings.resources: foreach resource in resources {
+			if resource.id == id {
+				v = resource
+				break
+			}
+		}
+		if not v:
+			Error.throw("resourceNotFound", id)
+		return v
+	}
+}
+
+func getQueueConsumer(id as string) override async as NapQueueConsumer:
+	ERROR "notImplemented"
+
+func getQueueProducer(id as string) override async as NapQueueProducer:
+	ERROR "notImplemented"
+
+func getCacheClient(id as string) override async as NapCacheClient:
+	ERROR "notImplemented"
+
+func getStorageClient(id as string) override async as NapStorageClient:
+	ERROR "notImplemented"
+
+func getDataStreamConsumer(id as string) override async as NapDataStreamConsumer
+{
+	var resource = getResource(id)
+	var kk = resource.kafkaConnectionSettings
+	if kk {
+		ERROR "notImplemented"
+	}
+	var az = resource.azureEventHubConnectionSettings
+	if az {
+		var consumerGroupId = az.consumerGroupId
+		if String.isEmpty(consumerGroupId):
+			Error.throw("noConsumerGroupId", az)
+		var eventHubName = az.eventHubName
+		if String.isEmpty(eventHubName):
+			Error.throw("noEventHubName", az)
+		var connectionString = az.connectionString
+		if String.isEmpty(connectionString):
+			Error.throw("noConnectionString", az)
+		var clientId = az.clientId
+		if String.isEmpty(clientId):
+			Error.throw("noClientId", az)
+		return new NapDataStreamConsumerForKafka() {
+			ctx ctx
+			consumerGroupId consumerGroupId
+			topicName eventHubName
+			kafkaConnectionSettings KafkaConnectionSettings.forEventHubConnectionString(connectionString, clientId)
+		}
+	}
+	Error.throw("resourceIsNotDataStreamConsumer", id)
+}
+
+func getDataStreamProducer(id as string) override async as NapDataStreamProducer
+{
+	var resource = getResource(id)
+	var kk = resource.kafkaConnectionSettings
+	if kk {
+		ERROR "notImplemented"
+	}
+	var az = resource.azureEventHubConnectionSettings
+	if az {
+		var eventHubName = az.eventHubName
+		if String.isEmpty(eventHubName):
+			Error.throw("noEventHubName", az)
+		var connectionString = az.connectionString
+		if String.isEmpty(connectionString):
+			Error.throw("noConnectionString", az)
+		var clientId = az.clientId
+		if String.isEmpty(clientId):
+			Error.throw("noClientId", az)
+		return new NapDataStreamProducerForKafka() {
+			ctx ctx
+			topicName eventHubName
+			kafkaConnectionSettings KafkaConnectionSettings.forEventHubConnectionString(connectionString, clientId)
+		}
+	}
+	Error.throw("resourceIsNotDataStreamConsumer", id)
+}
+
+func getUrl(id as string) override async as string
+{
+	var resource = getResource(id)
+	var uu = resource.urlSettings
+	if uu {
+		var v = uu.url
+		if not v:
+			Error.throw("emptyUrl", uu)
+		return v
+	}
+	Error.throw("resourceIsNotUrl", id)
+}

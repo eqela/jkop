@@ -59,8 +59,6 @@ func applyCacheControlHeader(request as WebServerRequest, contentCacheTtl as int
 
 func handleArticleRequest(request as WebServerRequest, articleId as string) async
 {
-	if articleManager == null:
-		throw WebServerException.forNotFound()
 	var article = await articleManager.getArticleById(articleId)
 	if not article:
 		throw WebServerException.forNotFound()
@@ -96,7 +94,6 @@ func handleArticleRequest(request as WebServerRequest, articleId as string) asyn
 
 func stripExtension(value as string) private as string
 {
-	assert value
 	var dot = String.getLastIndexOfCharacter(value, '.')
 	if dot < 0:
 		return value
@@ -109,22 +106,22 @@ func initializeRoutes override
 		await handleArticleRequest(request, "index")
 	})
 	addRoute("GET", "/:articleId", func(request as WebServerRequest, params as DynamicMap) async {
-		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId"))
+		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId") ?? "")
 		await handleArticleRequest(request, articleId)
 	})
 	addRoute("GET", "/:articleId/:attachmentId", func(request as WebServerRequest, params as DynamicMap) async {
-		if articleManager == null:
-			throw WebServerException.forNotFound()
-		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId"))
-		var rawAttachmentId = StringUtil.sanitizeResourceName(params.getString("attachmentId"))
+		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId") ?? "")
+		var rawAttachmentId = StringUtil.sanitizeResourceName(params.getString("attachmentId") ?? "")
 		var attachmentId = stripExtension(rawAttachmentId)
 		var data = await articleManager.getArticleAttachment(articleId, attachmentId)
 		if not data:
 			throw WebServerException.forNotFound()
 		request.setResponseStatus(200)
-		request.setResponseHeader("Content-Type", data.mimeType)
+		if var mimetype = data.mimeType:
+			request.setResponseHeader("Content-Type", mimetype)
 		applyCacheControlHeader(request, articleFileCacheTtl)
-		request.writeResponseData(data.data)
+		if var dd = data.data:
+			request.writeResponseData(dd)
 		request.endResponse()
 	})
 }

@@ -50,19 +50,16 @@ model BitbucketRepositoryDetails public
 	sshUrl as string
 }
 
-func forAccessToken(ctx as LoggingContext, accessToken as string) static as this
-{
-	var v = new this(ctx)
-	v.accessToken = accessToken
-	return v
-}
+func forAccessToken(ctx as LoggingContext, accessToken as string) static as this:
+	return new this() {
+		ctx ctx
+		accessToken accessToken 
+	}
 
 prop accessToken as string
 
 macro AUTHORIZATION_HEADER
 {
-	assert accessToken:
-		Error.throw("noOAuthToken", "No OAuth token configured")
 	var hdrs = new KeyValueList<string,string>()
 	hdrs.add("Authorization", "Bearer " .. accessToken)
 	hdrs.add("Content-Type", "application/json")
@@ -75,7 +72,7 @@ func getUserDetails async as BitbucketUserDetails
 	var data = response.getBodyAsDynamicMap()
 	var err = data.getDynamicMap("error")
 	if err:
-		Error.throw(data.getString("type"), err.getString("message"))
+		Error.throw(data.getString("type") ?? "error", err.getString("message"))
 	var details = BitbucketUserDetails.forData(data)
 	var links = data.getDynamicMap("links")
 	if links {
@@ -93,16 +90,18 @@ func getUserPrimaryEmailAddress async as string
 	var data = response.getBodyAsDynamicMap()
 	var err = data.getDynamicMap("error")
 	if err:
-		Error.throw(data.getString("type"), err.getString("message"))
-	var emailAddress as string
+		Error.throw(data.getString("type") ?? "error", err.getString("message"))
+	var emailAddress as string?
 	var emails = data.getDynamicVector("values")
-	foreach email as DynamicMap in emails.toVector() {
+	if emails: foreach email as DynamicMap in emails.toVector() {
 		var primary = email.getBoolean("is_primary")
 		if primary {
 			emailAddress = email.getString("email")
 			break
 		}
 	}
+	if not emailAddress:
+		Error.throw("noEmailAddressFound", null)
 	return emailAddress
 }
 
@@ -113,10 +112,10 @@ func getUserWorkSpaces async as vector<BitbucketWorkspace>
 	var data = response.getBodyAsDynamicMap()
 	var err = data.getDynamicMap("error")
 	if err:
-		Error.throw(data.getString("type"), err.getString("message"))
+		Error.throw(data.getString("type") ?? "error", err.getString("message"))
 	var v = new vector<BitbucketWorkspace>
 	var wspaces = data.getDynamicVector("values")
-	foreach ws as DynamicMap in wspaces.toVector():
+	if wspaces: foreach ws as DynamicMap in wspaces.toVector():
 		v += BitbucketWorkspace.forData(ws)
 	return v
 }
@@ -124,20 +123,19 @@ func getUserWorkSpaces async as vector<BitbucketWorkspace>
 func getUserRepositories(slug as string, page as int = 1) async as vector<BitbucketRepositoryDetails>
 {
 	AUTHORIZATION_HEADER()
-	assert slug
 	var response = await request("GET", "https://api.bitbucket.org/2.0/repositories/" .. slug .. "?page=" .. String.forInteger(page), hdrs, null)
 	var data = response.getBodyAsDynamicMap()
 	var err = data.getDynamicMap("error")
 	if err:
-		Error.throw(data.getString("type"), err.getString("message"))
+		Error.throw(data.getString("type") ?? "error", err.getString("message"))
 	var repos = data.getDynamicVector("values")
 	var v = new vector<BitbucketRepositoryDetails>
-	foreach data as DynamicMap in repos.toVector() {
+	if repos: foreach data as DynamicMap in repos.toVector() {
 		var repo = BitbucketRepositoryDetails.forData(data)
 		var links = data.getDynamicMap("links")
 		if links {
 			var clone = links.getDynamicVector("clone")
-			foreach url as DynamicMap in clone.toVector() {
+			if clone: foreach url as DynamicMap in clone.toVector() {
 				if String.equals(url.getString("name"), "https") {
 					repo.httpUrl = url.getString("href")
 				}

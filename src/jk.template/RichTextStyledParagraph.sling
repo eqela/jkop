@@ -24,14 +24,14 @@
 
 class is RichTextParagraph:
 
-func forString(text as string) static as this
+func forString(text as string?) static as this
 {
 	var rtsp = new this()
 	return rtsp.parse(text)
 }
 
 pvar heading = 0
-pvar segments as vector<RichTextSegment>
+pvar segments as vector<RichTextSegment>?
 
 func isHeading as bool
 {
@@ -43,18 +43,20 @@ func isHeading as bool
 func getTextContent as string
 {
 	var sb = new StringBuilder()
-	foreach segment as RichTextSegment in segments:
-		sb.appendString(segment.getText())
+	if segments: foreach segment in segments {
+		var text = segment.getText()
+		if text:
+			sb.appendString(text)
+	}
 	return sb.toString()
 }
 
 func toJson override as DynamicMap
 {
 	var segs = new vector<object>
-	foreach segment as RichTextSegment in segments {
+	if segments: foreach segment in segments {
 		var segj = segment.toJson()
-		if segj:
-			Vector.append(segs, segj)
+		Vector.appendValue(segs, segj)
 	}
 	var v = new DynamicMap()
 	v.setString("type", "styled")
@@ -63,22 +65,24 @@ func toJson override as DynamicMap
 	return v
 }
 
-func toText override as string
+func toText override as string?
 {
 	var sb = new StringBuilder()
-	foreach sg as RichTextSegment in segments {
-		sb.appendString(sg.getText())
+	if segments: foreach sg in segments {
+		var text = sg.getText()
+		if text:
+			sb.appendString(text)
 		var link = sg.getLink()
-		if String.isEmpty(link) == false:
+		if String.isNotEmpty(link):
 			sb.appendString(" (" .. link .. ")")
 		var ref = sg.getReference()
-		if String.isEmpty(ref) == false:
+		if String.isNotEmpty(ref):
 			sb.appendString(" {" .. ref.. "}")
 	}
 	return sb.toString()
 }
 
-func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async override as string
+func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver?) async override as string
 {
 	var sb = new StringBuilder()
 	var tag = "p"
@@ -87,8 +91,10 @@ func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async overrid
 	sb.appendString("<")
 	sb.appendString(tag)
 	sb.appendString(">")
-	foreach sg as RichTextSegment in segments:
-		sb.appendString(await sg.toHtmlWithResolver(refs))
+	if segments: foreach sg in segments {
+		var html = await sg.toHtmlWithResolver(refs)
+		sb.appendString(html)
+	}
 	sb.appendString("</"  .. tag .. ">")
 	return sb.toString()
 }
@@ -102,23 +108,23 @@ func toHtml override as string
 	sb.appendString("<")
 	sb.appendString(tag)
 	sb.appendString(">")
-	foreach sg as RichTextSegment in segments:
-		sb.appendString(sg.toHtml())
+	if segments: foreach sg in segments {
+		var html = sg.toHtml()
+		sb.appendString(html)
+	}
 	sb.appendString("</"  .. tag .. ">")
 	return sb.toString()
 }
 
 func addSegment(rts as RichTextSegment) as RichTextParagraph
 {
-	if rts == null:
-		return this
 	if segments == null:
 		segments = new vector<RichTextSegment>
-	Vector.append(segments, rts)
+	Vector.appendValue(segments, rts)
 	return this
 }
 
-func setSegmentLink(seg as RichTextSegment, alink as string)
+func setSegmentLink(seg as RichTextSegment, alink as string?)
 {
 	if alink == null {
 		seg.setLink(null)
@@ -139,17 +145,15 @@ func setSegmentLink(seg as RichTextSegment, alink as string)
 	seg.setLink(link)
 }
 
-func parseSegments(txt as string)
+func parseSegments(txt as string?)
 {
 	assert txt
-	var segmentsb as StringBuilder
-	var linksb as StringBuilder
+	var segmentsb as StringBuilder?
+	var linksb as StringBuilder?
 	var sb = new StringBuilder()
-	var it = String.iterate(txt)
-	var c as char
 	var pc = 0 as char
 	var seg = new RichTextSegment()
-	while (c = it.getNextChar()) > 0 {
+	foreach c in String.iterate(txt) {
 		if pc == '[' {
 			if c == '[' {
 				sb.appendCharacter(c)
@@ -316,20 +320,19 @@ func parseSegments(txt as string)
 	}
 }
 
-func parse(text as string) as this
+func parse(text as string?) as this
 {
 	if text == null:
 		return this
 	var txt = text
-	var prefixes = new string[] [ "=", "==", "===", "====", "=====" ]
+	var prefixes = [ "=" "==" "===" "====" "=====" ]
 	var n as int
 	for(n=0 ; n<sizeof prefixes; n++) {
 		var key = prefixes[n]
 		if String.startsWith(txt, key .. " ") && String.endsWith(txt, " " .. key) {
 			setHeading(n+1)
 			txt = String.getSubString(txt, String.getLength(key)+1, String.getLength(txt)-String.getLength(key)*2-2)
-			if txt:
-				txt = String.strip(txt)
+			txt = String.strip(txt)
 			break
 		}
 	}
@@ -337,9 +340,9 @@ func parse(text as string) as this
 	return this
 }
 
-func toMarkup override as string
+func toMarkup override as string?
 {
-	var ident as string
+	var ident as string?
 	if heading == 1 {
 		ident = "="
 	}
@@ -356,13 +359,16 @@ func toMarkup override as string
 		ident = "====="
 	}
 	var sb = new StringBuilder()
-	if String.isEmpty(ident) == false {
+	if String.isNotEmpty(ident) {
 		sb.appendString(ident)
 		sb.appendCharacter(' ')
 	}
-	foreach segment as RichTextSegment in segments:
-		sb.appendString(segment.toMarkup())
-	if String.isEmpty(ident) == false {
+	if segments: foreach segment in segments {
+		var markup = segment.toMarkup()
+		if markup:
+			sb.appendString(markup)
+	}
+	if String.isNotEmpty(ident) {
 		sb.appendCharacter(' ')
 		sb.appendString(ident)
 	}

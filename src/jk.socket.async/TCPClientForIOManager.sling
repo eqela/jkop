@@ -22,66 +22,69 @@
  * SOFTWARE.
  */
 
+import jk.log
 import jk.socket
 import jk.socket.ssl
 import jk.socket.io
 
 class is TCPClient:
 
-func forCurrentIOManager static as this
+func forCurrentIOManager(ctx as LoggingContext) static as this
 {
-	var mgr = assert IOManager.getCurrent()
-	var v = new this()
+	var mgr = IOManager.getCurrent()
+	if not mgr:
+		Error.throw("noCurrentIoManager", null)
+	var v = new this() {
+		ctx ctx
+	}
 	v.setIomanager(mgr)
 	return v
 }
 
-func forIOManager(mgr as IOManager) static as this
+func forIOManager(ctx as LoggingContext, mgr as IOManager) static as this
 {
-	var v = new this()
+	var v = new this() {
+		ctx ctx
+	}
 	v.setIomanager(mgr)
 	return v
 }
 
-var tcpsocket as TCPSocket
-var sslsocket as SSLSocket
-var rcvbuffer as buffer
-var entry as IOManagerEntry
-pvar iomanager as IOManager
+prop ctx as LoggingContext
 
-ctor:
-	rcvbuffer = malloc 64 * 1024
+var tcpsocket as TCPSocket?
+var sslsocket as SSLSocket?
+var rcvbuffer = Buffer.allocate(64 * 1024)
+var entry as IOManagerEntry?
+pvar iomanager as IOManager?
 
 func getSocket as ConnectedSocket
 {
 	if sslsocket:
 		return sslsocket
-	return tcpsocket
+	if tcpsocket:
+		return tcpsocket
+	Error.throw("noSocketAvailable", null)
 }
 
 func doConnectSocket(address as string, port as int) private as TCPSocket:
 	return TCPSocket.createAndConnect(address, port)
 
-func connectSSL(address as string, port as int, callback as function<void,Error>) override
+func connectSSL(address as string, port as int, callback as function<void,Error?>?) override
 {
 	// FIXME: This needs to be made asynchronous. Use worker threads.
-	assert tcpsocket = doConnectSocket(address, port) {
-		if callback:
-			callback(Error.forCode("failedToConnect"))
-	}
-	assert sslsocket = SSLSocket.forClient(tcpsocket, address) {
-		if callback:
-			callback(Error.forCode("sslHandshakeFailed"))
-	}
-	assert addSocketToIOMananger() {
+	tcpsocket = doConnectSocket(address, port)
+	sslsocket = SSLSocket.forClient(ctx, tcpsocket, address)
+	if not addSocketToIOMananger() {
 		if callback:
 			callback(Error.forCode("failedToAddSocketToIOManager"))
+		return
 	}
 	if callback:
 		callback(null)
 }
 
-func connect(address as string, port as int, callback as function<void,Error>) override
+func connect(address as string, port as int, callback as function<void,Error?>?) override
 {
 	// FIXME: This needs to be made asynchronous. Use worker threads.
 	assert tcpsocket = doConnectSocket(address, port) {
@@ -105,7 +108,7 @@ func addSocketToIOMananger private as bool
 	return true
 }
 
-func receive(callback as function<void,buffer,int>) override
+func receive(callback as function<void,buffer?,int>?) override
 {
 	assert tcpsocket {
 		if callback:
@@ -115,14 +118,13 @@ func receive(callback as function<void,buffer,int>) override
 		if callback:
 			callback(null, 0)
 	}
-	var cc final = callback
+	var cc = callback
 	entry.setReadListener(func {
 		entry.setReadListener(null)
 		var ss = getSocket()
 		var bb = rcvbuffer
 		var v = 0
-		if ss:
-			v = ss.read(bb)
+		v = ss.read(bb)
 		if cc:
 			cc(bb, v)
 	})
@@ -130,15 +132,15 @@ func receive(callback as function<void,buffer,int>) override
 
 class MyBuffer
 {
-	pvar data as buffer
+	pvar data as buffer?
 	pvar size as int
-	pvar callback as function<void,Error>
+	pvar callback as function<void,Error?>?
 }
 
 var toWrite = new Queue<MyBuffer>()
 var writeScheduled = false
 
-func send(data as buffer, size as int, callback as function<void,Error>) override
+func send(data as buffer, size as int, callback as function<void,Error?>?) override
 {
 	assert tcpsocket {
 		if callback:
@@ -162,6 +164,7 @@ func scheduleWrite private
 		return
 	if toWrite.getSize() < 1:
 		return
+	assert entry
 	entry.setWriteListener(func {
 		entry.setWriteListener(null)
 		writeScheduled = false
@@ -172,7 +175,7 @@ func scheduleWrite private
 			var callback = mb.getCallback()
 			var ss = getSocket()
 			var n = 0
-			if ss:
+			if data:
 				n = ss.write(data, size)
 			if callback {
 				if n < size {
@@ -188,7 +191,7 @@ func scheduleWrite private
 	writeScheduled = true
 }
 
-func disconnect(callback as function<void,Error>) override
+func disconnect(callback as function<void,Error?>?) override
 {
 	toWrite.clear()
 	writeScheduled = false

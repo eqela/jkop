@@ -27,12 +27,14 @@ class is CharacterIterator abstract:
 const UTF8 = 0
 const ASCII = 1
 const UCS2 = 2
+
 var encoding = 0
 var current protected = 0 as char
-var surrogatePair as char[]
+var surrogatePair as array<char>?
 var counter = 0
 var currentSize = 0
 var ended = false
+var nextValue = 0 as char
 
 func resetDecoder
 {
@@ -41,15 +43,16 @@ func resetDecoder
 	counter = 0
 	currentSize = 0
 	ended = false
+	nextValue = 0 as char
 }
 
 func copyTo(o as this)
 {
-	assert o
 	o.encoding = encoding
 	o.current = current
 	o.currentSize = currentSize
 	o.ended = ended
+	o.nextValue = nextValue
 }
 
 func moveToPreviousByte virtual as bool:
@@ -78,7 +81,7 @@ func setEncoding(ee as string) as this
 		currentSize = 2
 		return this
 	}
-	return null
+	Error.throw("unsupportedEncoding", ee)
 }
 
 func getEncoding as int:
@@ -86,6 +89,10 @@ func getEncoding as int:
 
 func moveToPreviousChar as bool
 {
+	if nextValue != 0 as char {
+		nextValue = 0 as char
+		moveToPreviousChar()
+	}
 	var op = getCurrentPosition()
 	var cs = currentSize
 	if cs > 1 {
@@ -96,8 +103,10 @@ func moveToPreviousChar as bool
 	var v = doMoveToPreviousChar()
 	if not v:
 		setCurrentPosition(op)
-	if v && ended:
+	if v {
 		ended = false
+		nextValue = 0 as char
+	}
 	return v
 }
 
@@ -115,7 +124,7 @@ func convertToChar(v as int) private as char
 			return getSurrogatePair()
 		return v as char
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			string pair = char.ConvertFromUtf32(System.Convert.ToInt32(v));
 			if(pair.Length > 1) {
@@ -163,7 +172,7 @@ func getSurrogatePair as char
 	return c
 }
 
-func doMoveToPreviousChar as bool
+func doMoveToPreviousChar private as bool
 {
 	if encoding == UTF8 {
 		assert moveToPreviousByte()
@@ -230,8 +239,7 @@ func doMoveToPreviousChar as bool
 		current = (c0 << 8 & c1) as char
 		return true
 	}
-	println "Unsupported encoding in CharacterDecoder: " .. String.forInteger(encoding)
-	return false
+	Error.throw("unsupportedEncoding", String.forInteger(encoding))
 }
 
 func moveToNextChar as bool
@@ -241,10 +249,13 @@ func moveToNextChar as bool
 		current = 0 as char
 		ended = true
 	}
+	else {
+		nextValue = 0 as char
+	}
 	return v
 }
 
-func doMoveToNextChar as bool
+func doMoveToNextChar private as bool
 {
 	if encoding == UTF8 {
 		if surrogatePair {
@@ -308,18 +319,36 @@ func doMoveToNextChar as bool
 		current = (c0 << 8 & c1) as char
 		return true
 	}
-	println "Unsupported encoding in CharacterDecoder: " .. String.forInteger(encoding)
-	return false
+	Error.throw("unsupportedEncoding", String.forInteger(encoding))
 }
 
 func getCurrentChar as char:
 	return current
 
-func getNextChar as char
+func next as char
 {
+	if nextValue != 0 as char {
+		var v = nextValue
+		nextValue = 0 as char
+		return v
+	}
 	if moveToNextChar() == false:
 		return 0 as char
 	return current
+}
+
+func getNextChar as char:
+	return next()
+
+func hasNext as bool
+{
+	if nextValue != 0 as char:
+		return true
+	if doMoveToNextChar() {
+		nextValue = current
+		return true
+	}
+	return false
 }
 
 func hasEnded as bool:

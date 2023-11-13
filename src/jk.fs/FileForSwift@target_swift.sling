@@ -28,12 +28,12 @@ class is File:
 
 class MyReader is FileReader is Reader is SizedReader is Closable is SeekableReader
 {
-	pvar handle as !"FileHandle"
+	pvar handle as native<FileHandle>?
 	pvar size as int
 
 	func close
 	{
-		if !handle:
+		if not handle:
 			return
 		lang "swift" {{{
 			handle?.closeFile()
@@ -58,7 +58,7 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 
 	func getCurrentPosition as int64
 	{
-		if !handle:
+		if not handle:
 			return 0
 		var v as int64 = 0
 		lang "swift" {{{
@@ -73,35 +73,35 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 
 	func read(buf as buffer) as int
 	{
-		if !buf || !handle:
+		if not buf || not handle:
 			return 0
-		var data as buffer
-		var mx #used = lang "swift" int {{{ buf.length }}}
+		var data as buffer?
+		var mx = lang "swift" as int {{{ buf.length }}}
 		lang "swift" {{{
 			data = NSMutableData(data: (handle?.readData(ofLength: mx))!)
 		}}}
-		if !data:
+		if not data:
 			return 0
-		var dlen = lang "swift" int {{{ data.length }}}
+		var dlen = lang "swift" as int {{{ data.length }}}
 		if dlen < 1:
 			return 0
 		return dlen
 	}
 
 	func readAll as buffer:
-		return lang "swift" buffer {{{ NSMutableData(data: (handle?.readDataToEndOfFile())!) }}}
+		return lang "swift" as buffer {{{ NSMutableData(data: (handle?.readDataToEndOfFile())!) }}}
 
 }
 
 class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 {
-	pvar handle as !"FileHandle"
+	pvar handle as native<FileHandle>?
 
 	func write(buffer as buffer, size as int) as int
 	{
-		if !buffer:
+		if not buffer:
 			return 0
-		var ptr #used = buffer
+		var ptr = buffer
 		if size >= 0 && size != Buffer.getSize(ptr):
 			ptr = Buffer.getSubBuffer(ptr, 0, size)
 		var v = Buffer.getSize(ptr)
@@ -119,7 +119,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 
 	func setCurrentPosition(n as int64) as bool
 	{
-		if !handle:
+		if not handle:
 			return false
 		var v = true
 		lang "swift" {{{
@@ -130,7 +130,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 
 	func getCurrentPosition as int64
 	{
-		if !handle:
+		if not handle:
 			return 0
 		var v as int64 = 0
 		lang "swift" {{{
@@ -141,7 +141,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 
 	func close
 	{
-		if !handle:
+		if not handle:
 			return
 		lang "swift" {{{
 			handle?.closeFile()
@@ -153,12 +153,12 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 func forPath(path as string) static as File:
 	return new this(path)
 
-var path as string
-var manager as !"FileManager"
+var path as string?
+var manager as native<FileManager>?
 
 ctor(path as string)
 {
-	this.path = lang "swift" string {{{(path as NSString?)?.standardizingPath }}}
+	this.path = lang "swift" as string {{{(path as NSString?)?.standardizingPath }}}
 	lang "swift" {{{
 		manager = FileManager.default
 	}}}
@@ -175,12 +175,12 @@ func append override as FileWriter:
 
 func getMyReader private as MyReader
 {
-	var handle as !"FileHandle"
+	var handle as native<FileHandle>?
 	lang "swift" {{{
 		handle = FileHandle(forReadingAtPath: path!)
 	}}}
-	if !handle:
-		return null
+	if not handle:
+		Error.throw("failedToOpenFileForReading", path)
 	var v = new MyReader()
 	v.setSize(getSize())
 	v.setHandle(handle)
@@ -188,38 +188,40 @@ func getMyReader private as MyReader
 }
 
 func getMyWriter(truncate as bool) private as MyWriter:
-	return null
+	ERROR "notImplemented"
 
 func read override as FileReader:
 	return getMyReader()
 
-func getPath override as string:
+func getPath override as string
+{
+	if not path:
+		Error.throw("noPathForFile", this)
 	return path
+}
 
 func getBasename override as string:
-	return lang "swift" string {{{ manager?.displayName(atPath: path!) }}}
+	return String.safeString(lang "swift" as string {{{ manager?.displayName(atPath: path!) }}})
 
 func getContentsBuffer override as buffer
 {
 	var rr = getMyReader()
-	if !rr:
-		return null
 	return rr.readAll()
 }
 
 func getContentsString(encoding as string) override as string
 {
 	var b = getContentsBuffer()
-	if !b:
+	if not b:
 		return null
 	return String.forBuffer(b, encoding)
 }
 
 func exists override as bool:
-	return lang "swift" bool {{{ manager?.fileExists(atPath: path!) ?? false }}}
+	return lang "swift" as bool {{{ manager?.fileExists(atPath: path!) ?? false }}}
 
 func isExecutable override as bool:
-	return lang "swift" bool {{{ manager?.isExecutableFile(atPath: path!) ?? false }}}
+	return lang "swift" as bool {{{ manager?.isExecutableFile(atPath: path!) ?? false }}}
 
 func remove override as bool
 {
@@ -270,8 +272,9 @@ func isFile override as bool
 
 func stat override as FileInfo
 {
-	var v = new FileInfo()
-	v.setFile(this)
+	var v = new FileInfo() {
+		file this
+	}
 	lang "swift" {{{
 		do {
 			var dict: NSDictionary
@@ -289,10 +292,10 @@ func stat override as FileInfo
 		}
 	}}}
 	if isFile() {
-		v.setType(FileInfo.FILE_TYPE_FILE)
+		v.type = FileInfo.FILE_TYPE_FILE
 	}
 	else if isDirectory() {
-		v.setType(FileInfo.FILE_TYPE_DIR)
+		v.type = FileInfo.FILE_TYPE_DIR
 	}
 	return v
 }

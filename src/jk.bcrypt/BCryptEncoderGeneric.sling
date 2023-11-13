@@ -27,43 +27,14 @@ import jk.random
 
 class is BCryptEncoder:
 
-func generateSaltWithRoundsAndVersion(logRounds as int, bCryptVersion as string) override as string
-{
-	var salt as string
-	try {
-		salt = BCrypt.gensaltWithRounds(logRounds, ctx)
-	}
-	catch e as exception {
-		Log.error(ctx, Log.asString(ctx, e))
-	}
-	return salt
-}
+func generateSaltWithRoundsAndVersion(logRounds as int, bCryptVersion as string) override as string:
+	return BCrypt.gensaltWithRounds(ctx, logRounds)
 
-func hashPassword(password as string, salt as string) override as string
-{
-	assert String.isNotEmpty(password) && String.isNotEmpty(salt)
-	var hash as string
-	try {
-		hash = BCrypt.hashpw(password, salt, ctx)
-	}
-	catch e as exception {
-		Log.error(ctx, Log.asString(ctx, e))
-	}
-	return hash
-}
+func hashPassword(password as string, salt as string) override as string:
+	return BCrypt.hashpw(ctx, password, salt)
 
-func checkPassword(password as string, hash as string) override as bool
-{
-	assert String.isNotEmpty(password) && String.isNotEmpty(hash)
-	var valid as bool
-	try {
-		valid = BCrypt.checkpw(password, hash, ctx)
-	}
-	catch e as exception {
-		Log.error(ctx, Log.asString(ctx, e))
-	}
-	return valid
-}
+func checkPassword(password as string, hash as string) override as bool:
+	return BCrypt.checkpw(ctx, password, hash)
 
 class BCrypt
 {
@@ -71,8 +42,8 @@ class BCrypt
 	const BCRYPT_SALT_LEN = 16
 	const BLOWFISH_NUM_ROUNDS = 16
 
-	var p as array<uint>
-	var s as array<uint>
+	var p as array<uint>?
+	var s as array<uint>?
 	var pOrig = new uint[] [
 		0x243f6a88, 0x85a308d3, 0x13198a2e, 0x03707344,
 		0xa4093822, 0x299f31d0, 0x082efa98, 0xec4e6c89,
@@ -339,9 +310,9 @@ class BCrypt
 		0x90d4f869, 0xa65cdea0, 0x3f09252d, 0xc208e69f,
 		0xb74e6132, 0xce77e25b, 0x578fdfe3, 0x3ac372e6
 	]
-	var bfCryptCiphertext static as array<uint>
-	var base64Code static as array<char>
-	var index64 static as array<int>
+	var bfCryptCiphertext static as array<uint>?
+	var base64Code static as array<char>?
+	var index64 static as array<int>?
 
 	func getBfCryptCiphertext static as array<uint>
 	{
@@ -391,11 +362,9 @@ class BCrypt
 		return index64
 	}
 
-	func hashpw(password as string, salt as string, ctx as LoggingContext = null) static as string
+	func hashpw(ctx as LoggingContext, password as string, salt as string) static as string
 	{
-		assert String.isNotEmpty(password)
-		var inputBytes as buffer
-		var hashed as buffer
+		var inputBytes as buffer?
 		var minor = '0'
 		var off = 0
 		var sb = new StringBuilder()
@@ -412,11 +381,11 @@ class BCrypt
 		}
 		if String.getChar(salt, off + 2) > '$':
 			throw ExceptionWithString.forString("Missing bcrypt salt rounds", true)
-		var rounds = String.toInteger(String.getSubString(salt, off, 2))
+		var rounds = Integer.forStringOrThrowError(String.getSubString(salt, off, 2))
 		if rounds < 1 || rounds > 31:
 			throw ExceptionWithString.forString("Bcrypt rounds exceeds maximum (30)", true)
 		var extractedSalt = String.getSubString(salt, off + 3, 22)
-		var pass as string
+		var pass as string?
 		if minor >= 'a' {
 			inputBytes = String.toUTF8Buffer(password)
 			var newSize = Buffer.getSize(inputBytes) + 1
@@ -427,51 +396,28 @@ class BCrypt
 			pass = password .. ""
 			inputBytes = String.toUTF8Buffer(pass)
 		}
-		var saltb as buffer
-		try {
-			saltb = decodeBase64(extractedSalt, BCRYPT_SALT_LEN)
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var saltb = decodeBase64(extractedSalt, BCRYPT_SALT_LEN)
 		var cipher = copy(getBfCryptCiphertext())
 		var b = new this()
-		try {
-			hashed = b.cryptRaw(inputBytes, saltb, rounds, cipher)
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var hashed = b.cryptRaw(inputBytes, saltb, rounds, cipher)
 		sb.appendString("$2")
 		if minor >= 'a':
 			sb.appendCharacter(minor)
 		sb.appendString("$")
 		sb.appendString(String.forInteger(rounds))
 		sb.appendString("$")
-		var saltValue as string
-		try {
-			saltValue = encodeBase64(saltb, Buffer.getSize(saltb))
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var saltValue = encodeBase64(saltb, Buffer.getSize(saltb))
 		sb.appendString(saltValue)
-		var hashedValue as string
-		try {
-			hashedValue = encodeBase64(hashed, sizeof getBfCryptCiphertext() * 4 - 1)
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var hashedValue = encodeBase64(hashed, sizeof getBfCryptCiphertext() * 4 - 1)
 		sb.appendString(hashedValue)
 		return sb.toString()
 	}
 
-	func gensaltWithRounds(logRounds as int, ctx as LoggingContext = null) static as string
+	func gensaltWithRounds(ctx as LoggingContext, logRounds as int) static as string
 	{
 		if logRounds < 4 || logRounds > 31:
 			throw ExceptionWithString.forString("Bcrypt log rounds exceeds maximum (30)", true)
-		var buff = malloc BCRYPT_SALT_LEN
+		var buff = Buffer.allocate(BCRYPT_SALT_LEN)
 		var b = Buffer.toInt8Array(buff)
 		var random = new Random()
 		random.nextBytes(b)
@@ -480,40 +426,16 @@ class BCrypt
 		rs.appendString("$2a$")
 		rs.appendString(String.forInteger(logRounds))
 		rs.appendString("$")
-		var salt as string
-		try {
-			salt = encodeBase64(saltBuff, Buffer.getSize(saltBuff))
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var salt = encodeBase64(saltBuff, Buffer.getSize(saltBuff))
 		rs.appendString(salt)
 		return rs.toString()
 	}
 
-	func gensalt(ctx as LoggingContext = null) static as string
+	func checkpw(ctx as LoggingContext, plaintext as string, hashed as string) static as bool
 	{
-		var salt as string
-		try {
-			salt = gensaltWithRounds(GENSALT_DEFAULT_LOG2_ROUNDS)
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
-		return salt
-	}
-
-	func checkpw(plaintext as string, hashed as string, ctx as LoggingContext = null) static as bool
-	{
-		var hashedBytes as buffer
-		var tryBytes as buffer
-		var tryPw as string
-		try {
-			tryPw = hashpw(plaintext, hashed, ctx)
-		}
-		catch e as exception {
-			Log.error(ctx, Log.asString(ctx, e))
-		}
+		var hashedBytes as buffer?
+		var tryBytes as buffer?
+		var tryPw = hashpw(ctx, plaintext, hashed)
 		hashedBytes = String.toUTF8Buffer(hashed)
 		tryBytes = String.toUTF8Buffer(tryPw)
 		if Buffer.getSize(hashedBytes) != Buffer.getSize(tryBytes):
@@ -593,7 +515,7 @@ class BCrypt
 			sb.appendCharacter(o as! char)
 			olen++
 		}
-		var ret = malloc olen
+		var ret = Buffer.allocate(olen)
 		for(off = 0; off < olen; off++) {
 			var c = String.getChar(sb.toString(), off) as! int
 			ret[off] = c as uint8
@@ -610,7 +532,10 @@ class BCrypt
 
 	func encipher(lr as array<uint>, off as int)
 	{
-		assert lr
+		if not p:
+			Error.throw("encipherNotInitialized", "p")
+		if not s:
+			Error.throw("encipherNotInitialized", "s")
 		var l = lr[off] as uint32
 		var r = lr[off + 1] as uint32
 		var i as int
@@ -654,6 +579,10 @@ class BCrypt
 
 	func key(key as buffer)
 	{
+		if not p:
+			Error.throw("encipherNotInitialized", "p")
+		if not s:
+			Error.throw("encipherNotInitialized", "s")
 		var i as int
 		var koffp = new int[] [0]
 		var lr = new uint[] [ 0u, 0u ]
@@ -676,6 +605,10 @@ class BCrypt
 
 	func ekskey(data as buffer, key as buffer)
 	{
+		if not p:
+			Error.throw("encipherNotInitialized", "p")
+		if not s:
+			Error.throw("encipherNotInitialized", "s")
 		var i as int
 		var passwordOffset = new int[] [0]
 		var saltOffset = new int[] [0]
@@ -721,7 +654,7 @@ class BCrypt
 				encipher(cdata, j << 1)
 			}
 		}
-		var ret = malloc clen * 4
+		var ret = Buffer.allocate(clen * 4)
 		for(i = 0, j = 0; i < clen; i++) {
 			ret[j++] = ((cdata[i] >> 24) & 0xff) as uint8
 			ret[j++] = ((cdata[i] >> 16) & 0xff) as uint8
@@ -733,7 +666,6 @@ class BCrypt
 
 	func copy (array as array<uint>) static as array<uint>
 	{
-		assert array
 		var sz = sizeof array
 		var arr = new uint[sz]
 		for(var n = 0; n < sz; n++):

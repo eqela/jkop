@@ -1,0 +1,295 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+
+class:
+
+depend "npm:kafkajs:2.2.4"
+
+class Producer is KafkaProducer public
+{
+	var clientId = ""
+	var kafka as dynamic?
+
+	func onKafkaLogEvent(label as string, message as string)
+	{
+		assert kafka
+		if String.equalsIgnoreCase(label, "info") {
+			Log.info(ctx, "Kafka producer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "warn") {
+			Log.warning(ctx, "Kafka producer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "error") {
+			Log.error(ctx, "Kafka producer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "debug") {
+			Log.debug(ctx, "Kafka producer: " .. message)
+		}
+		else {
+			Log.info(ctx, "Kafka producer: " .. message)
+		}
+	}
+
+	func connect(settings as KafkaConnectionSettings) override async
+	{
+		var clientId = settings.clientId
+		var brokers = settings.brokers
+		var enableSsl = settings.enableSsl
+		var username = settings.username
+		var password = settings.password
+		var producer as dynamic?
+		onStartConnect(clientId)
+		lang "js" {{{
+			var kafkajs = require("kafkajs")
+			const myLogCreator = logLevel => ({ namespace, level, label, log }) => {
+				this.onKafkaLogEvent(label, log.message)
+			}
+			var kafka = new kafkajs.Kafka({
+				clientId: clientId,
+				brokers: brokers,
+				ssl: enableSsl,
+				sasl: {
+					mechanism: 'plain',
+					username: username,
+					password: password
+				},
+				logCreator: myLogCreator
+			})
+			producer = kafka.producer({
+				createPartitioner: kafkajs.Partitioners.DefaultPartitioner
+			})
+			await producer.connect()
+		}}}
+		this.kafka = producer
+		this.clientId = clientId
+		onConnected(clientId)
+	}
+
+	func disconnect override async
+	{
+		if kafka {
+			onStartDisconnect(clientId)
+			await kafka.disconnect!()
+			onDisconnected(clientId)
+			kafka = null
+			clientId = ""
+		}
+	}
+
+	func sendMessage(topic as string, message as KafkaProducerMessage) override async
+	{
+		var producer = kafka
+		if not producer:
+			Error.throw("notConnectedToKafka", null)
+		var value = message.value
+		var jsmsg = {
+			key message.key
+			value lang "js" as dynamic {{{ Buffer.from(value.buffer) }}}
+		}
+		if message.partition >= 0:
+			jsmsg.partition = message.partition
+		if message.timestamp > 0L:
+			jsmsg.timestamp = message.timestamp
+		var headers = message.headers
+		if headers {
+			var hdrs = {}
+			foreach key in headers.getKeys():
+				hdrs[key] = headers.getString(key)
+			jsmsg.headers = hdrs
+		}
+		onSendMessage(message)
+		await producer.send!({
+			topic topic
+			messages [
+				jsmsg
+			]
+		})
+		onMessageSent(message)
+	}
+}
+
+class Consumer is KafkaConsumer public
+{
+	var clientId = ""
+	var kafka as dynamic?
+
+	func onKafkaLogEvent(label as string, message as string)
+	{
+		assert kafka
+		if String.equalsIgnoreCase(label, "info") {
+			Log.info(ctx, "Kafka consumer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "warn") {
+			Log.warning(ctx, "Kafka consumer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "error") {
+			Log.error(ctx, "Kafka consumer: " .. message)
+		}
+		else if String.equalsIgnoreCase(label, "debug") {
+			Log.debug(ctx, "Kafka consumer: " .. message)
+		}
+		else {
+			Log.info(ctx, "Kafka consumer: " .. message)
+		}
+	}
+
+	func connect(settings as KafkaConnectionSettings, consumerGroupId as string) override async
+	{
+		var clientId = settings.clientId
+		var brokers = settings.brokers
+		var enableSsl = settings.enableSsl
+		var username = settings.username
+		var password = settings.password
+		var consumer as dynamic?
+		onStartConnect(clientId)
+		lang "js" {{{
+			var kafkajs = require("kafkajs")
+			const myLogCreator = logLevel => ({ namespace, level, label, log }) => {
+				this.onKafkaLogEvent(label, log.message)
+			}
+			var kafka = new kafkajs.Kafka({
+				clientId: clientId,
+				brokers: brokers,
+				ssl: enableSsl,
+				sasl: {
+					mechanism: 'plain',
+					username: username,
+					password: password
+				},
+				logCreator: myLogCreator
+			})
+			consumer = kafka.consumer({
+				groupId: consumerGroupId
+			})
+			await consumer.connect()
+		}}}
+		this.kafka = consumer
+		this.clientId = clientId
+		onConnected(clientId)
+	}
+
+	func disconnect override async
+	{
+		if kafka {
+			onStartDisconnect(clientId)
+			await kafka.disconnect!()
+		}
+	}
+
+	func onKafkajsDisconnectedEvent private
+	{
+		onDisconnected(clientId)
+		kafka = null
+		clientId = ""
+	}
+
+	class MyMessage is KafkaConsumerMessage private
+	{
+		prop event as dynamic
+
+		func getTopic override as string:
+			return String.asValueOrEmptyString(event.topic)
+
+		func getKey override as string?
+		{
+			var message = assert event.message
+			return String.asValueOrNull(message.key)
+		}
+
+		func getValue override as buffer
+		{
+			var message = event.message
+			if message {
+				var v = Buffer.asValueOrNull(message.value)
+				if v:
+					return v
+			}
+			return Buffer.allocate(0)
+		}
+
+		func getHeaders override as DynamicMap?
+		{
+			// FIXME
+			return null
+		}
+
+		func getPartition override as int:
+			return event.partition as int
+
+		func getOffset override as string
+		{
+			var message = event.message
+			if message:
+				return String.asValueOrEmptyString(message.offset)
+			return ""
+		}
+	}
+
+	func onMessageReceived(message as KafkaConsumerMessage) override
+	{
+		base.onMessageReceived(message)
+		if ctx.isInDebugMode() {
+			var mm = message as MyMessage
+			if mm {
+				var event = mm.event
+				lang "js" {{{
+					console.log(event)
+				}}}
+			}
+		}
+	}
+
+    func consumeTopic(topic as string, messageHandler as function<promise<void>,KafkaConsumerMessage>) override async
+	{
+		var consumer = kafka
+		if not consumer:
+			Error.throw("notConnectedToKafka", null)
+		if String.isEmpty(topic):
+			Error.throw("emptyTopicName", null)
+		onSubscribeTopic(topic)
+		await consumer.subscribe!({
+			topics [
+				topic
+			]
+		})
+		await consumer.run!({
+			eachMessage func(event as dynamic) as promise<void> {
+				var msg = new MyMessage() {
+					event event
+				}
+				onMessageReceived(msg)
+				await messageHandler(msg)
+			}
+		})
+		onTopicSubscribed(topic)
+		await new promise<void> {
+			consumer.on!(consumer.events!.DISCONNECT, func(event as dynamic) {
+				this.onKafkajsDisconnectedEvent()
+				resolve
+			})
+		}
+	}
+}

@@ -28,12 +28,12 @@ class is TCPClient:
 
 depend "androidPermission:android.permission.INTERNET"
 
-class Task implements !"java.lang.Runnable"
+class Task implements native<java.lang.Runnable>
 {
-	ctor(h as function):
+	ctor(h as function<void>):
 		handler = h
 
-	var handler as function
+	var handler as function<void>?
 
 	func run
 	{
@@ -42,27 +42,27 @@ class Task implements !"java.lang.Runnable"
 	}
 }
 
-class TCPClientThread private extends !"android.os.HandlerThread"
+class TCPClientThread private extends native<android.os.HandlerThread>
 {
-	ctor(name as string, hdrl as !"android.os.Handler")
+	ctor(name as string, hdrl as native<android.os.Handler>)
 	{
 		base(name)
 		uiHandler = hdrl
 	}
 
-	var uiHandler as !"android.os.Handler"
-	var myHandler as !"android.os.Handler"
-	var errorCallback as function
-	var taskQueue as Queue<Task>
-	var socket as ConnectedSocket
+	var uiHandler as native<android.os.Handler>?
+	var myHandler as native<android.os.Handler>?
+	var errorCallback as function<void>?
+	var taskQueue as Queue<Task>?
+	var socket as ConnectedSocket?
 
 	func onLooperPrepared
 	{
 		IFDEF "target_java" {
-			myHandler = new !"android.os.Handler"(lang "java" !"android.os.Looper" {{{ getLooper() }}})
+			myHandler = new native<android.os.Handler>(lang "java" as native<android.os.Looper> {{{ getLooper() }}})
 		}
 		ELSE IFDEF "target_kotlin" {
-			myHandler = new !"android.os.Handler"(lang "kotlin" !"android.os.Looper" {{{ getLooper() }}})
+			myHandler = new native<android.os.Handler>(lang "kotlin" as native<android.os.Looper> {{{ getLooper() }}})
 		}
 		if taskQueue {
 			loop {
@@ -89,22 +89,22 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		}
 	}
 
-	func setErrorCallback(ec as function):
+	func setErrorCallback(ec as function<void>):
 		errorCallback = ec
 
 	func isRunning as bool
 	{
 		var v as bool
 		IFDEF "target_java" {
-			v = lang "java" bool {{{ isAlive() }}}
+			v = lang "java" as bool {{{ isAlive() }}}
 		}
 		ELSE IFDEF "target_kotlin" {
-			v = lang "kotlin" bool {{{ isAlive() }}}
+			v = lang "kotlin" as bool {{{ isAlive() }}}
 		}
 		return v
 	}
 
-	func executeErrorCallback(callback as function<void, Error>, error as Error = null)
+	func executeErrorCallback(callback as function<void, Error?>, error as Error? = null)
 	{
 		assert callback
 		var c final = callback
@@ -126,20 +126,20 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		})
 	}
 
-	func executeInUIThread(f as function)
+	func executeInUIThread(f as function<void>)
 	{
-		var t #used = new Task(f)
+		var t = new Task(f)
 		IFDEF "target_java" {
-			if not lang "java" bool {{{ uiHandler.post(t) }}}:
+			if not lang "java" as bool {{{ uiHandler.post(t) }}}:
 				println "Failed to post task to UI thread handler"
 		}
 		ELSE IFDEF "target_kotlin" {
-			if not lang "kotlin" bool {{{ uiHandler!!.post(t) }}}:
+			if not lang "kotlin" as bool {{{ uiHandler!!.post(t) }}}:
 				println "Failed to post task to UI thread handler"
 		}
 	}
 
-	func executeInTCPThread(f as function)
+	func executeInTCPThread(f as function<void>)
 	{
 		assert f
 		if not myHandler {
@@ -154,16 +154,16 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	func doExecuteInTCPThread(task as Task)
 	{
 		IFDEF "target_java" {
-			if not lang "java" bool {{{ myHandler.post(task) }}}:
+			if not lang "java" as bool {{{ myHandler.post(task) }}}:
 				println "Failed to post task to TCPClientThread handler"
 		}
 		ELSE IFDEF "target_kotlin" {
-			if not lang "kotlin" bool {{{ myHandler!!.post(task) }}}:
+			if not lang "kotlin" as bool {{{ myHandler!!.post(task) }}}:
 				println "Failed to post task to TCPClientThread handler"
 		}
 	}
 
-	func connectSSL(address as string, port as int, callback as function<void, Error>)
+	func connectSSL(address as string, port as int, callback as function<void, Error?>?)
 	{
 		var a final = address
 		var p final = port
@@ -175,7 +175,7 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 				if c:
 					executeErrorCallback(c, Error.forCode("failedToConnect", "ssl:" .. a .. ":" .. String.forInteger(p)))
 			}
-			var ss = assert SSLSocket.forClient(s, a) {
+			var ss = assert SSLSocket.forClient(null, s, a) {
 				if c:
 					executeErrorCallback(c, Error.forCode("failedToConnect", "ssl:" .. a .. ":" .. String.forInteger(p)))
 			}
@@ -185,7 +185,7 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		})
 	}
 
-	func connect(address as string, port as int, callback as function<void, Error>)
+	func connect(address as string, port as int, callback as function<void, Error?>?)
 	{
 		var a final = address
 		var p final = port
@@ -203,7 +203,7 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		})
 	}
 
-	func disconnect(callback as function<void, Error>)
+	func disconnect(callback as function<void, Error?>?)
 	{
 		var c final = callback
 		executeInTCPThread(func {
@@ -213,11 +213,11 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 		})
 	}
 
-	func receive(callback as function<void, buffer, int>)
+	func receive(callback as function<void, buffer?, int>?)
 	{
 		assert callback
 		var c final = callback
-		var b final = malloc 64 * 1024
+		var b final = Buffer.allocate(64 * 1024)
 		var t = new Task(func {
 			assert socket:
 				executeResponseCallback(c, null, -1)
@@ -228,11 +228,11 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 			}
 			executeResponseCallback(c, b, r)
 		})
-		var readThread = new !"java.lang.Thread"(t)
+		var readThread = new native<java.lang.Thread>(t)
 		readThread.start()
 	}
 
-	func send(data as buffer, size as int, callback as function<void, Error>)
+	func send(data as buffer, size as int, callback as function<void, Error?>?)
 	{
 		var d final = data
 		var s final = size
@@ -254,14 +254,14 @@ class TCPClientThread private extends !"android.os.HandlerThread"
 	}
 }
 
-var thread as TCPClientThread
+var thread as TCPClientThread?
 var counter static = 0
 
 func initializeThread private
 {
 	if thread:
 		destroyThread()
-	thread = new TCPClientThread("JkopTCPClientThread" .. String.asString(counter++), new !"android.os.Handler"())
+	thread = new TCPClientThread("JkopTCPClientThread" .. String.forInteger(counter++), new native<android.os.Handler>())
 	thread.setErrorCallback(destroyThread)
 	thread.startThread()
 }
@@ -275,31 +275,31 @@ func destroyThread private
 	}
 }
 
-func connectSSL(address as string, port as int, callback as function<void,Error>) override
+func connectSSL(address as string, port as int, callback as function<void,Error?>?) override
 {
 	initializeThread()
 	thread.connectSSL(address, port, callback)
 }
 
-func connect(address as string, port as int, callback as function<void,Error>) override
+func connect(address as string, port as int, callback as function<void,Error?>?) override
 {
 	initializeThread()
 	thread.connect(address, port, callback)
 }
 
-func receive(callback as function<void,buffer,int>) override
+func receive(callback as function<void,buffer?,int>?) override
 {
 	assert thread
 	thread.receive(callback)
 }
 
-func send(data as buffer, size as int, callback as function<void,Error>) override
+func send(data as buffer, size as int, callback as function<void,Error?>?) override
 {
 	assert thread
 	thread.send(data, size, callback)
 }
 
-func disconnect(callback as function<void,Error>) override
+func disconnect(callback as function<void,Error?>?) override
 {
 	assert thread
 	thread.disconnect(callback)

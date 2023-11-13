@@ -28,8 +28,6 @@ class is Writer is SeekableWriter:
 
 func create(writer as Writer, cipher as BlockCipher) static as this
 {
-	assert writer
-	assert cipher
 	var v = new this()
 	v.writer = writer
 	v.cipher = cipher
@@ -40,12 +38,12 @@ func create(writer as Writer, cipher as BlockCipher) static as this
 	return v
 }
 
-var cipher as BlockCipher
-var writer as Writer
+var cipher as BlockCipher?
+var writer as Writer?
 var bsize as int
 var bcurr as int
-var bdata as buffer
-var outbuf as buffer
+var bdata as buffer?
+var outbuf as buffer?
 
 IFDEF "target_supports_destructor"
 {
@@ -93,8 +91,12 @@ func getCurrentPosition as int64
 	return -1
 }
 
-func writeCompleteBlock(buf as buffer) as bool
+func writeCompleteBlock(buf as buffer?) as bool
 {
+	assert buf
+	assert outbuf
+	assert cipher
+	assert writer
 	cipher.encryptBlock(buf, outbuf)
 	if writer.write(outbuf, -1) == Buffer.getSize(outbuf):
 		return true
@@ -106,14 +108,16 @@ func writeBlock(buf as buffer) private as int
 	var size = Buffer.getSize(buf)
 	if bcurr + size < bsize {
 		var bufptr = buf
-		Buffer.copyFrom(bdata, bufptr, 0, bcurr, size)
+		if bdata:
+			Buffer.copyFrom(bdata, bufptr, 0, bcurr, size)
 		bcurr += size
 		return size as int
 	}
 	if bcurr > 0 {
 		var bufptr = buf
 		var x = bsize - bcurr
-		Buffer.copyFrom(bdata, bufptr, 0, bcurr, x)
+		if bdata:
+			Buffer.copyFrom(bdata, bufptr, 0, bcurr, x)
 		if writeCompleteBlock(bdata) == false:
 			return 0
 		bcurr = 0
@@ -128,11 +132,7 @@ func writeBlock(buf as buffer) private as int
 
 func write(buf as buffer, asize as int = -1) as int
 {
-	if buf == null:
-		return 0
 	var bufptr = buf
-	if bufptr == null:
-		return 0
 	var size = asize
 	if size < 0:
 		size = Buffer.getSize(buf)

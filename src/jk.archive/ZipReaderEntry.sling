@@ -28,13 +28,13 @@ import jk.os
 
 class:
 
-var name as string
+var name as string?
 pvar compressedSize as long
 pvar uncompressedSize as long
 pvar isDirectory as bool
 pvar mode as int
 
-func getName as string:
+func getName as string?:
 	return name
 
 func setName(newName as string) as this
@@ -47,16 +47,16 @@ func setName(newName as string) as this
 	return this
 }
 
-func getContentReader virtual as Reader:
+func getContentReader virtual as Reader?:
 	return null
 
-func getContentsBuffer as buffer
+func getContentsBuffer as buffer?
 {
 	if getIsDirectory():
 		return null
 	var reader = assert getContentReader()
-	var v as buffer
-	var buf = malloc 4096 * 4
+	var v as buffer?
+	var buf = Buffer.allocate(4096 * 4)
 	loop {
 		var n = reader.read(buf)
 		if n == 0:
@@ -72,7 +72,7 @@ func getContentsBuffer as buffer
 	return v
 }
 
-func getContentsUTF8 as string
+func getContentsUTF8 as string?
 {
 	var v = assert getContentsBuffer()
 	return String.forUTF8Buffer(v)
@@ -80,7 +80,6 @@ func getContentsUTF8 as string
 
 func writeToFile(file as File) virtual as bool
 {
-	assert file
 	var v = false
 	if getIsDirectory() {
 		file.createDirectoryRecursive()
@@ -89,13 +88,10 @@ func writeToFile(file as File) virtual as bool
 	else {
 		var reader = assert getContentReader()
 		var fp = file.getParent()
-		if fp:
+		if not fp.exists():
 			fp.createDirectoryRecursive()
-		var writer = assert file.write() {
-			if reader is Closable:
-				(reader as! Closable).close()
-		}
-		var buf = malloc 4096 * 4
+		var writer = file.write()
+		var buf = Buffer.allocate(4096 * 4)
 		v = true
 		var n = 0
 		while (n = reader.read(buf)) > 0 {
@@ -117,13 +113,12 @@ func writeToFile(file as File) virtual as bool
 	return v
 }
 
-func writeToDir(dir as File, fullPath as bool = true, overwrite as bool = true) as File
+func writeToDir(dir as File, fullPath as bool = true, overwrite as bool = true) as File?
 {
-	assert dir
 	assert name
-	var path as File
+	var path as File?
 	if fullPath == false {
-		var nn as string
+		var nn as string?
 		var r = String.getLastIndexOfCharacter(name, '/')
 		if r < 1 {
 			nn = name
@@ -131,14 +126,14 @@ func writeToDir(dir as File, fullPath as bool = true, overwrite as bool = true) 
 		else {
 			nn = String.getEndOfString(name, r+1)
 		}
-		if nn == null || String.getLength(nn) < 1:
+		if String.getLength(nn) < 1:
 			return null
 		path = dir.entry(nn)
 	}
 	else {
 		path = dir
 		foreach x in String.split(name, '/') {
-			if x && String.getLength(x) > 0:
+			if String.getLength(x) > 0:
 				path = path.entry(x)
 		}
 		var dd = path.getParent()

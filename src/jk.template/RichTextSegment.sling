@@ -26,13 +26,13 @@ import jk.xml
 
 class:
 
-pvar text as string
+pvar text as string?
 pvar bold as bool
 pvar italic as bool
 pvar underline as bool
-pvar color as string
-pvar link as string
-pvar reference as string
+pvar color as string?
+pvar link as string?
+pvar reference as string?
 pvar isInline = false
 pvar linkPopup = false
 
@@ -46,34 +46,35 @@ func addMarkupModifiers(sb as StringBuilder)
 		sb.appendString("__")
 }
 
-func toMarkup as string
+func toMarkup as string?
 {
 	var sb = new StringBuilder()
 	addMarkupModifiers(sb)
-	if String.isEmpty(link) == false {
+	if String.isNotEmpty(link) {
 		sb.appendCharacter('[')
 		if isInline:
 			sb.appendCharacter('>')
 		sb.appendString(link)
-		if String.isEmpty(text) ==  false {
+		if String.isNotEmpty(text) {
 			sb.appendCharacter('|')
 			sb.appendString(text)
 		}
 		sb.appendCharacter(']')
 	}
-	else if String.isEmpty(reference) ==  false {
+	else if String.isNotEmpty(reference) {
 		sb.appendCharacter('{')
 		if isInline:
 			sb.appendCharacter('>')
 		sb.appendString(reference)
-		if String.isEmpty(text) == false {
+		if String.isNotEmpty(text) {
 			sb.appendCharacter('|')
 			sb.appendString(text)
 		}
 		sb.appendCharacter('}')
 	}
 	else {
-		sb.appendString(text)
+		if text:
+			sb.appendString(text)
 	}
 	addMarkupModifiers(sb)
 	return sb.toString()
@@ -100,13 +101,13 @@ func toJson as DynamicMap
 	return v
 }
 
-func toHtmlWithResolvedReference(resolvedReference as string) as string
+func toHtmlWithResolvedReference(resolvedReference as string?) as string
 {
 	var sb = new StringBuilder()
 	var aOpen = false
 	var text = getText()
 	var link = getLink()
-	if String.isEmpty(link) == false {
+	if String.isNotEmpty(link) {
 		if getIsInline() {
 			// FIXME: Should allow other content types as well, not just images
 			sb.appendString("<img src=\"" .. HTMLString.sanitize(link) .. "\" />")
@@ -119,7 +120,7 @@ func toHtmlWithResolvedReference(resolvedReference as string) as string
 			aOpen = true
 		}
 	}
-	if String.isEmpty(resolvedReference) == false {
+	if String.isNotEmpty(resolvedReference) {
 		if String.isEmpty(text):
 			text = resolvedReference
 		sb.appendString("<a class=\"referenceLink\" href=\"" .. HTMLString.sanitize(resolvedReference) .. "\">")
@@ -132,10 +133,12 @@ func toHtmlWithResolvedReference(resolvedReference as string) as string
 			sb.appendString("<i>")
 		if getUnderline():
 			sb.appendString("<u>")
-		if String.isEmpty(getColor()) == false:
-			sb.appendString("<span style=\"color: " .. HTMLString.sanitize(getColor()) .. ";\">")
-		sb.appendString(HTMLString.sanitize(text))
-		if String.isEmpty(getColor()) == false:
+		var color = getColor()
+		if String.isNotEmpty(color):
+			sb.appendString("<span style=\"color: " .. HTMLString.sanitize(color) .. ";\">")
+		if text:
+			sb.appendString(HTMLString.sanitize(text))
+		if String.isNotEmpty(color):
 			sb.appendString("</span>")
 		if getUnderline():
 			sb.appendString("</u>")
@@ -149,10 +152,10 @@ func toHtmlWithResolvedReference(resolvedReference as string) as string
 	return sb.toString()
 }
 
-func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async as string
+func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver?) async as string
 {
 	var ref = getReference()
-	var href as string
+	var href as string?
 	if refs {
 		href = await refs.getReferenceHref(ref)
 		if String.isEmpty(text):

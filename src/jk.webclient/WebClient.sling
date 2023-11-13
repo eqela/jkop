@@ -32,14 +32,14 @@ func instance static as WebClient
 	IFDEF "target_android" {
 		return new WebClientForAndroid()
 	}
-	ELSE IFDEF "target_j2se" {
-		return new WebClientForJava()
+	ELSE IFDEF "target_std_java" {
+		return new WebClientForStdJava()
 	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		return new WebClientForNodeJS()
 	}
-	ELSE IFDEF "target_browser" {
-		return new WebClientForBrowser()
+	ELSE IFDEF "target_browser_js" {
+		return new WebClientForBrowserJS()
 	}
 	ELSE IFDEF "target_ios_objc" {
 		return new WebClientForIOS()
@@ -47,14 +47,13 @@ func instance static as WebClient
 	ELSE IFDEF "target_swift" {
 		return new WebClientForSwift()
 	}
-	ELSE IFDEF "target_cs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		// FIXME: Should also provide the asynchronous version that can be
 		// used in GUI (?) environments.
-		return new WebClientForDotnetSync()
+		return new WebClientForDotnetCSSync()
 	}
 	ELSE {
-		Error.throw("notImplemented", "WebClient.instance")
-		return null
+		ERROR "notImplemented"
 	}
 }
 
@@ -65,51 +64,51 @@ class Response public
 	prop headers as KeyValueListForStrings
 	prop body as buffer
 
-	var bodyAsString as string
-	var bodyAsDynamicMap as DynamicMap
+	var bodyAsString as string?
+	var bodyAsDynamicMap as DynamicMap?
 
-	func getHeaderValue(name as string) as string
+	func getHeaderValue(name as string) as string?
 	{
-		assert name
-		assert headers
-		var it = headers.iterate()
-		while it {
-			var vv = it.next()
-			if not vv:
-				break
+		foreach vv in headers {
 			if String.equalsIgnoreCase(name, vv.key):
 				return vv.value
 		}
 		return null
 	}
 
-	func getBodyAsBuffer as buffer
-	{
-		if not body:
-			Error.throw("httpResponseHasNoBody", null)
+	func getBodyAsBuffer as buffer:
 		return body
-	}
 
 	func getBodyAsString as string
 	{
 		if bodyAsString:
 			return bodyAsString
-		var v = String.forUTF8Buffer(getBodyAsBuffer())
-		if not v:
-			Error.throw("httpResponseIsNotString", null)
-		bodyAsString = v
-		return v
+		var error as dynamic?
+		try {
+			var v = String.forUTF8Buffer(getBodyAsBuffer())
+			bodyAsString = v
+			return v
+		}
+		catch e {
+			error = e
+		}
+		Error.throw("httpResponseIsNotValidString", error)
 	}
 
 	func getBodyAsDynamicMap as DynamicMap
 	{
 		if bodyAsDynamicMap:
 			return bodyAsDynamicMap
-		var v = JSONParser.parseBuffer(getBodyAsBuffer()) as DynamicMap
-		if not v:
-			Error.throw("httpResponseIsNotJsonMap", null)
-		bodyAsDynamicMap = v
-		return v
+		var error as dynamic?
+		try {
+			var v = JSONParser.parseBufferAsMap(getBodyAsBuffer())
+			bodyAsDynamicMap = v
+			return v
+		}
+		catch e {
+			error = e
+		}
+		Error.throw("httpResponseIsNotValidDynamicMap", error)
 	}
 }
 
@@ -117,14 +116,25 @@ class Request public
 {
 	prop method as string
 	prop url as string
-	prop headers as KeyValueList<string,string>
-	prop body as buffer
-	prop clientCertificate as string
-	prop clientKey as string
-	prop certificateAuthority as string
+	prop headers as KeyValueList<string,string>?
+	prop body as buffer?
+	prop clientCertificate as string?
+	prop clientKey as string?
+	prop certificateAuthority as string?
 }
 
-func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>, body as buffer) async abstract as Response
+func toPostBody(data as dynamic?) static as buffer?
+{
+	if data == null:
+		return null
+	if data is buffer:
+		return data as! buffer
+	if data is string:
+		return String.toUTF8Buffer(data as! string)
+	return String.toUTF8Buffer(JSONEncoder.toString(data))
+}
+
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async abstract as Response
 
 func executeRequest(ctx as LoggingContext, request as Request) async virtual as Response:
 	return executeQuery(ctx, request.method, request.url, request.headers, request.body)

@@ -32,22 +32,18 @@ func forOutputFile(file as File) static as this
 	IFDEF "target_sushi" {
 		return ZipWriterForSushi.forFile(file)
 	}
-	ELSE IFDEF "target_cs" {
-		return new ZipWriterForDotNet().setFile(file).initialize()
+	ELSE IFDEF "target_dotnet_cs" {
+		return ZipWriterForDotnetCS.forFile(file)
 	}
-	return null
+	ELSE {
+		ERROR "notImplemented"
+	}
 }
 
 func writeToZipRecursive(ctx as LoggingContext, dest as File, source as File, truncateDirectoryName as bool) static as bool
 {
-	assert dest:
-		Log.error(ctx, "No destination file specified for ZIP writer")
-	assert source:
-		Log.error(ctx, "No source file specified for ZIP writer")
-	var zip = assert forOutputFile(dest):
-		Log.error(ctx, "Failed to create ZIP writer for file: `" .. dest.getPath() .. "'")
-	var pd = assert source.getParent():
-		Log.error(ctx, "Directory has no parent: `" .. source.getPath() .. "'")
+	var zip = forOutputFile(dest)
+	var pd = source.getParent()
 	var parentPath = pd.getPath()
 	assert String.isNotEmpty(parentPath):
 		Log.error(ctx, "Parent path is empty: `" .. source.getPath() .. "'")
@@ -63,13 +59,13 @@ func writeToZipRecursive(ctx as LoggingContext, dest as File, source as File, tr
 		zip.close()
 		return true
 	}
-	var root = source
+	var root as File? = source
 	if truncateDirectoryName:
 		root = null
 	var ff = FileFinder.forRoot(source)
-	ff.setIncludeDirectories(true)
-	loop {
-		var file as File
+	ff.includeDirectories = true
+	while ff.hasNext() {
+		var file as File?
 		if root {
 			file = root
 			root = null
@@ -77,8 +73,6 @@ func writeToZipRecursive(ctx as LoggingContext, dest as File, source as File, tr
 		else {
 			file = ff.next()
 		}
-		if not file:
-			break
 		var isFile = file.isFile()
 		var isDirectory = file.isDirectory()
 		if isFile == false && isDirectory == false:

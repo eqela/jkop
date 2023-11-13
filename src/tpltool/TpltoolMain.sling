@@ -29,19 +29,19 @@ import jk.template
 
 class is ConsoleApplicationMain:
 
-var sources as vector<File>
-var output as File
+var sources as vector<File>?
+var output as File?
 
 func initialize override as bool
 {
-	foreach arg in args {
+	if args: foreach arg in args {
 		if arg.isParameter() {
 			if not sources:
 				sources = new vector<File>
-			sources += File.forPath(arg.parameter)
+			sources += File.forPath(arg.getParameterOrThrowError())
 		}
 		else if arg.isOption("output") {
-			output = File.forPath(arg.value)
+			output = File.forPath(arg.getStringValueOrThrowError())
 		}
 		else {
 			arg.reportAsUnsupported(ctx)
@@ -55,12 +55,8 @@ func execute override as bool
 {
 	assert output:
 		Log.error(ctx, "No output directory specified")
-	foreach source in sources {
-		var ff = FileFinder.forRoot(source)
-		loop {
-			var file = ff.next()
-			if not file:
-				break
+	if sources: foreach source in sources {
+		foreach file in FileFinder.forRoot(source) {
 			if not file.isFile():
 				continue
 			var rp = file.getRelativePath(source, null)
@@ -78,7 +74,7 @@ func execute override as bool
 				dest = dest.entry(comp)
 			dest.getParent().createDirectoryRecursive()
 			if isTemplate {
-				var tt = assert TextTemplate.forFile(file, "<%", "%>", TextTemplate.TYPE_HTML, sources, null, ctx):
+				var tt = assert TextTemplate.forFile(ctx, file, "<%", "%>", TextTemplate.TYPE_HTML, sources, null):
 					Log.error(ctx, "Failed to process template file `" .. file.getPath() .. "'")
 				var str = assert tt.execute(null, null):
 					Log.error(ctx, "Failed to execute template file `" .. file.getPath() .. "'")

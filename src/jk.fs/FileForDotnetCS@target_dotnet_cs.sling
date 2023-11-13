@@ -1,0 +1,579 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.os
+import jk.io
+
+class is File private:
+
+lang "cs" {{{
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool DeleteFileW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+	static extern bool RemoveDirectoryW([System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)]string lpFileName);
+
+	[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+	[return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.I4)]
+	static extern int GetLastError();
+}}}
+
+class MyProcessLauncher
+{
+	func forCommand(command as string) static as this:
+		return new this() {
+			command command
+		}
+
+	prop command as string
+
+	func addToParams(param as string)
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func executeSilent as int
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func executeToString as string
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+}
+
+class MyFileReader is FileReader is StreamReaderForDotnetCS
+{
+	func initialize(fileName as string)
+	{
+		lang "cs" {{{
+			setStream(System.IO.File.OpenRead(fileName));
+		}}}
+	}
+}
+
+class MyFileWriter is FileWriter is StreamWriterForDotnetCS
+{
+	prop append as bool
+
+	func initialize(fileName as string)
+	{
+		lang "cs" {{{
+			if(append) {
+				setStream(System.IO.File.Open(fileName, System.IO.FileMode.Append));
+			}
+			else {
+				setStream(System.IO.File.Open(fileName, System.IO.FileMode.Create));
+			}
+		}}}
+	}
+}
+
+func forPath(path as string) static as File
+{
+	var v = new this()
+	v.setCompletePath(path)
+	return v
+}
+
+var completePath as string?
+
+func withExtension(ext as string) override as File
+{
+	var v = new this()
+	if completePath:
+		v.setCompletePathRaw(completePath .. "." .. ext)
+	return v
+}
+
+func setCompletePathRaw(v as string?):
+	completePath = v
+
+func setCompletePath(v as string)
+{
+	if String.isEmpty(v) {
+		completePath = null
+		return
+	}
+	var x = v
+	lang "cs" {{{
+		string delim = new System.String(System.IO.Path.DirectorySeparatorChar, 1);
+		while(x.EndsWith(delim) && x.Length > 1) {
+			x = x.Substring(0, x.Length-1);
+		}
+	}}}
+	if OS.isWindows() {
+		var l = String.getLength(x)
+		var c1 = String.getChar(x, 1)
+		if l == 2 && c1 == ':' {
+			completePath = x .. "\\"
+			return
+		}
+		if l == 3 && c1 == ':' && String.getChar(x, 2) == '\\' {
+			completePath = x
+			return
+		}
+	}
+	lang "cs" {{{
+		completePath = System.IO.Path.GetFullPath(x);
+	}}}
+}
+
+func getPath override as string
+{
+	if not completePath:
+		Error.throw("noPathForFile", this)
+	return completePath
+}
+
+func entry(name as string) override as File
+{
+	if String.getLength(name) < 1:
+		return this
+	var v = new this()
+	if completePath == null {
+		v.setCompletePath(name)
+	}
+	else {
+		v.setCompletePath(lang "cs" as string {{{ System.IO.Path.Combine(completePath, name) }}})
+	}
+	return v
+}
+
+func getParent override as File
+{
+	var v as string?
+	lang "cs" {{{
+		if(completePath != null) {
+			var di = System.IO.Directory.GetParent(completePath);
+			if(di != null) {
+				v = di.FullName;
+			}
+		}
+		if(v == null) {
+			v = completePath;
+		}
+	}}}
+	var r = new this()
+	r.setCompletePathRaw(v)
+	return r
+}
+
+class MyIterator is Iterator<File>
+{
+	pvar completePath as string?
+	pvar file as parent?
+	var current as File?
+	var it public as native<System.Collections.IEnumerator>?
+
+	func doNext as File?
+	{
+		if completePath == null:
+			return null
+		if it == null:
+			return null
+		if it.MoveNext!() == false:
+			return null
+		var str = it.Current as string
+		if str == null:
+			return null
+		str = lang "cs" as string {{{
+			System.IO.Path.Combine(completePath, str)
+		}}}
+		var v = new parent()
+		v.setCompletePathRaw(str)
+		return v
+	}
+
+	func next as File
+	{
+		if current {
+			var vv = current
+			current = null
+			return vv
+		}
+		var v = doNext()
+		if not v:
+			Error.throw("noMoreEntries", null)
+		return v
+	}
+
+	func hasNext as bool
+	{
+		if current:
+			return true
+		var v = doNext()
+		if v {
+			current = v
+			return true
+		}
+		return false
+	}
+}
+
+func entries override as Iterator<File>
+{
+	var v = new MyIterator()
+	v.setFile(this)
+	v.setCompletePath(completePath)
+	if completePath {
+		lang "cs" {{{
+			System.Collections.IEnumerable cc = System.IO.Directory.EnumerateFileSystemEntries(completePath);
+			v.it = cc.GetEnumerator();
+		}}}
+	}
+	return v
+}
+
+func move(dest as File, replace as bool) override
+{
+	if dest.exists() {
+		if not replace:
+			Error.throw("targetFileExists", dest)
+		dest.remove()
+	}
+	var path = getPath()
+	var destf = assert dest as this
+	lang "cs" {{{
+		if(System.IO.Directory.Exists(path)) {
+			System.IO.Directory.Move(path, destf.getPath());
+		}
+		else {
+			System.IO.File.Move(path, destf.getPath());
+		}
+	}}}
+}
+
+func touch override
+{
+	var path = getPath()
+	lang "cs"
+	{{{
+		var fi = new System.IO.FileInfo(path);
+		if(fi.Exists) {
+			System.IO.File.SetLastWriteTime(path, System.DateTime.Now);
+		}
+		else {
+			System.IO.File.Create(path).Dispose();
+		}
+	}}}
+}
+
+func getMyReader private as MyFileReader
+{
+	var v = new MyFileReader()
+	v.initialize(getPath())
+	return v
+}
+
+func read override as FileReader:
+	return getMyReader()
+
+func write override as FileWriter
+{
+	var v = new MyFileWriter() {
+		append false
+	}
+	v.initialize(getPath())
+	return v
+}
+
+func append override as FileWriter
+{
+	var v = new MyFileWriter() {
+		append true
+	}
+	v.initialize(getPath())
+	return v
+}
+
+func makeExecutable override
+{
+	var path = getPath()
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = MyProcessLauncher.forCommand("chmod")
+		pl.addToParams("+x")
+		pl.addToParams(path)
+		if pl.executeSilent() != 0:
+			Error.throw("failedToExecuteCommand", "chmod")
+	}
+	else {
+		ERROR "notSupported"
+	}
+}
+
+func setMode(mode as int) override
+{
+	var path = getPath()
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = MyProcessLauncher.forCommand("chmod")
+		pl.addToParams(String.forIntegerOctal(mode))
+		pl.addToParams(path)
+		if pl.executeSilent() != 0:
+			Error.throw("failedToExecuteCommand", "chmod")
+	}
+	else {
+		ERROR "notSupported"
+	}
+}
+
+func setOwnerUser(uid as int) override
+{
+	var path = getPath()
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = MyProcessLauncher.forCommand("chown")
+		pl.addToParams(String.forInteger(uid))
+		pl.addToParams(path)
+		if pl.executeSilent() != 0:
+			Error.throw("failedToExecuteCommand", "chown")
+	}
+	else {
+		ERROR "notSupported"
+	}
+}
+
+func setOwnerGroup(gid as int) override
+{
+	var path = getPath()
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = MyProcessLauncher.forCommand("chgrp")
+		pl.addToParams(String.forInteger(gid))
+		pl.addToParams(path)
+		if pl.executeSilent() != 0:
+			Error.throw("failedToExecuteCommand", "chgrp")
+	}
+	else {
+		ERROR "notSupported"
+	}
+}
+
+func stat override as FileInfo
+{
+	var link = false
+	var type = FileInfo.FILE_TYPE_UNKNOWN
+	var path = getPath()
+	lang "cs" {{{
+		var attrs = System.IO.File.GetAttributes(path);
+		if(attrs.HasFlag(System.IO.FileAttributes.Directory)) {
+			type = FileInfo.FILE_TYPE_DIR;
+			if(attrs.HasFlag(System.IO.FileAttributes.ReparsePoint)) {
+				link = true;
+			}
+		}
+		else {
+			type = FileInfo.FILE_TYPE_FILE;
+		}
+	}}}
+	var size = 0
+	var createTime = 0L
+	var accessTime = 0L
+	var modifyTime = 0L
+	if type == FileInfo.FILE_TYPE_FILE {
+		lang "cs" {{{
+			var dnfi = new System.IO.FileInfo(path);
+			size = (int)dnfi.Length;
+			createTime = (long)dnfi.CreationTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds;
+			accessTime = (long)dnfi.LastAccessTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds;
+			modifyTime = (long)dnfi.LastWriteTime.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds;
+		}}}
+	}
+	var mode = 0
+	var ownerUser = 0
+	var ownerGroup = 0
+	var executable = false
+	if OS.isLinux() || OS.isMacOS() {
+		var pl = MyProcessLauncher.forCommand("stat")
+		if OS.isMacOS() {
+			pl.addToParams("-f")
+			pl.addToParams("%Xp %u %g")
+		}
+		else {
+			pl.addToParams("-c")
+			pl.addToParams("%f %u %g")
+		}
+		pl.addToParams(getPath())
+		var ss = String.strip(pl.executeToString())
+		var comps = String.split(ss, ' ')
+		var modes = Vector.getValue(comps, 0)
+		var uids = Vector.getValue(comps, 1)
+		var gids = Vector.getValue(comps, 2)
+		if modes:
+			mode = Integer.forHexStringOrDefaultValue(modes) & 0x1FF
+		if uids:
+			ownerUser = Integer.forStringOrThrowError(uids)
+		if gids:
+			ownerGroup = Integer.forStringOrThrowError(gids)
+		if mode & 0x40:
+			executable = true
+	}
+	return new FileInfo() {
+		file this
+		link link
+		type type
+		size size
+		createTime createTime
+		accessTime accessTime
+		modifyTime modifyTime
+		mode mode
+		ownerUser ownerUser
+		ownerGroup ownerGroup
+		executable executable
+	}
+}
+
+func createDirectory override
+{
+	var path = getPath()
+	lang "cs" {{{
+		System.IO.Directory.CreateDirectory(path);
+	}}}
+}
+
+func createDirectoryRecursive override:
+	createDirectory()
+
+func remove override
+{
+	var path = getPath()
+	if OS.isWindows() {
+		var v = true
+		var ec as int
+		var ff as string?
+		lang "cs" {{{
+			ff = @"\\?\" + path; //"
+			v = DeleteFileW(ff);
+			if(v == false) {
+				ec = GetLastError();
+			}
+		}}}
+		if v == false:
+			Error.throw("DeleteFileW", String.forInteger(ec))
+	}
+	else {
+		lang "cs" {{{
+			System.IO.File.Delete(path);
+		}}}
+	}
+}
+
+func removeDirectory override
+{
+	var path = getPath()
+	if OS.isWindows() {
+		var ff as string?
+		var ec as int
+		var v = true
+		lang "cs" {{{
+			ff = @"\\?\" + path; //"
+			v = RemoveDirectoryW(ff);
+			if(v == false) {
+				ec = GetLastError();
+			}
+		}}}
+		if v == false:
+			Error.throw("RemoveDirectoryW", String.forInteger(ec))
+	}
+	else {
+		lang "cs" {{{
+			System.IO.Directory.Delete(path);
+		}}}
+	}
+}
+
+func getBasename override as string
+{
+	var path = getPath()
+	var delim = lang "cs" as char {{{ System.IO.Path.DirectorySeparatorChar }}}
+	if String.endsWith(path, String.forCharacter(delim)):
+		path = String.getSubString(path, 0, String.getLength(path) - 1)
+	var rs = String.getLastIndexOfCharacter(path, delim)
+	if rs < 0:
+		return path
+	return String.getEndOfString(path, rs+1)
+}
+
+func getContentsBuffer override as buffer
+{
+	var path = getPath()
+	return lang "cs" as buffer {{{ System.IO.File.ReadAllBytes(path) }}}
+}
+
+func getContentsString(encoding as string) override as string
+{
+	var path = getPath()
+	if encoding == "UTF-8" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8) }}}
+	}
+	else if encoding == "ASCII" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.ASCII) }}}
+	}
+	else if encoding == "UCS2" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.Unicode) }}}
+	}
+	else if encoding == "UTF-7" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF7) }}}
+	}
+	else if encoding == "UTF-32" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF32) }}}
+	}
+	else if encoding == "ANSI" {
+		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.Default) }}}
+	}
+	return lang "cs" as string {{{ System.IO.File.ReadAllText(path) }}}
+}
+
+func setContentsBuffer(buf as buffer) override
+{
+	var path = getPath()
+	lang "cs" {{{
+		System.IO.File.WriteAllBytes(path, buf);
+	}}}
+}
+
+func setContentsString(str as string, encoding as string) override
+{
+	var ee as native<System.Text.Encoding>?
+	if encoding == "UTF-8" || encoding == "UTF8" {
+		ee = lang "cs" as native<System.Text.Encoding> {{{ new System.Text.UTF8Encoding(false) }}}
+	}
+	else if encoding == "ASCII" {
+		ee = lang "cs" as native<System.Text.Encoding> {{{ System.Text.Encoding.ASCII }}}
+	}
+	else if encoding == "UCS-2" || encoding == "UCS2" {
+		ee = lang "cs" as native<System.Text.Encoding> {{{ new System.Text.UnicodeEncoding(false, false) }}}
+	}
+	else {
+		Error.throw("unsupportedEncoding", encoding)
+	}
+	var path = getPath()
+	lang "cs" {{{
+		System.IO.File.WriteAllText(path, str, ee);
+	}}}
+}

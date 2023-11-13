@@ -28,14 +28,14 @@ class:
 
 func terminate(value as int) static
 {
-	IFDEF "target_uwpcs" {
+	IFDEF "target_uwp_cs" {
 		lang "cs" {{{
 			Windows.UI.Xaml.Application.Current.Exit();
 		}}}
 	}
-	ELSE IFDEF "target_wpcs" {
+	ELSE IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
-			System.Windows.Application.Current.Terminate();
+			System.Environment.Exit(value);
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
@@ -43,18 +43,13 @@ func terminate(value as int) static
 			kotlin.system.exitProcess(value)
 		}}}
 	}
-	ELSE IFDEF "target_netcore" {
-		lang "cs" {{{
-			System.Environment.Exit(value);
-		}}}
-	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		lang "js" {{{
 			require("process").exit(value);
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
@@ -66,7 +61,7 @@ IFDEF "target_darwin"
 func getExecutableFile static as File?
 {
 	IFDEF "target_linux" {
-		var filepath as string
+		var filepath as string?
 		lang "c" {{{
 			char file[4096];
 			int r = readlink("/proc/self/exe", file, 4096);
@@ -90,7 +85,7 @@ func getExecutableFile static as File?
 		}}}
 		if r != 0:
 			return null
-		var filepath as string
+		var filepath as string?
 		lang "objc" {{{
 			char rp[PATH_MAX];
 			char* rpx = realpath(buffer, rp);
@@ -103,7 +98,7 @@ func getExecutableFile static as File?
 		return File.forPath(filepath)
 	}
 	ELSE IFDEF "target_win32" {
-		var filepath as string = null
+		var filepath as string? = null
 		lang "c" {{{
 			char buffer[1024];
 			if(GetModuleFileName(NULL, buffer, 1024) > 0) {
@@ -113,23 +108,8 @@ func getExecutableFile static as File?
 		assert filepath
 		return File.forPath(filepath)
 	}
-	ELSE IFDEF "target_dotnet4cs" {
-		var fn as string
-		lang "cs" {{{
-			var assembly = System.Reflection.Assembly.GetEntryAssembly();
-			if(assembly != null) {
-				fn = assembly.Location;
-			}
-			if(fn == null) {
-				fn = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
-			}
-		}}}
-		if String.isEmpty(fn):
-			return null
-		return File.forPath(fn)
-	}
-	ELSE IFDEF "target_netx" {
-		var fn as string
+	ELSE IFDEF "target_dotnet_cs" {
+		var fn as string?
 		lang "cs" {{{
 			fn = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
 		}}}
@@ -150,12 +130,11 @@ func getExecutableFile static as File?
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return File.forPath(lang "lua" string {{{ _vm.get_sushi_executable_path() }}})
+		return File.forPath(lang "lua" as string {{{ _vm.get_sushi_executable_path() }}})
 	}
-	ELSE IFDEF "target_nodejs" {
-		var path as string
-		lang "js" {{{
-			path = require("process").execPath;
+	ELSE IFDEF "target_node_js" {
+		var path = lang "js" as string {{{
+			require.main.filename
 		}}}
 		return File.forPath(path)
 	}
@@ -164,7 +143,7 @@ func getExecutableFile static as File?
 	}
 }
 
-func requireExecutableFile static as File!
+func requireExecutableFile static as File
 {
 	var v = getExecutableFile()
 	if not v:
@@ -174,14 +153,14 @@ func requireExecutableFile static as File!
 
 func getProcessName static as string?
 {
-	var v as string
+	var v as string?
 	var exe = getExecutableFile()
 	if exe:
 		v = exe.getBasenameWithoutExtension()
 	return v
 }
 
-func requireProcessName static as string!
+func requireProcessName static as string
 {
 	var v = getProcessName()
 	if not v:

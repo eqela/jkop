@@ -1,0 +1,389 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.io
+import jk.lang
+import jk.nodejs
+
+class is AzureStorageDataClient:
+
+depend "npm@azure/storage-blob:12.14.0"
+
+class BlobListIteratorImpl is AsyncIterator<BlobProperties>
+{
+	prop iterator as dynamic
+
+	func next async as BlobProperties?
+	{
+		var data = await iterator.next!()
+		if data == null:
+			return null
+		if data.done == true:
+			return null
+		var blobProperties = new BlobProperties()
+		blobProperties.name = String.asValueOrNull(data.value!.name)
+		blobProperties.snapshot = String.asValueOrNull(data.value!.snapshot)
+		blobProperties.versionId = String.asValueOrNull(data.value!.versionId)
+		blobProperties.isCurrentVersion = Boolean.asValueOrDefaultValue(data.value!.isCurrentVersion, false)
+		blobProperties.createdOn = String.asValueOrNull(data.value!.properties!.createdOn)
+		blobProperties.lastModified = String.asValueOrNull(data.value!.properties!.lastModified)
+		blobProperties.contentLength = Integer.asValueOrDefaultValue(data.value!.properties!.contentLength, 0)
+		blobProperties.contentType = String.asValueOrNull(data.value!.properties!.contentType)
+		blobProperties.contentEncoding = String.asValueOrNull(data.value!.properties!.contentEncoding)
+		blobProperties.blobType = String.asValueOrNull(data.value!.properties!.blobType)
+		blobProperties.accessTier = String.asValueOrNull(data.value!.properties!.accessTier)
+		return blobProperties
+	}
+}
+
+class ReadableStreamImpl is ReadableStream public
+{
+	prop stream as native<RetriableReadableStream>
+
+	func readAsString async as string
+	{
+		var readableStream = stream
+		return lang "js" as promise<string> {{{
+			new Promise((resolve, reject) => {
+				const chunk = [];
+				readableStream.on("data", (data) => {
+					chunk.push(data instanceof Buffer ? data : Buffer.from(data));
+				});
+				readableStream.on("end", () => {
+					const str = Buffer.concat(chunk).toString();
+					resolve(str);
+				});
+				readableStream.on("error", (error) => {
+					reject(error);
+				});
+			});
+		}}}
+	}
+
+	func readAsBuffer async as buffer
+	{
+		var readableStream = stream
+		return lang "js" as promise<buffer> {{{
+			new Promise((resolve, reject) => {
+				const chunk = [];
+				readableStream.on("data", (data) => {
+					chunk.push(Buffer.from(data));
+				});
+				readableStream.on("end", () => {
+					resolve(Buffer.concat(chunk));
+				});
+				readableStream.on("error", (error) => {
+					reject(error)
+				});
+			});
+		}}}
+	}
+}
+
+prop account as string
+prop accountKey as string
+
+func getStorageBlobApi private static as dynamic:
+	return NodeModule.require("@azure/storage-blob")
+
+func getBlobServiceClient private as dynamic
+{
+	var api = getStorageBlobApi()
+	var accountName = account
+	var storageSharedKey = accountKey
+	var endpoint = "https://"..account..".blob.core.windows.net"
+	var storageSharedKeyCredential = lang "js" as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
+	return lang "js" as dynamic {{{ new api.BlobServiceClient(endpoint, storageSharedKeyCredential) }}}
+}
+
+func getBlobContainerClient(containerName as string) private as dynamic
+{
+	var blobServiceClient = getBlobServiceClient()
+	var blobContainerClient = blobServiceClient.getContainerClient!(containerName)
+	if not blobContainerClient:
+		Error.throw("blobContainerError", blobContainerClient)
+	return blobContainerClient
+}
+
+func getClientForExistingContainer(containerName as string) async as dynamic
+{
+	var client = getBlobContainerClient(containerName)
+	if await client.exists!() == false:
+		Error.throw("blobContainerDoesNotExists", containerName)
+	return client
+}
+
+func createBlobContainerIfNotExists(properties as CreateBlobContainerModel) override async
+{
+	var containerName = properties.containerName
+	if not containerName:
+		Error.throw("noContainerName", properties)
+	var blobContainerClient = getBlobContainerClient(containerName)
+	var params = {}
+	params.access = properties.containerAccess
+	if not properties.containerAccess:
+		params.access = "Container"
+	var metadata = {}
+	if var imd = properties.containerMetadata {
+		foreach key in imd.getKeys() {
+			metadata[key] = imd.getString(key)
+		}
+		params.metadata = metadata
+	}
+	await blobContainerClient.createIfNotExists!(params)
+}
+
+func getBlobContainerProperties(containerName as string) override async as BlobContainerProperties?
+{
+	var blobContainerClient = getBlobContainerClient(containerName)
+	if await blobContainerClient.exists!() == false:
+		return null
+	var properties = await blobContainerClient.getProperties!()
+	if not properties:
+		return null
+	var blobProperties = new BlobContainerProperties()
+	var metadata = properties.metadata
+	if not metadata:
+		return null
+	var metadataMap = Map.asValueOrThrowError(metadata)
+	blobProperties.metadata = DynamicMap.forMap(metadataMap)
+	blobProperties.etag = String.asValueOrNull(properties.etag)
+	blobProperties.lastModified = String.asValueOrNull(properties.lastModified)
+	blobProperties.leaseDuration = String.asValueOrNull(properties.leaseDuration)
+	blobProperties.leaseState = String.asValueOrNull(properties.leaseState)
+	blobProperties.leaseStatus = String.asValueOrNull(properties.leaseStatus)
+	blobProperties.clientRequestId = String.asValueOrNull(properties.clientRequestId)
+	blobProperties.requestId = String.asValueOrNull(properties.requestId)
+	blobProperties.version = String.asValueOrNull(properties.version)
+	blobProperties.date = String.asValueOrNull(properties.date)
+	blobProperties.blobPublicAccess = String.asValueOrNull(properties.blobPublicAccess)
+	blobProperties.hasImmutabilityPolicy = properties.hasImmutabilityPolicy as bool
+	blobProperties.hasLegalHold = properties.hasLegalHold as bool
+	blobProperties.defaultEncryptionScope = String.asValueOrNull(properties.defaultEncryptionScope)
+	blobProperties.denyEncryptionScopeOverride = properties.denyEncryptionScopeOverride as bool
+	blobProperties.isImmutableStorageWithVersioningEnabled = properties.isImmutableStorageWithVersioningEnabled as bool
+	return blobProperties
+}
+
+func getContainerBlobsList(containerName as string, includeSnapshots as bool, includeVersions as bool) override async as AsyncIterator<BlobProperties>
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var iterator = await blobContainerClient.listBlobsFlat!({ includeSnapshots includeSnapshots includeVersions includeVersions })
+	if not iterator:
+		Error.throw("unableToIterateContainerBlobs", containerName)
+	return new BlobListIteratorImpl() {
+		iterator iterator
+	}
+}
+
+func updateBlobContainerAccessPolicy(properties as UpdateBlobContainerModel) override async
+{
+	var containerName = properties.containerName
+	if not containerName:
+		Error.throw("noContainerName", properties)
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var accessPolicy = properties.accessPolicy
+	if not accessPolicy:
+		Error.throw("noAccessPolicy", properties)
+	var expiry = accessPolicy.expiryAsDays
+	var signedIdentifiersParams = {
+		id accessPolicy.policyId
+		accessPolicy {
+			startsOn lang "js" as dynamic {{{ new Date() }}}
+			expiresOn lang "js" as dynamic {{{ new Date(new Date().getTime() + expiry * 24 * 60 * 60 * 1000) }}}
+			permissions ""
+		}
+	}
+	if accessPolicy.read:
+		signedIdentifiersParams.accessPolicy!.permissions += "r"
+	if accessPolicy.add:
+		signedIdentifiersParams.accessPolicy!.permissions += "a"
+	if accessPolicy.create:
+		signedIdentifiersParams.accessPolicy!.permissions += "c"
+	if accessPolicy.write:
+		signedIdentifiersParams.accessPolicy!.permissions += "w"
+	if accessPolicy.delete:
+		signedIdentifiersParams.accessPolicy!.permissions += "d"
+	if accessPolicy.list:
+		signedIdentifiersParams.accessPolicy!.permissions += "l"
+	var signedIdentifiers = [ signedIdentifiersParams ]
+	await await blobContainerClient.setAccessPolicy!(properties.access, signedIdentifiers)
+}
+
+func deleteBlobContainer(containerName as string) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	await blobContainerClient.delete!()
+}
+
+func upload(containerName as string, blobName as string, blobData as buffer, forceUpdate as bool) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
+	if not blockClient:
+		Error.throw("noBlockBlobClient", blobName)
+	if await blockClient.exists!() == true && not forceUpdate:
+		Error.throw("blobAlreadyExists", blobName)
+	await blockClient.upload!(blobData, Buffer.getSize(blobData))
+}
+
+func uploadFile(containerName as string, blobData as File, forceUpdate as bool = false) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobName = blobData.getBasename()
+	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
+	if not blockClient:
+		Error.throw("noBlockBlobClient", blobName)
+	if await blockClient.exists!() == true && not forceUpdate:
+		Error.throw("blobAlreadyExists", blobName)
+	await blockClient.uploadFile!(blobData.getPath())
+}
+
+func uploadStream(containerName as string, blobData as File, forceUpdate as bool = false) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobName = blobData.getBasename()
+	var fs = lang "js" as dynamic {{{ require('fs') }}}
+	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
+	if not blockClient:
+		Error.throw("noBlockBlobClient", blobName)
+	if await blockClient.exists!() == true && not forceUpdate:
+		Error.throw("blobAlreadyExists", blobName)
+	var stream = fs.createReadStream!(blobData.getPath())
+	var bufferSize = 4 * 1024 * 1024
+	var maxConcurrency = 20
+	await blockClient.uploadStream!(stream, bufferSize, maxConcurrency)
+}
+
+func uploadPageBlob(containerName as string, blobData as File, offset as int, pageSize as int, forceUpdate as bool) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobName = blobData.getBasename()
+	var pageClient = blobContainerClient.getPageBlobClient!(blobName)
+	if not pageClient:
+		Error.throw("noPageBlobClient", blobName)
+	if await pageClient.exists!() == true && not forceUpdate:
+		Error.throw("blobAlreadyExists", blobName)
+	if pageSize % 512 != 0:
+		Error.throw("pageSizeMustBeMultipleOf512", pageSize)
+	var bufferSize = Buffer.getSize(blobData.getContentsBuffer())
+	if bufferSize % 512 != 0:
+		Error.throw("blobSizeMustBeMultipleOf512", bufferSize)
+	await pageClient.createIfNotExists!(pageSize)
+	await pageClient.uploadPages!(blobData.getContentsBuffer(), offset, bufferSize)
+}
+
+func uploadAppendBlob(containerName as string, blobData as File, forceUpdate as bool) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobName = blobData.getBasename()
+	var appendClient = blobContainerClient.getAppendBlobClient!(blobName)
+	if not appendClient:
+		Error.throw("noAppendBlobClient", blobName)
+	if await appendClient.exists!() == true && not forceUpdate:
+		Error.throw("blobAlreadyExists", blobName)
+	await appendClient.createIfNotExists!()
+	await appendClient.appendBlock!(blobData.getContentsBuffer(), Buffer.getSize(blobData.getContentsBuffer()))
+}
+
+func getBlobProperties(containerName as string, blobName as string) override async as BlobProperties
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobClient = blobContainerClient.getBlobClient!(blobName)
+	if not blobClient:
+		Error.throw("noBlobClient", blobName)
+	if await blobClient.exists!() == false:
+		Error.throw("blobDoesNotExists", blobName)
+	var data = await blobClient.getProperties!()
+	if not data:
+		Error.throw("noDataForBlobProperties", blobName)
+	var blobProperties = new BlobProperties()
+	blobProperties.name = blobName
+	blobProperties.versionId = String.asValueOrNull(data.versionId)
+	blobProperties.isCurrentVersion = Boolean.asValueOrDefaultValue(data.isCurrentVersion, false)
+	blobProperties.createdOn = String.asValueOrNull(data.createdOn)
+	blobProperties.lastModified = String.asValueOrNull(data.lastModified)
+	blobProperties.contentLength = Integer.asValueOrDefaultValue(data.contentLength, 0)
+	blobProperties.contentType = String.asValueOrNull(data.contentType)
+	blobProperties.contentEncoding = String.asValueOrNull(data.contentEncoding)
+	blobProperties.blobType = String.asValueOrNull(data.blobType)
+	blobProperties.accessTier = String.asValueOrNull(data.accessTier)
+	return blobProperties
+}
+
+func downloadAsReadableStream(containerName as string, blobName as string) override async as ReadableStream
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobClient = blobContainerClient.getBlobClient!(blobName)
+	if not blobClient:
+		Error.throw("noBlobClient", blobName)
+	if await blobClient.exists!() == false:
+		Error.throw("blobDoesNotExists", containerName .. ":" .. blobName)
+	var v = await blobClient.download!()
+	if not v:
+		Error.throw("failedToStartBlobDownload", containerName .. ":" .. blobName)
+	var body = v.readableStreamBody
+	if not body:
+		Error.throw("failedToReadBodyStream", containerName .. ":" .. blobName)
+	return new ReadableStreamImpl() {
+		stream body
+	}
+}
+
+func downloadAsBuffer(containerName as string, blobName as string) override async as buffer
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobClient = blobContainerClient.getBlobClient!(blobName)
+	if not blobClient:
+		Error.throw("noBlobClient", blobName)
+	if await blobClient.exists!() == false:
+		Error.throw("blobDoesNotExists", blobName)
+	var o = await blobClient.downloadToBuffer!()
+	if not o:
+		Error.throw("failedToDownloadBlobToBuffer", blobName)
+	return Buffer.asValueOrThrowError(o)
+}
+
+func downloadAsFile(containerName as string, blobName as string, directory as File) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobClient = blobContainerClient.getBlobClient!(blobName)
+	if not blobClient:
+		Error.throw("noBlobClient", blobName)
+	if await blobClient.exists!() == false:
+		Error.throw("blobDoesNotExists", blobName)
+	await blobClient.downloadToFile!(directory.entry(blobName).getPath())
+}
+
+func deleteBlob(containerName as string, blobName as string) override async
+{
+	var blobContainerClient = await getClientForExistingContainer(containerName)
+	var blobClient = blobContainerClient.getBlobClient!(blobName)
+	if not blobClient:
+		Error.throw("noBlobClient", blobName)
+	if await blobClient.exists!() == false:
+		Error.throw("blobDoesNotExists", blobName)
+	await blobClient.delete!({ deleteSnapshots "include" })
+}

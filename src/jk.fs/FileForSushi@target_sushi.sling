@@ -30,7 +30,7 @@ class is File private:
 class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
 {
 	pvar handle = -1
-	pvar file as File
+	pvar file as File?
 
 	dtor
 	{
@@ -49,9 +49,9 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		return v
 	}
 
-	func getSize as int
+	func getSize as long
 	{
-		var v = -1
+		var v = -1L
 		var handle = this.handle
 		if handle >= 0 {
 			lang "lua" {{{
@@ -77,7 +77,7 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle < 0:
 			return false
-		if lang "lua" int {{{ _io:set_current_position(handle, n) }}} < 0:
+		if lang "lua" as int {{{ _io:set_current_position(handle, n) }}} < 0:
 			return false
 		return true
 	}
@@ -87,14 +87,14 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		var handle = this.handle
 		if handle < 0:
 			return 0
-		return lang "lua" int64 {{{ _io:get_current_position(handle) }}}
+		return lang "lua" as int64 {{{ _io:get_current_position(handle) }}}
 	}
 }
 
 class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 {
 	pvar handle = -1
-	pvar file as File
+	pvar file as File?
 
 	dtor
 	{
@@ -129,7 +129,7 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 		var handle = this.handle
 		if handle < 0:
 			return false
-		if lang "lua" int {{{ _io:set_current_position(handle, n) }}} < 0:
+		if lang "lua" as int {{{ _io:set_current_position(handle, n) }}} < 0:
 			return false
 		return true
 	}
@@ -139,11 +139,11 @@ class MyFileWriter is FileWriter is Writer is Closable is SeekableWriter
 		var handle = this.handle
 		if handle < 0:
 			return 0
-		return lang "lua" int64 {{{ _io:get_current_position(handle) }}}
+		return lang "lua" as int64 {{{ _io:get_current_position(handle) }}}
 	}
 }
 
-var path as string
+var path as string?
 
 func forPath(path as string) static as File
 {
@@ -201,7 +201,7 @@ func move(dest as File, replace as bool) override as bool
 		if dthis.exists():
 			return false
 	}
-	var r = lang "lua" int {{{ _io:rename_path(opath, npath) }}}
+	var r = lang "lua" as int {{{ _io:rename_path(opath, npath) }}}
 	if r != 1:
 		return false
 	return true
@@ -210,7 +210,7 @@ func move(dest as File, replace as bool) override as bool
 func touch override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _io:touch_file(path) }}}
+	var r = lang "lua" as int {{{ _io:touch_file(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -223,7 +223,8 @@ func read override as FileReader
 	lang "lua" {{{
 		handle = _io:open_file_for_reading(path)
 	}}}
-	assert handle >= 0
+	if handle < 0:
+		Error.throw("failedToOpenFileForReading", path)
 	var v = new MyFileReader()
 	v.setFile(this)
 	v.setHandle(handle)
@@ -237,7 +238,8 @@ func write override as FileWriter
 	lang "lua" {{{
 		handle = _io:open_file_for_writing(path)
 	}}}
-	assert handle >= 0
+	if handle < 0:
+		Error.throw("failedToOpenFileForWriting", path)
 	var v = new MyFileWriter()
 	v.setFile(this)
 	v.setHandle(handle)
@@ -275,39 +277,40 @@ func stat override as FileInfo
 			valid = false
 		end
 	}}}
-	var v = new FileInfo()
-	v.setFile(this)
+	var v = new FileInfo() {
+		file this
+	}
 	if not valid {
-		v.setType(FileInfo.FILE_TYPE_UNKNOWN)
+		v.type = FileInfo.FILE_TYPE_UNKNOWN
 		return v
 	}
-	v.setSize(size)
-	v.setCreateTime(ctim)
-	v.setAccessTime(ctim)
-	v.setModifyTime(mtim)
-	v.setOwnerUser(uid)
-	v.setOwnerGroup(gid)
-	v.setMode(mode & 0x1FF)
+	v.size = size
+	v.createTime = ctim
+	v.accessTime = ctim
+	v.modifyTime = mtim
+	v.ownerUser = uid
+	v.ownerGroup = gid
+	v.mode = mode & 0x1FF
 	if mode & 0x8000 {
-		v.setType(FileInfo.FILE_TYPE_FILE)
+		v.type = FileInfo.FILE_TYPE_FILE
 	}
 	else if mode & 0x4000 {
-		v.setType(FileInfo.FILE_TYPE_DIR)
+		v.type = FileInfo.FILE_TYPE_DIR
 	}
 	else {
-		v.setType(FileInfo.FILE_TYPE_UNKNOWN)
+		v.type = FileInfo.FILE_TYPE_UNKNOWN
 	}
 	if mode & 0xA000:
-		v.setLink(true)
+		v.link = true
 	if mode & 0x40 || mode & 0x8 || mode & 0x1:
-		v.setExecutable(true)
+		v.executable = true
 	return v
 }
 
 func createDirectory override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _io:create_directory(path) }}}
+	var r = lang "lua" as int {{{ _io:create_directory(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -326,7 +329,7 @@ func createDirectoryRecursive override as bool
 func removeDirectory override as bool
 {
 	var path = this.path
-	var r = lang "lua" int {{{ _io:remove_directory(path) }}}
+	var r = lang "lua" as int {{{ _io:remove_directory(path) }}}
 	if r == 1:
 		return true
 	return false
@@ -390,7 +393,7 @@ func setPath(v as string, useRealPath as bool) private
 		}
 	}
 	if useRealPath {
-		var realpath as string
+		var realpath as string?
 		lang "lua" {{{
 			realpath = _io:get_real_path(v)
 		}}}
@@ -405,17 +408,21 @@ func setPath(v as string, useRealPath as bool) private
 		path = normalizePath(v)
 	}
 	else {
-		path = normalizePath(lang "lua" string {{{ _io:get_current_directory() }}} .. "/" .. v)
+		path = normalizePath(lang "lua" as string {{{ _io:get_current_directory() }}} .. "/" .. v)
 	}
 }
 
-func getPath override as string:
+func getPath override as string
+{
+	if not path:
+		Error.throw("noPathForFile", this)
 	return path
+}
 
 func remove override as bool
 {
 	var path = this.path
-	if lang "lua" int {{{ _io:remove_file(path) }}} == 1:
+	if lang "lua" as int {{{ _io:remove_file(path) }}} == 1:
 		return true
 	return false
 }
@@ -424,20 +431,20 @@ func makeExecutable override as bool
 {
 	var path = this.path
 	var mode = 1 | 4 | 8 | 32 | 64 | 128 | 256
-	return lang "lua" bool {{{ _io:set_file_mode(path, mode ) }}}
+	return lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}
 }
 
 func setMode(mode as int) override as bool
 {
 	var path = this.path
-	return lang "lua" bool {{{ _io:set_file_mode(path, mode ) }}}
+	return lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}
 }
 
 class MyDirectoryIterator is Iterator<File> is Closable
 {
-	pvar parent as File
-	pvar handle as object
-	var current as File
+	pvar parent as File?
+	pvar handle as object?
+	var current as File?
 
 	dtor
 	{
@@ -458,7 +465,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 	func doNext as File
 	{
 		var handle = assert this.handle
-		var name = lang "lua" string {{{ _io:read_directory(handle) }}}
+		var name = lang "lua" as string {{{ _io:read_directory(handle) }}}
 		if not name {
 			close()
 			return null
@@ -492,11 +499,10 @@ class MyDirectoryIterator is Iterator<File> is Closable
 func entries override as Iterator<File>
 {
 	var pp = this.path
-	assert String.isNotEmpty(pp)
-	var handle = lang "lua" object {{{ _io:open_directory(pp) }}}
-	assert handle
+	if not pp:
+		pp = ""
 	var v = new MyDirectoryIterator()
 	v.setParent(this)
-	v.setHandle(handle)
+	v.setHandle(lang "lua" as object {{{ _io:open_directory(pp) }}})
 	return v
 }

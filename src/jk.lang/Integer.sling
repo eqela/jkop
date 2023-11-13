@@ -22,87 +22,235 @@
  * SOFTWARE.
  */
 
-class is IntegerObject:
+class:
 
-func forValue(value as int) static as this:
-	return new this(value)
+class MyIntegerObject is IntegerObject private
+{
+	prop value as int
 
-func asInteger(obj as dynamic, defval as int = 0) static as int #deprecated:
-	return asValue(obj, defval)
+	func toInteger as int:
+		return value
+}
 
-func asValue(obj as dynamic, defval as int) static as int
+func wrapValue(value as int) static as IntegerObject:
+	return new MyIntegerObject() {
+		value value
+	}
+
+func asValueOrDefaultValue(obj as dynamic?, defaultValue as int = 0) static as int
 {
 	var v = asObject(obj)
 	if not v:
-		return defval
+		return defaultValue
 	return v.toInteger()
 }
 
-func asObject(obj as dynamic) static as this
+func asValueOrThrowError(obj as dynamic?) static as int
+{
+	var v = asObject(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToInteger", obj)
+	return v.toInteger()
+}
+
+func asObject(obj as dynamic?) static as IntegerObject?
 {
 	if not obj:
 		return null
 	if obj is int:
-		return new this(obj as int)
-	if obj is this:
-		return obj as! this
+		return wrapValue(obj as int)
 	if obj is IntegerObject {
 		var oi = obj as! IntegerObject
-		return new this(oi.toInteger())
+		return wrapValue(oi.toInteger())
 	}
 	if obj is long {
 		var v = obj as long
-		return new this(v as int)
+		return wrapValue(v as int)
 	}
 	if obj is LongIntegerObject {
 		var oi = obj as! LongIntegerObject
-		return new this(oi.toLong() as int)
+		return wrapValue(oi.toLongInteger() as int)
 	}
-	if obj is string:
-		return new this(String.toInteger(obj as! string))
-	if obj is StringObject:
-		return new this(String.toInteger((obj as! StringObject).toString()))
+	if obj is string {
+		var ii = forStringOrNull(obj as! string)
+		if ii == null:
+			return null
+		return wrapValue(ii)
+	}
+	if obj is StringObject {
+		var ii = forStringOrNull((obj as! StringObject).toString())
+		if ii == null:
+			return null
+		return wrapValue(ii)
+	}
 	if obj is double {
 		var v = obj as double
 		var vv = v as int
-		return new this(vv)
+		return wrapValue(vv)
 	}
 	if obj is DoubleObject {
 		var od = obj as! DoubleObject
 		var vv = od.toDouble() as int
-		return new this(vv)
+		return wrapValue(vv)
 	}
 	if obj is bool {
 		if obj as bool == true:
-			return new this(1)
-		return new this(0)
+			return wrapValue(1)
+		return wrapValue(0)
 	}
 	if obj is BooleanObject {
 		if (obj as! BooleanObject).toBoolean():
-			return new this(1)
-		return new this(0)
+			return wrapValue(1)
+		return wrapValue(0)
 	}
 	if obj is char {
 		var v = obj as char
-		return new this(v as int)
+		return wrapValue(v as int)
 	}
 	if obj is CharacterObject {
 		var oc = obj as! CharacterObject
-		return new this(oc.toCharacter() as int)
+		return wrapValue(oc.toCharacter() as int)
 	}
 	return null
 }
 
-ctor:
-	nop
+**
+** Converts the string to an integer. If the string does not represent a valid
+** integer, than a null value is returned.
+**
+** Eg. forStringOrNull("99") == 99
+** Eg. forStringOrNull("asdf") == null
+**
 
-ctor(value as int):
-	setValue(value)
+func forStringOrNull(str as string) static as int?
+{
+	if String.isEmpty(str):
+		return null
+	var v = 0
+	var first = true
+	var negative = false
+	foreach c in String.iterate(str) {
+		if first && c == '-' {
+			negative = true
+			first = false
+			continue
+		}
+		if c >= '0' && c <= '9' {
+			v = v * 10
+			v += (c - '0') as int
+		}
+		else {
+			return null
+		}
+		first = false
+	}
+	if negative:
+		v *= -1
+	return v
+}
 
-pvar value as int
+**
+** Converts the string to an integer. If the string does not represent a valid
+** integer, then the defaultValue is returned.
+**
+** Eg. forStringOrDefaultValue("99", 10) == 99
+** Eg. forStringOrDefaultValue("asdf", 10) == 10
+**
 
-func add(amount as int):
-	value += amount
+func forStringOrDefaultValue(str as string, defaultValue as int = 0) static as int
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		return defaultValue
+	return v
+}
 
-func toInteger as int:
-	return value
+**
+** Converts the string to an integer. If the string does not represent a valid
+** integer, then an exception is thrown.
+**
+** Eg. forStringOrThrowError("99") = 99
+** Eg. forStringOrThrowError("asdf") throws exception
+**
+
+func forStringOrThrowError(str as string) static as int
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		Error.throw("stringCannotBeConvertedToInteger", str)
+	return v
+}
+
+**
+** Converts the string to an integer, while treating the string as a hexadecimal
+** representation of a number, eg. forHexStringOrDefaultValue("a") = 10
+**
+
+func forHexStringOrDefaultValue(str as string, defaultValue as int = 0) static as int
+{
+	if String.isEmpty(str):
+		return defaultValue
+	var v = 0
+	foreach c in String.iterate(str) {
+		if c >= '0' && c <= '9' {
+			v = v * 16
+			v += (c - '0') as int
+		}
+		else if c >= 'a' && c <= 'f' {
+			v = v * 16
+			v += (10 + c - 'a') as int
+		}
+		else if c >= 'A' && c <= 'F' {
+			v = v * 16
+			v += (10 + c - 'A') as int
+		}
+		else {
+			return defaultValue
+		}
+	}
+	return v
+}
+
+**
+** Converts the string to an integer, while treating the string as an octal
+** representation of a number.
+**
+
+func forOctalStringOrDefaultValue(str as string, defaultValue as int = 0) static as int
+{
+	if String.isEmpty(str):
+		return defaultValue
+	var v = 0
+	foreach c in String.iterate(str) {
+		if c >= '0' && c <= '7' {
+			v = v * 8
+			v += (c - '0') as int
+		}
+		else {
+			return defaultValue
+		}
+	}
+	return v
+}
+
+**
+** Converts the string to an integer, while treating the string as a binary
+** representation of a number.
+**
+
+func forBinaryStringOrDefaultValue(str as string, defaultValue as int = 0) static as int
+{
+	if String.isEmpty(str):
+		return defaultValue
+	var v = 0
+	foreach c in String.iterate(str) {
+		if c >= '0' && c <= '1' {
+			v = v * 2
+			v += (c - '0') as int
+		}
+		else {
+			return defaultValue
+		}
+	}
+	return v
+}

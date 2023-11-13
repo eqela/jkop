@@ -22,17 +22,19 @@
  * SOFTWARE.
  */
 
+import jk.log
 import jk.url
 import jk.json
 import jk.webclient
 
 class:
 
+prop ctx as LoggingContext
 prop credentialsEnabled as bool = false
 prop redirectionEnabled as bool = false
 prop redirectionLimit as int = 5
-prop apiUrl as string
-prop webClient as WebClient
+prop apiUrl as string?
+prop webClient as WebClient?
 
 **
 ** Concatenates the API URL string with the supplied API endpoint string and returns it.
@@ -63,11 +65,8 @@ func getFullURL(api as string) virtual as string
 ** then converts it to a UTF8 encoded buffer and finally returns it.
 **
 
-func toUTF8Buffer(data as DynamicMap) as buffer
-{
-	assert data
-	return String.toUTF8Buffer(JSONEncoder.encode(data))
-}
+func toUTF8Buffer(data as DynamicMap) as buffer:
+	return String.toUTF8Buffer(JSONEncoder.toString(data))
 
 **
 ** A virtual method that accepts an instance of KeyValueList
@@ -119,21 +118,21 @@ func tryHandleAsError(response as DynamicMap)
 ** the value of the key 'status' is equal to 'error'.
 **
 
-func toError(response as DynamicMap) as Error
+func toError(response as DynamicMap) as Error?
 {
-	if not response:
-		return Error.forCode("noServerResponse")
 	if response.getString("status") == "error" {
-		var v = new Error()
 		var code = response.getString("code")
 		if String.isEmpty(code):
 			code = response.getString("error")
-		v.setCode(code)
+		if String.isEmpty(code):
+			code = "unknownError"
 		var detail = response.getString("detail")
 		if String.isEmpty(detail):
 			detail = response.getString("message")
-		v.setDetail(detail)
-		return v
+		return new Error() {
+			code code
+			detail detail
+		}
 	}
 	return null
 }
@@ -143,7 +142,7 @@ func toError(response as DynamicMap) as Error
 ** the response was considered an error response.
 **
 
-func sendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer) async as DynamicMap
+func sendRequest(method as string, url as string, headers as KeyValueList<string,string>?, data as buffer?) async as DynamicMap
 {
 	var response = await doSendRequest(method, url, headers, data, 0)
 	var responseString = String.forUTF8Buffer(response.body)
@@ -159,7 +158,7 @@ func sendRequest(method as string, url as string, headers as KeyValueList<string
 ** and the data buffer.
 **
 
-func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>, data as buffer, redirectCount as int) virtual async as WebClient.Response
+func doSendRequest(method as string, url as string, headers as KeyValueList<string,string>?, data as buffer?, redirectCount as int) virtual async as WebClient.Response
 {
 	if redirectCount > redirectionLimit:
 		Error.throw("tooManyRedirections", redirectCount)
@@ -168,18 +167,21 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 		hrs = new KeyValueList<string,string>()
 		hrs.add("Content-Type", "application/json")
 	}
-	if not webClient:
+	var webClient = this.webClient
+	if not webClient {
 		webClient = WebClient.instance()
-	// webClient.setCredentialsEnabled(credentialsEnabled)
+		this.webClient = webClient
+	}
 	customizeRequestHeaders(hrs)
 	onStartSendRequest()
-	var response = await webClient.executeQuery(null, method, url, hrs, data)
+	var response = await webClient.executeQuery(ctx, method, url, hrs, data)
 	onEndSendRequest()
 	if redirectionEnabled {
-		var code = String.toInteger(response.statusCode)
-		if code >= 300 && code <= 399 && response.headers {
-			var location as string
-			foreach kvp in response.headers.asVector() {
+		var code = Integer.forStringOrDefaultValue(response.statusCode)
+		var headers = response.headers
+		if code >= 300 && code <= 399 {
+			var location as string?
+			foreach kvp in headers.asVector() {
 				if String.equalsIgnoreCase(kvp.key, "Location") {
 					location = kvp.value
 					break
@@ -190,7 +192,7 @@ func doSendRequest(method as string, url as string, headers as KeyValueList<stri
 					location = getFullURL(location)
 				var o = URL.forString(url)
 				var n = URL.forString(location)
-				if o && n && String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
+				if String.equalsIgnoreCase(o.getHost(), n.getHost()) && o.getPort() != n.getPort() {
 					n.setPort(o.getPort())
 					location = n.toString()
 				}

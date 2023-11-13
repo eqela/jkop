@@ -1,0 +1,85 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+
+class abstract:
+
+func instance(ctx as LoggingContext) static as this
+{
+	IFDEF "target_node_js" {
+		return new KafkaForNodeJS.Producer() {
+			ctx ctx
+		}
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
+}
+
+prop ctx as LoggingContext
+
+section protected
+{
+	func onStartConnect(clientId as string) virtual
+	{
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Kafka producer connecting with clientId `" .. clientId .. "'")
+	}
+
+	func onConnected(clientId as string) virtual
+	{
+		Log.info(ctx, "Kafka producer connected with clientId `" .. clientId .. "'")
+	}
+
+	func onStartDisconnect(clientId as string) virtual
+	{
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Kafka producer with clientId `" .. clientId .. "' disconnecting")
+	}
+
+	func onDisconnected(clientId as string) virtual
+	{
+		Log.info(ctx, "Kafka producer with clientId `" .. clientId .. "' disconnected")
+	}
+
+	func onSendMessage(message as KafkaProducerMessage) virtual
+	{
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Sending Kafka message: `" .. String.forUTF8Buffer(message.value) .. "'")
+	}
+
+	func onMessageSent(message as KafkaProducerMessage) virtual
+	{
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Kafka message sent.")
+	}
+}
+
+section public
+{
+	func connect(settings as KafkaConnectionSettings) abstract async
+	func disconnect abstract async
+	func sendMessage(topic as string, message as KafkaProducerMessage) abstract async
+}

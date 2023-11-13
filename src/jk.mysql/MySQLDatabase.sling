@@ -45,18 +45,24 @@ const PROTOCOL_UNIX = "unix"
 const PROTOCOL_PIPE = "pipe"
 const PROCOL_MEMORY = "memory"
 
-prop databaseName as string
+prop databaseName as string = ""
 
-func instance private static as this
+func instance(ctx as LoggingContext) private static as this
 {
-	IFDEF "target_netx" {
-		return new MySQLDatabaseForDotNet()
+	IFDEF "target_dotnet_cs" {
+		return new MySQLDatabaseForDotnetCS() {
+			ctx ctx
+		}
 	}
-	IFDEF "target_nodejs" {
-		return new MySQLDatabaseForNodeJS()
+	IFDEF "target_node_js" {
+		return new MySQLDatabaseForNodeJS() {
+			ctx ctx
+		}
 	}
 	ELSE {
-		return new MySQLDatabaseGeneric()
+		return new MySQLDatabaseGeneric() {
+			ctx ctx
+		}
 	}
 }
 
@@ -68,23 +74,23 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 	var paramc = Vector.getSize(ss)
 	if paramc < 4:
 		Error.throw("invalidConnectionString", connectionString)
-	var address = Vector.get(ss, 0)
-	var username = Vector.get(ss, 1)
-	var password = Vector.get(ss, 2)
-	var database = Vector.get(ss, 3)
+	var address = Vector.getValue(ss, 0)
+	var username = Vector.getValue(ss, 1)
+	var password = Vector.getValue(ss, 2)
+	var database = Vector.getValue(ss, 3)
 	var sslMode = SSL_MODE_NONE
-	var protocol as string
+	var protocol as string?
 	var enableUTF8 = false
 	for(var n=4; n<paramc; n++) {
-		var param = Vector.get(ss, n)
+		var param = ss[n]
 		if String.startsWith(param, "sslmode=") {
-			sslMode = String.getEndOfString(param, 8)
+			sslMode = String.safeString(String.getEndOfString(param, 8))
 		}
 		else if param == "ssl" {
 			sslMode = SSL_MODE_REQUIRED
 		}
 		else if String.startsWith(param, "enableutf8=") {
-			enableUTF8 = Boolean.asBoolean(String.getEndOfString(param, 11))
+			enableUTF8 = Boolean.asValueOrThrowError(String.getEndOfString(param, 11))
 		}
 		else if String.startsWith(param, "protocol=") {
 			protocol = String.getEndOfString(param, 9)
@@ -97,6 +103,8 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 		Error.throw("emptyAddress", connectionString)
 	if String.isEmpty(username):
 		Error.throw("emptyUsername", connectionString)
+	if not password:
+		Error.throw("noPassword", connectionString)
 	if String.isEmpty(database):
 		Error.throw("emptyDatabaseName", connectionString)
 	if String.isEmpty(protocol):
@@ -106,13 +114,11 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 
 func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 {
-	if not config:
-		Error.throw("nullConfiguration", null, StackTrace.generate())
 	var serverAddress = config.getString("serverAddress")
 	var username = config.getString("username")
 	var password = config.getString("password")
 	var database = config.getString("database")
-	var enableUTF8 = config.getBoolean("enableUTF8", false)
+	var enableUTF8 = config.getBooleanOrDefaultValue("enableUTF8", false)
 	var sslMode = config.getString("sslMode")
 	if String.isEmpty(sslMode):
 		sslMode = SSL_MODE_NONE
@@ -123,6 +129,8 @@ func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 		Error.throw("emptyAddress", config)
 	if String.isEmpty(username):
 		Error.throw("emptyUsername", config)
+	if not password:
+		Error.throw("noPassword", config)
 	if String.isEmpty(database):
 		Error.throw("emptyDatabaseName", config)
 	return forConnectionDetails(ctx, serverAddress, username, password, database, sslMode, protocol, enableUTF8)
@@ -130,12 +138,9 @@ func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 
 func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) static as this
 {
-	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database) || String.isEmpty(sslMode) || String.isEmpty(protocol):
+	if String.isEmpty(serverAddress) || String.isEmpty(username) || String.isEmpty(database) || String.isEmpty(sslMode) || String.isEmpty(protocol):
 		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
-	var v = instance()
-	if not v:
-		Error.throw("failedToCreateMySQLClientInstance", null)
-	v.ctx = ctx
+	var v = instance(ctx)
 	Log.debug(ctx, "MySQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', sslMode=`" .. sslMode .. "', protocol=`" .. protocol .. "'")
 	v.databaseName = database
 	v.setConnectionDetails(serverAddress, username, password, database, sslMode, protocol, enableUTF8)
@@ -147,36 +152,26 @@ func getDatabaseTypeId override as string:
 
 func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) abstract
 
-func executeSingleRowQueryStatement(stmt as SQLStatement) override async as DynamicMap
-{
-	var it = assert await executeQueryStatement(stmt)
-	var v as DynamicMap #force = it.next()
-	it.close()
-	return v
-}
-
 func checkIfTableExists(table as string) override async as bool
 {
-	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName)
-	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
+	var stmt = await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
-	var sr = assert await executeSingleRowQueryStatement(stmt)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
 	return String.equalsIgnoreCase(table, sr.getString("TABLE_NAME"))
 }
 
 func getAllTableNames override async as vector<string>
 {
-	assert String.isNotEmpty(databaseName)
-	var stmt = assert await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
-	stmt.addParamString(databaseName)
-	var it = assert await executeQueryStatement(stmt)
 	var v = new vector<string>
-	loop {
-		var vv = it.next()
-		if not vv:
-			break
-		v += vv.getString("TABLE_NAME")
+	var stmt = await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
+	stmt.addParamString(databaseName)
+	foreach vv in await executeQueryStatement(stmt) {
+		var tableName = vv.getString("TABLE_NAME")
+		if tableName:
+			v += tableName
 	}
 	return v
 }
@@ -184,10 +179,10 @@ func getAllTableNames override async as vector<string>
 func columnToCreateString(cc as SQLTableColumnInfo) private as string
 {
 	var sb = new StringBuilder()
-	var columnName = cc.getName()
+	var columnName = cc.name
 	sb.appendString(columnName)
 	sb.appendCharacter(' ')
-	var tt = cc.getType()
+	var tt = cc.type
 	sb.appendString(prepareTypeAsString(tt, columnName))
 	return sb.toString()
 }
@@ -237,13 +232,12 @@ func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as
 
 func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
 {
-	assert String.isNotEmpty(table) && columns
 	var sb = new StringBuilder()
 	sb.appendString("CREATE TABLE ")
 	sb.appendString(table)
 	sb.appendString(" (")
 	var first = true
-	foreach column as SQLTableColumnInfo in columns {
+	foreach column in columns {
 		if not first:
 			sb.appendCharacter(',')
 		sb.appendCharacter(' ')
@@ -256,7 +250,6 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 
 func prepareDeleteTableStatement(table as string) async override as SQLStatement
 {
-	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.appendString("DROP TABLE ")
 	sb.appendString(table)
@@ -266,57 +259,61 @@ func prepareDeleteTableStatement(table as string) async override as SQLStatement
 
 func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
 {
-	assert String.isNotEmpty(table) && column
-	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName()) .. ";"
+	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.name .. " " .. prepareTypeAsString(column.type, column.name) .. ";"
 	return await prepareStatement(sql)
 }
 
 func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
 {
-	assert String.isNotEmpty(table) && column
-	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.getName() .. " " .. column.getName() .. " " .. prepareTypeAsString(column.getType(), column.getName(), true) .. ";"
+	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.name .. " " .. column.name .. " " .. prepareTypeAsString(column.type, column.name, true) .. ";"
 	return await prepareStatement(sql)
 }
 
 func getLastInsertId(table as string) override async as long
 {
 	// FIXME: Parameter table is ignored.
-	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT LAST_INSERT_ID() AS id;"))
+	var v = await getSingleRowOrThrowError(await prepareStatement("SELECT LAST_INSERT_ID() AS id;"))
 	return v.getLongInteger("id")
 }
 
-func getPrimaryKeyColumnName(table as string) override async as string
+func getPrimaryKeyColumnName(table as string) override async as string?
 {
-	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
+	var v = await getSingleRowOrNull(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
+	if not v:
+		return null
 	return v.getString("COLUMN_NAME")
 }
 
-func getIdentityColumnName(table as string) override async as string
+func getIdentityColumnName(table as string) override async as string?
 {
-	var v = assert await executeSingleRowQueryStatement(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
+	var v = await getSingleRowOrNull(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
+	if not v:
+		return null
 	return v.getString("COLUMN_NAME")
 }
 
 func checkIfColumnExists(table as string, column as string) override async as bool
 {
-	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && String.isNotEmpty(column)
-	var stmt = assert await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
 	stmt.addParamString(column)
-	var sr = assert await executeSingleRowQueryStatement(stmt)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
 	return String.equalsIgnoreCase(column, sr.getString("COLUMN_NAME"))
 }
 
 func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
 {
-	assert String.isNotEmpty(table) && String.isNotEmpty(databaseName) && column
-	var stmt = assert await prepareStatement("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	var stmt = await prepareStatement("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
 	stmt.addParamString(table)
-	stmt.addParamString(column.getName())
-	var sr = assert await executeSingleRowQueryStatement(stmt)
-	var type = prepareTypeAsString(column.getType(), column.getName(), true)
+	stmt.addParamString(column.name)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
+	var type = prepareTypeAsString(column.type, column.name, true)
 	var ctype = sr.getString("COLUMN_TYPE")
 	if String.equalsIgnoreCase(type, ctype):
 		return true

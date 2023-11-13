@@ -1,0 +1,288 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.url
+import jk.sha
+import jk.time
+
+class:
+
+func sha256(data as buffer) static private as buffer:
+	return SHAEncoder.forSha256().encodeBuffer(data)
+
+func hashBuffer(body as buffer) static private as string:
+	return String.toLowerCase(String.forBufferHex(sha256(body)))
+
+func hashString(data as string) static private as string:
+	return hashBuffer(String.toUTF8Buffer(data))
+
+func hmacSha256(key as buffer, data as string) private static as buffer
+{
+	var blockSize = 64
+	var okey = Buffer.allocate(blockSize)
+	var ikey = Buffer.allocate(blockSize)
+	Buffer.fill(okey, 0 as uint8)
+	Buffer.fill(ikey, 0 as uint8)
+	var ksiz = Buffer.getSize(key)
+	if ksiz > blockSize {
+		var hash = sha256(key)
+		var hsiz = Buffer.getSize(hash)
+		Buffer.copyFrom(okey, hash, 0, 0, hsiz)
+		Buffer.copyFrom(ikey, hash, 0, 0, hsiz)
+	}
+	else {
+		Buffer.copyFrom(okey, key, 0, 0, ksiz)
+		Buffer.copyFrom(ikey, key, 0, 0, ksiz)
+	}
+	for(var n=0; n<blockSize; n++) {
+		okey[n] = okey[n] ^ 0x5c
+		ikey[n] = ikey[n] ^ 0x36
+	}
+	var b1 = Buffer.append(ikey, String.toUTF8Buffer(data))
+	var h1 = sha256(b1)
+	var b2 = Buffer.append(okey, h1)
+	var h2 = sha256(b2)
+	return h2
+}
+
+func createCanonicalUri(path as string) static private as string
+{
+	var sb = new StringBuilder()
+	foreach comp in String.split(path, '/') {
+		if String.isNotEmpty(comp) {
+			sb.appendCharacter('/')
+			// AWS spec says that each path component must be URL-encoded twice.
+			// We have no idea what they were thinking, but must follow..
+			sb.appendString(URLEncoder.encode(URLEncoder.encode(comp, true), true))
+		}
+	}
+	if String.endsWith(path, "/"):
+		sb.appendCharacter('/')
+	return sb.toString()
+}
+
+func createCanonicalQueryString(url as URL) static private as string
+{
+	var qps = url.getRawQueryParameters()
+	if not qps:
+		return ""
+	var params = qps.asVector()
+	Vector.sort(params, func(a as KeyValuePair<string,string>, b as KeyValuePair<string,string>) as int {
+		var kc = String.compare(a.key, b.key)
+		if kc < 0:
+			return -1
+		if kc > 0:
+			return 1
+		var vc = String.compare(a.value, b.value)
+		if vc < 0:
+			return -1
+		if vc > 0:
+			return 1
+		return 0
+	})
+	var sb = new StringBuilder()
+	foreach pair in params {
+		if sb.count() > 0:
+			sb.appendCharacter('&')
+		sb.appendString(URLEncoder.encode(pair.key, true, false))
+		sb.appendCharacter('=')
+		// AWS spec says to double-encode equal signs. We have no idea what they were thinking, but we follow...
+		var vv = String.replaceString(pair.value, "=", URLEncoder.encode("="))
+		sb.appendString(URLEncoder.encode(vv, true, false))
+	}
+	return sb.toString()
+}
+
+func createCanonicalHeaders(headers as KeyValueList<string,string>) static private as string
+{
+	var hdrs = new vector<string>
+	foreach header in headers.asVector() {
+		var hsb = new StringBuilder()
+		hsb.appendString(String.toLowerCase(header.key))
+		hsb.appendCharacter(':')
+		var pc = 0 as char
+		foreach c in String.iterate(String.strip(header.value)) {
+			if c == ' ' && pc == ' ' {
+				nop
+			}
+			else {
+				hsb.appendCharacter(c)
+			}
+			pc = c
+		}
+		hdrs += hsb.toString()
+	}
+	Vector.sortAsStrings(hdrs)
+	var sb = new StringBuilder()
+	foreach hdr in hdrs {
+		sb.appendString(hdr)
+		sb.appendCharacter('\n')
+	}
+	return sb.toString()
+}
+
+func createSignedHeaders(headers as KeyValueList<string,string>) static private as string
+{
+	var hdrs = new vector<string>
+	foreach header in headers.asVector():
+		hdrs += String.toLowerCase(header.key)
+	Vector.sortAsStrings(hdrs)
+	var sb = new StringBuilder()
+	foreach hdr in hdrs {
+		if sb.count() > 0:
+			sb.appendCharacter(';')
+		sb.appendString(hdr)
+	}
+	return sb.toString()
+}
+
+func createCanonicalRequest(method as string, url as URL, headers as KeyValueList<string,string>, signedHeaders as string, body as buffer?) static private as string
+{
+	var sb = new StringBuilder()
+	sb.appendString(method)
+	sb.appendCharacter('\n')
+	sb.appendString(createCanonicalUri(url.getPath() ?? ""))
+	sb.appendCharacter('\n')
+	sb.appendString(createCanonicalQueryString(url))
+	sb.appendCharacter('\n')
+	sb.appendString(createCanonicalHeaders(headers))
+	sb.appendCharacter('\n')
+	sb.appendString(signedHeaders)
+	sb.appendCharacter('\n')
+	if body:
+		sb.appendString(hashBuffer(body))
+	else:
+		sb.appendString(hashString(""))
+	return sb.toString()
+}
+
+func createIsoTimestamp private static as string
+{
+	var dt = SystemClock.asDateTimeUTC()
+	var sb = new StringBuilder()
+	sb.appendString(String.forIntegerWithPadding(dt.getYear(), 4, "0"))
+	sb.appendString(String.forIntegerWithPadding(dt.getMonth(), 2, "0"))
+	sb.appendString(String.forIntegerWithPadding(dt.getDayOfMonth(), 2, "0"))
+	sb.appendCharacter('T')
+	sb.appendString(String.forIntegerWithPadding(dt.getHours(), 2, "0"))
+	sb.appendString(String.forIntegerWithPadding(dt.getMinutes(), 2, "0"))
+	sb.appendString(String.forIntegerWithPadding(dt.getSeconds(), 2, "0"))
+	sb.appendCharacter('Z')
+	return sb.toString()
+}
+
+func createCredentialString(timestamp as string, region as string, service as string) private static as string
+{
+	var sb = new StringBuilder()
+	sb.appendString(String.getSubString(timestamp, 0, 8))
+	sb.appendCharacter('/')
+	sb.appendString(region)
+	sb.appendCharacter('/')
+	sb.appendString(service)
+	sb.appendString("/aws4_request")
+	return sb.toString()
+}
+
+func createStringToSign(algorithm as string, timestamp as string, credential as string, canonicalRequest as string) private static as string
+{
+	var sb = new StringBuilder()
+	sb.appendString(algorithm)
+	sb.appendCharacter('\n')
+	sb.appendString(timestamp)
+	sb.appendCharacter('\n')
+	sb.appendString(credential)
+	sb.appendCharacter('\n')
+	sb.appendString(hashString(canonicalRequest))
+	return sb.toString()
+}
+
+func getSigningKey(context as AwsApiContext, secret as string, timestamp as string, region as string, service as string) static private as buffer
+{
+	var kSecret = String.toUTF8Buffer("AWS4" .. secret)
+	Log.debug(context.ctx, "kSecret: " .. String.toLowerCase(String.forBufferHex(kSecret)))
+	var kDate = hmacSha256(kSecret, timestamp)
+	Log.debug(context.ctx, "kDate: " .. String.toLowerCase(String.forBufferHex(kDate)))
+	var kRegion = hmacSha256(kDate, region)
+	Log.debug(context.ctx, "kRegion: " .. String.toLowerCase(String.forBufferHex(kRegion)))
+	var kService = hmacSha256(kRegion, service)
+	Log.debug(context.ctx, "kService: " .. String.toLowerCase(String.forBufferHex(kService)))
+	var kSigning = hmacSha256(kService, "aws4_request")
+	Log.debug(context.ctx, "kSigning: " .. String.toLowerCase(String.forBufferHex(kSigning)))
+	return kSigning
+}
+
+func createAuthorizationString(algorithm as string, keyId as string, credential as string, signedHeaders as string, signature as string) static private as string
+{
+	var sb = new StringBuilder()
+	sb.appendString(algorithm)
+	sb.appendCharacter(' ')
+	sb.appendString("Credential=")
+	sb.appendString(keyId)
+	sb.appendCharacter('/')
+	sb.appendString(credential)
+	sb.appendString(", SignedHeaders=")
+	sb.appendString(signedHeaders)
+	sb.appendString(", Signature=")
+	sb.appendString(signature)
+	return sb.toString()
+}
+
+class HttpRequestInfo public
+{
+	prop method as string
+	prop url as string
+	prop headers as KeyValueList<string,string>
+	prop body as buffer?
+}
+
+func signRequest(context as AwsApiContext, request as HttpRequestInfo, service as string, region as string) static
+{
+	var url = URL.forString(request.url, true)
+	var host = url.getHost() ?? ""
+	var timestamp = createIsoTimestamp()
+	request.headers.add("X-Amz-Date", timestamp)
+	request.headers.add("Host", host)
+	var algorithm = "AWS4-HMAC-SHA256"
+	var signedHeaders = createSignedHeaders(request.headers)
+	Log.debug(context.ctx, "Signed headers: `" .. signedHeaders .. "'")
+	var canonicalRequest = createCanonicalRequest(request.method, url, request.headers, signedHeaders, request.body)
+	Log.debug(context.ctx, "CANONICAL REQUEST:\n---\n" .. canonicalRequest .. "\n---\n")
+	var credential = createCredentialString(timestamp, region, service)
+	Log.debug(context.ctx, "Credential: `" .. credential .. "'")
+	var stringToSign = createStringToSign(algorithm, timestamp, credential, canonicalRequest)
+	Log.debug(context.ctx, "STRING TO SIGN:\n---\n" .. stringToSign .. "\n---\n")
+	var signingKey = getSigningKey(context, context.accessKeySecret, String.getSubString(timestamp, 0, 8), region, service)
+	Log.debug(context.ctx, "SIGNING KEY: " .. String.toLowerCase(String.forBufferHex(signingKey)))
+	var signature = hmacSha256(signingKey, stringToSign)
+	var signatureHex = String.toLowerCase(String.forBufferHex(signature))
+	Log.debug(context.ctx, "SIGNATURE: " .. signatureHex)
+	var authorization = createAuthorizationString(algorithm, context.accessKeyId, credential, signedHeaders, signatureHex)
+	Log.debug(context.ctx, "Authorization: `" .. authorization .. "'")
+	request.headers.add("Authorization", authorization)
+	if var sectok = context.securityToken:
+		request.headers.add("X-Amz-Security-Token", sectok)
+	// FIXME: We could also support generating the pre-authenticated URLs here
+	request.url = url.toString()
+}

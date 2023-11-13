@@ -39,18 +39,13 @@ meta
 class MyStringPipeHandler is BufferDataReceiver
 {
 	prop builder as StringBuilder
-	prop encoding as string
-
-	ctor
-	{
-		encoding = "UTF-8"
-	}
+	prop encoding = "UTF-8"
 
 	func onBufferData(data as buffer, size as int) as bool
 	{
-		if builder == null || data == null || size < 1:
+		if size < 1:
 			return false
-		var str = assert String.forBuffer(Buffer.getSubBuffer(data, 0, size), encoding)
+		var str = String.forBuffer(Buffer.getSubBuffer(data, 0, size), encoding)
 		builder.appendString(str)
 		return true
 	}
@@ -58,11 +53,12 @@ class MyStringPipeHandler is BufferDataReceiver
 
 class MyBufferPipeHandler is BufferDataReceiver
 {
-	prop data as buffer
+	prop data as buffer?
 
 	func onBufferData(newData as buffer, size as int) as bool
 	{
-		data = Buffer.append(data, newData, size)
+		if size > 0:
+			data = Buffer.append(data, newData, size)
 		return true
 	}
 }
@@ -75,29 +71,15 @@ class QuietPipeHandler is BufferDataReceiver
 	}
 }
 
-func forSelf static as this!
+func forSelf static as this
 {
 	var exe = CurrentProcess.requireExecutableFile()
-	var v = new this()
-	IFDEF "target_uwp" {
+	return new this() {
+		file exe
 	}
-	ELSE IFDEF "target_netx" {
-		var filename = lang "cs" string {{{ System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName }}}
-		if filename {
-			var ff = File.forPath(filename)
-			var bn = ff.getBasename()
-			if bn && String.startsWith(bn, "mono") {
-				v.file = ff
-				v.addToParams(exe.getPath())
-				return v
-			}
-		}
-	}
-	v.file = exe
-	return v
 }
 
-func forFile(file as File, parameters as vector<string> = null) static as this!
+func forFile(file as File, parameters as vector<string>? = null) static as this
 {
 	meta {
 		description [[
@@ -105,16 +87,17 @@ func forFile(file as File, parameters as vector<string> = null) static as this!
 			this method returns a null object instead.
 		]]
 	}
-	if file == null || file.isFile() == false:
-		Error.throw("noSuchFile", file)
-	var v = new this()
-	v.file = file
-	foreach param in parameters:
+	if file.isFile() == false:
+		Error.throw("fileDoesNotExist", file)
+	var v = new this() {
+		file file
+	}
+	if parameters: foreach param in parameters:
 		v.addToParams(param)
 	return v
 }
 
-func forCommand(command as string, parameters as vector<string> = null) static as this!
+func forCommand(command as string, parameters as vector<string>? = null) static as this
 {
 	meta {
 		description [[
@@ -127,7 +110,7 @@ func forCommand(command as string, parameters as vector<string> = null) static a
 	}
 	if String.isEmpty(command):
 		Error.throw("emptyCommand", null)
-	var file as File
+	var file as File?
 	var delim = PathInfo.getPathSeparator()
 	if String.getIndexOfCharacter(command, delim) >= 0 {
 		file = File.forPath(command)
@@ -136,14 +119,12 @@ func forCommand(command as string, parameters as vector<string> = null) static a
 		file = File.forPath(command)
 	}
 	else {
-		file = ExternalCommand.findInPath(command)
-		if not file:
-			Error.throw("commandNotFound", command)
+		file = ExternalCommand.getAndRequireCommandInPath(command)
 	}
 	return forFile(file, parameters)
 }
 
-func forString(str as string) static as this!
+func forString(str as string) static as this
 {
 	meta {
 		description [[
@@ -157,11 +138,11 @@ func forString(str as string) static as this!
 	if String.isEmpty(str):
 		Error.throw("emptyCommandString", str)
 	var arr = StringUtil.quotedStringToVector(str, ' ')
-	if arr == null || Vector.getSize(arr) < 1:
+	if Vector.getSize(arr) < 1:
 		Error.throw("invalidCommandString", str)
 	var vsz = Vector.getSize(arr)
 	var cmd = arr[0]
-	var parameters as vector<string>
+	var parameters as vector<string>?
 	var paramCount = vsz - 1
 	if paramCount > 0 {
 		parameters = new vector<string>
@@ -172,9 +153,9 @@ func forString(str as string) static as this!
 }
 
 prop file as File
-prop params as vector<string>
-prop env as map<string,string>
-prop cwd as File
+prop params = new vector<string>
+prop env = new map<string,string>
+prop cwd as File?
 prop uid = -1
 prop gid = -1
 prop trapSigint = true
@@ -182,15 +163,8 @@ prop replaceSelf = false
 prop pipePty = false
 prop startGroup = false
 prop noCmdWindow = false
-prop errorBuffer as StringBuilder
 prop detachFromTerminal = false
 prop inheritEnvironmentVariables = true
-
-ctor
-{
-	params = new vector<string>
-	env = new map<string,string>
-}
 
 func appendProperParam(sb as StringBuilder, p as string) private
 {
@@ -203,11 +177,7 @@ func appendProperParam(sb as StringBuilder, p as string) private
 
 func escapeQuotesAndBackSlashes(sb as StringBuilder, param as string) private
 {
-	var it = String.iterate(param)
-	while it {
-		var c = it.getNextChar()
-		if Character.isEOF(c):
-			break
+	foreach c in String.iterate(param) {
 		if c == '"' || c == '\\':
 			sb.appendCharacter('\\')
 		sb.appendCharacter(c)
@@ -224,7 +194,7 @@ func getFullCommandString(includeEnv as bool) as string
 	}
 	var sb = new StringBuilder()
 	if includeEnv {
-		var keys as vector<string> #force = Map.getKeys(env)
+		var keys = Map.getKeys(env)
 		foreach key in keys {
 			sb.appendString(key)
 			sb.appendCharacter('=')
@@ -233,8 +203,7 @@ func getFullCommandString(includeEnv as bool) as string
 		}
 	}
 	sb.appendCharacter('"')
-	if file:
-		escapeQuotesAndBackSlashes(sb, file.getPath())
+	escapeQuotesAndBackSlashes(sb, file.getPath())
 	sb.appendCharacter('"')
 	foreach p in params:
 		appendProperParam(sb, p)
@@ -246,18 +215,13 @@ func toString as string:
 
 func addToParams(arg as string) as this
 {
-	if arg {
-		if params == null:
-			params = new vector<string>
-		params += arg
-	}
+	params += arg
 	return this
 }
 
 func addFileToParams(file as File) as this
 {
-	if file:
-		addToParams(file.getPath())
+	addToParams(file.getPath())
 	return this
 }
 
@@ -268,75 +232,68 @@ func addStringsToParams(parameters as vector<string>) as this
 	return this
 }
 
-func setEnvVariable(key as string, val as string)
-{
-	if key {
-		if env == null:
-			env = new map<string,string>
-		env[key] = val
-	}
-}
+func setEnvVariable(key as string, val as string):
+	env[key] = val
 
-func startProcess(wait as bool, pipeHandler as BufferDataReceiver, withIO as bool = false) private as Process
+func startProcess(wait as bool, pipeHandler as BufferDataReceiver?, withIO as bool = false) private as Process
 {
 	IFDEF "target_uwp" {
 		return null
 	}
-	ELSE IFDEF "target_netx" {
-		return ProcessLauncherDotNet.startProcess(this, wait, pipeHandler, withIO, errorBuffer)
+	ELSE IFDEF "target_dotnet_cs" {
+		return ProcessLauncherForDotnetCS.startProcess(this, wait, pipeHandler, withIO)
 	}
 	ELSE IFDEF "target_java" {
-		return ProcessLauncherJava.startProcess(this, wait, pipeHandler)
+		return ProcessLauncherForJava.startProcess(this, wait, pipeHandler)
 	}
 	ELSE IFDEF "target_sushi" {
-		return ProcessLauncherSushi.startProcess(this, wait, pipeHandler, withIO, errorBuffer)
+		return ProcessLauncherForSushi.startProcess(this, wait, pipeHandler, withIO)
 	}
-	ELSE IFDEF "target_nodejs" {
+	ELSE IFDEF "target_node_js" {
 		return ProcessLauncherForNodeJS.startProcess(this, wait, pipeHandler)
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
 func start as Process:
 	return startProcess(false, null)
 
-func startWithIO as ProcessWithIO:
-	return startProcess(false, null, true) as ProcessWithIO
+func startWithIO as ProcessWithIO
+{
+	var process = startProcess(false, null, true)
+	var v = process as ProcessWithIO
+	if not v:
+		Error.throw("processIsNotProcessWithIo", process)
+	return v
+}
 
 func execute as int
 {
 	var cp = startProcess(true, null)
-	if cp == null:
-		return -1
 	return cp.getExitStatus()
 }
 
 func executeSilent as int
 {
 	var cp = startProcess(true, new QuietPipeHandler())
-	if cp == null:
-		return -1
 	return cp.getExitStatus()
 }
 
 func executeToStringBuilder(output as StringBuilder) as int
 {
-	var msp = new MyStringPipeHandler()
-	msp.builder = output
+	var msp = new MyStringPipeHandler() {
+		builder output
+	}
 	var cp = startProcess(true, msp)
-	if cp == null:
-		return -1
 	return cp.getExitStatus()
 }
 
 func executeToString as string
 {
 	var sb = new StringBuilder()
-	if executeToStringBuilder(sb) < 0:
-		return null
+	executeToStringBuilder(sb)
 	return sb.toString()
 }
 
@@ -344,15 +301,14 @@ func executeToBuffer as buffer
 {
 	var ph = new MyBufferPipeHandler()
 	var cp = startProcess(true, ph)
-	if cp == null:
-		return null
-	return ph.data
+	var v = ph.data
+	if not v:
+		v = Buffer.allocate(0)
+	return v
 }
 
 func executeToPipe(pipeHandler as BufferDataReceiver) as int
 {
 	var cp = startProcess(true, pipeHandler)
-	if cp == null:
-		return -1
 	return cp.getExitStatus()
 }

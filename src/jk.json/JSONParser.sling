@@ -30,38 +30,114 @@ class NullObject public
 {
 }
 
-func parse(data as dynamic) static as object
+class ParseError public is Exception is StringObject
 {
-	assert data
-	if data is buffer:
-		return parseBuffer(data as! buffer)
-	if data is string:
-		return parseString(data as! string)
-	if data is File:
-		return parseFile(data as! File)
-	return null
+	prop iterator as CharacterIterator
+	prop expected as string
+
+	var lineNumber = 0
+	var columnNumber = 0
+	var lineString as string?
+
+	func computeData
+	{
+		var opos = iterator.getCurrentPosition()
+		lineNumber = 0
+		columnNumber = 0
+		iterator.setCurrentPosition(0)
+		loop {
+			if iterator.getCurrentPosition() >= opos:
+				break
+			if iterator.getCurrentChar() == '\n' {
+				lineNumber ++
+				columnNumber = 0
+			}
+			else {
+				columnNumber ++
+			}
+			iterator.moveToNextChar()
+		}
+		iterator.setCurrentPosition(opos)
+		loop {
+			if iterator.getCurrentPosition() < 1:
+				break
+			iterator.moveToPreviousChar()
+			if iterator.getCurrentChar() == '\n' {
+				iterator.moveToNextChar()
+				break
+			}
+		}
+		var sb = new StringBuilder()
+		loop {
+			var c = iterator.getCurrentChar()
+			if Character.isEOF(c):
+				break
+			if c == '\n':
+				break
+			if c == '\t' {
+				sb.appendCharacter(' ')
+			}
+			else {
+				sb.appendCharacter(c)
+			}
+			iterator.moveToNextChar()
+		}
+		lineString = sb.toString()
+		iterator.setCurrentPosition(opos)
+	}
+
+	func toString as string
+	{
+		if not lineString:
+			computeData()
+		var sb = new StringBuilder()
+		for(var n=0; n<columnNumber; n++):
+			sb.appendCharacter(' ')
+		sb.appendCharacter('^')
+		return "line=" .. String.forInteger(lineNumber+1) .. ", col=" .. String.forInteger(columnNumber+1) .. ", expected=`" .. expected .. "'\n" .. lineString .. "\n" .. sb.toString()
+	}
 }
 
-func parseBuffer(buffer as buffer) static as object
+func parse(data as dynamic?) static as object
 {
-	if buffer == null:
-		return null
-	return forBuffer(buffer).acceptObject()
+	var dataBuffer = data as buffer
+	if dataBuffer:
+		return parseBuffer(dataBuffer)
+	var dataString = data as string
+	if dataString:
+		return parseString(dataString)
+	var dataFile = data as File
+	if dataFile:
+		return parseFile(dataFile)
+	Error.throw("unsupportedDataObjectForJsonParser", data)
 }
 
-func parseString(str as string) static as object
-{
-	if String.isEmpty(str):
-		return null
-	return forString(str).acceptObject()
-}
+func parseBuffer(buffer as buffer) static as object:
+	return forBuffer(buffer).expectObject()
 
-func parseFile(file as File) static as object
-{
-	if file == null:
-		return null
+func parseString(str as string) static as object:
+	return forString(str).expectObject()
+
+func parseFile(file as File) static as object:
 	return parseString(file.getContentsUTF8())
-}
+
+func parseBufferAsMap(buffer as buffer) static as DynamicMap:
+	return forBuffer(buffer).expectMap()
+
+func parseStringAsMap(str as string) static as DynamicMap:
+	return forString(str).expectMap()
+
+func parseFileAsMap(file as File) static as DynamicMap:
+	return parseStringAsMap(file.getContentsUTF8())
+
+func parseBufferAsVector(buffer as buffer) static as DynamicVector:
+	return forBuffer(buffer).expectVector()
+
+func parseStringAsVector(str as string) static as DynamicVector:
+	return forString(str).expectVector()
+
+func parseFileAsVector(file as File) static as DynamicVector:
+	return parseStringAsVector(file.getContentsUTF8())
 
 func forString(str as string) static as this
 {
@@ -77,21 +153,29 @@ func forBuffer(buffer as buffer) static as this
 	return v
 }
 
-var iterator as CharacterIterator
+var iterator as CharacterIterator = CharacterIteratorForString.forString("")
 var size as int
 
-func setDataString(str as string)
+func setDataString(str as string) private
 {
 	size = String.getLength(str)
 	iterator = CharacterIteratorForString.forString(str)
 	iterator.moveToNextChar()
 }
 
-func setDataBuffer(buffer as buffer)
+func setDataBuffer(buffer as buffer) private
 {
 	size = sizeof buffer
 	iterator = CharacterIteratorForBuffer.forBuffer(buffer)
 	iterator.moveToNextChar()
+}
+
+func throwExpectationError(expected as string) private #throws
+{
+	throw new ParseError() {
+		iterator iterator
+		expected expected
+	}
 }
 
 func skipSpaces private
@@ -118,7 +202,13 @@ func acceptChar(c as char) private as bool
 	return false
 }
 
-func acceptString private as string
+func expectChar(c as char) private
+{
+	if not acceptChar(c):
+		throwExpectationError(String.forCharacter(c))
+}
+
+func acceptString as string?
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
@@ -152,7 +242,7 @@ func acceptString private as string
 					v.appendCharacter(iterator.getNextChar())
 					x++
 				}
-				c = String.toIntegerFromHex(v.toString()) as char
+				c = Integer.forHexStringOrDefaultValue(v.toString()) as char
 			}
 			else if c == 't' {
 				c = '\t'
@@ -175,7 +265,7 @@ func acceptString private as string
 	return sb.toString()
 }
 
-func acceptBoolean private as BooleanObject
+func acceptBoolean as BooleanObject?
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
@@ -215,7 +305,7 @@ func acceptBoolean private as BooleanObject
 	return null
 }
 
-func acceptNumber private as object
+func acceptNumber as object?
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
@@ -231,14 +321,14 @@ func acceptNumber private as object
 	}
 	var s = sb.toString()
 	if String.getIndexOfCharacter(s, '.') > -1:
-		return Double.asObject(Double.asDouble(s))
-	var value = String.toLong(s)
+		return Double.asObject(Double.asValueOrThrowError(s))
+	var value = LongInteger.asValueOrThrowError(s)
 	if value >= -2147483648L && value <= 2147483647L:
 		return Integer.asObject(value as int)
 	return LongInteger.asObject(value)
 }
 
-func acceptNull private as NullObject
+func acceptNull as NullObject?
 {
 	skipSpaces()
 	var ss = iterator.getCurrentChar()
@@ -272,34 +362,32 @@ func acceptNull private as NullObject
 	return null
 }
 
-func acceptObject private as object
+func acceptVector as DynamicVector?
 {
 	if acceptChar('[') {
 		var v = new DynamicVector()
 		loop {
 			if acceptChar(']'):
 				break
-			var o = acceptObject()
-			if o == null:
-				return null
+			var o = expectObject()
 			v.appendObject(o)
 			acceptChar(',')
 		}
 		return v
 	}
+	return null
+}
+
+func acceptMap as DynamicMap?
+{
 	if acceptChar('{') {
 		var v = new DynamicMap()
 		loop {
 			if acceptChar('}'):
 				break
-			var key = acceptString()
-			if key == null:
-				return null
-			if acceptChar(':') == false:
-				return null
-			var val = acceptObject()
-			if val == null:
-				return null
+			var key = expectString()
+			expectChar(':')
+			var val = expectObject()
 			if val is NullObject {
 				v.setObject(key, null)
 			}
@@ -310,6 +398,17 @@ func acceptObject private as object
 		}
 		return v
 	}
+	return null
+}
+
+func acceptObject as object?
+{
+	var list = acceptVector()
+	if list:
+		return list
+	var map = acceptMap()
+	if map:
+		return map
 	var s = acceptString()
 	if s:
 		return s
@@ -325,40 +424,40 @@ func acceptObject private as object
 	return null
 }
 
-func getNextToken as object
+func expectObject as object
 {
-	if acceptChar('['):
-		return "["
-	if acceptChar(']'):
-		return "]"
-	if acceptChar('{'):
-		return "{"
-	if acceptChar('}'):
-		return "}"
-	if acceptChar(','):
-		return ","
-	var s = acceptString()
-	if s:
-		return s
-	var b = acceptBoolean()
-	if b:
-		return b
-	var n = acceptNull()
-	if n:
-		return n
-	var v = acceptNumber()
-	if v:
-		return v
-	return null
+	var v = acceptObject()
+	if not v:
+		throwExpectationError("object")
+	return v
+}
+
+func expectMap as DynamicMap
+{
+	var v = acceptMap()
+	if not v:
+		throwExpectationError("map")
+	return v
+}
+
+func expectVector as DynamicVector
+{
+	var v = acceptVector()
+	if not v:
+		throwExpectationError("vector")
+	return v
+}
+
+func expectString private as string
+{
+	var v = acceptString()
+	if not v:
+		throwExpectationError("string")
+	return v
 }
 
 func pushData(string as string)
 {
-	assert string
-	if iterator == null {
-		setDataString(string)
-		return
-	}
 	var sb = new StringBuilder()
 	loop {
 		var c = iterator.getNextChar()

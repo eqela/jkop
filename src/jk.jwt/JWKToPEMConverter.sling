@@ -27,19 +27,15 @@ import jk.json
 
 class:
 
-func convertString(data as string) static as string
-{
-	assert data
-	return convertMap(JSONParser.parseString(data) as DynamicMap)
-}
+func convertString(data as string) static as string:
+	return convertMap(JSONParser.parseStringAsMap(data))
 
 func convertMap(dm as DynamicMap) static as string
 {
-	assert dm
-	var str as string
-	var n #used = Base64Decoder.fromUrlSafeFormat(dm.getString("n"))
-	var e #used = Base64Decoder.fromUrlSafeFormat(dm.getString("e"))
-	IFDEF "target_netcore" {
+	var str as string?
+	var n = Base64Decoder.fromUrlSafeFormat(dm.getString("n") ?? "")
+	var e = Base64Decoder.fromUrlSafeFormat(dm.getString("e") ?? "")
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			System.Security.Cryptography.RSAParameters rsaParams = new System.Security.Cryptography.RSAParameters();
 			rsaParams.Modulus = System.Convert.FromBase64String(n);
@@ -50,10 +46,12 @@ func convertMap(dm as DynamicMap) static as string
 			}
 		}}}
 	}
+	if not str:
+		Error.throw("failedToConvertMap", dm)
 	return str
 }
 
-IFDEF "target_netcore" {
+IFDEF "target_dotnet_cs" {
 	lang "cs" {{{
 		private static System.String ExportPublicKey(System.Security.Cryptography.RSACryptoServiceProvider csp)
 		{

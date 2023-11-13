@@ -28,7 +28,7 @@ class:
 
 pvar niceFormatting = true
 var isNewLine = true
-var mysb as StringBuilder
+var mysb as StringBuilder?
 
 func print(line as string, indent as int, startline as bool, endline as bool, sb as StringBuilder) private
 {
@@ -58,7 +58,7 @@ func print(line as string, indent as int, startline as bool, endline as bool, sb
 	}
 }
 
-func encodeArray(cc as array, indent as int, sb as StringBuilder) private
+func encodeArray(cc as array<dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("[", indent, false, true, sb)
 	var first = true
@@ -84,7 +84,7 @@ func encodeDynamicVector(cc as DynamicVector, indent as int, sb as StringBuilder
 	print("]", indent, true, false, sb)
 }
 
-func encodeVector(cc as vector, indent as int, sb as StringBuilder) private
+func encodeVector(cc as vector<dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("[", indent, false, true, sb)
 	var first = true
@@ -97,23 +97,16 @@ func encodeVector(cc as vector, indent as int, sb as StringBuilder) private
 	print("]", indent, true, false, sb)
 }
 
-func encodeMap(map as map, indent as int, sb as StringBuilder) private
+func encodeMap(map as map<string,dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it = Map.iterateKeys(map)
-	while it {
-		var keyo = it.next()
-		if not keyo:
-			break
-		var key = String.asString(keyo)
-		if not key:
-			continue
+	foreach key in Map.iterateKeys(map) {
 		if not first:
 			print(" ", indent, false, true, sb)
 		encodeIdentifier(key, indent+1, sb)
 		print(" ", indent, false, false, sb)
-		encodeObject(map[keyo], indent+1, sb)
+		encodeObject(map[key], indent+1, sb)
 		first = false
 	}
 	print("}", indent, true, false, sb)
@@ -123,11 +116,7 @@ func encodeDynamicMap(map as DynamicMap, indent as int, sb as StringBuilder) pri
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it = map.iterateKeys()
-	while it {
-		var key = it.next()
-		if not key:
-			break
+	foreach key in map.iterateKeys() {
 		if first == false:
 			print(" ", indent, false, true, sb)
 		encodeIdentifier(key, indent+1, sb)
@@ -142,16 +131,12 @@ func encodeKeyValueList(list as KeyValueListForStrings, indent as int, sb as Str
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it as Iterator<KeyValuePair<string,string>> #force = list.iterate()
-	while it {
-		var pair = it.next()
-		if pair == null:
-			break
+	foreach pair in list.iterate() {
 		if first == false:
 			print(" ", indent, false, true, sb)
-		encodeIdentifier(pair.key, indent+1, sb)
+		encodeIdentifier(String.safeString(pair.key), indent+1, sb)
 		print(" ", indent, false, false, sb)
-		encodeString(pair.value, indent+1, sb)
+		encodeString(String.safeString(pair.value), indent+1, sb)
 		first = false
 	}
 	print("}", indent, true, false, sb)
@@ -166,11 +151,7 @@ func isIdentifierCharacter(ss as char) private as bool
 
 func isLegalIdentifier(identifier as string) private as bool
 {
-	var it = String.iterate(identifier)
-	while it {
-		var c = it.getNextChar()
-		if Character.isEOF(c):
-			break
+	foreach c in String.iterate(identifier) {
 		if not isIdentifierCharacter(c):
 			return false
 	}
@@ -206,11 +187,7 @@ func encodeString(s as string, indent as int, sb as StringBuilder) private
 		mysb.clear()
 	}
 	mysb.appendCharacter('"')
-	var it = String.iterate(s)
-	loop {
-		var c = it.getNextChar()
-		if Character.isEOF(c):
-			break
+	foreach c in String.iterate(s) {
 		if c == '\t' {
 			mysb.appendString("\\t")
 			continue
@@ -264,13 +241,13 @@ func encodeNumber(o as dynamic, indent as int, sb as StringBuilder) private
 		mysb.clear()
 	}
 	if o is IntegerObject {
-		mysb.appendInteger(Integer.asInteger(o))
+		mysb.appendInteger((o as! IntegerObject).toInteger())
 	}
 	else if o as LongIntegerObject {
-		mysb.appendLong(LongInteger.asLong(o))
+		mysb.appendLong((o as! LongIntegerObject).toLongInteger())
 	}
 	else if o as DoubleObject {
-		mysb.appendDouble(Double.asDouble(o))
+		mysb.appendDouble((o as! DoubleObject).toDouble())
 	}
 	else {
 		mysb.appendString("")
@@ -278,25 +255,31 @@ func encodeNumber(o as dynamic, indent as int, sb as StringBuilder) private
 	print(mysb.toString(), indent, false, false, sb)
 }
 
-func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
+func encodeObject(o as dynamic?, indent as int, sb as StringBuilder) virtual
 {
 	if not o {
 		print("null", indent, false, false, sb)
 	}
-	else if o is array {
-		encodeArray(o as! array, indent, sb)
+	else if var oarray = o as array<dynamic> {
+		encodeArray(oarray, indent, sb)
 	}
-	else if o is vector {
-		encodeVector(o as! vector, indent, sb)
+	else if var ovector = o as vector<dynamic> {
+		encodeVector(ovector, indent, sb)
 	}
-	else if o is map {
-		encodeMap(o as! map, indent, sb)
+	else if o is map<string,dynamic> {
+		encodeMap(o as! map<string,dynamic>, indent, sb)
 	}
 	else if o is buffer {
 		encodeString(Base64Encoder.encode(o as! buffer), indent, sb)
 	}
 	else if o is string {
 		encodeString(o as! string, indent, sb)
+	}
+	else if o is DynamicMapObject {
+		encodeDynamicMap((o as! DynamicMapObject).toDynamicMap(), indent, sb)
+	}
+	else if o is DynamicVectorObject {
+		encodeDynamicVector((o as! DynamicVectorObject).toDynamicVector(), indent, sb)
 	}
 	else if o is DynamicMap {
 		encodeDynamicMap(o as! DynamicMap, indent, sb)
@@ -325,10 +308,10 @@ func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
 		encodeNumber(o, indent, sb)
 	}
 	else if o is CharacterObject {
-		encodeString(String.asString(o), indent, sb)
+		encodeString(String.forCharacter((o as! CharacterObject).toCharacter()), indent, sb)
 	}
 	else if o is BooleanObject {
-		encodeBoolean(Boolean.asBoolean(o), indent, sb)
+		encodeBoolean((o as! BooleanObject).toBoolean(), indent, sb)
 	}
 	else {
 		encodeString("", indent, sb)

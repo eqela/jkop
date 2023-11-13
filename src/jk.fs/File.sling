@@ -39,14 +39,15 @@ class is StringObject abstract:
 ** if conversion is not possible.
 **
 
-func tryAsFile(o as dynamic) static as this
+func asValueOrNull(obj as dynamic?) static as this?
 {
-	assert o
-	if o is this:
-		return o as! this
-	var ss = String.asString(o)
+	if obj == null:
+		return null
+	if obj is this:
+		return obj as! this
+	var ss = String.asValueOrNull(obj)
 	if ss:
-		return tryForPath(ss)
+		return forPath(ss)
 	return null
 }
 
@@ -55,9 +56,9 @@ func tryAsFile(o as dynamic) static as this
 ** exception if conversion is not possible.
 **
 
-func asFile(o as dynamic) static as this
+func asValueOrThrowError(o as dynamic?) static as this
 {
-	var v = tryAsFile(o)
+	var v = asValueOrNull(o)
 	if not v:
 		Error.throw("notFileObject", o)
 	return v
@@ -68,15 +69,14 @@ func asFile(o as dynamic) static as this
 ** null if the conversion is not possible.
 **
 
-func tryAsFileVector(o as dynamic) static as vector<File>
+func asValueVectorOrNull(obj as dynamic?) static as vector<File>?
 {
-	var it = assert DynamicObject.iterate(o)
+	if obj == null:
+		return null
+	var it = assert DynamicObject.iterate(obj)
 	var v = new vector<File>
-	loop {
-		var oo = it.next()
-		if not oo:
-			break
-		var ff = tryAsFile(oo)
+	foreach oo in it {
+		var ff = asValueOrNull(oo)
 		if ff:
 			v += ff
 	}
@@ -88,63 +88,15 @@ func tryAsFileVector(o as dynamic) static as vector<File>
 ** an exception if the conversion is not possible.
 **
 
-func asFileVector(o as dynamic) static as vector<File>
+func asValueVectorOrThrowError(o as dynamic) static as vector<File>
 {
 	var it = DynamicObject.iterate(o)
 	if not it:
 		Error.throw("notIterateable", o)
 	var v = new vector<File>
-	loop {
-		var oo = it.next()
-		if not oo:
-			break
-		var ff = asFile(oo)
-		if ff:
-			v += ff
-	}
+	foreach oo in it:
+		v += asValueOrThrowError(oo)
 	return v
-}
-
-**
-** Creates a new instance of the File object, representing the given path,
-** utilizing the path naming notation of the underlying platform. Essentially,
-** this means that a path name like "C:\Users\Me\this.txt" would be valid on Windows,
-** and a path name like "/home/me/this.txt" would be valid on a Unix-like
-** operating system, such as macOS or Linux. Returns null in case of errors.
-**
-
-func tryForPath(path as string) static as this
-{
-	if path == null || String.getLength(path) < 1:
-		return null
-	IFDEF "target_java" {
-		return FileForJava.forPath(path)
-	}
-	ELSE IFDEF "target_netx" {
-		return FileForDotNet.forPath(path)
-	}
-	ELSE IFDEF "target_objc" {
-		return FileForObjC.forPath(path)
-	}
-	ELSE IFDEF "target_nodejs" {
-		return FileForNodeJS.forPath(path)
-	}
-	ELSE IFDEF "target_sushi" {
-		return FileForSushi.forPath(path)
-	}
-	ELSE IFDEF "target_kotlin" {
-		return FileForKotlin.forPath(path)
-	}
-	ELSE IFDEF "target_swift" {
-		return FileForSwift.forPath(path)
-	}
-	ELSE IFDEF "target_browser" {
-		return FileForBrowser.forPath(path)
-	}
-	ELSE {
-		ERROR "Not implemented."
-		return null
-	}
 }
 
 **
@@ -157,10 +109,33 @@ func tryForPath(path as string) static as this
 
 func forPath(path as string) static as this
 {
-	var v = tryForPath(path)
-	if not v:
-		Error.throw("invalidPath", path)
-	return v
+	IFDEF "target_java" {
+		return FileForJava.forPath(path)
+	}
+	ELSE IFDEF "target_dotnet_cs" {
+		return FileForDotnetCS.forPath(path)
+	}
+	ELSE IFDEF "target_objc" {
+		return FileForObjC.forPath(path)
+	}
+	ELSE IFDEF "target_node_js" {
+		return FileForNodeJS.forPath(path)
+	}
+	ELSE IFDEF "target_sushi" {
+		return FileForSushi.forPath(path)
+	}
+	ELSE IFDEF "target_kotlin" {
+		return FileForKotlin.forPath(path)
+	}
+	ELSE IFDEF "target_swift" {
+		return FileForSwift.forPath(path)
+	}
+	ELSE IFDEF "target_browser_js" {
+		return FileForBrowserJS.forPath(path)
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
 }
 
 **
@@ -194,10 +169,6 @@ func forRawPath(path as string) static as this
 
 func forRelativePath(path as string, relativeTo as this, alwaysSupportWindowsPathnames as bool = false) static as this
 {
-	if relativeTo == null:
-		return forPath(path)
-	if path == null:
-		Error.throw("invalidPath", path)
 	if PathInfo.isAbsolutePath(path):
 		return forPath(path)
 	var sep = PathInfo.getPathSeparator()
@@ -232,7 +203,7 @@ func forRelativePath(path as string, relativeTo as this, alwaysSupportWindowsPat
 ** but like this: myDir.entry("a").entry("b").entry("c")
 **
 
-func entry(name as string) virtual abstract as this
+func entry(name as string) abstract as this
 
 **
 ** Returns a new file object that represents a file with a given name that is
@@ -250,7 +221,7 @@ func rawEntry(name as string) virtual as this:
 ** represents a file or directory that was found inside the directory.
 **
 
-func entries virtual abstract as Iterator<this>
+func entries abstract as Iterator<this>
 
 **
 ** Moves the filesystem entry represented by the current object to a new location
@@ -259,7 +230,7 @@ func entries virtual abstract as Iterator<this>
 ** Otherwise an error status will occur.
 **
 
-func move(dest as this, replace as bool) virtual abstract
+func move(dest as this, replace as bool) abstract
 
 **
 ** Touches the currently represented filesystem entry. This means: If the entry
@@ -268,14 +239,14 @@ func move(dest as this, replace as bool) virtual abstract
 ** modification timestamp will reflect the current time after this operation.
 **
 
-func touch virtual abstract
+func touch abstract
 
 **
 ** Starts reading the contents of the file, and returns a FileReader object that
 ** can be used to access the contents.
 **
 
-func read virtual abstract as FileReader
+func read abstract as FileReader
 
 **
 ** Starts writing to the contents of the file, and returns a FileWriter object that
@@ -283,7 +254,7 @@ func read virtual abstract as FileReader
 ** if it has existing contents.
 **
 
-func write virtual abstract as FileWriter
+func write abstract as FileWriter
 
 **
 ** Starts writing to the contents of the file, and returns a FileWriter object that
@@ -292,7 +263,7 @@ func write virtual abstract as FileWriter
 ** appended to the existing contents.
 **
 
-func append virtual abstract as FileWriter
+func append abstract as FileWriter
 
 **
 ** Queries for detailed information about the file, and returns a FileInfo object
@@ -301,7 +272,7 @@ func append virtual abstract as FileWriter
 ** the exists() method of the returned object.
 **
 
-func stat virtual abstract as FileInfo
+func stat abstract as FileInfo
 
 **
 ** Creates a new directory on the filesystem using the path represented by the
@@ -309,7 +280,7 @@ func stat virtual abstract as FileInfo
 ** fail. To automatically create also parent directories, see createDirectoryRecursive()
 **
 
-func createDirectory virtual abstract
+func createDirectory abstract
 
 **
 ** Creates a new directory on the filesystem using the path represented by the
@@ -317,28 +288,28 @@ func createDirectory virtual abstract
 ** be existing.
 **
 
-func createDirectoryRecursive virtual abstract
+func createDirectoryRecursive abstract
 
 **
 ** Removes the directory represented by the current object. If the filesystem
 ** entry does not exist or is not a directory, this method will fail.
 **
 
-func removeDirectory virtual abstract
+func removeDirectory abstract
 
 **
 ** Gets a string representation of the fully qualified pathname that this File
 ** object represents.
 **
 
-func getPath virtual abstract as string
+func getPath abstract as string
 
 **
 ** Removes the file or other non-directory filesystem entry that this object points
 ** to. If the entry does not exist or is a directory, this method will fail.
 **
 
-func remove virtual abstract
+func remove abstract
 
 **
 ** Makes the current file executable, if possible with regards to the semantics
@@ -346,7 +317,7 @@ func remove virtual abstract
 ** attribute on Unix-like operating systems.
 **
 
-func makeExecutable virtual abstract
+func makeExecutable abstract
 
 **
 ** Gets a string representation of the pathname that this File object represents.
@@ -357,10 +328,8 @@ func makeExecutable virtual abstract
 ** replaced with the contents of the prefix parameter.
 **
 
-func getRelativePath(baseFile as this, prefix as string) virtual as string
+func getRelativePath(baseFile as this, prefix as string?) virtual as string?
 {
-	if not baseFile:
-		Error.throw("noBaseFile", null)
 	var vp = getPath()
 	var bp = baseFile.getPath()
 	while String.endsWith(bp, "/") || String.endsWith(bp, "\\"):
@@ -382,7 +351,7 @@ func getRelativePath(baseFile as this, prefix as string) virtual as string
 ** beginning of the path will be replaced with the contents of the prefix parameter.
 **
 
-func getRelativePathOrBasename(baseFile as this, prefix as string) virtual as string
+func getRelativePathOrBasename(baseFile as this, prefix as string?) virtual as string
 {
 	var v = getRelativePath(baseFile, prefix)
 	if v:
@@ -409,9 +378,8 @@ func rename(newname as string, replace as bool) virtual:
 
 func writeFromReader(reader as Reader, doAppend as bool) virtual
 {
-	assert reader
-	var buffer = malloc 1024
-	var writer as FileWriter
+	var buffer = Buffer.allocate(1024)
+	var writer as FileWriter?
 	if doAppend {
 		writer = append()
 	}
@@ -438,7 +406,7 @@ func writeFromReader(reader as Reader, doAppend as bool) virtual
 **
 
 func createFifo virtual:
-	Error.throw("notSupported", "File.createFifo")
+	ERROR "notImplemented"
 
 **
 ** Returns true if the file represented by the current object is possible to be
@@ -454,15 +422,15 @@ func isExecutable virtual as bool
 		return false
 	}
 	ELSE IFDEF "target_android" {
-		return stat().getExecutable()
+		return stat().executable
 	}
 	ELSE IFDEF "target_darwin" {
-		return stat().getExecutable()
+		return stat().executable
 	}
 	ELSE {
 		if OS.isWindows():
 			return hasExtension("exe") || hasExtension("bat") || hasExtension("cmd") || hasExtension("com")
-		return stat().getExecutable()
+		return stat().executable
 	}
 }
 
@@ -475,7 +443,7 @@ func isExecutable virtual as bool
 func exists virtual as bool
 {
 	var fi = stat()
-	return fi.getType() != FileInfo.FILE_TYPE_UNKNOWN
+	return fi.type != FileInfo.FILE_TYPE_UNKNOWN
 }
 
 **
@@ -485,13 +453,12 @@ func exists virtual as bool
 
 func isIdentical(file as this) virtual as bool
 {
-	assert file
 	assert exists()
 	assert file.exists()
 	var myrd = read()
 	var oord = file.read()
-	var mybuf = malloc 1024
-	var oobuf = malloc 1024
+	var mybuf = Buffer.allocate(1024)
+	var oobuf = Buffer.allocate(1024)
 	var v = true
 	while v {
 		var myr = myrd.read(mybuf)
@@ -508,7 +475,7 @@ func isIdentical(file as this) virtual as bool
 						v = false
 				}
 				ELSE IFDEF "target_kotlin" {
-					v = lang "kotlin" bool {{{ if (mybuf!!.get(n) != oobuf!!.get(n)) false else true }}}
+					v = lang "kotlin" as bool {{{ if (mybuf!!.get(n) != oobuf!!.get(n)) false else true }}}
 				}
 				ELSE {
 					if mybuf[n] != oobuf[n] {
@@ -525,24 +492,20 @@ func isIdentical(file as this) virtual as bool
 
 class ReadLineIterator is Iterator<string>
 {
-	pvar reader as PrintReader
+	prop reader as PrintReader
 
 	func next as string
 	{
-		assert reader
 		var v = reader.readLine()
 		if v == null {
 			reader.close()
-			reader = null
+			Error.throw("noMoreLinesToRead", reader)
 		}
 		return v
 	}
 
-	func hasNext as bool
-	{
-		assert reader
+	func hasNext as bool:
 		return not reader.hasEnded()
-	}
 }
 
 **
@@ -554,8 +517,9 @@ class ReadLineIterator is Iterator<string>
 
 func readLines as Iterator<string>
 {
-	var rd = PrintReader.forReader(read())
-	return new ReadLineIterator().setReader(rd)
+	return new ReadLineIterator() {
+		reader PrintReader.forReader(read())
+	}
 }
 
 **
@@ -567,14 +531,9 @@ func readLines as Iterator<string>
 
 func readLinesVector as vector<string>
 {
-	var it = readLines()
 	var v = new vector<string>
-	loop {
-		var line = it.next()
-		if not line:
-			break
+	foreach line in readLines():
 		v += line
-	}
 	return v
 }
 
@@ -599,10 +558,7 @@ func getLastModifiedTimeStamp as long
 {
 	if isFile() == false:
 		return 0
-	var st = stat()
-	if st == null:
-		return 0
-	return st.getModifyTime() as long
+	return stat().modifyTime
 }
 
 **
@@ -614,8 +570,6 @@ func getLastModifiedTimeStamp as long
 
 func compareModificationTime(bf as this) virtual as int
 {
-	if bf == null:
-		return 1
 	var myts = getLastModifiedTimeStamp()
 	var bfts = bf.getLastModifiedTimeStamp()
 	if myts < bfts:
@@ -649,9 +603,8 @@ func isOlderThan(bf as this) virtual as bool:
 
 func isSame(file as this) virtual as bool
 {
-	assert file
 	var path = getPath()
-	if path && path == file.getPath():
+	if path == file.getPath():
 		return true
 	return false
 }
@@ -668,13 +621,8 @@ func removeRecursive virtual
 		remove()
 		return
 	}
-	var it = entries()
-	while it {
-		var f = it.next()
-		if not f:
-			break
+	foreach f in entries():
 		f.removeRecursive()
-	}
 	removeDirectory()
 }
 
@@ -713,11 +661,8 @@ func isLink virtual as bool
 ** Returns the size in bytes of the current file.
 **
 
-func getSize virtual as int
-{
-	var st = stat()
-	return st.getSize()
-}
+func getSize virtual as long:
+	return stat().size
 
 **
 ** Sets the mode permissions of this file. The implementation and functionality
@@ -726,7 +671,7 @@ func getSize virtual as int
 **
 
 func setMode(mode as int) virtual:
-	ERROR "Not implemented"
+	ERROR "notImplemented"
 
 **
 ** Sets the user id (uid) of the owner of this file. Only applicable if the underlying
@@ -734,7 +679,7 @@ func setMode(mode as int) virtual:
 **
 
 func setOwnerUser(uid as int) virtual:
-	ERROR "Not implemented"
+	ERROR "notImplemented"
 
 **
 ** Sets the group id (gid) of the owner of this file. Only applicable if the underlying
@@ -742,7 +687,7 @@ func setOwnerUser(uid as int) virtual:
 **
 
 func setOwnerGroup(gid as int) virtual:
-	ERROR "Not implemented"
+	ERROR "notImplemented"
 
 **
 ** Returns a new file object that represents the same path as the current object,
@@ -752,8 +697,6 @@ func setOwnerGroup(gid as int) virtual:
 
 func withExtension(ext as string) virtual as this
 {
-	if not ext:
-		return this
 	var bn = getBasename()
 	return getSibling(bn .. "." .. ext)
 }
@@ -804,13 +747,8 @@ func asExecutable virtual as this
 ** Returns the parent directory of the currently referenced file or directory.
 **
 
-func getParent virtual as this
-{
-	var path = directoryName()
-	if path == null:
-		Error.throw("noDirectoryName", this)
-	return forPath(path)
-}
+func getParent virtual as this:
+	return forPath(directoryName())
 
 **
 ** Returns a new file object that references another file in the same directory
@@ -818,12 +756,22 @@ func getParent virtual as this
 ** If name is null, then returns the parent directory.
 **
 
-func getSibling(name as string) virtual as this
+func getSibling(name as string) virtual as this:
+	return getParent().entry(name)
+
+**
+** Returns the filename extension (if any) of the current file as a string.
+** Eg. File.forPath("test.exe").extension() would return "exe". Returns null
+** if the file has no extension.
+**
+
+func extension virtual as string?
 {
-	var pp = getParent()
-	if name == null:
-		return pp
-	return pp.entry(name)
+	var bn = getBasename()
+	var dot = String.getLastIndexOfCharacter(bn, '.')
+	if dot < 0:
+		return null
+	return String.getEndOfString(bn, dot+1)
 }
 
 **
@@ -835,21 +783,6 @@ func hasExtension(ext as string) virtual as bool
 {
 	var xx = assert extension()
 	return String.equalsIgnoreCase(xx, ext)
-}
-
-**
-** Returns the filename extension (if any) of the current file as a string.
-** Eg. File.forPath("test.exe").extension() would return "exe". Returns null
-** if the file has no extension.
-**
-
-func extension virtual as string
-{
-	var bn = assert getBasename()
-	var dot = String.getLastIndexOfCharacter(bn, '.')
-	if dot < 0:
-		return null
-	return String.getEndOfString(bn, dot+1)
 }
 
 **
@@ -916,16 +849,14 @@ func getBasenameWithoutExtension virtual as string
 
 func copyFileTo(dest as this)
 {
-	if not dest:
-		Error.throw("noDestinationFile", null)
 	if this.isSame(dest):
 		return
-	var reader as FileReader
-	var writer as FileWriter
+	var reader as FileReader?
+	var writer as FileWriter?
 	try {
-		var buf = malloc (4096 * 4)
-		var reader = this.read()
-		var writer = dest.write()
+		var buf = Buffer.allocate(4096 * 4)
+		reader = this.read()
+		writer = dest.write()
 		var n = 0
 		while (n = reader.read(buf)) > 0 {
 			var nr = writer.write(buf, n)
@@ -935,7 +866,7 @@ func copyFileTo(dest as this)
 			}
 		}
 		var fi = this.stat()
-		var mode = fi.getMode()
+		var mode = fi.mode
 		if mode != 0:
 			dest.setMode(mode)
 	}
@@ -943,10 +874,12 @@ func copyFileTo(dest as this)
 		throw e
 	}
 	finally {
-		if reader && reader is Closable:
-			(reader as! Closable).close()
-		if writer && writer is Closable:
-			(writer as! Closable).close()
+		var rc = reader as Closable
+		if rc:
+			rc.close()
+		var wc = writer as Closable
+		if wc:
+			wc.close()
 	}
 }
 
@@ -957,19 +890,13 @@ func copyFileTo(dest as this)
 
 func copyFileOrDirectoryTo(dest as this)
 {
-	if not dest:
-		Error.throw("noDestinationFile", null)
 	if isFile() {
 		copyFileTo(dest)
 		return
 	}
 	if isDirectory() {
 		dest.createDirectoryRecursive()
-		var it = entries()
-		loop {
-			var nsrc = it.next()
-			if not nsrc:
-				break
+		foreach nsrc in entries() {
 			var ndest = dest.entry(nsrc.getBasename())
 			nsrc.copyFileOrDirectoryTo(ndest)
 		}
@@ -985,12 +912,8 @@ func copyFileOrDirectoryTo(dest as this)
 ** encoding specified.
 **
 
-func setContentsString(str as string, encoding as string) virtual
-{
-	if String.isEmpty(encoding):
-		Error.throw("noEncoding", encoding)
+func setContentsString(str as string, encoding as string) virtual:
 	setContentsBuffer(String.toBuffer(str, encoding))
-}
 
 **
 ** Truncates and replaces the contents of the given filesystem entry. after
@@ -1010,12 +933,10 @@ func setContentsUTF8(str as string) virtual:
 func setContentsBuffer(buffer as buffer) virtual
 {
 	var writer = write()
-	if buffer {
-		var sz = (sizeof buffer) as int
-		if writer.write(buffer, sz) < sz {
-			writer.close()
-			Error.throw("failedToWriteAllBytes", this)
-		}
+	var sz = (sizeof buffer) as int
+	if writer.write(buffer, sz) < sz {
+		writer.close()
+		Error.throw("failedToWriteAllBytes", this)
 	}
 	writer.close()
 }
@@ -1025,18 +946,8 @@ func setContentsBuffer(buffer as buffer) virtual
 ** The file contents are decoded using the specified character encoding.
 **
 
-func getContentsString(encoding as string) virtual as string
-{
-	if String.isEmpty(encoding):
-		Error.throw("noEncoding", encoding)
-	var b = getContentsBuffer()
-	if not b {
-		if isFile() && getSize() == 0:
-			return ""
-		Error.throw("failedToReadFileContents", this)
-	}
-	return String.forBuffer(b, encoding)
-}
+func getContentsString(encoding as string) virtual as string:
+	return String.forBuffer(getContentsBuffer(), encoding)
 
 **
 ** Reads the entire contents of the file and returns them as a string object.
@@ -1044,16 +955,8 @@ func getContentsString(encoding as string) virtual as string
 ** does not exist or if any other error is encountered, this method throws an error.
 **
 
-func getContentsUTF8 virtual as string
-{
-	var b = getContentsBuffer()
-	if not b {
-		if isFile() && getSize() == 0:
-			return ""
-		Error.throw("failedToReadFileContents", this)
-	}
-	return String.forUTF8Buffer(b)
-}
+func getContentsUTF8 virtual as string:
+	return String.forUTF8Buffer(getContentsBuffer())
 
 **
 ** Reads the entire contents of the file and returns them as a string object.
@@ -1061,7 +964,7 @@ func getContentsUTF8 virtual as string
 ** does not exist or if any other error is encountered, this method returns null.
 **
 
-func tryGetContentsUTF8 virtual as string
+func tryGetContentsUTF8 virtual as string?
 {
 	try {
 		return getContentsUTF8()
@@ -1073,18 +976,20 @@ func tryGetContentsUTF8 virtual as string
 
 **
 ** Reads the entire contents of the file and returns them as a buffer object. If the file
-** does not exist or if any other error is encountered, this method throws an error.
+** does not exist or if any other error is encountered, this method throws an error. This
+** method will return a valid null value if the file exists and is readable but does not have
+** any contents (zero-size file). This is not an error condition.
 **
 
 func getContentsBuffer virtual as buffer
 {
-	var reader = assert read()
+	var reader = read()
 	var sz = reader.getSize()
 	if sz < 1 {
 		reader.close()
-		return null
+		return Buffer.allocate(0)
 	}
-	var b = malloc sz
+	var b = Buffer.allocate(sz)
 	var rsz = reader.read(b)
 	reader.close()
 	if rsz < sz:
@@ -1094,17 +999,15 @@ func getContentsBuffer virtual as buffer
 
 **
 ** Reads the entire contents of the file and returns them as a buffer object. If the file
-** does not exist or if any other error is encountered, this method returns null.
+** does not exist, this method returns null instead of throwing an error. Any other errors
+** are still thrown the same way as with getContentsBuffer().
 **
 
-func tryGetContentsBuffer virtual as buffer
+func getContentsBufferIfExists virtual as buffer?
 {
-	try {
-		return getContentsBuffer()
-	}
-	catch e {
-	}
-	return null
+	if not exists():
+		return null
+	return getContentsBuffer()
 }
 
 **

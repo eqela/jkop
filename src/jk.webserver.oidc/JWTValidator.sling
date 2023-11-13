@@ -24,7 +24,6 @@
 
 import jk.log
 import jk.json
-import jk.nodejs
 import jk.base64
 import jk.webclient
 
@@ -47,24 +46,21 @@ func forJwksUrl(ctx as LoggingContext, url as string) static as this
 }
 
 prop ctx as LoggingContext
-prop issuerBaseUrl as string
-prop jwksUrl as string
+prop issuerBaseUrl as string?
+prop jwksUrl as string?
 
 func getFinalJwksUrl async as string
 {
-	if String.isNotEmpty(jwksUrl):
-		return jwksUrl
+	var url = jwksUrl
+	if String.isNotEmpty(url):
+		return url
 	if String.isEmpty(issuerBaseUrl):
 		Error.throw("failedToGetJWKSUri", "noUrlSpecified")
 	var issuerUrl = issuerBaseUrl .. "/.well-known/openid-configuration"
 	var oidc = await WebClient.instance().executeQuery(ctx, "GET", issuerUrl, null, null)
-	if not oidc:
-		Error.throw("failedToGetJWKSUri", issuerUrl)
 	if String.equals(oidc.statusCode, "200") == false:
 		Error.throw("failedToGetJWKSUri", String.forUTF8Buffer(oidc.body))
 	var v = oidc.getBodyAsDynamicMap()
-	if not v:
-		Error.throw("failedToGetJWKSUri", "invalidResponseBody")
 	var rr = v.getString("jwks_uri")
 	if String.isEmpty(rr):
 		Error.throw("failedToGetJWKSUri", "emptyUri")
@@ -72,12 +68,13 @@ func getFinalJwksUrl async as string
 	return rr
 }
 
-IFDEF "target_nodejs"
+IFDEF "target_node_js"
 {
+	import jk.nodejs
 	depend "npm:jsonwebtoken:9.0.0"
 	depend "npm:jwks-rsa:3.0.1"
 
-	var jwksClient as dynamic
+	var jwksClient as dynamic?
 
 	func getJwksClient(uri as string) as dynamic
 	{
@@ -85,45 +82,48 @@ IFDEF "target_nodejs"
 			var jwksRsa = NodeModule.require("jwks-rsa")
 			jwksClient = jwksRsa({ jwksUri uri })
 		}
+		if jwksClient == null:
+			Error.throw("failedToCreateJwksClient", null)
 		return jwksClient
 	}
 }
 
-func validateSignature(token as string) async as bool
+func validateSignatureOrThrowError(token as string) async
 {
 	var comps = String.split(token, '.', 3)
-	var hdrEncoded = Vector.get(comps, 0)
+	var hdrEncoded = Vector.getValue(comps, 0)
 	if String.isEmpty(hdrEncoded):
-		return false
+		Error.throw("jwtTokenHasNoHeader", token)
 	var hbuffer = Base64Decoder.decode(Base64Decoder.fromUrlSafeFormat(hdrEncoded))
-	if not hbuffer:
-		return false
-	var header = JSONParser.parse(String.forUTF8Buffer(hbuffer)) as DynamicMap
-	if not header:
-		return false
+	var header = JSONParser.parseStringAsMap(String.forUTF8Buffer(hbuffer))
 	var kid = header.getString("kid")
 	if String.isEmpty(kid):
-		return false
+		Error.throw("jwtTokenHasNoKid", token)
 	var jwksUri = await getFinalJwksUrl()
-	var v = false
-	IFDEF "target_nodejs" {
-		try {
-			var jwksClient = getJwksClient(jwksUri)
-			var key = await jwksClient.getSigningKey(kid)
-			var pkey = key.getPublicKey()
-			var jwtVerifier = NodeModule.require("jsonwebtoken")
-			var verify = jwtVerifier.verify(token, pkey, {
-				clockTolerance 300
-			})
-			if verify:
-				v = true
-		}
-		catch(e) {
-			v = false
-		}
+	IFDEF "target_node_js" {
+		var jwksClient = getJwksClient(jwksUri)
+		var key = await jwksClient.getSigningKey!(kid)
+		if key == null:
+			Error.throw("cannotGetJwksSigningKey", kid)
+		var pkey = key.getPublicKey!()
+		var jwtVerifier = NodeModule.require("jsonwebtoken")
+		jwtVerifier.verify!(token, pkey, {
+			clockTolerance 300
+		})
 	}
 	ELSE {
-		Error.throw("notImplemented", "validateJWTSignature")
+		ERROR "notImplemented"
 	}
-	return v
+}
+
+func validateSignatureOrReturnFalse(ctx as LoggingContext, token as string) async as bool
+{
+	try {
+		validateSignatureOrThrowError(token)
+		return true
+	}
+	catch e {
+		Log.error(ctx, "JWT validation failed: `" .. String.asValueOrEmptyString(e) .. "'")
+	}
+	return false
 }

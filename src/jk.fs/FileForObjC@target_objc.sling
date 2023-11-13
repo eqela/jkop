@@ -28,7 +28,7 @@ class is File private:
 
 class MyReader is FileReader is Reader is SizedReader is Closable is SeekableReader
 {
-	pvar handle as !"NSFileHandle*"
+	pvar handle as native<"NSFileHandle*">?
 	pvar size as int
 
 	func close
@@ -77,14 +77,14 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 	{
 		if buf == null || handle == null:
 			return 0
-		var data as buffer
-		var mx #used = lang "objc" int {{{ [buf length] }}}
+		var data as buffer?
+		var mx = lang "objc" as int {{{ [buf length] }}}
 		lang "objc" {{{
 			data = [handle readDataOfLength:mx];
 		}}}
 		if data == null:
 			return 0
-		var dlen = lang "objc" int {{{ [data length] }}}
+		var dlen = lang "objc" as int {{{ [data length] }}}
 		if dlen < 1:
 			return 0
 		lang "objc" {{{
@@ -95,19 +95,19 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 
 	func readAll as buffer
 	{
-		return lang "objc" buffer {{{ [handle readDataToEndOfFile] }}}
+		return lang "objc" as buffer {{{ [handle readDataToEndOfFile] }}}
 	}
 }
 
 class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 {
-	pvar handle as !"NSFileHandle*"
+	pvar handle as native<"NSFileHandle*">?
 
 	func write(buffer as buffer, size as int) as int
 	{
 		if buffer == null:
 			return 0
-		var ptr #used = buffer
+		var ptr = buffer
 		if size >= 0 && size != Buffer.getSize(ptr):
 			ptr = Buffer.getSubBuffer(ptr, 0, size)
 		var v = Buffer.getSize(ptr)
@@ -165,51 +165,42 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 	}
 }
 
-func forPath(path as string) static as File
-{
+func forPath(path as string) static as File:
 	return new this(path)
-}
 
-var path as string
-var manager as !"NSFileManager*"
+var path as string?
+var manager as native<"NSFileManager*">?
 
 ctor(path as string)
 {
-	this.path = lang "objc" string {{{ [path stringByStandardizingPath] }}}
+	this.path = lang "objc" as string {{{ [path stringByStandardizingPath] }}}
 	lang "objc" {{{
 		manager = [NSFileManager defaultManager];
 	}}}
 }
 
-func entry(name as string) override as File
-{
+func entry(name as string) override as File:
 	return new this(path .. "/" .. name)
-}
 
-func write override as FileWriter
-{
+func write override as FileWriter:
 	return getMyWriter(true)
-}
 
-func append override as FileWriter
-{
+func append override as FileWriter:
 	return getMyWriter(false)
-}
 
 func entries override as Iterator<File>
 {
-	var files as array<string>
 	var v = new vector<File>
+	var files as array<string>?
 	lang "objc" {{{
 		files = [manager contentsOfDirectoryAtPath:path error:nil];
 	}}}
-	if not files:
-		return null
-	foreach p as string in files {
-		Vector.append(v, new this(this.path .. "/" .. p))
+	if files {
+		foreach p as string in files {
+			Vector.appendValue(v, new this(this.path .. "/" .. p))
+		}
 	}
-	var entries as Iterator<File> #force = Vector.iterate(v)
-	return entries
+	return Vector.iterate(v)
 }
 
 func move(dest as File, replace as bool) override stub as bool
@@ -221,9 +212,10 @@ func makeExecutable override stub as bool
 
 func stat override as FileInfo
 {
-	var v = new FileInfo()
-	v.setFile(this)
-	var dict as !"NSDictionary*"
+	var v = new FileInfo() {
+		file this
+	}
+	var dict as native<"NSDictionary*">?
 	lang "objc" {{{
 		dict = [manager attributesOfItemAtPath:path error:nil];
 		[v setSize:[[dict objectForKey:NSFileSize] integerValue]];
@@ -241,21 +233,21 @@ func stat override as FileInfo
 		}
 	}}}
 	if isFile():
-		v.setType(FileInfo.FILE_TYPE_FILE)
+		v.type = FileInfo.FILE_TYPE_FILE
 	else if isDirectory() {
-		v.setType(FileInfo.FILE_TYPE_DIR)
+		v.type = FileInfo.FILE_TYPE_DIR
 	}
 	return v
 }
 
 func getMyReader private as MyReader
 {
-	var handle as !"NSFileHandle*"
+	var handle as native<"NSFileHandle*">?
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForReadingAtPath:path];
 	}}}
 	if handle == null:
-		return null
+		Error.throw("failedToOpenFileForReading", path)
 	var v = new MyReader()
 	v.setSize(getSize())
 	v.setHandle(handle)
@@ -269,12 +261,12 @@ func getMyWriter(truncate as bool) private as MyWriter
 			[manager createFileAtPath:path contents:nil attributes:nil];
 		}}}
 	}
-	var handle as !"NSFileHandle*"
+	var handle as native<"NSFileHandle*">?
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForWritingAtPath:path];
 	}}}
 	if handle == null:
-		return null
+		Error.throw("failedToOpenFileForWriting", path)
 	if truncate {
 		lang "objc" {{{
 			[handle truncateFileAtOffset:0];
@@ -285,16 +277,14 @@ func getMyWriter(truncate as bool) private as MyWriter
 	return v
 }
 
-func read override as FileReader
-{
+func read override as FileReader:
 	return getMyReader()
-}
 
 func exists override as bool:
-	return lang "objc" bool {{{ [manager fileExistsAtPath:path] }}}
+	return lang "objc" as bool {{{ [manager fileExistsAtPath:path] }}}
 
 func isExecutable override as bool:
-	return lang "objc" bool {{{ [manager isExecutableFileAtPath:path] }}}
+	return lang "objc" as bool {{{ [manager isExecutableFileAtPath:path] }}}
 
 func isFile override as bool
 {
@@ -305,7 +295,7 @@ func isFile override as bool
 	}}}
 	if v == false:
 		return false
-	return !isdir
+	return not isdir
 }
 
 func isDirectory override as bool
@@ -322,7 +312,7 @@ func isDirectory override as bool
 
 func createDirectory override as bool
 {
-	return lang "objc" bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
+	return lang "objc" as bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
 }
 
 func isLink override stub as bool
@@ -331,24 +321,20 @@ func removeDirectory override stub as bool
 
 func getPath override as string
 {
+	if not path:
+		Error.throw("noPathForFile", this)
 	return path
 }
 
-func remove override as bool
-{
-	return lang "objc" bool {{{ [manager removeItemAtPath:path error:nil] }}}
-}
+func remove override as bool:
+	return lang "objc" as bool {{{ [manager removeItemAtPath:path error:nil] }}}
 
-func getBasename override as string
-{
-	return lang "objc" string {{{ [manager displayNameAtPath:path] }}}
-}
+func getBasename override as string:
+	return String.safeString(lang "objc" as string {{{ [manager displayNameAtPath:path] }}})
 
 func getContentsBuffer override as buffer
 {
 	var rr = getMyReader()
-	if rr == null:
-		return null
 	return rr.readAll()
 }
 

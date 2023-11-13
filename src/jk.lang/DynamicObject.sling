@@ -26,48 +26,35 @@ class:
 
 class StringIteratorWrapper is Iterator<dynamic>
 {
-	pvar iterator as CharacterIterator
+	prop iterator as Iterator<char>
 
 	func next as dynamic
 	{
-		if not iterator:
-			return null
-		var c = iterator.getNextChar()
-		if Character.isEOF(c) {
-			iterator = null
-			return null
-		}
+		var c = iterator.next()
 		IFDEF "target_objc" {
-			return lang "objc" dynamic {{{ [NSNumber numberWithUnsignedInt:c] }}}
+			return lang "objc" as dynamic {{{ [NSNumber numberWithUnsignedInt:c] }}}
 		}
 		ELSE {
 			return c
 		}
 	}
 
-	func hasNext as bool
-	{
-		assert iterator
-		return not iterator.hasEnded()
-	}
+	func hasNext as bool:
+		return iterator.hasNext()
 }
 
 class BufferIteratorWrapper is Iterator<dynamic>
 {
-	pvar buffer as buffer
-	pvar size as long
+	prop buffer as buffer
+	prop size as long
 	var position = 0
 
 	func next as dynamic
 	{
-		if not buffer:
-			return null
-		if position >= size:
-			return null
 		var v = buffer[position]
 		position++
 		IFDEF "target_objc" {
-			return lang "objc" dynamic {{{ [NSNumber numberWithUnsignedInt:v] }}}
+			return lang "objc" as dynamic {{{ [NSNumber numberWithUnsignedInt:v] }}}
 		}
 		ELSE {
 			return v
@@ -76,7 +63,6 @@ class BufferIteratorWrapper is Iterator<dynamic>
 
 	func hasNext as bool
 	{
-		assert buffer
 		assert position < size - 1
 		return true
 	}
@@ -84,16 +70,12 @@ class BufferIteratorWrapper is Iterator<dynamic>
 
 class ArrayIteratorWrapper is Iterator<dynamic>
 {
-	pvar array as array
-	pvar size as long
+	prop array as array<dynamic>
+	prop size as long
 	var position = 0
 
 	func next as dynamic
 	{
-		if not array:
-			return null
-		if position >= size:
-			return null
 		var v = array[position]
 		position++
 		return v
@@ -101,7 +83,6 @@ class ArrayIteratorWrapper is Iterator<dynamic>
 
 	func hasNext as bool
 	{
-		assert array
 		assert position < size - 1
 		return true
 	}
@@ -109,16 +90,12 @@ class ArrayIteratorWrapper is Iterator<dynamic>
 
 class VectorIteratorWrapper is Iterator<dynamic>
 {
-	pvar vector as vector
-	pvar size as long
+	prop vector as vector<dynamic>
+	prop size as long
 	var position = 0
 
 	func next as dynamic
 	{
-		if not vector:
-			return null
-		if position >= size:
-			return null
 		var v = vector[position]
 		position++
 		return v
@@ -126,39 +103,34 @@ class VectorIteratorWrapper is Iterator<dynamic>
 
 	func hasNext as bool
 	{
-		assert vector
 		assert position < size - 1
 		return true
 	}
 }
 
-func iterate(value as dynamic) static as Iterator<dynamic>
+func iterate(value as dynamic) static as Iterator<dynamic>?
 {
-	if value is string {
-		var v = new StringIteratorWrapper()
-		v.setIterator(String.iterate(value as! string))
-		return v
-	}
-	if value is buffer {
-		var v = new BufferIteratorWrapper()
-		v.setBuffer(value as! buffer)
-		v.setSize(sizeof value as! buffer)
-		return v
-	}
-	if value is array {
-		var v = new ArrayIteratorWrapper()
-		v.setArray(value as! array)
-		v.setSize(sizeof value as! array)
-		return v
-	}
-	if value is vector {
-		var v = new VectorIteratorWrapper()
-		v.setVector(value as! vector)
-		v.setSize(sizeof value as! vector)
-		return v
-	}
-	if value is map:
-		return iterate(Map.getValues(value as! map))
+	if var valueString = value as string:
+		return new StringIteratorWrapper() {
+			iterator String.iterate(valueString)
+		}
+	if var valueBuffer = value as buffer:
+		return new BufferIteratorWrapper() {
+			buffer valueBuffer
+			size sizeof valueBuffer
+		}
+	if var valueArray = value as array<dynamic>:
+		return new ArrayIteratorWrapper() {
+			array valueArray
+			size sizeof valueArray
+		}
+	if var valueVector = value as vector<dynamic>:
+		return new VectorIteratorWrapper() {
+			vector valueVector
+			size sizeof valueVector
+		}
+	if var valueMap = value as map<string,dynamic>:
+		return iterate(Map.getValues(valueMap))
 	return null
 }
 
@@ -167,7 +139,6 @@ func iteratePropertyNames(object as dynamic) static as Iterator<string>:
 
 func getPropertyNames(object as dynamic) static as vector<string>
 {
-	assert object
 	IFDEF "target_js" {
 		var v = new vector<string>
 		lang "js" {{{
@@ -178,20 +149,16 @@ func getPropertyNames(object as dynamic) static as vector<string>
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func getPropertyValue(object as dynamic, key as string) static as dynamic
+func getPropertyValue(object as dynamic, key as string) static as dynamic?
 {
-	assert object
-	assert key
 	IFDEF "target_js" {
-		return lang "js" dynamic {{{ object[key] }}}
+		return lang "js" as dynamic? {{{ object[key] }}}
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }

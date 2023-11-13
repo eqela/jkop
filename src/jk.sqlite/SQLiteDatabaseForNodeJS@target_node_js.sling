@@ -1,0 +1,307 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.nodejs
+import jk.fs
+import jk.log
+
+class is SQLiteDatabase:
+
+depend "npm:better-sqlite3:8.4.0"
+
+var sqldatabase private as native<sqlite.Database>?
+
+class Statement is SQLStatement
+{
+	func create(db as native<sqlite.Database>, statement as string) static as this
+	{
+		var sqlPreparedStmt = db.prepare!(statement)
+		if sqlPreparedStmt == null:
+			Error.throw("failedToPrepareSqlStatement", statement)
+		return new this() {
+			sqlitedb db
+			sqlPreparedStmt sqlPreparedStmt
+		}
+	}
+
+	prop sqlitedb as native<sqlite.Database>
+	prop sqlPreparedStmt as native<sqlite.Statement>
+	var params = new vector<dynamic>
+
+	func addParamString(val as string) override:
+		params += val
+
+	func addParamInteger(val as int) override:
+		params += val
+
+	func addParamLongInteger(val as long) override:
+		params += val
+
+	func addParamDouble(val as double) override:
+		params += val
+
+	func addParamBlob(val as buffer) override:
+		params += val
+
+	func setParamString(name as string, val as string) override:
+		addParamString(val)
+
+	func setParamInteger(name as string, val as int) override:
+		addParamInteger(val)
+
+	func setParamLongInteger(name as string, val as long) override:
+		addParamLongInteger(val)
+
+	func setParamDouble(name as string, val as double) override:
+		addParamDouble(val)
+
+	func setParamBlob(name as string, val as buffer) override:
+		addParamBlob(val)
+
+	func resetStatement override:
+		Vector.clear(params)
+
+	func executeUpdateDelete as int
+	{
+		var result = sqlPreparedStmt.run!(params)
+		if result == null:
+			Error.throw("failedToExecuteSqlStatement", this)
+		return Integer.asValueOrDefaultValue(result.changes, 0)
+	}
+
+	func execute:
+		sqlPreparedStmt.run!(params)
+
+	func getIteratorStmt as dynamic
+	{
+		var v = sqlPreparedStmt.bind!(params)
+		if v == null:
+			Error.throw("failedToBindParameters", sqlPreparedStmt)
+		return v
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var nextRowValue as vector<dynamic>?
+	var currentRowValue as vector<dynamic>?
+	var rawColumnData as vector<dynamic>?
+	var columnNames = new vector<string>
+	var iterator as native<sqlite.Iterator>?
+
+	ctor(stmt as Statement):
+		initialize(stmt.getIteratorStmt())
+
+	func initialize(stmt as dynamic)
+	{
+		rawColumnData = stmt.columns!() as vector<dynamic>
+		iterator = stmt.raw!()!.iterate!()
+	}
+
+	func hasNext override as bool
+	{
+		if nextRowValue:
+			return true
+		if not iterator:
+			return false
+		var itr = iterator.next!()
+		if itr == null:
+			return false
+		if itr.done == true:
+			return false
+		nextRowValue = itr.value as vector<dynamic>
+		return true
+	}
+
+	func step override
+	{
+		if not hasNext():
+			Error.throw("noNextRecord", this)
+		currentRowValue = nextRowValue
+		nextRowValue = null
+	}
+
+	func next override as DynamicMap
+	{
+		step()
+		var columns = getColumnNames()
+		var data = new DynamicMap()
+		for(var i = 0; i < Vector.getSize(columns); i++):
+			data.setObject(columns[i], getColumnObject(i))
+		return data
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		var columns = getColumnCount()
+		for(var i = 0; i < columns; i++):
+			values += getColumnObject(i)
+	}
+
+	func getColumnInfo(n as int) private as dynamic
+	{
+		if not rawColumnData:
+			Error.throw("dataNotInitialized", "rawColumnData")
+		var v = Vector.getValue(rawColumnData, n)
+		if not v:
+			Error.throw("invalidColumnIndex", String.forInteger(n))
+		return v
+	}
+
+	func getColumnName(n as int) override as string:
+		return String.asValueOrThrowError(getColumnInfo(n).name)
+
+	func getColumnCount override as int
+	{
+		if rawColumnData == null:
+			return 0
+		return Vector.getSize(rawColumnData)
+	}
+
+	func getColumnNames override as vector<string>
+	{
+		if Vector.getSize(columnNames) > 0:
+			return columnNames
+		if rawColumnData == null:
+			return columnNames
+		foreach next in Vector.iterate(rawColumnData):
+			columnNames += String.asValueOrThrowError(next.name)
+		return columnNames
+	}
+
+	func getColumnType(n as int) as string
+	{
+		var info = getColumnInfo(n)
+		var type = String.asValueOrNull(info.type)
+		if type == null && String.asValueOrNull(info.name) != null:
+			type = "TEXT"
+		if not type:
+			Error.throw("unableToDetermineColumnType", info)
+		return type
+	}
+
+	func getCurrentRowValue(n as int) private as dynamic
+	{
+		if not currentRowValue:
+			Error.throw("dataNotInitialized", "currentRowValue")
+		var v = Vector.getValue(currentRowValue, n)
+		if not v:
+			Error.throw("invalidColumnIndex", String.forInteger(n))
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		var type = getColumnType(n)
+		if type == "INTEGER":
+			return Integer.wrapValue(getColumnInt(n))
+		if type == "BIGINT":
+			return LongInteger.wrapValue(getColumnLong(n))
+		if type == "BLOB":
+			return Buffer.wrapValue(getColumnBuffer(n))
+		if type == "DOUBLE" || type == "REAL":
+			return Double.wrapValue(getColumnDouble(n))
+		if type == "TEXT" || type == "VARCHAR(255)":
+			return getColumnString(n)
+		Error.throw("unsupportedColumnType", type)
+	}
+
+	func getColumnInt(n as int) override as int:
+		return Integer.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnDouble(n as int) override as double:
+		return Double.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnBuffer(n as int) override as buffer:
+		return Buffer.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnString(n as int) as string:
+		return String.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnLong(n as int) override as long:
+		return LongInteger.asValueOrThrowError(getCurrentRowValue(n))
+
+	func close override
+	{
+		rawColumnData = null
+		columnNames = new vector<string>
+		iterator = null
+		currentRowValue = null
+		nextRowValue = null
+	}
+}
+
+func initialize(file as File, openCreate as bool) override
+{
+	var sqlite = NodeModule.require("better-sqlite3")
+	var ctx as LoggingContext?
+	if openCreate == false && file.isFile() == false:
+		Error.throw("databaseDoesNotExist", file)
+	sqldatabase = sqlite(file.getPath()) 
+	Log.debug(ctx, "Opened Sqlite database: '" .. file.getPath() .. "'")
+}
+
+func closeConnection async override 
+{
+	lang "js" {{{
+		if (this.sqldatabase !== null) {
+			this.sqldatabase.close()
+			this.sqldatabase = null
+		}
+	}}}
+}
+
+func prepareStatement(sql as string) async override as SQLStatement
+{
+	if not sqldatabase:
+		Error.throw("databaseNotInitialized", sqldatabase)
+	return Statement.create(sqldatabase, sql)
+}
+
+func executeStatement(stmt as SQLStatement) async override
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidSqliteStatementObject", stmt)
+	ss.execute()
+}
+
+func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetIterator 
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidSqliteStatementObject", stmt)
+	return new ResultSet(ss)
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) async override as int
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidSqliteStatementObject", stmt)
+	return ss.executeUpdateDelete()
+}

@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-class is BooleanObject:
+class:
 
 meta
 {
@@ -32,39 +32,52 @@ meta
 	]]
 }
 
-func forValue(value as bool) static as this:
-	return new this(value)
-
-func asBoolean(obj as dynamic, defval as bool = false) static as bool #deprecated
+class MyBooleanObject is BooleanObject private
 {
-	meta {
-		description [[
-			Converts the given object to a boolean value, as much as is possible. Various
-			different objects can be supplied (including instances of BooleanObject, IntegerObject,
-			StringObject, DoubleObject, CharacterObject, ObjectWithSize as well as strings.
-			This method is simply an alias of asValue.
-		]]
-	}
-	return asValue(obj, defval)
+	prop value as bool
+
+	func toBoolean as bool:
+		return value
 }
 
-func asValue(obj as dynamic, defval as bool) static as bool
+func wrapValue(value as bool) static as BooleanObject:
+	return new MyBooleanObject() {
+		value value
+	}
+
+func asValueOrDefaultValue(obj as dynamic?, defaultValue as bool = false) static as bool
 {
 	meta {
 		description [[
 			Converts the given object to boolean and returns its value if possible, otherwise returns
-			the value given in "defval", if the conversion could not be performed. Various different
+			the value given in "defaultValue", if the conversion could not be performed. Various different
 			objects can be supplied (including instances of BooleanObject, IntegerObject, StringObject,
 			DoubleObject, CharacterObject, ObjectWithSize as well as strings.
 		]]
 	}
 	var v = asObject(obj)
 	if not v:
-		return defval
+		return defaultValue
 	return v.toBoolean()
 }
 
-func asObject(obj as dynamic) static as this
+func asValueOrThrowError(obj as dynamic?) static as bool
+{
+	meta {
+		description [[
+			Converts the given object to boolean and returns its value if possible, otherwise throws an error
+			if the conversion could not be performed. Various different objects can be supplied (including
+			instances of BooleanObject, IntegerObject, StringObject, DoubleObject, CharacterObject, ObjectWithSize
+			as well as strings.
+		]]
+	}
+	var v = asObject(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToBoolean", obj)
+	return v.toBoolean()
+}
+
+func asObject(obj as dynamic?) static as BooleanObject?
 {
 	meta {
 		description [[
@@ -77,88 +90,94 @@ func asObject(obj as dynamic) static as this
 	if obj == null:
 		return null
 	if obj is bool:
-		return new this(obj as bool)
-	if obj is this:
-		return obj as! this
+		return wrapValue(obj as bool)
 	if obj is BooleanObject {
 		var bo = obj as! BooleanObject
-		return new this(bo.toBoolean())
+		return wrapValue(bo.toBoolean())
 	}
 	if obj is int {
 		if obj as int == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is IntegerObject {
 		if (obj as! IntegerObject).toInteger() == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is long {
 		if obj as long == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is LongIntegerObject {
-		if (obj as! LongIntegerObject).toLong() == 0:
-			return new this(false)
-		return new this(true)
+		if (obj as! LongIntegerObject).toLongInteger() == 0:
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is string {
-		var str = String.toLowerCase(obj as! string)
-		if str == "yes" || str == "true" || str == "1":
-			return new this(true)
-		if str == "no" || str == "false" || str == "0":
-			return new this(false)
-		return null
+		var v = forStringOrNull(obj as! string)
+		if v == null:
+			return null
+		return wrapValue(v)
 	}
 	if obj is StringObject {
-		var str = (obj as! StringObject).toString()
-		if str {
-			str = String.toLowerCase(str)
-			if str == "yes" || str == "true" || str == "1":
-				return new this(true)
-			if str == "no" || str == "false" || str == "0":
-				return new this(false)
-		}
-		return null
+		var v = forStringOrNull((obj as! StringObject).toString())
+		if v == null:
+			return null
+		return wrapValue(v)
 	}
 	if obj is double {
 		if obj as double == 0.0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is DoubleObject {
 		if (obj as! DoubleObject).toDouble() == 0.0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is char {
 		if obj as int == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is CharacterObject {
 		if ((obj as! CharacterObject).toCharacter() as int) == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	if obj is ObjectWithSize {
 		var sz = (obj as! ObjectWithSize).getSize()
 		if sz == 0:
-			return new this(false)
-		return new this(true)
+			return wrapValue(false)
+		return wrapValue(true)
 	}
 	return null
 }
 
-ctor:
-	nop
+func forStringOrNull(str as string) static as bool?
+{
+	var str = String.toLowerCase(str)
+	if str == "yes" || str == "true" || str == "1":
+		return true
+	if str == "no" || str == "false" || str == "0":
+		return false
+	return null
+}
 
-ctor(value as bool):
-	setValue(value)
+func forStringOrDefaultValue(str as string, defaultValue as bool = false) static as bool
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		return defaultValue
+	return v
+}
 
-pvar value as bool
-
-func toBoolean as bool:
-	return value
+func forStringOrThrowError(str as string) static as bool
+{
+	var v = forStringOrNull(str)
+	if v == null:
+		Error.throw("stringCannotBeConvertedToBoolean", str)
+	return v
+}

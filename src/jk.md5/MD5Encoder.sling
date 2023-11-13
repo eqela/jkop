@@ -24,17 +24,15 @@
 
 class:
 
-IFDEF "target_netcore"
+IFDEF "target_dotnet_cs"
 {
 	depend "nuget:System.Security.Cryptography.Algorithms@4.3.*"
 }
 
 func encodeBuffer(buffer as buffer) static as string
 {
-	if buffer == null || Buffer.getSize(buffer) < 1:
-		return null
-	IFDEF "target_cs" {
-		var v as string
+	IFDEF "target_dotnet_cs" {
+		var v as string?
 		lang "cs" {{{
 			var md5 = System.Security.Cryptography.MD5.Create();
 			byte[] hash = md5.ComputeHash(buffer);
@@ -44,10 +42,12 @@ func encodeBuffer(buffer as buffer) static as string
 			}
 			v = sb.ToString();
 		}}}
+		if not v:
+			ERROR "failedToEncodeMD5Buffer"
 		return v
 	}
 	ELSE IFDEF "target_java" {
-		var v as string
+		var v as string?
 		lang "java" {{{
 			java.security.MessageDigest digest;
 			try {
@@ -85,13 +85,13 @@ func encodeBuffer(buffer as buffer) static as string
 		return v
 	}
 	ELSE IFDEF "target_js" {
-		return MD5EncoderForJavaScript.encode(buffer)
+		return MD5EncoderForJS.encode(buffer)
 	}
 	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" string {{{
+		lang "kotlin" {{{
 			val md = java.security.MessageDigest.getInstance("MD5")
-			return java.math.BigInteger(1, md.digest(buffer.toByteArray())).toString(16)
 		}}}
+		return lang "kotlin" as string {{{ java.math.BigInteger(1, md.digest(buffer.toByteArray())).toString(16) }}}
 	}
 	ELSE {
 		var md5 = new MD5EncoderGeneric()
@@ -102,12 +102,12 @@ func encodeBuffer(buffer as buffer) static as string
 func encodeString(string as string) static as string:
 	return encodeBuffer(String.toUTF8Buffer(string))
 
-func encodeObject(obj as object) static as string
+func encodeObject(obj as object) static as string?
 {
-	var bb = Buffer.asBuffer(obj)
+	var bb = Buffer.asValueOrNull(obj)
 	if bb:
 		return encodeBuffer(bb)
-	var ss = String.asString(obj)
+	var ss = String.asValueOrNull(obj)
 	if ss:
 		return encodeString(ss)
 	return null

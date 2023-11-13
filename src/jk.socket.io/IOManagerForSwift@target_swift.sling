@@ -28,15 +28,15 @@ depend "swift-import:Darwin"
 
 class MyEntry is IOManagerEntry is FileDescriptor
 {
-	pvar fdo as FileDescriptor
-	pvar master as parent
-	var rrl as function
-	var wrl as function
+	pvar fdo as FileDescriptor?
+	pvar master as parent?
+	var rrl as function<void>?
+	var wrl as function<void>?
 	var added = false
 
 	func getFileDescriptor as int
 	{
-		if !fdo:
+		if not fdo:
 			return -1
 		return fdo.getFileDescriptor()
 	}
@@ -55,20 +55,20 @@ class MyEntry is IOManagerEntry is FileDescriptor
 			wrl()
 	}
 
-	func setListeners(rrl as function, wrl as function) as bool
+	func setListeners(rrl as function<void>?, wrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		this.wrl = wrl
 		return update()
 	}
 
-	func setReadListener(rrl as function) as bool
+	func setReadListener(rrl as function<void>?) as bool
 	{
 		this.rrl = rrl
 		return update()
 	}
 
-	func setWriteListener(wrl as function) as bool
+	func setWriteListener(wrl as function<void>?) as bool
 	{
 		this.wrl = wrl
 		return update()
@@ -77,9 +77,9 @@ class MyEntry is IOManagerEntry is FileDescriptor
 	func update as bool
 	{
 		remove()
-		if !fdo || !master:
+		if not fdo || not master:
 			return
-		if !rrl && !wrl:
+		if not rrl && not wrl:
 			return true
 		if rrl:
 			master.addToReadList(this)
@@ -91,7 +91,7 @@ class MyEntry is IOManagerEntry is FileDescriptor
 
 	func remove as bool
 	{
-		if not added || !master:
+		if not added || not master:
 			return false
 		master.removeFromReadList(this)
 		master.removeFromWriteList(this)
@@ -103,9 +103,9 @@ class MyEntry is IOManagerEntry is FileDescriptor
 var exitflag as bool
 var running = false
 var commpipewritefd = -1
-var readlist as vector<IOManagerEntry> = null
-var writelist as vector<IOManagerEntry> = null
-var listActionQueue as vector<ListAction> = null
+var readlist as vector<IOManagerEntry>? = null
+var writelist as vector<IOManagerEntry>? = null
+var listActionQueue as vector<ListAction>? = null
 
 ctor
 {
@@ -248,7 +248,7 @@ class ListAction
 	const REMOVE_FROM_READ_LIST = 1
 	const ADD_TO_WRITE_LIST = 2
 	const REMOVE_FROM_WRITE_LIST = 3
-	var entry public as IOManagerEntry
+	var entry public as IOManagerEntry?
 	var op public as int
 
 	ctor(entry as IOManagerEntry, op as int)
@@ -294,15 +294,15 @@ func removeFromWriteList(entry as IOManagerEntry)
 	Vector.removeValue(writelist, entry)
 }
 
-func add(o as object) override as IOManagerEntry
+func add(o as object) override as IOManagerEntry?
 {
 	var fdo = o as FileDescriptor
-	if !fdo:
+	if not fdo:
 		return null
 	return new MyEntry().setMaster(this).setFdo(fdo)
 }
 
-func executeSelect(ctx as LoggingContext, fdr as !"inout fd_set", fdw as !"inout fd_set", timeout as int) private as bool
+func executeSelect(ctx as LoggingContext, fdr as native<"inout fd_set">, fdw as native<"inout fd_set">, timeout as int) private as bool
 {
 	var n = 0
 	var fd as int
@@ -365,7 +365,7 @@ func executeSelect(ctx as LoggingContext, fdr as !"inout fd_set", fdw as !"inout
 	}
 	var v = false
 	if r < 0 {
-		var err as string
+		var err as string?
 		lang "swift" {{{
 			if errno != EINTR {
 				var ee = strerror(errno)
@@ -405,7 +405,7 @@ func doExecute(ctx as LoggingContext) override as bool
 	var ee = add(StaticFileDescriptor.forFileDescriptor(prd))
 	if ee {
 		ee.setReadListener(func {
-			var fd #used = prd
+			var fd = prd
 			IFDEF "target_swift" {
 				lang "swift" {{{
 					var b = UnsafeMutableRawPointer(bitPattern: 16)
@@ -414,8 +414,8 @@ func doExecute(ctx as LoggingContext) override as bool
 			}
 		})
 	}
-	var fdsetr as !"fd_set"
-	var fdsetw as !"fd_set"
+	var fdsetr as native<fd_set>?
+	var fdsetw as native<fd_set>?
 	lang "swift" {{{
 		fdsetr = fd_set()
 		fdsetw = fd_set()
@@ -424,13 +424,13 @@ func doExecute(ctx as LoggingContext) override as bool
 	Log.debug(ctx, "SelectEngine started")
 	while exitflag == false {
 		lang "swift" {{{
-			if !self.executeSelect(ctx, &fdsetr, &fdsetw, -1) {
+			if not self.executeSelect(ctx, &fdsetr, &fdsetw, -1) {
 				continue
 			}
 		}}}
 		listActionQueue = new vector<ListAction>
 		foreach ele as MyEntry in readlist {
-			var fd #used = ele.getFileDescriptor()
+			var fd = ele.getFileDescriptor()
 			lang "swift" {{{
 				if fd < 0 || __darwin_fd_isset(Int32(fd), &fdsetr!) != 0 {
 					if fd >= 0 {
@@ -441,7 +441,7 @@ func doExecute(ctx as LoggingContext) override as bool
 			}}}
 		}
 		foreach ele as MyEntry in writelist {
-			var fd #used = ele.getFileDescriptor()
+			var fd = ele.getFileDescriptor()
 			lang "swift" {{{
 				if fd < 0 || __darwin_fd_isset(Int32(fd), &fdsetw!) != 0 {
 					if fd >= 0 {

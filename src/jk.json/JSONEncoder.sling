@@ -32,7 +32,7 @@ pvar stringFormattedNumber = false
 pvar newJSONFormat = true
 pvar encodeNullAsNull = false
 var isNewLine = true
-var mysb as StringBuilder
+var mysb as StringBuilder?
 
 func print(line as string, indent as int, startline as bool, endline as bool, sb as StringBuilder) private
 {
@@ -66,7 +66,7 @@ macro PRINT_COLON
 	}
 }
 
-func encodeArray(cc as array, indent as int, sb as StringBuilder) private
+func encodeArray(cc as array<dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("[", indent, false, true, sb)
 	var first = true
@@ -92,7 +92,7 @@ func encodeDynamicVector(cc as DynamicVector, indent as int, sb as StringBuilder
 	print("]", indent, true, false, sb)
 }
 
-func encodeVector(cc as vector, indent as int, sb as StringBuilder) private
+func encodeVector(cc as vector<dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("[", indent, false, true, sb)
 	var first = true
@@ -105,23 +105,16 @@ func encodeVector(cc as vector, indent as int, sb as StringBuilder) private
 	print("]", indent, true, false, sb)
 }
 
-func encodeMap(map as map, indent as int, sb as StringBuilder) private
+func encodeMap(map as map<string,dynamic>, indent as int, sb as StringBuilder) private
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it = Map.iterateKeys(map)
-	while it {
-		var keyo = it.next()
-		if not keyo:
-			break
-		var key = String.asString(keyo)
-		if not key:
-			continue
+	foreach key in Map.iterateKeys(map) {
 		if not first:
 			print(",", indent, false, true, sb)
 		encodeString(key, indent+1, sb)
 		PRINT_COLON()
-		encodeObject(map[keyo], indent+1, sb)
+		encodeObject(map[key], indent+1, sb)
 		first = false
 	}
 	print("}", indent, true, false, sb)
@@ -131,11 +124,7 @@ func encodeDynamicMap(map as DynamicMap, indent as int, sb as StringBuilder) pri
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it = map.iterateKeys()
-	while it {
-		var key = it.next()
-		if not key:
-			break
+	foreach key in map.iterateKeys() {
 		if first == false:
 			print(",", indent, false, true, sb)
 		encodeString(key, indent+1, sb)
@@ -150,16 +139,12 @@ func encodeKeyValueList(list as KeyValueListForStrings, indent as int, sb as Str
 {
 	print("{", indent, false, true, sb)
 	var first = true
-	var it = list.iterate()
-	while it {
-		var pair = it.next()
-		if pair == null:
-			break
+	foreach pair in list {
 		if first == false:
 			print(",", indent, false, true, sb)
-		encodeString(pair.key, indent+1, sb)
+		encodeString(String.safeString(pair.key), indent+1, sb)
 		PRINT_COLON()
-		encodeString(pair.value, indent+1, sb)
+		encodeString(String.safeString(pair.value), indent+1, sb)
 		first = false
 	}
 	print("}", indent, true, false, sb)
@@ -179,11 +164,7 @@ func encodeString(s as string, indent as int, sb as StringBuilder) private
 		var ns = (sSize + 2) / 3 * 4
 		mysb.resizeTo(mysb.count() + ns)
 	}
-	var it = String.iterate(s)
-	loop {
-		var c = it.getNextChar()
-		if Character.isEOF(c):
-			break
+	foreach c in String.iterate(s) {
 		if newJSONFormat {
 			if c == '\t' {
 				mysb.appendString("\\t")
@@ -237,7 +218,7 @@ func encodeBoolean(b as bool, indent as int, sb as StringBuilder) private
 	print(mysb.toString(), indent, false, false, sb)
 }
 
-func encodeNumber(o as dynamic, indent as int, sb as StringBuilder) private
+func encodeNumber(o as dynamic?, indent as int, sb as StringBuilder) private
 {
 	if mysb == null {
 		mysb = new StringBuilder()
@@ -247,18 +228,20 @@ func encodeNumber(o as dynamic, indent as int, sb as StringBuilder) private
 	}
 	if stringFormattedNumber {
 		mysb.appendCharacter('"')
-		mysb.appendString(String.asString(o))
+		var os = String.asValueOrNull(o)
+		if os:
+			mysb.appendString(os)
 		mysb.appendCharacter('"')
 	}
 	else {
 		if o is IntegerObject {
-			mysb.appendInteger(Integer.asInteger(o))
+			mysb.appendInteger((o as! IntegerObject).toInteger())
 		}
 		else if o as LongIntegerObject {
-			mysb.appendLong(LongInteger.asLong(o))
+			mysb.appendLong((o as! LongIntegerObject).toLongInteger())
 		}
 		else if o as DoubleObject {
-			mysb.appendDouble(Double.asDouble(o))
+			mysb.appendDouble((o as! DoubleObject).toDouble())
 		}
 		else {
 			mysb.appendString("")
@@ -267,7 +250,7 @@ func encodeNumber(o as dynamic, indent as int, sb as StringBuilder) private
 	print(mysb.toString(), indent, false, false, sb)
 }
 
-func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
+func encodeObject(o as dynamic?, indent as int, sb as StringBuilder) virtual
 {
 	if not o {
 		if encodeNullAsNull {
@@ -277,17 +260,14 @@ func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
 			encodeString("", indent, sb)
 		}
 	}
-	else if o is JSONObject {
-		encodeObject((o as! JSONObject).toJsonObject(), indent, sb)
+	else if o is array<dynamic> {
+		encodeArray(o as! array<dynamic>, indent, sb)
 	}
-	else if o is array {
-		encodeArray(o as! array, indent, sb)
+	else if o is vector<dynamic> {
+		encodeVector(o as! vector<dynamic>, indent, sb)
 	}
-	else if o is vector {
-		encodeVector(o as! vector, indent, sb)
-	}
-	else if o is map {
-		encodeMap(o as! map, indent, sb)
+	else if o is map<string,dynamic> {
+		encodeMap(o as! map<string,dynamic>, indent, sb)
 	}
 	else if o is buffer {
 		encodeString(Base64Encoder.encode(o as! buffer), indent, sb)
@@ -297,6 +277,12 @@ func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
 	}
 	else if o is int {
 		encodeNumber(Integer.asObject(o), indent, sb)
+	}
+	else if o is DynamicMapObject {
+		encodeDynamicMap((o as! DynamicMapObject).toDynamicMap(), indent, sb)
+	}
+	else if o is DynamicVectorObject {
+		encodeDynamicVector((o as! DynamicVectorObject).toDynamicVector(), indent, sb)
 	}
 	else if o is DynamicMap {
 		encodeDynamicMap(o as! DynamicMap, indent, sb)
@@ -325,23 +311,14 @@ func encodeObject(o as dynamic, indent as int, sb as StringBuilder) virtual
 		encodeNumber(o, indent, sb)
 	}
 	else if o is CharacterObject {
-		encodeString(String.asString(o), indent, sb)
+		encodeString(String.forCharacter((o as! CharacterObject).toCharacter()), indent, sb)
 	}
 	else if o is BooleanObject {
-		encodeBoolean(Boolean.asBoolean(o), indent, sb)
+		encodeBoolean((o as! BooleanObject).toBoolean(), indent, sb)
 	}
 	else {
 		encodeString("", indent, sb)
 	}
-}
-
-func encode(o as dynamic, niceFormatting as bool = true, stringFormattedNumber = false) static as string #deprecated
-{
-	var v = new this()
-	v.setStringFormattedBoolean(true)
-	v.setStringFormattedNumber(stringFormattedNumber)
-	v.setNiceFormatting(niceFormatting)
-	return v.execute(o)
 }
 
 func execute(o as dynamic) as string
@@ -353,10 +330,8 @@ func execute(o as dynamic) as string
 
 func encodeToBuilder(o as dynamic, sb as StringBuilder) static
 {
-	assert sb
 	var str = new this().setEncodeNullAsNull(true).execute(o)
-	if str:
-		sb.appendString(str)
+	sb.appendString(str)
 }
 
 func toString(o as dynamic) static as string

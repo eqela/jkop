@@ -28,16 +28,14 @@ import jk.json
 import jk.thread
 import jk.console
 import jk.webclient
-import jk.event
+import jk.events
 
 class:
 
-func forHandler(handler as BufferEventHandler) static as this
-{
-	var v = new this()
-	v.handler = handler
-	return v
-}
+func forHandler(handler as BufferEventHandler) static as this:
+	return new this() {
+		handler handler
+	}
 
 prop handler as BufferEventHandler
 prop ctx as LoggingContext = new ConsoleApplicationContext()
@@ -59,7 +57,7 @@ func getResponseUrl(requestId as string) as string:
 func getErrorUrl(requestId as string) as string:
 	return getBaseUrl() .. "/2018-06-01/runtime/invocation/" .. requestId .. "/error"
 
-func getRequestId(headers as KeyValueList<string,string>) as string
+func getRequestId(headers as KeyValueList<string,string>) as string?
 {
 	foreach pair in headers.asVector() {
 		if String.equalsIgnoreCase(pair.key, "Lambda-Runtime-Aws-Request-Id"):
@@ -70,48 +68,47 @@ func getRequestId(headers as KeyValueList<string,string>) as string
 
 func responseToBuffer(response as object) as buffer
 {
-	assert response
 	if response is buffer:
 		return response as! buffer
 	if response is string:
 		return String.toUTF8Buffer(response as! string)
 	var str = JSONEncoder.toString(response)
-	if str:
-		return String.toUTF8Buffer(str)
-	return null
+	return String.toUTF8Buffer(str)
 }
 
 func execute async
 {
 	var webClient = WebClient.instance()
 	loop {
-		var invocationUrl = getInvocationUrl()
-		var reqq = await webClient.executeQuery(ctx, "GET", invocationUrl, null, null)
-		if reqq == null || String.isEmpty(reqq.statusCode) {
-			Log.warning(ctx, "No response from Lambda runtime API: `" .. invocationUrl .. "'. Trying again in one second..")
+		var body as buffer?
+		var requestId as string?
+		try {
+			var invocationUrl = getInvocationUrl()
+			var reqq = await webClient.executeQuery(ctx, "GET", invocationUrl, null, null)
+			if String.isEmpty(reqq.statusCode):
+				Error.throw("noResponseStatusFromLambdaRuntimeApi", invocationUrl)
+			var reqid = getRequestId(reqq.headers)
+			if String.isEmpty(reqid):
+				Error.throw("emptyRequestIdFromLambdaRuntimeapi", invocationUrl)
+			if String.startsWith(reqq.statusCode, "2") == false:
+				Log.warning(ctx, "Error status from Lambda runtime API: `" .. reqq.statusCode .. "'. Ignoring it.")
+			body = reqq.body
+			requestId = reqid
+		}
+		catch e {
+			Log.error(ctx, "Error while calling lambda invocation URL: `" .. String.asValueOrEmptyString(e) .. "'. Trying again in one second..")
 			CurrentThread.sleepSeconds(1)
 			continue
 		}
-		if reqq.body == null {
-			Log.warning(ctx, "Null body received from Lambda runtime API: `" .. invocationUrl .. "'. Trying again in one second..")
+		if body == null || requestId == null {
+			Log.error(ctx, "Invalid request received from lambda invocation URL. Trying again in one second..")
 			CurrentThread.sleepSeconds(1)
 			continue
-		}
-		var requestId = getRequestId(reqq.headers)
-		if String.isEmpty(requestId) {
-			Log.error(ctx, "No request ID received from Lambda runtime API: `" .. invocationUrl .. "'. Using a bogus value.")
-			requestId = "invalidRequestId"
 		}
 		Log.debug(ctx, "Handling request with ID: `" .. requestId .. "'")
-		if String.startsWith(reqq.statusCode, "2") == false:
-			Log.warning(ctx, "Error status from Lambda runtime API: `" .. reqq.statusCode .. "'. Ignoring it.")
 		try {
-			var response = handler.handleBufferEvent(reqq.body)
-			if not response:
-				Error.throw("noResponseFromHandler", null)
+			var response = handler.handleBufferEvent(body)
 			var rb = responseToBuffer(response)
-			if not rb:
-				Error.throw("noResponseBuffer", null)
 			await webClient.executeQuery(ctx, "POST", getResponseUrl(requestId), null, rb)
 		}
 		catch e {
@@ -119,11 +116,11 @@ func execute async
 			if e is ExceptionWithError {
 				var ewe = e as! ExceptionWithError
 				eo.setString("errorType", ewe.getErrorCode())
-				eo.setString("errorMessage", String.asString(ewe.getErrorDetail()))
+				eo.setString("errorMessage", String.asValueOrNull(ewe.getErrorDetail()))
 			}
 			else {
 				eo.setString("errorType", "unknownError")
-				eo.setString("errorMessage", String.asString(e))
+				eo.setString("errorMessage", String.asValueOrNull(e))
 			}
 			var errorJson = JSONEncoder.toString(eo)
 			Log.error(ctx, errorJson)

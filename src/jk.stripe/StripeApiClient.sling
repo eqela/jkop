@@ -29,13 +29,12 @@ import jk.url
 
 class is ApiClient:
 
-func forApiKey(ctx as LoggingContext, stripeApiKey as string) static as this
-{
-	var v = new this(ctx)
-	v.bearerToken = stripeApiKey
-	v.baseUrl = "https://api.stripe.com/v1"
-	return v
-}
+func forApiKey(ctx as LoggingContext, stripeApiKey as string) static as this:
+	return new this() {
+		ctx ctx
+		bearerToken stripeApiKey
+		baseUrl "https://api.stripe.com/v1"
+	}
 
 section "Common" public
 {
@@ -99,7 +98,7 @@ section "Customer" public
 		return Customer.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getCustomers(starting_after as string = null) async as vector<Customer>
+	func getCustomers(starting_after as string?) async as vector<Customer>
 	{
 		meta {
 			description "Retrieves a list of all customers"
@@ -110,7 +109,9 @@ section "Customer" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<Customer>
 		foreach c as DynamicMap in data.toVector():
 			v += Customer.forData(c)
@@ -131,7 +132,10 @@ section "Customer" public
 		meta {
 			description "Creates a new customer"
 		}
-		var resp = await requestAndValidate("POST", "/customers/" .. URLEncoder.encode(customer.id), null, QueryString.encodeDynamicMapToBuffer(customer.toDynamicMap()))
+		var customerId = customer.id
+		if not customerId:
+			Error.throw("noCustomerId", customer)
+		var resp = await requestAndValidate("POST", "/customers/" .. URLEncoder.encode(customerId), null, QueryString.encodeDynamicMapToBuffer(customer.toDynamicMap()))
 		return Customer.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -140,7 +144,6 @@ section "Customer" public
 		meta {
 			description "Create or update a customer"
 		}
-		assert customer
 		if customer.id:
 			return await updateCustomer(customer)
 		return await createCustomer(customer)
@@ -204,7 +207,6 @@ section "Payment Intent" public
 		meta {
 			description "Creates a payment intent"
 		}
-		assert intent
 		var resp = await requestAndValidate("POST", "/payment_intents", null, QueryString.encodeDynamicMapToBuffer(intent.toDynamicMap()))
 		return PaymentIntent.forData(resp.getBodyAsDynamicMap())
 	}
@@ -214,8 +216,10 @@ section "Payment Intent" public
 		meta {
 			description "Updates a payment intent"
 		}
-		assert intent && intent.id
-		var resp = await requestAndValidate("POST", "/payment_intents/" .. URLEncoder.encode(intent.id), null, QueryString.encodeDynamicMapToBuffer(intent.toDynamicMap()))
+		var intentId = intent.id
+		if not intentId:
+			Error.throw("noIntentId", intent)
+		var resp = await requestAndValidate("POST", "/payment_intents/" .. URLEncoder.encode(intentId), null, QueryString.encodeDynamicMapToBuffer(intent.toDynamicMap()))
 		return PaymentIntent.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -224,7 +228,6 @@ section "Payment Intent" public
 		meta {
 			description "Create or update a payment intent"
 		}
-		assert intent
 		if intent.id:
 			return await updatePaymentIntent(intent)
 		return await createPaymentIntent(intent)
@@ -274,8 +277,10 @@ section "Setup Intent" public
 		meta {
 			description "Updates a setup intent"
 		}
-		assert intent && intent.id
-		var resp = await requestAndValidate("POST", "/setup_intents/" .. URLEncoder.encode(intent.id), null, QueryString.encodeDynamicMapToBuffer(intent.toDynamicMap()))
+		var intentId = intent.id
+		if not intentId:
+			Error.throw("noIntentId", intent)
+		var resp = await requestAndValidate("POST", "/setup_intents/" .. URLEncoder.encode(intentId), null, QueryString.encodeDynamicMapToBuffer(intent.toDynamicMap()))
 		return SetupIntent.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -284,7 +289,6 @@ section "Setup Intent" public
 		meta {
 			description "Create or update a payment intent"
 		}
-		assert intent
 		if intent.id:
 			return await updateSetupIntent(intent)
 		return await createSetupIntent(intent)
@@ -371,7 +375,7 @@ section "Payment Methods" public
 		return PaymentMethod.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getPaymentMethodsForCustomer(customerId as string, type as string, starting_after as string = null) async as vector<PaymentMethod>
+	func getPaymentMethodsForCustomer(customerId as string, type as string?, starting_after as string?) async as vector<PaymentMethod>
 	{
 		meta {
 			description "Retrieve a list of payment methods for a given customer"
@@ -385,7 +389,9 @@ section "Payment Methods" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<PaymentMethod>
 		foreach c as DynamicMap in data.toVector():
 			v += PaymentMethod.forData(c)
@@ -437,7 +443,7 @@ section "Product" public
 		return Product.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getProducts(starting_after as string = null) async as vector<Product>
+	func getProducts(starting_after as string?) async as vector<Product>
 	{
 		meta {
 			description "Returns a list of your products. The products are returned sorted by creation date, with the most recently created products appearing first."
@@ -448,7 +454,9 @@ section "Product" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<Product>
 		foreach c as DynamicMap in data.toVector():
 			v += Product.forData(c)
@@ -460,7 +468,6 @@ section "Product" public
 		meta {
 			description "Creates a new product object."
 		}
-		assert product
 		var resp = await requestAndValidate("POST", "/products", null, QueryString.encodeDynamicMapToBuffer(product.toDynamicMap()))
 		return Product.forData(resp.getBodyAsDynamicMap())
 	}
@@ -470,8 +477,10 @@ section "Product" public
 		meta {
 			description "Updates the specific product by setting the values of the parameters passed. Any parameters not provided will be left unchanged."
 		}
-		assert product
-		var resp = await requestAndValidate("POST", "/products/" .. URLEncoder.encode(product.id), null, QueryString.encodeDynamicMapToBuffer(product.toDynamicMap()))
+		var productId = product.id
+		if not productId:
+			Error.throw("noProductId", product)
+		var resp = await requestAndValidate("POST", "/products/" .. URLEncoder.encode(productId), null, QueryString.encodeDynamicMapToBuffer(product.toDynamicMap()))
 		return Product.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -480,7 +489,6 @@ section "Product" public
 		meta {
 			description "Create or update a product"
 		}
-		assert product
 		if product.id:
 			return await updateProduct(product)
 		return await createProduct(product)
@@ -539,7 +547,7 @@ section "Price" public
 		return Price.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getPrices(starting_after as string = null) async as vector<Price>
+	func getPrices(starting_after as string?) async as vector<Price>
 	{
 		meta {
 			description "Returns a list of your prices."
@@ -550,7 +558,9 @@ section "Price" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<Price>
 		foreach c as DynamicMap in data.toVector():
 			v += Price.forData(c)
@@ -562,7 +572,6 @@ section "Price" public
 		meta {
 			description "Creates a new price for an existing product. The price can be recurring or one-time."
 		}
-		assert price
 		var resp = await requestAndValidate("POST", "/prices", null, QueryString.encodeDynamicMapToBuffer(price.toDynamicMap()))
 		return Price.forData(resp.getBodyAsDynamicMap())
 	}
@@ -572,8 +581,10 @@ section "Price" public
 		meta {
 			description "Updates the specified price by setting the values of the parameters passed. Any parameters not provided are left unchanged."
 		}
-		assert price
-		var resp = await requestAndValidate("POST", "/prices/" .. URLEncoder.encode(price.id), null, QueryString.encodeDynamicMapToBuffer(price.toDynamicMap()))
+		var priceId = price.id
+		if not priceId:
+			Error.throw("noPriceId", price)
+		var resp = await requestAndValidate("POST", "/prices/" .. URLEncoder.encode(priceId), null, QueryString.encodeDynamicMapToBuffer(price.toDynamicMap()))
 		return Price.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -582,7 +593,6 @@ section "Price" public
 		meta {
 			description "Create or update a price"
 		}
-		assert price
 		if price.id:
 			return await updatePrice(price)
 		return await createPrice(price)
@@ -590,7 +600,6 @@ section "Price" public
 
 	func deletePrice(priceId as string) async as Price
 	{
-		assert priceId
 		var resp = await requestAndValidate("DELETE", "/prices/" .. URLEncoder.encode(priceId), null, null)
 		return Price.forData(resp.getBodyAsDynamicMap())
 	}
@@ -822,7 +831,7 @@ section "Subscription" public
 		return Subscription.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getSubscriptions(customerId as string, price as string, status as string, starting_after as string = null) async as vector<Subscription>
+	func getSubscriptions(customerId as string?, price as string?, status as string?, starting_after as string?) async as vector<Subscription>
 	{
 		meta {
 			description "By default, returns a list of subscriptions that have not been canceled."
@@ -839,7 +848,9 @@ section "Subscription" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<Subscription>
 		foreach c as DynamicMap in data.toVector():
 			v += Subscription.forData(c)
@@ -851,7 +862,6 @@ section "Subscription" public
 		meta {
 			description "Creates a new subscription on an existing customer. Each customer can have up to 500 active or scheduled subscriptions."
 		}
-		assert subscription
 		var resp = await requestAndValidate("POST", "/subscriptions", null, QueryString.encodeDynamicMapToBuffer(subscription.toDynamicMap()))
 		return Subscription.forData(resp.getBodyAsDynamicMap())
 	}
@@ -861,7 +871,6 @@ section "Subscription" public
 		meta {
 			description "Updates an existing subscription to match the specified parameters. When changing prices or quantities, we will optionally prorate the price we charge next month to make up for any price changes."
 		}
-		assert subscriptionId && subscription
 		var resp = await requestAndValidate("POST", "/subscriptions/" .. URLEncoder.encode(subscriptionId), null, QueryString.encodeDynamicMapToBuffer(subscription.toDynamicMap()))
 		return Subscription.forData(resp.getBodyAsDynamicMap())
 	}
@@ -875,7 +884,7 @@ section "Subscription" public
 		return Subscription.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getSubscriptionItems(subscriptionId as string, starting_after as string = null) async as vector<SubscriptionItem>
+	func getSubscriptionItems(subscriptionId as string, starting_after as string?) async as vector<SubscriptionItem>
 	{
 		meta {
 			description "Returns a list of your subscription items for a given subscription."
@@ -887,7 +896,9 @@ section "Subscription" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<SubscriptionItem>
 		foreach c as DynamicMap in data.toVector():
 			v += SubscriptionItem.forData(c)
@@ -899,7 +910,6 @@ section "Subscription" public
 		meta {
 			description "Adds a new item to an existing subscription. No existing items will be changed or replaced."
 		}
-		assert item
 		var resp = await requestAndValidate("POST", "/subscription_items", null, QueryString.encodeDynamicMapToBuffer(item.toDynamicMap()))
 		return SubscriptionItem.forData(resp.getBodyAsDynamicMap())
 	}
@@ -909,7 +919,6 @@ section "Subscription" public
 		meta {
 			description "Updates the plan or quantity of an item on a current subscription."
 		}
-		assert itemId && item
 		var resp = await requestAndValidate("POST", "/subscription_items/" .. URLEncoder.encode(itemId), null, QueryString.encodeDynamicMapToBuffer(item.toDynamicMap()))
 		return SubscriptionItem.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1072,7 +1081,7 @@ section "Invoice" public
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getInvoices(customerId as string, status as string, starting_after as string = null) async as vector<Invoice>
+	func getInvoices(customerId as string?, status as string?, starting_after as string?) async as vector<Invoice>
 	{
 		meta {
 			description "You can list all invoices, or list the invoices for a specific customer. The invoices are returned sorted by creation date, with the most recently created invoices appearing first."
@@ -1087,7 +1096,9 @@ section "Invoice" public
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<Invoice>
 		foreach c as DynamicMap in data.toVector():
 			v += Invoice.forData(c)
@@ -1099,7 +1110,6 @@ section "Invoice" public
 		meta {
 			description "This endpoint creates a draft invoice for a given customer. The invoice remains a draft until you finalize the invoice, which allows you to pay or send the invoice to your customers."
 		}
-		assert invoice
 		var resp = await requestAndValidate("POST", "/invoices", null, QueryString.encodeDynamicMapToBuffer(invoice.toDynamicMap()))
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1109,8 +1119,10 @@ section "Invoice" public
 		meta {
 			description "Draft invoices are fully editable. Once an invoice is finalized, monetary values, as well as collection_method, become uneditable."
 		}
-		assert invoice
-		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoice.id), null, QueryString.encodeDynamicMapToBuffer(invoice.toDynamicMap()))
+		var invoiceId = invoice.id
+		if not invoiceId:
+			Error.throw("noInvoiceId", invoice)
+		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId), null, QueryString.encodeDynamicMapToBuffer(invoice.toDynamicMap()))
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
 
@@ -1119,7 +1131,6 @@ section "Invoice" public
 		meta {
 			description "Create or update an invoice"
 		}
-		assert invoice
 		if invoice.id:
 			return await updateInvoice(invoice)
 		return await createInvoice(invoice)
@@ -1139,7 +1150,6 @@ section "Invoice" public
 		meta {
 			description "Stripe automatically finalizes drafts before sending and attempting payment on invoices. However, if you’d like to finalize a draft invoice manually, you can do so using this method."
 		}
-		assert invoiceId && params
 		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId) .. "/finalize", null, QueryString.encodeDynamicMapToBuffer(params.toDynamicMap()))
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1149,7 +1159,6 @@ section "Invoice" public
 		meta {
 			description "Stripe automatically creates and then attempts to collect payment on invoices for customers on subscriptions according to your subscriptions settings."
 		}
-		assert invoiceId && params
 		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId) .. "/pay", null, QueryString.encodeDynamicMapToBuffer(params.toDynamicMap()))
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1159,7 +1168,6 @@ section "Invoice" public
 		meta {
 			description "Stripe will automatically send invoices to customers according to your subscriptions settings. However, if you’d like to manually send an invoice to your customer out of the normal schedule, you can do so."
 		}
-		assert invoiceId
 		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId) .. "/send", null, null)
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1169,7 +1177,6 @@ section "Invoice" public
 		meta {
 			description "Mark a finalized invoice as void. This cannot be undone. Voiding an invoice is similar to deletion, however it only applies to finalized invoices and maintains a papertrail where the invoice can still be found."
 		}
-		assert invoiceId
 		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId) .. "/void", null, null)
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
@@ -1179,24 +1186,24 @@ section "Invoice" public
 		meta {
 			description "Marking an invoice as uncollectible is useful for keeping track of bad debts that can be written off for accounting purposes."
 		}
-		assert invoiceId
 		var resp = await requestAndValidate("POST", "/invoices/" .. URLEncoder.encode(invoiceId) .. "/mark_uncollectible", null, null)
 		return Invoice.forData(resp.getBodyAsDynamicMap())
 	}
 
-	func getInvoiceLineItems(invoiceId as string, starting_after as string = null) async as vector<InvoiceLineItem>
+	func getInvoiceLineItems(invoiceId as string, starting_after as string?) async as vector<InvoiceLineItem>
 	{
 		meta {
 			description "When retrieving an invoice, you'll get a lines property containing the total count of line items and the first handful of those items."
 		}
-		assert invoiceId
 		var url = URL.forString("/invoices/" .. URLEncoder.encode(invoiceId) .. "/lines")
 		url.addQueryParameter("limit", "100")
 		if starting_after:
 			url.addQueryParameter("starting_after", starting_after)
 		var resp = await requestAndValidate("GET", url.toString(), null, null)
 		var bodyMap = resp.getBodyAsDynamicMap()
-		var data = assert bodyMap.getDynamicVector("data")
+		var data = bodyMap.getDynamicVector("data")
+		if not data:
+			Error.throw("noDataFieldInResponse", bodyMap)
 		var v = new vector<InvoiceLineItem>
 		foreach c as DynamicMap in data.toVector():
 			v += InvoiceLineItem.forData(c)

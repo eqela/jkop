@@ -22,11 +22,12 @@
  * SOFTWARE.
  */
 
-import jk.socket.async
+import jk.log
 import jk.url
 import jk.sha
 import jk.base64
 import jk.text
+import jk.socket.async
 
 class is WSSocket:
 
@@ -38,7 +39,7 @@ class MyWSMessage
 	func forPongControlFrame static as this:
 		return new this().setFin(1).setOpcode(PONG_FRAME)
 
-	func create(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, maskingBuffer as buffer, payloadBuffer as buffer) static as this:
+	func create(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, maskingBuffer as buffer?, payloadBuffer as buffer) static as this:
 		return new this().setFin(fin).setRsv1(rsv1).setRsv2(rsv2).setRsv3(rsv3).setOpcode(opcode).setMaskingBuffer(maskingBuffer).setPayloadBuffer(payloadBuffer)
 
 	const CLOSE_FRAME = 8
@@ -50,9 +51,9 @@ class MyWSMessage
 	var rsv2 = 0
 	var rsv3 = 0
 	var opcode = 0
-	var maskingBuffer as buffer
-	var payloadBuffer as buffer
-	var messageBuffer as buffer
+	var maskingBuffer as buffer?
+	var payloadBuffer as buffer?
+	var messageBuffer as buffer?
 
 	func onChanged private:
 		messageBuffer = null
@@ -107,27 +108,27 @@ class MyWSMessage
 	func getOpcode as int:
 		return opcode
 
-	func setMaskingBuffer(maskingBuffer as buffer) as this
+	func setMaskingBuffer(maskingBuffer as buffer?) as this
 	{
 		this.maskingBuffer = maskingBuffer
 		onChanged()
 		return this
 	}
 
-	func getMaskingBuffer as buffer:
+	func getMaskingBuffer as buffer?:
 		return maskingBuffer
 
-	func setPayloadBuffer(payloadBuffer as buffer) as this
+	func setPayloadBuffer(payloadBuffer as buffer?) as this
 	{
 		this.payloadBuffer = payloadBuffer
 		onChanged()
 		return this
 	}
 
-	func getPayloadBuffer as buffer:
+	func getPayloadBuffer as buffer?:
 		return payloadBuffer
 
-	func forCloseControlFrame(statusCode as int = -1, reason as string = null) static as this
+	func forCloseControlFrame(statusCode as int = -1, reason as string? = null) static as this
 	{
 		if statusCode < 65536 && statusCode > -1 && String.isNotEmpty(reason) {
 			var rBuffer = String.toUTF8Buffer(reason)
@@ -170,19 +171,19 @@ class MyWSMessage
 		if payloadBuffer != null:
 			payloadLength = sizeof payloadBuffer
 		var plb = 0
-		if payloadLength < 126 && payloadLength >= 0 {
+		if payloadLength < 1 {
+			Error.throw("zeroSizeBuffer", payloadBuffer)
+		}
+		else if payloadLength < 126 {
 			plb = payloadLength
 		}
 		else if payloadLength < 65536 {
 			plb = 126
 			size += 2
 		}
-		else if payloadLength > 65535 {
+		else {
 			plb = 127
 			size += 8
-		}
-		else {
-			return null
 		}
 		size += payloadLength
 
@@ -265,7 +266,7 @@ class MyWSMessage
 class MyWSCloseEvent is WSCloseEvent
 {
 	var statusCode private as int
-	var reason private as string
+	var reason private as string?
 
 	func setStatusCode(v as int) as this
 	{
@@ -283,11 +284,10 @@ class MyWSCloseEvent is WSCloseEvent
 		return statusCode
 
 	func getReason override as string:
-		return reason
+		return reason ?? ""
 
 	func forPayloadBuffer(payloadBuffer as buffer) static as WSCloseEvent
 	{
-		assert payloadBuffer
 		var size = sizeof payloadBuffer
 		var e = new this()
 		var v as uint16
@@ -302,11 +302,11 @@ class MyWSCloseEvent is WSCloseEvent
 
 class HTTPClientResponse is StringObject
 {
-	pvar httpVersion as string
-	pvar httpStatus as string
-	pvar httpStatusDescription as string
-	pvar rawHeaders as KeyValueListForStrings
-	pvar headers as map<string,string>
+	pvar httpVersion as string?
+	pvar httpStatus as string?
+	pvar httpStatusDescription as string?
+	pvar rawHeaders as KeyValueListForStrings?
+	pvar headers as map<string,string>?
 
 	func addHeader(key as string, value as string)
 	{
@@ -318,27 +318,27 @@ class HTTPClientResponse is StringObject
 		headers[String.toLowerCase(key)] = value
 	}
 
-	func getHeader(key as string) as string
+	func getHeader(key as string) as string?
 	{
 		assert headers
-		return Map.get(headers, key)
+		return Map.getValue(headers, key)
 	}
 
 	func toString as string:
-		return String.asString(rawHeaders)
+		return String.asValueOrEmptyString(rawHeaders)
 }
 
 class HTTPResponseParser
 {
 	class Chunk
 	{
-		var data public as buffer
+		var data public as buffer?
 		var completed public = true
 	}
 
-	var receivedData as buffer = null
-	var headers public as HTTPClientResponse
-	var bodyData public as buffer
+	var receivedData as buffer? = null
+	var headers public as HTTPClientResponse?
+	var bodyData public as buffer?
 	var isChunked public = false
 	var contentLength public = 0
 	var dataCounter public = 0
@@ -370,11 +370,11 @@ class HTTPResponseParser
 		return v
 	}
 
-	func parseResponseHeader(buf as buffer) private as HTTPClientResponse
+	func parseResponseHeader(buf as buffer) private as HTTPClientResponse?
 	{
 		var i = 0
 		var p = '0' as uint8
-		var v as HTTPClientResponse
+		var v as HTTPClientResponse?
 		var first = true
 		var isChunked = false
 		loop {
@@ -399,22 +399,23 @@ class HTTPResponseParser
 			if first {
 				var comps = String.split(t, ' ', 3)
 				v = new HTTPClientResponse()
-				v.setHttpVersion(Vector.get(comps, 0))
-				v.setHttpStatus(Vector.get(comps, 1))
-				v.setHttpStatusDescription(Vector.get(comps, 2))
+				v.setHttpVersion(Vector.getValue(comps, 0))
+				v.setHttpStatus(Vector.getValue(comps, 1))
+				v.setHttpStatusDescription(Vector.getValue(comps, 2))
 			}
 			else {
 				var comps = String.split(t, ':', 2)
-				var key = Vector.get(comps, 0)
-				if String.isEmpty(key) == false {
-					var val = String.strip(Vector.get(comps, 1))
-					v.addHeader(key, val)
+				var key = Vector.getValue(comps, 0)
+				if String.isNotEmpty(key) {
+					var val = String.strip(Vector.getValue(comps, 1) ?? "")
+					if v:
+						v.addHeader(key, val)
 					if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
 						if val == "chunked":
 							isChunked = true
 					}
 					else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
-						contentLength = String.toInteger(val)
+						contentLength = Integer.forStringOrDefaultValue(val)
 					}
 				}
 			}
@@ -431,7 +432,7 @@ class HTTPResponseParser
 		return v
 	}
 
-	func getChunk private as Chunk
+	func getChunk private as Chunk?
 	{
 		if receivedData == null:
 			return null
@@ -458,7 +459,7 @@ class HTTPResponseParser
 		var cl = -1
 		var t = String.strip(sb.toString())
 		if String.isEmpty(t) == false {
-			cl = String.toIntegerFromHex(t)
+			cl = Integer.forHexStringOrDefaultValue(t)
 		}
 		var chunk = new Chunk()
 		if cl > 0 {
@@ -466,8 +467,9 @@ class HTTPResponseParser
 				chunk.completed = false
 				return chunk
 			}
-			chunk.data = malloc cl
-			Buffer.copyFrom(chunk.data, receivedData, i, 0, cl)
+			var chunkData = Buffer.allocate(cl)
+			chunk.data = chunkData
+			Buffer.copyFrom(chunkData, receivedData, i, 0, cl)
 			i += cl
 		}
 		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n') {
@@ -476,7 +478,7 @@ class HTTPResponseParser
 		var rem = Buffer.getSize(receivedData) - i as int
 		if rem > 0 {
 			var tmp = receivedData
-			receivedData = malloc rem
+			receivedData = Buffer.allocate(rem)
 			Buffer.copyFrom(receivedData, tmp, i, 0, rem)
 		}
 		else {
@@ -491,7 +493,7 @@ class HTTPResponseParser
 			receivedData = Buffer.append(receivedData, buf, size)
 		}
 		if headers == null {
-			if hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
+			if receivedData && hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
 				headers = parseResponseHeader(receivedData)
 			}
 		}
@@ -501,9 +503,12 @@ class HTTPResponseParser
 				if r {
 					if not r.completed:
 						break
-					var sz = Buffer.getSize(r.data)
+					var rdata = r.data
+					if not rdata:
+						continue
+					var sz = Buffer.getSize(rdata)
 					dataCounter += sz as int
-					onBodyDataReceived(r.data, sz)
+					onBodyDataReceived(rdata, sz)
 				}
 				else {
 					// reset()
@@ -516,7 +521,7 @@ class HTTPResponseParser
 		}
 		else if contentLength > 0 { // FIXME: Or HTTP/1.0 or HTTP/0.9
 			var rsz = Buffer.getSize(receivedData) as int
-			if rsz > 0 {
+			if receivedData && rsz > 0 {
 				if contentLength <= 0 || dataCounter + rsz <= contentLength {
 					var v = receivedData
 					receivedData = null
@@ -553,11 +558,12 @@ class HTTPResponseParser
 
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-var client private as TCPClient
-var key private as string
-var accept private as string
-var parser private as HTTPResponseParser
-var leftOverBuffer as buffer = null
+prop ctx as LoggingContext
+var client private as TCPClient?
+var key private as string?
+var accept private as string?
+var parser private as HTTPResponseParser?
+var leftOverBuffer as buffer? = null
 var frameNo = 1
 
 ctor
@@ -568,7 +574,7 @@ ctor
 
 func getAcceptValueForKey(key as string) static as string
 {
-	var shaEncoder = assert SHAEncoder.forSha1()
+	var shaEncoder = SHAEncoder.forSha1()
 	return Base64Encoder.encode(shaEncoder.encodeString(key .. WEBSOCKET_GUID))
 }
 
@@ -581,7 +587,6 @@ func generateKey static as string
 func createOpenHandshakeHTTPRequest(url as URL, protocols as vector<string>, key as string) static as buffer
 {
 	// FIXME: This is temporary, there can be more additions to this.
-	assert (url && key)
 	var sb = new StringBuilder()
 	sb.appendString("GET ")
 	var path = url.toStringNohost()
@@ -595,7 +600,7 @@ func createOpenHandshakeHTTPRequest(url as URL, protocols as vector<string>, key
 	}
 	sb.appendString(" HTTP/1.1\r\n")
 	sb.appendString("Host: ")
-	sb.appendString(url.getHost())
+	sb.appendString(url.getHost() ?? "")
 	var port = url.getPort()
 	if port != null {
 		sb.appendCharacter(':')
@@ -617,7 +622,6 @@ func createOpenHandshakeHTTPRequest(url as URL, protocols as vector<string>, key
 func createOpenHandshakeHTTPResponse(key as string) static as buffer
 {
 	// FIXME: This is temporary, there can be more additions to this.
-	assert key
 	var sb = new StringBuilder()
 	sb.appendString("HTTP/1.1 101 Switching Protocols\r\n")
 	sb.appendString("Upgrade: websocket\r\n")
@@ -636,7 +640,7 @@ func generateMaskingKey static as buffer
 
 func processData(data as buffer, size as int) private as bool
 {
-	var nbuffer as buffer
+	var nbuffer as buffer?
 	var nsize as int
 	if leftOverBuffer != null {
 		var losize = sizeof leftOverBuffer
@@ -661,8 +665,8 @@ func processData(data as buffer, size as int) private as bool
 		var payloadLength = 0
 		var lastMaskingBufferIndex = 0
 		var mi = 0
-		var maskingBuffer as buffer
-		var payloadBuffer as buffer
+		var maskingBuffer as buffer?
+		var payloadBuffer as buffer?
 		while p < nsize {
 			var b = Buffer.getByte(nbuffer, p)
 			if p == 0 {
@@ -720,7 +724,8 @@ func processData(data as buffer, size as int) private as bool
 				return false
 			}
 			else if p <= lastMaskingBufferIndex {
-				Buffer.setByte(maskingBuffer, mi, b)
+				if maskingBuffer:
+					Buffer.setByte(maskingBuffer, mi, b)
 				mi++
 			}
 			else {
@@ -753,7 +758,7 @@ func processData(data as buffer, size as int) private as bool
 	return true
 }
 
-func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, mask as int, maskingBuffer as buffer, payloadLength as long, payloadBuffer as buffer) private
+func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, mask as int, maskingBuffer as buffer?, payloadLength as long, payloadBuffer as buffer) private
 {
 	if fin == 0 {
 		return
@@ -774,13 +779,14 @@ func onNewMessage(message as MyWSMessage) private
 		nop // Ignoring Pong control frame received.
 	}
 	else {
+		var payload = message.getPayloadBuffer()
 		var cb = getOnMessageCallback()
-		if cb {
+		if cb && payload {
 			if message.isDataText() {
-				cb(WSMessage.forStringData(String.forUTF8Buffer(message.getPayloadBuffer())))
+				cb(WSMessage.forStringData(String.forUTF8Buffer(payload)))
 			}
 			else {
-				cb(WSMessage.forData(message.getPayloadBuffer()))
+				cb(WSMessage.forData(payload))
 			}
 			return
 		}
@@ -791,26 +797,24 @@ func connect(url as string, protocols as vector<string>) override
 {
 	if client:
 		closeWithError(Error.forCode("alreadyConnected"))
-	assert client = TCPClient.instance():
-		closeWithError(Error.forCode("failedToCreateTcpClient"))
-	var u final = assert URL.forString(url):
-		closeWithError(Error.forCode("invalidUrl"))
+	client = TCPClient.instance(ctx)
+	var u = URL.forString(url)
 	var port = u.getPortInt()
 	if port < 1:
 		port = 80
 	var scheme = u.getScheme()
 	if String.equals("https", scheme) || String.equals("wss", scheme) {
-		client.connectSSL(u.getHost(), port, func(e as Error) {
+		client.connectSSL(u.getHost() ?? "", port, func(e as Error?) {
 			handleConnect(u, protocols, e)
 		})
 		return
 	}
-	client.connect(u.getHost(), port, func(e as Error) {
+	client.connect(u.getHost() ?? "", port, func(e as Error?) {
 		handleConnect(u, protocols, e)
 	})
 }
 
-func closeWithError(error as Error) private
+func closeWithError(error as Error?) private
 {
 	var cc = client
 	client = null
@@ -830,7 +834,7 @@ func closeWithError(error as Error) private
 func closeWithoutError private:
 	closeWithError(null)
 
-func handleConnect(u as URL, protocols as vector<string>, error as Error) private
+func handleConnect(u as URL, protocols as vector<string>, error as Error?) private
 {
 	if error {
 		closeWithError(error)
@@ -839,11 +843,13 @@ func handleConnect(u as URL, protocols as vector<string>, error as Error) privat
 	assert client:
 		closeWithError(Error.forCode("nullClient"))
 	parser = new HTTPResponseParser()
-	client.receive(func(data as buffer, size as int) {
+	client.receive(func(data as buffer?, size as int) {
+		if not data:
+			Error.throw("nullDataReceived", null)
 		onOpenHandshakeResponse(data, size)
 	})
-	var v = createOpenHandshakeHTTPRequest(u, protocols, key)
-	client.send(v, (sizeof v) as int, func(oe as Error) {
+	var v = createOpenHandshakeHTTPRequest(u, protocols, key ?? "")
+	client.send(v, (sizeof v) as int, func(oe as Error?) {
 		if oe:
 			closeWithError(oe)
 	})
@@ -861,6 +867,10 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 	var headers = parser.headers
 	parser.reset()
 	parser = null
+	if not headers {
+		closeWithError(Error.forCode("missingWebsocketResponseHeaders"))
+		return
+	}
 	var statusCode = headers.getHttpStatus()
 	if statusCode != "101" {
 		closeWithError(Error.forCode("invalidWebsocketHttpStatus"))
@@ -878,13 +888,14 @@ func onOpenHandshakeResponse(data as buffer, size as int) private
 		closeWithError(Error.forCode("invalidWebsocketHeader3"))
 		return
 	}
-	client.receive(receiveData)
+	if client:
+		client.receive(receiveData)
 	var ocb = getOnOpenCallback()
 	if ocb:
 		ocb()
 }
 
-func receiveData(buffer as buffer, size as int)
+func receiveData(buffer as buffer?, size as int)
 {
 	if not buffer || size < 1 {
 		closeWithError(Error.forCode("closedByServer"))
@@ -900,37 +911,39 @@ func receiveData(buffer as buffer, size as int)
 
 func send(message as WSMessage) override
 {
-	assert message
 	assert client
-	var v as MyWSMessage
+	var v as MyWSMessage?
+	var data = message.getData()
+	if not data:
+		Error.throw("noDataToSend", message)
 	if message.getIsPing() {
 		v = MyWSMessage.forPingControlFrame()
 	}
 	else if message.isText() {
-		v = MyWSMessage.create(1, 0, 0, 0, 1, generateMaskingKey(), message.getData())
+		v = MyWSMessage.create(1, 0, 0, 0, 1, generateMaskingKey(), data)
 	}
 	else {
-		v = MyWSMessage.create(1, 0, 0, 0, 2, generateMaskingKey(), message.getData())
+		v = MyWSMessage.create(1, 0, 0, 0, 2, generateMaskingKey(), data)
 	}
 	doSend(v)
 }
 
 func doSend(message as MyWSMessage) private
 {
-	assert message
+	assert client
 	var data = message.toBuffer()
-	client.send(data, (sizeof data) as int, func(error as Error) {
+	client.send(data, (sizeof data) as int, func(error as Error?) {
 		if error:
 			closeWithError(error)
 	})
 }
 
-func closeWithReason(statusCode as int, reason as string, callback as function) override
+func closeWithReason(statusCode as int, reason as string, callback as function<void>?) override
 {
 	assert client
 	var data = MyWSMessage.forCloseControlFrame(WSCloseEvent.CLOSE_NORMAL).toBuffer()
-	var cb final #used = callback
-	client.send(data, (sizeof data) as int, func(error as Error) {
+	var cb = callback
+	client.send(data, (sizeof data) as int, func(error as Error?) {
 		if error {
 			closeWithError(error)
 		}

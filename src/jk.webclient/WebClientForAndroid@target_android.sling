@@ -36,7 +36,7 @@ func query(method as string, url as string, requestHeaders as KeyValueList<strin
 		callback(null, null, null)
 		return
 	}
-	var req #used = new WebClientRequest().setMethod(method).setUrl(url).setRequestHeaders(requestHeaders).setBody(body)
+	var req = new WebClientRequest().setMethod(method).setUrl(url).setRequestHeaders(requestHeaders).setBody(body)
 	IFDEF "target_java" {
 		lang "java" {{{
 			new WebClientTask(callback).executeOnExecutor(android.os.AsyncTask.THREAD_POOL_EXECUTOR, req);
@@ -51,32 +51,32 @@ func query(method as string, url as string, requestHeaders as KeyValueList<strin
 
 class WebClientRequest
 {
-	pvar method as string
-	pvar url as string
-	pvar requestHeaders as KeyValueList<string,string>
-	pvar body as buffer
+	pvar method as string?
+	pvar url as string?
+	pvar requestHeaders as KeyValueList<string,string>?
+	pvar body as buffer?
 }
 
 class WebClientResponse
 {
-	pvar responseCode as string
-	pvar responseHeaders as KeyValueList<string, string>
-	pvar responseBody as buffer
+	pvar responseCode as string?
+	pvar responseHeaders as KeyValueList<string, string>?
+	pvar responseBody as buffer?
 }
 
-class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientResponse>"
+class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebClientResponse>">
 {
-	var callback as function<void, string, KeyValueList<string,string>, buffer> #used
-	var reader as !"java.io.InputStream" #used
+	var callback as function<void, string, KeyValueList<string,string>, buffer>?
+	var reader as native<java.io.InputStream>?
 
 	ctor(cb as function<void, string, KeyValueList<string,string>, buffer>)
 	{
 		callback = cb
 	}
 
-	func getConnectionForURL(url as string) private as !"java.net.HttpURLConnection"
+	func getConnectionForURL(url as string) private as native<java.net.HttpURLConnection>
 	{
-		var conn as !"java.net.HttpURLConnection" = null
+		var conn as native<java.net.HttpURLConnection>? = null
 		IFDEF "target_java" {
 			lang "java" {{{
 				try {
@@ -103,16 +103,16 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 		return conn
 	}
 
-	func setRequestHeaders(conn as !"java.net.HttpURLConnection", requestHeaders as KeyValueList<string,string>) private
+	func setRequestHeaders(conn as native<java.net.HttpURLConnection>, requestHeaders as KeyValueList<string,string>) private
 	{
 		if requestHeaders {
 			var iter = requestHeaders.iterate()
 			loop {
-				var nh as KeyValuePair<string,string> #force = iter.next()
+				var nh = iter.next()
 				if nh == null:
 					break
-				var key #used = nh.key
-				var value #used = nh.value
+				var key = nh.key
+				var value = nh.value
 				IFDEF "target_java" {
 					lang "java" {{{
 						conn.setRequestProperty(key, value);
@@ -151,11 +151,11 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 		}
 	}
 
-	func processResponse(conn as !"java.net.HttpURLConnection") private as WebClientResponse
+	func processResponse(conn as native<java.net.HttpURLConnection>) private as WebClientResponse
 	{
 		var responseHeaders = new KeyValueList<string,string>()
-		var responseCode as int #used
-		var length as int #used
+		var responseCode as int
+		var length as int
 		IFDEF "target_java" {
 			lang "java" {{{
 				try {
@@ -193,17 +193,17 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 					}
 				}}}
 			}
-			var key as string
+			var key as string?
 			IFDEF "target_java" {
-				key = lang "java" string {{{ rh.getKey() }}}
+				key = lang "java" as string {{{ rh.getKey() }}}
 			}
 			ELSE IFDEF "target_kotlin" {
-				key = lang "kotlin" string {{{ rh?.key }}}
+				key = lang "kotlin" as string {{{ rh?.key }}}
 			}
 			if String.isEmpty(key):
 				continue
 			key = String.toLowerCase(key)
-			var val as string #used = null
+			var val as string = null
 			IFDEF "target_java" {
 				lang "java" {{{
 					for(String s : rh.getValue()) {
@@ -291,14 +291,14 @@ class WebClientTask is !"android.os.AsyncTask<WebClientRequest, Void, WebClientR
 				}
 			}}}
 		}
-		var bb = malloc length
+		var bb = Buffer.allocate(length)
 		var i = 0
 		while true {
 			if i > length-1:
 				break
 			var c as int
 			IFDEF "target_java" {
-				c = lang "java" int {{{ (int)(responseBuffer[i] & 0xFF) }}}
+				c = lang "java" as int {{{ (int)(responseBuffer[i] & 0xFF) }}}
 				jk.lang.Buffer.setByte(bb, i, c as uint8)
 			}
 			ELSE IFDEF "target_kotlin" {

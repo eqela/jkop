@@ -30,318 +30,6 @@ class NullObject public
 {
 }
 
-func parse(data as dynamic) static as object
-{
-	assert data
-	if data is buffer:
-		return parseBuffer(data as! buffer)
-	if data is string:
-		return parseString(data as! string)
-	if data is File:
-		return parseFile(data as! File)
-	return null
-}
-
-func parseBuffer(buffer as buffer) static as object
-{
-	if buffer == null:
-		return null
-	return forBuffer(buffer).tryAcceptObject()
-}
-
-func parseString(str as string) static as object
-{
-	if String.isEmpty(str):
-		return null
-	return forString(str).tryAcceptObject()
-}
-
-func parseFile(file as File) static as object
-{
-	if file == null:
-		return null
-	return forFile(file).tryAcceptObject()
-}
-
-func forString(str as string) static as this
-{
-	var v = new this()
-	v.setDataString(str)
-	return v
-}
-
-func forBuffer(buffer as buffer) static as this
-{
-	var v = new this()
-	v.setDataBuffer(buffer)
-	return v
-}
-
-func forFile(file as File) static as this
-{
-	var v = new this()
-	if file:
-		v.setDataString(file.getContentsUTF8())
-	return v
-}
-
-var iterator as CharacterIterator
-
-func setDataString(str as string)
-{
-	iterator = CharacterIteratorForString.forString(str)
-	iterator.moveToNextChar()
-}
-
-func setDataBuffer(buffer as buffer)
-{
-	iterator = CharacterIteratorForBuffer.forBuffer(buffer)
-	iterator.moveToNextChar()
-}
-
-func skipSpaces private
-{
-	loop {
-		if iterator.hasEnded():
-			break
-		var c = iterator.getCurrentChar()
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
-			iterator.moveToNextChar()
-			continue
-		}
-		if c == '#' {
-			iterator.moveToNextChar()
-			loop {
-				if iterator.hasEnded():
-					break
-				var cc = iterator.getCurrentChar()
-				iterator.moveToNextChar()
-				if Character.isEOF(cc) || cc == '\n':
-					break
-			}
-			continue
-		}
-		break
-	}
-}
-
-func acceptChar(c as char) private as bool
-{
-	skipSpaces()
-	if iterator.getCurrentChar() == c {
-		iterator.moveToNextChar()
-		return true
-	}
-	return false
-}
-
-func acceptImmediateChar(c as char) private as bool
-{
-	if iterator.getCurrentChar() == c {
-		iterator.moveToNextChar()
-		return true
-	}
-	return false
-}
-
-func acceptDoubleQuotedString private as string
-{
-	skipSpaces()
-	var ss = iterator.getCurrentChar()
-	if ss != '"':
-		return null
-	var i = 0
-	var sb = new StringBuilder()
-	loop {
-		var c = iterator.getNextChar()
-		i ++
-		if Character.isEOF(c) {
-			for(var n = 0 ; n < i ; n++):
-				iterator.moveToPreviousChar()
-			return null
-		}
-		if c == ss {
-			iterator.moveToNextChar()
-			break
-		}
-		if c == '\\' {
-			c = iterator.getNextChar()
-			if c == 'u' {
-				var v = new StringBuilder()
-				var x = 0
-				while x < 4 {
-					if iterator.hasEnded():
-						break
-					v.appendCharacter(iterator.getNextChar())
-					x++
-				}
-				c = String.toIntegerFromHex(v.toString()) as char
-			}
-			else if c == 't' {
-				c = '\t'
-			}
-			else if c == 'r' {
-				c = '\r'
-			}
-			else if c == 'n' {
-				c = '\n'
-			}
-			else if c == 'b' {
-				c = '\b'
-			}
-			else if c == 'f' {
-				c = '\f'
-			}
-		}
-		sb.appendCharacter(c)
-	}
-	return sb.toString()
-}
-
-func acceptBoolean private as BooleanObject
-{
-	skipSpaces()
-	var ss = iterator.getCurrentChar()
-	if ss != 't' && ss != 'f':
-		return null
-	var sb = new StringBuilder()
-	sb.appendCharacter(ss)
-	var li = 5
-	if ss == 't':
-		li = 4
-	var btc = 0
-	loop {
-		var c = iterator.getNextChar()
-		btc++
-		if c != 'a' && c != 'l' && c != 's' && c != 'e' && c != 'r' && c != 'u' {
-			iterator.moveToNextChar()
-			btc++
-			break
-		}
-		sb.appendCharacter(c)
-		if sb.count() == li {
-			iterator.moveToNextChar()
-			btc++
-			break
-		}
-	}
-	var v = sb.toString()
-	if li == 4 && "true" == v:
-		return Boolean.asObject(true)
-	if li == 5 && "false" == v:
-		return Boolean.asObject(false)
-	var i = 0
-	while i < btc {
-		iterator.moveToPreviousChar()
-		i++
-	}
-	return null
-}
-
-func acceptNumber private as object
-{
-	skipSpaces()
-	var ss = iterator.getCurrentChar()
-	if ss != '-' && ss != '+' && ss != '.' && (ss < '0' || ss > '9'):
-		return null
-	var sb = new StringBuilder()
-	sb.appendCharacter(ss)
-	loop {
-		var c = iterator.getNextChar()
-		if c != '.' && c != 'e' && c != 'E' && c != '-' && (c < '0' || c > '9'):
-			break
-		sb.appendCharacter(c)
-	}
-	var s = sb.toString()
-	if String.getIndexOfCharacter(s, '.') > -1:
-		return Double.asObject(Double.asDouble(s))
-	var value = String.toLong(s)
-	if value >= -2147483648L && value <= 2147483647L:
-		return Integer.asObject(value as int)
-	return LongInteger.asObject(value)
-}
-
-func acceptNull private as NullObject
-{
-	skipSpaces()
-	var ss = iterator.getCurrentChar()
-	if ss != 'n':
-		return null
-	var sb = new StringBuilder()
-	sb.appendCharacter(ss)
-	var btc = 0
-	loop {
-		var c = iterator.getNextChar()
-		btc++
-		if c != 'u' && c != 'l' {
-			iterator.moveToNextChar()
-			btc++
-			break
-		}
-		sb.appendCharacter(c)
-		if sb.count() == 4 {
-			iterator.moveToNextChar()
-			btc++
-			break
-		}
-	}
-	if "null" == sb.toString():
-		return new NullObject()
-	var i = 0
-	while i < btc {
-		iterator.moveToPreviousChar()
-		i++
-	}
-	return null
-}
-
-func isIdentifierCharacter(ss as char) private as bool
-{
-	if ss == 0 as char || ss == ' ' || ss == '\r' || ss == '\n' || ss == '\t':
-		return false
-	return true
-}
-
-func acceptIdentifier private as string
-{
-	skipSpaces()
-	var ss = iterator.getCurrentChar()
-	if ss == '[' {
-		var sb = new StringBuilder()
-		loop {
-			var c = iterator.getNextChar()
-			if Character.isEOF(c):
-				break
-			if c == ']' {
-				iterator.moveToNextChar()
-				break
-			}
-			sb.appendCharacter(c)
-		}
-		return sb.toString()
-	}
-	if isIdentifierCharacter(ss) {
-		var sb = new StringBuilder()
-		sb.appendCharacter(ss)
-		loop {
-			var c = iterator.getNextChar()
-			if Character.isEOF(c) || not isIdentifierCharacter(c):
-				break
-			sb.appendCharacter(c)
-		}
-		return sb.toString()
-	}
-	return null
-}
-
-func expectIdentifier private as string
-{
-	var v = acceptIdentifier()
-	if not v:
-		throwExpectationError("identifier")
-	return v
-}
-
 class ParseError public is Exception is StringObject
 {
 	prop iterator as CharacterIterator
@@ -349,7 +37,7 @@ class ParseError public is Exception is StringObject
 
 	var lineNumber = 0
 	var columnNumber = 0
-	var lineString as string
+	var lineString as string?
 
 	func computeData
 	{
@@ -410,12 +98,313 @@ class ParseError public is Exception is StringObject
 	}
 }
 
-func throwExpectationError(expected as string)
+func parse(data as dynamic?) static as object
 {
-	var pe = new ParseError()
-	pe.iterator = iterator
-	pe.expected = expected
-	throw pe
+	var dataBuffer = data as buffer
+	if dataBuffer:
+		return parseBuffer(dataBuffer)
+	var dataString = data as string
+	if dataString:
+		return parseString(dataString)
+	var dataFile = data as File
+	if dataFile:
+		return parseFile(dataFile)
+	Error.throw("unsupportedDataObjectForSlonParser", data)
+}
+
+func parseBuffer(buffer as buffer) static as object:
+	return forBuffer(buffer).expectObject()
+
+func parseString(str as string) static as object:
+	return forString(str).expectObject()
+
+func parseFile(file as File) static as object:
+	return forFile(file).expectObject()
+
+func forString(str as string) static as this
+{
+	var v = new this()
+	v.setDataString(str)
+	return v
+}
+
+func forBuffer(buffer as buffer) static as this
+{
+	var v = new this()
+	v.setDataBuffer(buffer)
+	return v
+}
+
+func forFile(file as File) static as this
+{
+	var v = new this()
+	v.setDataString(file.getContentsUTF8())
+	return v
+}
+
+var iterator as CharacterIterator = CharacterIteratorForString.forString("")
+
+func setDataString(str as string)
+{
+	iterator = CharacterIteratorForString.forString(str)
+	iterator.moveToNextChar()
+}
+
+func setDataBuffer(buffer as buffer)
+{
+	iterator = CharacterIteratorForBuffer.forBuffer(buffer)
+	iterator.moveToNextChar()
+}
+
+func throwExpectationError(expected as string) #throws
+{
+	throw new ParseError() {
+		iterator iterator
+		expected expected
+	}
+}
+
+func skipSpaces private
+{
+	loop {
+		if iterator.hasEnded():
+			break
+		var c = iterator.getCurrentChar()
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+			iterator.moveToNextChar()
+			continue
+		}
+		if c == '#' {
+			iterator.moveToNextChar()
+			loop {
+				if iterator.hasEnded():
+					break
+				var cc = iterator.getCurrentChar()
+				iterator.moveToNextChar()
+				if Character.isEOF(cc) || cc == '\n':
+					break
+			}
+			continue
+		}
+		break
+	}
+}
+
+func acceptChar(c as char) private as bool
+{
+	skipSpaces()
+	if iterator.getCurrentChar() == c {
+		iterator.moveToNextChar()
+		return true
+	}
+	return false
+}
+
+func acceptImmediateChar(c as char) private as bool
+{
+	if iterator.getCurrentChar() == c {
+		iterator.moveToNextChar()
+		return true
+	}
+	return false
+}
+
+func acceptDoubleQuotedString private as string?
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss != '"':
+		return null
+	var i = 0
+	var sb = new StringBuilder()
+	loop {
+		var c = iterator.getNextChar()
+		i ++
+		if Character.isEOF(c) {
+			for(var n = 0 ; n < i ; n++):
+				iterator.moveToPreviousChar()
+			return null
+		}
+		if c == ss {
+			iterator.moveToNextChar()
+			break
+		}
+		if c == '\\' {
+			c = iterator.getNextChar()
+			if c == 'u' {
+				var v = new StringBuilder()
+				var x = 0
+				while x < 4 {
+					if iterator.hasEnded():
+						break
+					v.appendCharacter(iterator.getNextChar())
+					x++
+				}
+				c = Integer.forHexStringOrDefaultValue(v.toString()) as char
+			}
+			else if c == 't' {
+				c = '\t'
+			}
+			else if c == 'r' {
+				c = '\r'
+			}
+			else if c == 'n' {
+				c = '\n'
+			}
+			else if c == 'b' {
+				c = '\b'
+			}
+			else if c == 'f' {
+				c = '\f'
+			}
+		}
+		sb.appendCharacter(c)
+	}
+	return sb.toString()
+}
+
+func acceptBoolean private as BooleanObject?
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss != 't' && ss != 'f':
+		return null
+	var sb = new StringBuilder()
+	sb.appendCharacter(ss)
+	var li = 5
+	if ss == 't':
+		li = 4
+	var btc = 0
+	loop {
+		var c = iterator.getNextChar()
+		btc++
+		if c != 'a' && c != 'l' && c != 's' && c != 'e' && c != 'r' && c != 'u' {
+			iterator.moveToNextChar()
+			btc++
+			break
+		}
+		sb.appendCharacter(c)
+		if sb.count() == li {
+			iterator.moveToNextChar()
+			btc++
+			break
+		}
+	}
+	var v = sb.toString()
+	if li == 4 && "true" == v:
+		return Boolean.asObject(true)
+	if li == 5 && "false" == v:
+		return Boolean.asObject(false)
+	var i = 0
+	while i < btc {
+		iterator.moveToPreviousChar()
+		i++
+	}
+	return null
+}
+
+func acceptNumber private as object?
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss != '-' && ss != '+' && ss != '.' && (ss < '0' || ss > '9'):
+		return null
+	var sb = new StringBuilder()
+	sb.appendCharacter(ss)
+	loop {
+		var c = iterator.getNextChar()
+		if c != '.' && c != 'e' && c != 'E' && c != '-' && (c < '0' || c > '9'):
+			break
+		sb.appendCharacter(c)
+	}
+	var s = sb.toString()
+	if String.getIndexOfCharacter(s, '.') > -1:
+		return Double.asObject(Double.asValueOrThrowError(s))
+	var value = LongInteger.asValueOrThrowError(s)
+	if value >= -2147483648L && value <= 2147483647L:
+		return Integer.asObject(value as int)
+	return LongInteger.asObject(value)
+}
+
+func acceptNull private as NullObject?
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss != 'n':
+		return null
+	var sb = new StringBuilder()
+	sb.appendCharacter(ss)
+	var btc = 0
+	loop {
+		var c = iterator.getNextChar()
+		btc++
+		if c != 'u' && c != 'l' {
+			iterator.moveToNextChar()
+			btc++
+			break
+		}
+		sb.appendCharacter(c)
+		if sb.count() == 4 {
+			iterator.moveToNextChar()
+			btc++
+			break
+		}
+	}
+	if "null" == sb.toString():
+		return new NullObject()
+	var i = 0
+	while i < btc {
+		iterator.moveToPreviousChar()
+		i++
+	}
+	return null
+}
+
+func isIdentifierCharacter(ss as char) private as bool
+{
+	if ss == 0 as char || ss == ' ' || ss == '\r' || ss == '\n' || ss == '\t':
+		return false
+	return true
+}
+
+func acceptIdentifier private as string?
+{
+	skipSpaces()
+	var ss = iterator.getCurrentChar()
+	if ss == '[' {
+		var sb = new StringBuilder()
+		loop {
+			var c = iterator.getNextChar()
+			if Character.isEOF(c):
+				break
+			if c == ']' {
+				iterator.moveToNextChar()
+				break
+			}
+			sb.appendCharacter(c)
+		}
+		return sb.toString()
+	}
+	if isIdentifierCharacter(ss) {
+		var sb = new StringBuilder()
+		sb.appendCharacter(ss)
+		loop {
+			var c = iterator.getNextChar()
+			if Character.isEOF(c) || not isIdentifierCharacter(c):
+				break
+			sb.appendCharacter(c)
+		}
+		return sb.toString()
+	}
+	return null
+}
+
+func expectIdentifier private as string
+{
+	var v = acceptIdentifier()
+	if not v:
+		throwExpectationError("identifier")
+	return v
 }
 
 func expectObject private as object
@@ -426,14 +415,12 @@ func expectObject private as object
 	return v
 }
 
-func countIndents(str as string) private as int
+func countIndents(str as string?) private as int
 {
 	if not str:
 		return 0
-	var it = String.iterate(str)
 	var v = 0
-	loop {
-		var c = it.getNextChar()
+	foreach c in String.iterate(str) {
 		if c == ' ' || c == '\t' {
 			v ++
 		}
@@ -446,15 +433,14 @@ func countIndents(str as string) private as int
 
 func stripLongStringIndentation(str as string) private as string
 {
-	assert str
 	var commonIndents = -1
 	var lines = String.split(str, '\n')
 	var vsize = Vector.getSize(lines)
 	var removedLastLine = false
 	if vsize > 0 {
-		var lastLine = Vector.get(lines, vsize-1)
-		if lastLine && countIndents(lastLine) == String.getLength(lastLine) {
-			Vector.remove(lines, vsize-1)
+		var lastLine = lines[vsize-1]
+		if countIndents(lastLine) == String.getLength(lastLine) {
+			Vector.removeIndex(lines, vsize-1)
 			removedLastLine = true
 		}
 	}
@@ -500,7 +486,7 @@ func parseLongString private as string
 	return stripLongStringIndentation(sb.toString())
 }
 
-func acceptObject as object
+func acceptObject as object?
 {
 	if acceptChar('[') {
 		if acceptImmediateChar('['):
@@ -541,16 +527,5 @@ func acceptObject as object
 	var v = acceptNumber()
 	if v:
 		return v
-	return null
-}
-
-func tryAcceptObject as object
-{
-	try {
-		return acceptObject()
-	}
-	catch {
-		nop
-	}
 	return null
 }

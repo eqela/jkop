@@ -22,21 +22,23 @@
  * SOFTWARE.
  */
 
+import jk.log
 import jk.webserver
 import jk.apiclient
+import jk.webclient
 
 class is WebServerMiddleware:
 
 prop pathPrefix as string
 prop originUrl as string
-prop dynamicTokenKey as string
-prop staticToken as string
-prop staticApiKey as string
-prop staticAuthorization as string
+prop dynamicTokenKey as string?
+prop staticToken as string?
+prop staticApiKey as string?
+prop staticAuthorization as string?
 
-func getRedirectedPath(request as WebServerRequest) private as string
+func getRedirectedPath(request as WebServerRequest) private as string?
 {
-	if not pathPrefix:
+	if String.isEmpty(pathPrefix):
 		return null
 	var pp = pathPrefix
 	if String.endsWith(pp, "/") == false:
@@ -47,7 +49,7 @@ func getRedirectedPath(request as WebServerRequest) private as string
 	return String.getEndOfString(path, String.getLength(pp) - 1)
 }
 
-func handleRequest(request as WebServerRequest, next as function<promise>) async override
+func handleRequest(request as WebServerRequest, next as function<promise<void>>) async override
 {
 	var redirectPath = getRedirectedPath(request)
 	if not redirectPath {
@@ -57,31 +59,34 @@ func handleRequest(request as WebServerRequest, next as function<promise>) async
 	if String.isEmpty(originUrl):
 		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
 	var token = staticToken
-	if dynamicTokenKey {
-		var dynamicToken = String.asString(request.getUserData(dynamicTokenKey))
+	if var dynamicTokenKey = this.dynamicTokenKey {
+		var dynamicToken = String.asValueOrNull(request.getUserData(dynamicTokenKey))
 		if dynamicToken:
 			token = dynamicToken
 	}
 	var apikey = staticApiKey
-	var client = new ApiClient(ctx) {
+	var client = new ApiClient() {
 		ctx ctx
 		baseUrl originUrl
 		bearerToken token
 		apiKey apikey
 		authorization staticAuthorization
 	}
-	var requestBody = await request.readBodyAsBuffer()
-	var response = await client.request(request.getMethod(), redirectPath, null, requestBody)
-	if not response:
-		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
-	var status = response.statusCode
-	if String.isEmpty(status):
-		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
-	request.setResponseStatus(String.toInteger(status))
-	request.setResponseHeaderList(response.headers)
-	// FIXME: The response should be streamed, not read-written as one big buffer
-	var responseBody = response.getBodyAsBuffer()
-	if responseBody:
+	try {
+		var requestBody = await request.getBodyAsBuffer()
+		var response = await client.request(request.getMethod(), redirectPath, null, requestBody)
+		var status = response.statusCode
+		if String.isEmpty(status):
+			Error.throw("emptyHttpStatus", response)
+		request.setResponseStatus(Integer.forStringOrThrowError(status))
+		request.setResponseHeaderList(response.headers)
+		// FIXME: The response should be streamed, not read-written as one big buffer
+		var responseBody = response.getBodyAsBuffer()
 		await request.writeResponseData(responseBody)
-	await request.endResponse()
+		await request.endResponse()
+	}
+	catch e {
+		Log.error(ctx, String.asValueOrEmptyString(e))
+		throw WebServerException.forStatus(WebServerException.BAD_GATEWAY)
+	}
 }

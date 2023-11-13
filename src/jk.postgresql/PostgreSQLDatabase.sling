@@ -34,14 +34,15 @@ meta
 	]]
 }
 
-func instance private static as this
+func instance(ctx as LoggingContext) private static as this
 {
-	IFDEF "target_nodejs" {
-		return new PostgreSQLForNodeJS()
+	IFDEF "target_node_js" {
+		return new PostgreSQLForNodeJS() {
+			ctx ctx
+		}
 	}
 	ELSE {
-		Error.throw("notSupported", "PostgreSQL")
-		return null
+		ERROR "notImplemented"
 	}
 }
 
@@ -52,24 +53,26 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 	var ss = String.split(connectionString, ':')
 	if Vector.getSize(ss) < 4:
 		Error.throw("invalidConnectionString", connectionString)
-	var address = Vector.get(ss, 0)
-	var username = Vector.get(ss, 1)
-	var password = Vector.get(ss, 2)
-	var database = Vector.get(ss, 3)
+	var address = Vector.getValue(ss, 0)
+	var username = Vector.getValue(ss, 1)
+	var password = Vector.getValue(ss, 2)
+	var database = Vector.getValue(ss, 3)
 	var port = 5432
-	var param4 = Vector.get(ss, 4)
+	var param4 = Vector.getValue(ss, 4) ?? ""
 	var enableSSL = false
 	if String.startsWith(param4, "sslmode=") {
 		if String.getEndOfString(param4, 8) == "require":
 			enableSSL = true
 	}
 	else {
-		port = String.toInteger(param4)
+		port = Integer.forStringOrThrowError(param4)
 	}
 	if String.isEmpty(address):
 		Error.throw("emptyAddress", connectionString)
 	if String.isEmpty(username):
 		Error.throw("emptyUsername", connectionString)
+	if not password:
+		password = ""
 	if String.isEmpty(database):
 		Error.throw("emptyDatabaseName", connectionString)
 	if port < 0:
@@ -79,18 +82,18 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 
 func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 {
-	if not config:
-		Error.throw("nullConfiguration", null, StackTrace.generate())
 	var serverAddress = config.getString("serverAddress")
 	var username = config.getString("username")
 	var password = config.getString("password")
 	var database = config.getString("database")
-	var port = config.getInteger("port", 5432)
+	var port = config.getIntegerOrDefaultValue("port", 5432)
 	var enableSSL = config.getBoolean("enableSSL")
 	if String.isEmpty(serverAddress):
 		Error.throw("emptyAddress", config)
 	if String.isEmpty(username):
 		Error.throw("emptyUsername", config)
+	if not password:
+		password = ""
 	if String.isEmpty(database):
 		Error.throw("emptyDatabaseName", config)
 	if port < 0:
@@ -100,13 +103,8 @@ func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 
 func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, port as int, enableSSL as bool) static as this
 {
-	if String.isEmpty(serverAddress) || String.isEmpty(username) || password == null || String.isEmpty(database) || port < 0:
-		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
-	var v = instance()
-	if not v:
-		Error.throw("failedToCreatePostgreSQLClientInstance", null)
-	v.ctx = ctx
-	Log.debug(ctx, "PostgreSQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.asString(port) .. "'")
+	var v = instance(ctx)
+	Log.debug(ctx, "PostgreSQLDatabase using connection details: host=`" .. serverAddress .. "', username=`" .. username .. "', database=`" .. database .. "', port=`" .. String.forInteger(port) .. "'")
 	v.setConnectionDetails(serverAddress, username, password, database, port, enableSSL)
 	return v
 }

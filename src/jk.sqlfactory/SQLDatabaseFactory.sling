@@ -51,9 +51,14 @@ func processConnectionString(connectionString as string) static as string
 		var scheme = url.getScheme()
 		if scheme == "postgresql":
 			scheme = "postgres"
+		if not scheme:
+			Error.throw("invalidConnectionString", connectionString)
+		var host = url.getHost()
+		if not host:
+			Error.throw("invalidConnectionString", connectionString)
 		sb.appendString(scheme)
 		sb.appendCharacter(':')
-		sb.appendString(url.getHost())
+		sb.appendString(host)
 		sb.appendCharacter(':')
 		var username = url.getUsername()
 		if username:
@@ -63,8 +68,8 @@ func processConnectionString(connectionString as string) static as string
 		if password:
 			sb.appendString(password)
 		sb.appendCharacter(':')
-		var path = url.getPath()
-		while path && String.startsWith(path, "/"):
+		var path = url.getPath() ?? ""
+		while String.startsWith(path, "/"):
 			path = String.getEndOfString(path, 1)
 		sb.appendString(path)
 		var port = url.getPort()
@@ -73,15 +78,12 @@ func processConnectionString(connectionString as string) static as string
 			sb.appendString(port)
 		}
 		var queryParams = url.getQueryParameters()
-		var itr = Map.iterateKeys(queryParams)
-		loop {
-			var it = itr.next()
-			if not it:
-				break
+		if queryParams: foreach it in Map.iterateKeys(queryParams) {
 			sb.appendCharacter(':')
 			sb.appendString(it)
 			sb.appendCharacter('=')
-			sb.appendString(Map.getValue(queryParams, it))
+			if var value = Map.getValue(queryParams, it):
+				sb.appendString(value)
 		}
 		return sb.toString()
 	}
@@ -96,25 +98,22 @@ func getDatabase(ctx as LoggingContext, connectionString as string) static as SQ
 			Supported connection strings start with eg. "mssql:", "mysql:", "postgres:" or "sqlite:".
 		]]
 	}
-	var dbtype as string
-	var dbstr as string
 	var comps = String.split(processConnectionString(connectionString), ':', 2)
-	if comps {
-		dbtype = Vector.get(comps, 0)
-		dbstr = Vector.get(comps, 1)
-	}
-	assert String.isNotEmpty(dbtype):
-		Log.error(ctx, "Invalid connection string: Failed to determine database type")
+	var dbtype = Vector.getValue(comps, 0)
+	var dbstr = Vector.getValue(comps, 1)
+	if String.isEmpty(dbtype):
+		Error.throw("invalidConnectionString", connectionString)
+	if String.isEmpty(dbstr):
+		Error.throw("invalidConnectionString", connectionString)
 	if dbtype == "mssql":
 		return MSSQLDatabase.forConnectionString(ctx, dbstr)
 	if dbtype == "mysql":
 		return MySQLDatabase.forConnectionString(ctx, dbstr)
 	if dbtype == "sqlite":
-		return SQLiteDatabase.forFile(File.forPath(dbstr), true, ctx)
+		return SQLiteDatabase.forFile(ctx, File.forPath(dbstr), true)
 	if dbtype == "postgres":
 		return PostgreSQLDatabase.forConnectionString(ctx, dbstr)
-	Log.error(ctx, "Unsupported database type: `" .. dbtype .. "'")
-	return null
+	Error.throw("unsupportedDatabaseType", dbtype)
 }
 
 func getDatabaseWithConfig(ctx as LoggingContext, config as DynamicMap) static as SQLDatabase
@@ -126,12 +125,10 @@ func getDatabaseWithConfig(ctx as LoggingContext, config as DynamicMap) static a
 			only "mysql" is supported.
 		]]
 	}
-	assert config
 	var type = config.getString("type")
 	if type == "mysql":
 		return MySQLDatabase.forConfig(ctx, config)
-	Log.error(ctx, "Unsupported database type in getDatabaseWithConfig: `" .. type .. "'")
-	return null
+	Error.throw("unsupportedDatabaseType", type)
 }
 
 func getDatabaseForEnvironmentVariable(ctx as LoggingContext, envVariableName as string) static as SQLDatabase
@@ -140,10 +137,7 @@ func getDatabaseForEnvironmentVariable(ctx as LoggingContext, envVariableName as
 	if String.isEmpty(dbConnectionString):
 		Error.throw("environmentVariableNotSet", envVariableName)
 	dbConnectionString = String.strip(dbConnectionString)
-	var db = getDatabase(ctx, dbConnectionString)
-	if not db:
-		Error.throw("failedToCreateDatabaseConnection", dbConnectionString)
-	return db
+	return getDatabase(ctx, dbConnectionString)
 }
 
 func getDefaultDatabase(ctx as LoggingContext) static as SQLDatabase:

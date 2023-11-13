@@ -22,14 +22,15 @@
  * SOFTWARE.
  */
 
-import jk.thread
+import jk.log
 import jk.time
+import jk.thread
 
 class:
 
 class DNSCacheEntry
 {
-	pvar ip as string
+	pvar ip as string?
 	pvar timestamp as long
 
 	func create(ip as string) static as this
@@ -41,67 +42,36 @@ class DNSCacheEntry
 	}
 }
 
-class DNSCacheImpl
+prop ctx as LoggingContext
+
+var entries = new DynamicMap()
+
+func add(hostname as string, ip as string) private:
+	entries.setObject(hostname, DNSCacheEntry.create(ip))
+
+func getCachedEntry(hostname as string) private as string?
 {
-	var entries as DynamicMap
-	var mutex as Mutex
-
-	ctor
-	{
-		entries = new DynamicMap()
-		mutex = Mutex.create()
-	}
-
-	func add(hostname as string, ip as string) private
-	{
-		if mutex:
-			mutex.lockMutex()
-		entries.setObject(hostname, DNSCacheEntry.create(ip))
-		if mutex:
-			mutex.unlockMutex()
-	}
-
-	func getCachedEntry(hostname as string) private as string
-	{
-		var v as DNSCacheEntry
-		if mutex:
-			mutex.lockMutex()
-		v = entries.get(hostname) as DNSCacheEntry
-		if mutex:
-			mutex.unlockMutex()
-		if v {
-			if SystemClock.asSeconds() - v.getTimestamp() > 60  * 60 {
-				if mutex:
-					mutex.lockMutex()
-				entries.remove(hostname)
-				if mutex:
-					mutex.unlockMutex()
-				v = null
-			}
+	var v as DNSCacheEntry?
+	v = entries.get(hostname) as DNSCacheEntry
+	if v {
+		if SystemClock.asSeconds() - v.getTimestamp() > 60  * 60 {
+			entries.remove(hostname)
+			v = null
 		}
-		if v:
-			return v.getIp()
-		return null
 	}
-
-	func resolve(hostname as string) as string
-	{
-		var v = getCachedEntry(hostname)
-		if v:
-			return v
-		var dr = assert DNSResolver.create()
-		v = dr.getIPAddress(hostname, null)
-		if v:
-			add(hostname, v)
-		return v
-	}
+	if v:
+		return v.getIp()
+	return null
 }
 
-var cc private static as DNSCacheImpl
-
-func resolve(hostname as string) static as string
+func resolve(hostname as string) as string?
 {
-	if cc == null:
-		cc = new DNSCacheImpl()
-	return cc.resolve(hostname)
+	var v = getCachedEntry(hostname)
+	if v:
+		return v
+	var dr = DNSResolver.instance(ctx)
+	v = dr.getIPAddress(hostname)
+	if v:
+		add(hostname, v)
+	return v
 }

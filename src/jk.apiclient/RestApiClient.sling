@@ -37,8 +37,9 @@ func replaceParameters(path as string, parameters as map<string,string>) static 
 			v.appendCharacter('/')
 		if String.startsWith(comp, ":") {
 			var paramKey = String.getSubString(comp, 1, String.getLength(comp) - 1)
-			var paramValue = Map.get(parameters, paramKey)
-			v.appendString(paramValue)
+			var paramValue = Map.getValue(parameters, paramKey)
+			if paramValue:
+				v.appendString(paramValue)
 		}
 		else {
 			v.appendString(comp)
@@ -54,17 +55,11 @@ func contentTypeAsHeaders(contentType as string) static as KeyValueList<string,s
 	return v
 }
 
-func asJsonBuffer(data as dynamic) static as buffer
-{
-	if data == null:
-		return null
+func asJsonBuffer(data as dynamic) static as buffer:
 	return String.toUTF8Buffer(JSONEncoder.toString(data))
-}
 
 func validateResponse(response as WebClient.Response) static
 {
-	if not response:
-		Error.throw("noResponse", null)
 	if String.startsWith(response.statusCode, "2") == false:
 		Error.throw("httpErrorStatusReceived", response.statusCode)
 }
@@ -90,7 +85,7 @@ func responseAsLongInteger(response as WebClient.Response) static as long
 	var v = LongInteger.asObject(r)
 	if not v:
 		Error.throw("responseIsNotLongInteger", response)
-	return v.toLong()
+	return v.toLongInteger()
 }
 
 func responseAsInteger(response as WebClient.Response) static as int
@@ -117,11 +112,10 @@ func responseAsDynamicMap(response as WebClient.Response) static as DynamicMap
 func appendQueryParameterToUrl(url as string, name as string, value as dynamic) static as string
 {
 	if String.isEmpty(name):
-		return url
+		return String.safeString(url)
 	var v = new StringBuilder()
-	if url:
-		v.appendString(url)
-	if url && String.getIndexOfCharacter(url, '?') >= 0 {
+	v.appendString(url)
+	if String.getIndexOfCharacter(url, '?') >= 0 {
 		v.appendCharacter('&')
 	}
 	else {
@@ -129,6 +123,7 @@ func appendQueryParameterToUrl(url as string, name as string, value as dynamic) 
 	}
 	v.appendString(name)
 	v.appendCharacter('=')
-	v.appendString(URLEncoder.encode(String.asString(value)))
+	var valstr = String.asValueOrThrowError(value)
+	v.appendString(URLEncoder.encode(valstr))
 	return v.toString()
 }

@@ -35,18 +35,16 @@ model LinkedInUserDetails public
 	localizedLastName as string
 }
 
-func forAccessToken(ctx as LoggingContext, accessToken as string) static as this
-{
-	var v = new this(ctx)
-	v.accessToken = accessToken
-	return v
-}
+func forAccessToken(ctx as LoggingContext, accessToken as string) static as this:
+	return new this() {
+		ctx ctx
+		accessToken accessToken
+	}
 
 prop accessToken as string
 
 func getUserDetails async as LinkedInUserDetails
 {
-	assert accessToken
 	var headers = new KeyValueList<string, string>()
 	headers.add("Authorization", "Bearer " .. accessToken)
 	var res = await request("GET", "https://api.linkedin.com/v2/me", headers, null)
@@ -56,36 +54,43 @@ func getUserDetails async as LinkedInUserDetails
 
 func getUserEmailAddress async as string
 {
-	assert accessToken
 	var headers = new KeyValueList<string, string>()
 	headers.add("Authorization", "Bearer " .. accessToken)
 	var res = await request("GET", "https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))", headers, null)
 	var dm = res.getBodyAsDynamicMap()
 	var elements =  dm.getDynamicVector("elements")
-	var emailAddress as string
-	foreach handle as DynamicMap in elements.toVectorOfDynamicMaps() {
+	var emailAddress as string?
+	if elements: foreach handle in elements.toVectorOfDynamicMaps() {
 		var v = handle.getDynamicMap("handle~")
-		emailAddress = v.getString("emailAddress")
+		if v:
+			emailAddress = v.getString("emailAddress")
 	}
+	if not emailAddress:
+		Error.throw("failedToGetUserEmailAddress", null)
 	return emailAddress
 }
 
 func getUserProfilePictureUrl async as string
 {
-	assert accessToken
 	var headers = new KeyValueList<string, string>()
 	headers.add("Authorization", "Bearer " .. accessToken)
 	var res = await request("GET", "https://api.linkedin.com/v2/me?projection=(id,profilePicture(displayImage~digitalmediaAsset:playableStreams))", headers, null)
 	var dm = res.getBodyAsDynamicMap()
 	var profilePicture = dm.getDynamicMap("profilePicture")
+	if not profilePicture:
+		Error.throw("noProfilePicture", null)
 	var displayImage = profilePicture.getDynamicMap("displayImage~")
+	if not displayImage:
+		Error.throw("noDisplayImage", null)
 	var elements =  displayImage.getDynamicVector("elements")
-	var profilePictureUrl as string
-	foreach di as DynamicMap in elements.toVectorOfDynamicMaps() {
+	var profilePictureUrl as string?
+	if elements: foreach di as DynamicMap in elements.toVectorOfDynamicMaps() {
 		var identifiers = di.getDynamicVector("identifiers")
-		foreach identifier as DynamicMap in identifiers.toVectorOfDynamicMaps() {
+		if identifiers: foreach identifier as DynamicMap in identifiers.toVectorOfDynamicMaps() {
 			profilePictureUrl = identifier.getString("identifier")
 		}
 	}
+	if not profilePictureUrl:
+		Error.throw("failedToGetUserProfilePictureUrl", null)
 	return profilePictureUrl
 }

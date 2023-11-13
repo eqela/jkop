@@ -27,51 +27,45 @@ import jk.log
 class abstract:
 
 prop ctx as LoggingContext
-prop errorHandler as function<void,WebServerRequest,dynamic>
+prop errorHandler as function<void,WebServerRequest,dynamic>?
 
 var middlewares = new vector<WebServerMiddleware>
 
-ctor:
-	initialize()
-
-ctor(ctx as LoggingContext)
-{
-	this.ctx = ctx
-	initialize()
-}
-
 func instance(ctx as LoggingContext) static as this
 {
-	IFDEF "target_nodejs" {
-		return new WebServerForNodejs(ctx)
+	IFDEF "target_node_js" {
+		var v = new WebServerForNodeJS() {
+			ctx ctx
+		}
+		v.initialize()
+		return v
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+		ERROR "notImplemented"
 	}
 }
 
 func waitForServers(ctx as LoggingContext, servers as vector<this>) async static
 {
-	IFDEF "target_nodejs" {
-		await WebServerForNodejs.waitForServers(ctx, servers)
+	IFDEF "target_node_js" {
+		await WebServerForNodeJS.waitForServers(ctx, servers)
 	}
 	ELSE {
-		ERROR "Not implemented."
+		ERROR "notImplemented"
 	}
 }
 
 func initialize virtual:
 	nop
 
-func useFunction(function as function<promise,WebServerRequest,function<promise>>)
+func useFunction(function as function<promise<void>,WebServerRequest,function<promise<void>>>)
 {
 	use(new WebServerMiddleware() {
 		handler function
 	})
 }
 
-func asHttpErrorCode(error as dynamic) as int
+func asHttpErrorCode(error as dynamic?) as int
 {
 	if error == null:
 		return 500
@@ -88,21 +82,26 @@ func handleError(req as WebServerRequest, error as dynamic) virtual
 		handler(req, error)
 	}
 	else {
-		Log.error(ctx, String.asString(error))
+		Log.error(ctx, String.asValueOrEmptyString(error))
 		req.setResponseStatus(asHttpErrorCode(error))
 		req.endResponse()
 	}
 }
 
+class HandleRequestState private
+{
+	prop index as int = 0
+}
+
 func handleRequest(req as WebServerRequest) async virtual
 {
-	var state = {}
-	state.index = 0
-	var nextf as function<promise>
+	var state = new HandleRequestState()
+	var nextf as function<promise<void>> = func async {
+	}
 	nextf = func async {
-		var mw = Vector.get(middlewares, state.index as int)
+		var mw = Vector.getValue(middlewares, state.index)
 		if mw {
-			state.index ++
+			state.index = state.index + 1
 			await mw.handleRequest(req, nextf)
 		}
 		else {
@@ -119,11 +118,9 @@ func handleRequest(req as WebServerRequest) async virtual
 
 func use(middleware as WebServerMiddleware) virtual
 {
-	if middleware {
-		middleware.server = this
-		middlewares += middleware
-		middleware.initializeMiddleware(this)
-	}
+	middleware.server = this
+	middlewares += middleware
+	middleware.initializeMiddleware(this)
 }
 
 func start(port as int) async abstract

@@ -1,0 +1,212 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is TCPSocket:
+
+var socket as native<System.Net.Sockets.Socket>?
+var isConnected = false
+
+dtor:
+	close()
+
+func getNetSocket as native<System.Net.Sockets.Socket>
+{
+	if not socket:
+		ERROR "noSocket"
+	return socket
+}
+
+func getRemoteAddress override as string
+{
+	var socket = getNetSocket()
+	var ep = socket.RemoteEndPoint as native<System.Net.IPEndPoint>
+	if not ep:
+		Error.throw("noSocketRemoteEndPoint", null)
+	var add = ep.Address as! native<System.Net.IPAddress>
+	var str = add.ToString!() as string
+	if not str:
+		Error.throw("noStringValueForRemoteAddress", null)
+	return str
+}
+
+func getRemotePort override as int
+{
+	if socket == null:
+		return 0
+	var ep = socket.RemoteEndPoint as native<System.Net.IPEndPoint>
+	if ep {
+		var port = ep.Port as! int
+		return port
+	}
+	return 0
+}
+
+func getLocalAddress override as string
+{
+	var socket = getNetSocket()
+	var ep = socket.LocalEndPoint as native<System.Net.IPEndPoint>
+	if not ep:
+		Error.throw("noSocketLocalEndPoint", null)
+	var add = ep.Address as! native<System.Net.IPAddress>
+	var str = add.ToString!() as string
+	if not str:
+		Error.throw("noStringValueForLocalAddress", null)
+	return str
+}
+
+func getLocalPort override as int
+{
+	if socket == null:
+		return 0
+	var ep = socket.LocalEndPoint as native<System.Net.IPEndPoint>
+	if ep {
+		var port = ep.Port as! int
+		return port
+	}
+	return 0
+}
+
+func listen(port as int) override
+{
+	lang "cs" {{{
+		socket = new System.Net.Sockets.Socket(
+			System.Net.Sockets.AddressFamily.InterNetwork,
+			System.Net.Sockets.SocketType.Stream,
+			System.Net.Sockets.ProtocolType.Tcp);
+		socket.NoDelay = true;
+		var ep = new System.Net.IPEndPoint(System.Net.IPAddress.Any, port);
+		socket.Bind(ep);
+		socket.Listen(256);
+	}}}
+}
+
+func accept override as TCPSocket?
+{
+	var socket = getNetSocket()
+	var nsocket as native<System.Net.Sockets.Socket>?
+	lang "cs" {{{
+		nsocket = socket.Accept();
+	}}}
+	if nsocket {
+		lang "cs" {{{
+			nsocket.NoDelay = true;
+		}}}
+		var v = new this()
+		v.socket = nsocket
+		return v
+	}
+	return null
+}
+
+func setBlocking(blocking as bool) override as bool
+{
+	var v = false
+	if socket {
+		lang "cs" {{{
+			socket.Blocking = blocking;
+		}}}
+		v = true
+	}
+	return v
+}
+
+func getBlocking override as bool
+{
+	var socket = getNetSocket()
+	return lang "cs" as bool {{{ socket.Blocking }}}
+}
+
+func connect(address as string, port as int) override
+{
+	lang "cs" {{{
+		socket = new System.Net.Sockets.Socket(
+			System.Net.Sockets.AddressFamily.InterNetwork,
+			System.Net.Sockets.SocketType.Stream,
+			System.Net.Sockets.ProtocolType.Tcp);
+		socket.NoDelay = true;
+		socket.Connect(address, port);
+		isConnected = true;
+	}}}
+}
+
+func close override
+{
+	var ss = getNetSocket()
+	socket = null
+	lang "cs" {{{
+		ss.Shutdown(System.Net.Sockets.SocketShutdown.Both);
+		ss.Dispose()
+	}}}
+}
+
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
+
+func isWouldBlock(e as native<System.Net.Sockets.SocketException>) as bool
+{
+	lang "cs" {{{
+		if(e.SocketErrorCode == System.Net.Sockets.SocketError.WouldBlock) {
+			return(true);
+		}
+	}}}
+	return false
+}
+
+func readWithTimeout(buffer as buffer, timeout as int) override as int
+{
+	var v = 0
+	lang "cs" {{{
+		if(timeout == 0) {
+			socket.Blocking = false;
+			socket.ReceiveTimeout = 1;
+		}
+		else {
+			socket.Blocking = true;
+			socket.ReceiveTimeout = timeout;
+		}
+		v = socket.Receive(buffer);
+		if(v < 1) {
+			close();
+			v = -1;
+		}
+	}}}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	var v = 0
+	lang "cs" {{{
+		int nsize = size;
+		if(nsize < 0) {
+			nsize =  buffer.Length;
+		}
+		v = socket.Send(buffer, 0, nsize, 0);
+		if(v < 1) {
+			close();
+			v = -1;
+		}
+	}}}
+	return v
+}

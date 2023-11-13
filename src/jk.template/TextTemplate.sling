@@ -32,43 +32,43 @@ class:
 
 class TagData private
 {
-	var words public as vector<string>
+	var words public as vector<string>?
 
 	ctor(words as vector<string>):
 		this.words = words
 }
 
-func processFile(file as File, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
+func processFile(logContext as LoggingContext, file as File, markerBegin as string?, markerEnd as string?, vars as DynamicMap?) static as string?
 {
-	var v = assert forFile(file, markerBegin, markerEnd)
+	var v = assert forFile(logContext, file, markerBegin, markerEnd)
 	return v.execute(vars)
 }
 
-func processString(text as string, markerBegin as string, markerEnd as string, vars as DynamicMap) static as string
+func processString(logContext as LoggingContext, text as string, markerBegin as string?, markerEnd as string?, vars as DynamicMap?) static as string?
 {
-	var v = assert forString(text, markerBegin, markerEnd)
+	var v = assert forString(logContext, text, markerBegin, markerEnd)
 	return v.execute(vars)
 }
 
-func forFile(file as File, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+func forFile(logContext as LoggingContext, file as File, markerBegin as string?, markerEnd as string?, type as int = 0, includeDirs as vector<File>? = null, includeFileData as map<string,object>? = null) static as this?
 {
-	assert file
-	var text = assert file.getContentsUTF8()
+	var text = file.getContentsUTF8()
 	var ids = includeDirs
 	if not ids {
 		ids = new vector<File>
 		ids += file.getParent()
 	}
-	return forString(text, markerBegin, markerEnd, type, ids, includeFileData, logContext)
+	return forString(logContext, text, markerBegin, markerEnd, type, ids, includeFileData)
 }
 
-func forHTMLFile(file as File, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this:
-	return forFile(file, "<%", "%>", TYPE_HTML, includeDirs, includeFileData, logContext)
+func forHTMLFile(logContext as LoggingContext, file as File, includeDirs as vector<File>? = null, includeFileData as map<string,object>? = null) static as this?:
+	return forFile(logContext, file, "<%", "%>", TYPE_HTML, includeDirs, includeFileData)
 
-func forString(text as string, markerBegin as string, markerEnd as string, type as int = 0, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+func forString(logContext as LoggingContext, text as string, markerBegin as string?, markerEnd as string?, type as int = 0, includeDirs as vector<File>? = null, includeFileData as map<string,object>? = null) static as this?
 {
-	var v = new this()
-	v.setLogContext(logContext)
+	var v = new this() {
+		logContext logContext
+	}
 	v.setText(text)
 	v.setType(type)
 	v.setMarkerBegin(markerBegin)
@@ -80,10 +80,11 @@ func forString(text as string, markerBegin as string, markerEnd as string, type 
 	return v
 }
 
-func forHTMLString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+func forHTMLString(logContext as LoggingContext, text as string, includeDirs as vector<File>? = null, includeFileData as map<string,object>? = null) static as this?
 {
-	var v = new this()
-	v.setLogContext(logContext)
+	var v = new this() {
+		logContext logContext
+	}
 	v.setText(text)
 	v.setType(TYPE_HTML)
 	v.setMarkerBegin("<%")
@@ -95,10 +96,11 @@ func forHTMLString(text as string, includeDirs as vector<File> = null, includeFi
 	return v
 }
 
-func forJSONString(text as string, includeDirs as vector<File> = null, includeFileData as map<string,object> = null, logContext as LoggingContext = null) static as this
+func forJSONString(logContext as LoggingContext, text as string, includeDirs as vector<File>? = null, includeFileData as map<string,object>? = null) static as this?
 {
-	var v = new this()
-	v.setLogContext(logContext)
+	var v = new this() {
+		logContext logContext
+	}
 	v.setText(text)
 	v.setType(TYPE_JSON)
 	v.setMarkerBegin("{{")
@@ -114,29 +116,30 @@ const TYPE_GENERIC = 0
 const TYPE_HTML = 1
 const TYPE_JSON = 2
 
-pvar tokens as vector<object>
-pvar text as string
-pvar markerBegin as string
-pvar markerEnd as string
-pvar logContext as LoggingContext
-pvar type = TYPE_GENERIC
-pvar languagePreferences as vector<string>
-pvar includeDirs as vector<File>
-pvar includeFileData as map<string,object>
+prop logContext as LoggingContext
 
-func setLanguagePreference(language as string)
+pvar tokens as vector<object>?
+pvar text as string?
+pvar markerBegin as string?
+pvar markerEnd as string?
+pvar type = TYPE_GENERIC
+pvar languagePreferences as vector<string>?
+pvar includeDirs as vector<File>?
+pvar includeFileData as map<string,object>?
+
+func setLanguagePreference(language as string?)
 {
 	languagePreferences = new vector<string>
 	if language:
 		languagePreferences += language
 }
 
-func getIncludeFileContent(fileName as string) as string
+func getIncludeFileContent(fileName as string?) as string?
 {
 	assert fileName
-	var ff as File
+	var ff as File?
 	if includeFileData {
-		var o = Map.get(includeFileData, fileName)
+		var o = Map.getValue(includeFileData, fileName)
 		if o {
 			if o is string:
 				return o as! string
@@ -151,7 +154,7 @@ func getIncludeFileContent(fileName as string) as string
 			ff = File.forPath(fileName)
 	}
 	if not ff {
-		foreach includeDir in includeDirs {
+		if includeDirs: foreach includeDir in includeDirs {
 			var x = File.forRelativePath(fileName, includeDir)
 			if x.isFile() {
 				ff = x
@@ -159,15 +162,14 @@ func getIncludeFileContent(fileName as string) as string
 			}
 		}
 	}
-	assert ff && ff.isFile():
+	assert ff:
 		Log.warning(logContext, "Included file was not found: `" .. fileName .. "'")
-	var cc = ff.getContentsUTF8()
-	if not cc:
-		Log.warning(logContext, "Failed to read included file: `" .. ff.getPath() .. "'")
-	return cc
+	assert ff.isFile():
+		Log.warning(logContext, "Included file does not exist: `" .. fileName .. "'")
+	return ff.getContentsUTF8()
 }
 
-func tokenizeString(inputdata as string) private as vector<object>
+func tokenizeString(inputdata as string) private as vector<object>?
 {
 	if markerBegin == null || markerEnd == null {
 		Log.error(logContext, "No template markers were given")
@@ -182,14 +184,10 @@ func tokenizeString(inputdata as string) private as vector<object>
 	var me1 = String.getChar(markerEnd, 0)
 	var me2 = String.getChar(markerEnd, 1)
 	var pc as char
-	var tag as StringBuilder
-	var data as StringBuilder
-	var it = String.iterate(inputdata)
+	var tag as StringBuilder?
+	var data as StringBuilder?
 	var v = new vector<object>
-	while it {
-		var c = it.getNextChar()
-		if c <= 0:
-			break
+	foreach c in String.iterate(inputdata) {
 		// parsing the tag
 		if tag {
 			if pc == me1 && tag.count() > 2 {
@@ -199,20 +197,20 @@ func tokenizeString(inputdata as string) private as vector<object>
 					var tt = tag.toString()
 					var tts = String.strip(String.getSubString(tt, 2, String.getLength(tt)-4))
 					var words = StringUtil.quotedStringToVector(tts, ' ')
-					if Vector.get(words, 0) == "include" {
-						var fileName = Vector.get(words, 1)
+					if Vector.getValue(words, 0) == "include" {
+						var fileName = Vector.getValue(words, 1)
 						if String.isEmpty(fileName) {
 							Log.warning(logContext, "Include tag with empty filename. Ignoring it.")
 						}
 						else {
 							var cc = getIncludeFileContent(fileName)
 							if cc {
-								var nt = forString(cc, markerBegin, markerEnd, type, includeDirs, includeFileData)
+								var nt = forString(logContext, cc, markerBegin, markerEnd, type, includeDirs, includeFileData)
 								if nt == null {
 									Log.warning(logContext, "Failed to process included template file: `" .. fileName .. "'")
 								}
 								else {
-									foreach token in nt.getTokens():
+									if var tokens = nt.getTokens(): foreach token in tokens:
 										v += token
 								}
 							}
@@ -281,7 +279,7 @@ func prepare as bool
 	return true
 }
 
-func execute(vars as DynamicMap, importDirs as vector<File> = null) as string
+func execute(vars as DynamicMap?, importDirs as vector<File>? = null) as string?
 {
 	assert tokens:
 		Log.error(logContext, "TextTemplate has not been prepared")
@@ -290,42 +288,38 @@ func execute(vars as DynamicMap, importDirs as vector<File> = null) as string
 	return result.toString()
 }
 
-func substituteVariables(orig as string, vars as DynamicMap) private as string
+func substituteVariables(orig as string?, vars as DynamicMap?) private as string?
 {
 	if orig == null:
 		return orig
 	if String.getIndexOfString(orig, "${") < 0:
 		return orig
 	var sb = new StringBuilder()
-	var varbuf as StringBuilder
+	var varbuf as StringBuilder?
 	var flag = false
-	var it = String.iterate(orig)
-	while it {
-		var c = it.getNextChar()
-		if c <= 0:
-			break
+	foreach c in String.iterate(orig) {
 		if varbuf {
 			if c == '}' {
 				var varname = varbuf.toString()
 				if vars {
-					var varcut as string
+					var varcut as string?
 					if String.getIndexOfCharacter(varname, '!') > 0 {
-						var sp as Iterator<string> #force = Vector.iterate(String.split(varname, '!', 2))
-						varname = sp.next()
+						var sp = Vector.iterate(String.split(varname, '!', 2))
+						varname = String.safeString(sp.next())
 						varcut = sp.next()
 					}
 					var r = getVariableValueString(vars, varname)
-					if String.isEmpty(varcut) == false {
-						var itc = String.iterate(varcut)
-						var cx as char
-						while (cx = itc.getNextChar()) > 0 {
-							var n = String.getLastIndexOfCharacter(r, cx)
-							if n < 0:
-								break
-							r = String.getSubString(r, 0, n)
+					if r {
+						if String.isNotEmpty(varcut) {
+							foreach cx in String.iterate(varcut) {
+								var n = String.getLastIndexOfCharacter(r, cx)
+								if n < 0:
+									break
+								r = String.getSubString(r, 0, n)
+							}
 						}
+						sb.appendString(r)
 					}
-					sb.appendString(r)
 				}
 				varbuf = null
 			}
@@ -354,7 +348,7 @@ func substituteVariables(orig as string, vars as DynamicMap) private as string
 	return sb.toString()
 }
 
-func getVariableValue(vars as DynamicMap, varname as string) as dynamic
+func getVariableValue(vars as DynamicMap?, varname as string?) as dynamic?
 {
 	if vars == null || varname == null:
 		return null
@@ -364,23 +358,22 @@ func getVariableValue(vars as DynamicMap, varname as string) as dynamic
 	var ll = String.split(varname, '.')
 	if Vector.getSize(ll) < 2:
 		return null
-	var nvar = Vector.get(ll, Vector.getSize(ll)-1) as string
-	Vector.removeLast(ll)
-	var cc = vars
-	foreach vv2 as string in ll {
+	var nvar = Vector.popLastValue(ll)
+	var cc as DynamicMap? = vars
+	foreach vv2 in ll {
 		if cc == null:
 			return null
 		var vv2o = cc.get(vv2)
 		cc = vv2o as DynamicMap
-		if cc == null && vv2o != null && vv2o is JSONObject:
-			cc = ((vv2o as! JSONObject).toJsonObject()) as DynamicMap
+		if cc == null && vv2o != null && vv2o is DynamicMapObject:
+			cc = ((vv2o as! DynamicMapObject).toDynamicMap())
 	}
-	if cc:
+	if cc && nvar:
 		return cc.get(nvar)
 	return null
 }
 
-func getVariableValueString(vars as DynamicMap, varname as string) as string
+func getVariableValueString(vars as DynamicMap?, varname as string) as string?
 {
 	var v = assert getVariableValue(vars, varname)
 	if v is DynamicMap {
@@ -398,40 +391,40 @@ func getVariableValueString(vars as DynamicMap, varname as string) as string
 		}
 		return null
 	}
-	return String.asString(v)
+	return String.asValueOrNull(v)
 }
 
-func getVariableValueVector(vars as DynamicMap, varname as string) as vector
+func getVariableValueVector(vars as DynamicMap?, varname as string) as vector<dynamic>?
 {
 	var v = assert getVariableValue(vars, varname)
-	if v is vector:
-		return v as! vector
+	if v is vector<dynamic>:
+		return v as! vector<dynamic>
 	if v is VectorObject<dynamic> {
 		var vo = v as! VectorObject<dynamic>
 		return vo.toVector()
 	}
 	if v is ArrayObject<dynamic> {
-		var vo = v as ArrayObject<dynamic>
+		var vo = v as! ArrayObject<dynamic>
 		var vv = vo.toArray()
 		return Vector.forArray(vv)
 	}
 	if v is DynamicVector {
 		var dv = v as! DynamicVector
-		return dv.toVector()
+		return dv.toNonNullableVector()
 	}
 	return null
 }
 
-func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<object>, result as StringBuilder, importDirs as vector<File>) as bool
+func handleBlock(vars as DynamicMap, tag as vector<string>?, data as vector<object>?, result as StringBuilder, importDirs as vector<File>?) as bool
 {
 	assert tag
-	var tagname = Vector.get(tag, 0)
+	var tagname = Vector.getValue(tag, 0)
 	if String.isEmpty(tagname):
 		return false
 	if tagname == "for" {
-		var varname = Vector.get(tag, 1)
-		var inword = Vector.get(tag, 2)
-		var origvar = substituteVariables(Vector.get(tag, 3), vars)
+		var varname = Vector.getValue(tag, 1)
+		var inword = Vector.getValue(tag, 2)
+		var origvar = substituteVariables(Vector.getValue(tag, 3), vars)
 		if String.isEmpty(varname) || String.isEmpty(origvar) || inword != "in" {
 			Log.error(logContext, "Invalid for tag: `" .. StringUtil.combine(tag, ' ') .. "'")
 			return false
@@ -439,7 +432,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 		var index = 0
 		vars.setString("__for_first", "true")
 		var vv = getVariableValueVector(vars, origvar)
-		foreach o in vv {
+		if vv: foreach o in vv {
 			if index % 2 == 0 {
 				vars.setString("__for_parity", "even")
 			}
@@ -458,11 +451,11 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 		return true
 	}
 	if tagname == "if" {
-		var lvalue = Vector.get(tag, 1)
-		if lvalue == null:
+		var lvalue as string? = Vector.getValue(tag, 1)
+		if String.isEmpty(lvalue):
 			return true
-		var operator = Vector.get(tag, 2)
-		if operator == null {
+		var operator = Vector.getValue(tag, 2)
+		if String.isEmpty(operator) {
 			var varval = getVariableValue(vars, lvalue)
 			if varval == null:
 				return true
@@ -488,8 +481,8 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 			return true
 		}
 		lvalue = substituteVariables(lvalue, vars)
-		var rvalue = Vector.get(tag, 3)
-		if rvalue:
+		var rvalue = Vector.getValue(tag, 3)
+		if String.isNotEmpty(rvalue):
 			rvalue = substituteVariables(rvalue, vars)
 		if lvalue == null || String.isEmpty(operator) || rvalue == null {
 			Log.error(logContext, "Invalid if tag: `" .. StringUtil.combine(tag, ' ') .. "'")
@@ -515,30 +508,32 @@ func handleBlock(vars as DynamicMap, tag as vector<string>, data as vector<objec
 	return false
 }
 
-func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuilder, importDirs as vector<File>) private as bool
+func doExecute(data as vector<object>?, avars as DynamicMap?, result as StringBuilder, importDirs as vector<File>?) private as bool
 {
 	if data == null:
 		return true
 	var blockctr = 0
-	var blockdata as vector<object>
-	var blocktag as vector<string>
+	var blockdata as vector<object>?
+	var blocktag as vector<string>?
 	var vars = avars
 	if vars == null:
 		vars = new DynamicMap()
 	foreach o in data {
-		var tagname as string
-		var words as vector<string>
+		var tagname as string?
+		var words as vector<string>?
 		var tagData = o as TagData
 		if tagData {
 			words = tagData.words
 			if words {
-				tagname = Vector.get(words, 0)
+				tagname = Vector.getValue(words, 0)
 				if String.isEmpty(tagname) {
 					Log.warning(logContext, "Empty tag encountered. Ignoring it.")
 					continue
 				}
 			}
 		}
+		if not words:
+			continue
 		if tagname == "end" {
 			blockctr --
 			if blockctr == 0 && blockdata != null {
@@ -558,22 +553,26 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 			blockdata += o
 			continue
 		}
-		if o is string || o is StringObject {
-			result.appendString(String.asString(o))
+		if o is string {
+			result.appendString(o as! string)
+			continue
+		}
+		if o is StringObject {
+			result.appendString((o as! StringObject).toString())
 			continue
 		}
 		if tagname == "=" || tagname == "printstring" {
-			var varname = substituteVariables(Vector.get(words, 1), vars)
-			if String.isEmpty(varname) == false {
+			var varname = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(varname) {
 				var vv = getVariableValueString(vars, varname)
-				if String.isEmpty(vv) == false {
+				if String.isNotEmpty(vv) {
 					if this.type == TYPE_HTML:
 						vv = HTMLString.sanitize(vv)
 					result.appendString(vv)
 				}
 				else {
-					var defaultvalue = substituteVariables(Vector.get(words, 2), vars)
-					if String.isEmpty(defaultvalue) == false {
+					var defaultvalue = substituteVariables(Vector.getValue(words, 2), vars)
+					if String.isNotEmpty(defaultvalue) {
 						if this.type == TYPE_HTML:
 							defaultvalue = HTMLString.sanitize(defaultvalue)
 						result.appendString(defaultvalue)
@@ -582,15 +581,15 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 			}
 		}
 		else if tagname == "printRaw" {
-			var varname = substituteVariables(Vector.get(words, 1), vars)
-			if String.isEmpty(varname) == false {
+			var varname = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(varname) {
 				var vv = getVariableValueString(vars, varname)
-				if String.isEmpty(vv) == false {
+				if String.isNotEmpty(vv) {
 					result.appendString(vv)
 				}
 				else {
-					var defaultvalue = substituteVariables(Vector.get(words, 2), vars)
-					if String.isEmpty(defaultvalue) == false:
+					var defaultvalue = substituteVariables(Vector.getValue(words, 2), vars)
+					if String.isNotEmpty(defaultvalue):
 						result.appendString(defaultvalue)
 				}
 			}
@@ -602,10 +601,8 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				n++
 				if n == 1:
 					continue
-				word = substituteVariables(word, vars)
-				var it = String.iterate(word)
-				if it == null:
-					continue
+				word = String.safeString(substituteVariables(word, vars))
+				var it = String.iterateAsCharacterIterator(word)
 				if n > 2 && hasSlash == false {
 					result.appendCharacter('/')
 					hasSlash = true
@@ -628,52 +625,58 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 			}
 		}
 		else if tagname == "printJson" {
-			var varname = substituteVariables(Vector.get(words, 1), vars)
-			if String.isEmpty(varname) == false {
+			var varname = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(varname) {
 				var vv = getVariableValue(vars, varname)
 				if vv:
-					result.appendString(JSONEncoder.encode(vv))
+					result.appendString(JSONEncoder.toString(vv))
 			}
 		}
 		else if tagname == "printRichText" {
-			var markup = substituteVariables(Vector.get(words, 1), vars)
-			if String.isEmpty(markup) == false {
+			var markup = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(markup) {
 				var doc = RichTextDocument.forWikiMarkupString(markup)
-				if doc:
-					result.appendString(doc.toHtml())
+				var html = doc.toHtml()
+				result.appendString(html)
 			}
 		}
 		else if tagname == "printDate" {
-			var timestamp = substituteVariables(Vector.get(words, 1), vars)
-			var aslong = String.toLong(timestamp)
-			var asstring = DateTime.forSeconds(aslong).toStringDate('/')
-			result.appendString(asstring)
+			var timestamp = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(timestamp) {
+				var aslong = LongInteger.forStringOrThrowError(timestamp)
+				var asstring = DateTime.forSeconds(aslong).toStringDate('/')
+				result.appendString(asstring)
+			}
 		}
 		else if tagname == "printTime" {
-			var timestamp = substituteVariables(Vector.get(words, 1), vars)
-			var aslong = String.toLong(timestamp)
-			var asstring = DateTime.forSeconds(aslong).toStringTime(':')
-			result.appendString(asstring)
+			var timestamp = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(timestamp) {
+				var aslong = LongInteger.forStringOrThrowError(timestamp)
+				var asstring = DateTime.forSeconds(aslong).toStringTime(':')
+				result.appendString(asstring)
+			}
 		}
 		else if tagname == "printDateTime" {
-			var timestamp = substituteVariables(Vector.get(words, 1), vars)
-			var aslong = String.toLong(timestamp)
-			var dt = DateTime.forSeconds(aslong)
-			result.appendString(dt.toStringDate('/'))
-			result.appendCharacter(' ')
-			result.appendString(dt.toStringTime(':'))
+			var timestamp = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(timestamp) {
+				var aslong = LongInteger.forStringOrThrowError(timestamp)
+				var dt = DateTime.forSeconds(aslong)
+				result.appendString(dt.toStringDate('/'))
+				result.appendCharacter(' ')
+				result.appendString(dt.toStringTime(':'))
+			}
 		}
 		else if tagname == "import" {
-			var type = Vector.get(words, 1)
-			var filename = substituteVariables(Vector.get(words, 2), vars)
+			var type = Vector.getValue(words, 1)
+			var filename = substituteVariables(Vector.getValue(words, 2), vars)
 			if String.isEmpty(filename) {
 				Log.warning(logContext, "Invalid import tag with empty filename")
 				continue
 			}
-			var ff as File
-			foreach dir in importDirs {
+			var ff as File?
+			if importDirs: foreach dir in importDirs {
 				ff = File.forRelativePath(filename, dir)
-				if ff != null && ff.isFile():
+				if ff.isFile():
 					break
 			}
 			if ff == null || ff.isFile() == false {
@@ -690,7 +693,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				content = HTMLString.sanitize(content)
 			}
 			else if type == "template" {
-				var t = forString(content, markerBegin, markerEnd, this.type, importDirs)
+				var t = forString(logContext, content, markerBegin, markerEnd, this.type, importDirs)
 				if t == null {
 					Log.error(logContext, "Failed to parse imported template file: `" .. ff.getPath() .. "'")
 					continue
@@ -699,7 +702,7 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 					Log.error(logContext, "Failed to process imported template file: `" .. ff.getPath() .. "'")
 					continue
 				}
-				content = null
+				content = ""
 			}
 			else if type == "raw" {
 				nop // no processing needed
@@ -708,14 +711,14 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				Log.error(logContext, "Unknown type for import: `" .. type .. "'. Ignoring the import.")
 				continue
 			}
-			if String.isEmpty(content) == false:
+			if String.isNotEmpty(content):
 				result.appendString(content)
 		}
 		else if tagname == "escapeHtml" {
-			var content = substituteVariables(Vector.get(words, 1), vars)
-			if String.isEmpty(content) == false {
+			var content = substituteVariables(Vector.getValue(words, 1), vars)
+			if String.isNotEmpty(content) {
 				content = HTMLString.sanitize(content)
-				if String.isEmpty(content) == false:
+				if String.isNotEmpty(content):
 					result.appendString(content)
 			}
 		}
@@ -724,12 +727,12 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				Log.warning(logContext, "Invalid number of parameters for set tag encountered: " .. String.forInteger(Vector.getSize(words)))
 				continue
 			}
-			var varname = substituteVariables(Vector.get(words, 1), vars)
+			var varname = substituteVariables(Vector.getValue(words, 1), vars)
 			if String.isEmpty(varname) {
 				Log.warning(logContext, "Empty variable name in set tag encountered.")
 				continue
 			}
-			var newValue = substituteVariables(Vector.get(words, 2), vars)
+			var newValue = substituteVariables(Vector.getValue(words, 2), vars)
 			vars.setString(varname, newValue)
 		}
 		else if tagname == "assign" {
@@ -737,12 +740,12 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 				Log.warning(logContext, "Invalid number of parameters for assign tag encountered: " .. String.forInteger(Vector.getSize(words)))
 				continue
 			}
-			var varname = substituteVariables(Vector.get(words, 1), vars)
+			var varname = substituteVariables(Vector.getValue(words, 1), vars)
 			if String.isEmpty(varname) {
 				Log.warning(logContext, "Empty variable name in assign tag encountered.")
 				continue
 			}
-			var vv = Vector.get(words, 2)
+			var vv = Vector.getValue(words, 2)
 			if vv == "none" {
 				vars.remove(varname)
 			}
@@ -773,28 +776,22 @@ func doExecute(data as vector<object>, avars as DynamicMap, result as StringBuil
 	return true
 }
 
-func basename(path as string) private as string
+func basename(path as string) private as string?
 {
-	assert path
 	var v = ""
-	var comps as Iterator<string> #force = Vector.iterate(String.split(path, '/'))
-	if comps {
-		var comp = comps.next()
-		while comp {
-			if String.getLength(comp) > 0:
-				v = comp
-			comp = comps.next()
-		}
+	foreach comp in String.split(path, '/') {
+		if String.getLength(comp) > 0:
+			v = comp
 	}
 	return v
 }
 
-func onHTMLTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
+func onHTMLTag(vars as DynamicMap?, result as StringBuilder, importDirs as vector<File>?, tagname as string?, words as vector<string>?) private
 {
-	if tagname == "link" {
-		var path = substituteVariables(Vector.get(words, 1), vars)
-		var text = substituteVariables(Vector.get(words, 2), vars)
-		if String.isEmpty(text):
+	if tagname == "link" && words {
+		var path = substituteVariables(Vector.getValue(words, 1), vars)
+		var text = substituteVariables(Vector.getValue(words, 2), vars)
+		if String.isEmpty(text) && path:
 			text = basename(path)
 		if String.isEmpty(text):
 			return
@@ -803,12 +800,10 @@ func onHTMLTag(vars as DynamicMap, result as StringBuilder, importDirs as vector
 	}
 }
 
-func encodeJSONString(s as string, sb as StringBuilder)
+func encodeJSONString(s as string?, sb as StringBuilder)
 {
 	assert s
-	var it = assert String.iterate(s)
-	var c as char
-	while (c = it.getNextChar()) > 0 {
+	foreach c in String.iterate(s) {
 		if c == '"' {
 			sb.appendCharacter('\\')
 		}
@@ -819,10 +814,10 @@ func encodeJSONString(s as string, sb as StringBuilder)
 	}
 }
 
-func onJSONTag(vars as DynamicMap, result as StringBuilder, importDirs as vector<File>, tagname as string, words as vector<string>) private
+func onJSONTag(vars as DynamicMap?, result as StringBuilder, importDirs as vector<File>?, tagname as string?, words as vector<string>?) private
 {
-	if tagname == "quotedstring" {
-		var string = substituteVariables(Vector.get(words, 1), vars)
+	if tagname == "quotedstring" && words {
+		var string = substituteVariables(Vector.getValue(words, 1), vars)
 		encodeJSONString(string, result)
 	}
 }

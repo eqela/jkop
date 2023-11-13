@@ -1,0 +1,331 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+import jk.nodejs
+import jk.json
+
+class is MySQLDatabase:
+
+depend "npm:mysql:2.18.1"
+
+var pool as dynamic?
+var connectionLimit as int = 10
+
+class Statement is SQLStatement
+{
+	var pcounter = 0
+	var params as vector<dynamic>?
+	var columns as vector<string>?
+	var sqlString public as string?
+
+	func forSql(sql as string) static as this
+	{
+		var v = new this()
+		v.sqlString = sql
+		return v
+	}
+
+	func getNextParamName as string:
+		return "@p" .. String.forInteger(++ pcounter)
+
+	func addToParams(value as dynamic)
+	{
+		if not params:
+			params = new vector<dynamic>
+		params += value
+	}
+
+	func addToColumns(column as string)
+	{
+		if not columns:
+			columns = new vector<string>
+		columns += column
+	}
+
+	func addParamString(val as string) override:
+		setParamString("", val)
+
+	func addParamInteger(val as int) override:
+		setParamInteger("", val)
+
+	func addParamLongInteger(val as long) override:
+		setParamLongInteger("", val)
+
+	func addParamDouble(val as double) override:
+		setParamDouble("", val)
+
+	func addParamBlob(val as buffer) override:
+		setParamBlob("", val)
+
+	func setParamString(name as string, val as string) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamInteger(name as string, val as int) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamLongInteger(name as string, val as long) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamDouble(name as string, val as double) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamBlob(name as string, val as buffer) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func resetStatement override
+	{
+		columns = null
+		params = null
+		sqlString = null
+		pcounter = 0
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	var current as DynamicMap?
+	var rows as vector<dynamic>?
+	var fields as vector<dynamic>?
+	var index = 0
+	var increment = 1
+
+	func hasNext override as bool
+	{
+		assert rows
+		var length = lang "js" as int {{{ this.rows.length }}}
+		assert index < length
+		return true
+	}
+
+	func step override:
+		next()
+
+	func next override as DynamicMap
+	{
+		if rows == null:
+			Error.throw("noRows", this)
+		if not hasNext():
+			Error.throw("noMoreRecords", this)
+		var map = new DynamicMap()
+		lang "js" {{{
+			var v = this.rows[this.index]
+			Object.keys(v).forEach(key => {
+				map.setObject(key, v[key])
+			})
+		}}}
+		index += increment
+		current = map
+		return map
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		if current: foreach value as object in current.getValues():
+			values += value
+	}
+
+	func getColumnCount override as int
+	{
+		if not current:
+			return 0
+		return current.getCount()
+	}
+
+	func getCurrent private as DynamicMap
+	{
+		if not current:
+			Error.throw("noCurrentRecord", null)
+		return current
+	}
+
+	func getColumnNames override as vector<string>:
+		return getCurrent().getKeys()
+
+	func getColumnName(n as int) override as string:
+		return getCurrent().getKeys()[n]
+
+	func getColumnObject(n as int) override as object
+	{
+		var v = getCurrent().getValues()[n] as object
+		if not v:
+			Error.throw("noColumnObject", String.forInteger(n))
+		return v
+	}
+
+	func getColumnInt(n as int) override as int:
+		return Integer.asValueOrThrowError(getCurrent().getValues()[n])
+
+	func getColumnLong(n as int) override as long:
+		return LongInteger.asValueOrThrowError(getCurrent().getValues()[n])
+
+	func getColumnDouble(n as int) override as double:
+		return Double.asValueOrThrowError(getCurrent().getValues()[n])
+
+	func getColumnBuffer(n as int) override as buffer:
+		return Buffer.asValueOrThrowError(getCurrent().getValues()[n])
+
+	func close override
+	{
+		current = null
+		rows = null
+		fields = null
+	}
+}
+
+func getConnectionLimit as int:
+	return this.connectionLimit
+
+func setConnectionLimit(limit as int):
+	this.connectionLimit = limit
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+{
+	var mysql = NodeModule.require("mysql")
+	var enableSSL as bool
+	if sslMode != MySQLDatabase.SSL_MODE_NONE:
+		enableSSL = true
+	lang "js" {{{
+		this.pool = mysql.createPool({
+			host: serverAddress,
+			user: username,
+			password: password,
+			database: database,
+			ssl: enableSSL,
+			connectionLimit: this.connectionLimit
+		})
+	}}}
+	databaseName = database
+}
+
+func getPool as dynamic
+{
+	if pool == null:
+		Error.throw("noConnectionPool", this)
+	return pool
+}
+
+func closeConnection async override:
+	getPool().end!()
+
+func execute(sqlString as string, params as vector<dynamic>?) private async as native<MySQL.Response>
+{
+	var sql = sqlString
+	var parameters = params
+	var pool = getPool()
+	return lang "js" as promise<native<MySQL.Response>> {{{
+		new Promise((resolve, reject) => {
+			pool.getConnection((err, conn) => {
+				if (err) {
+					reject({
+						error: err,
+						status: false
+					});
+				}
+				conn.query(sql, parameters, (err, rows, fields) => {
+					conn.release();
+					if (err) {
+						reject({
+							error: err,
+							status: false
+						});
+					}
+					resolve({
+						rows: rows,
+						fields: fields,
+						status: true
+					});
+				});
+			});
+		});
+	}}}
+}
+
+func prepareStatement(sql as string) async override as SQLStatement:
+	return Statement.forSql(sql)
+
+func executeStatement(stmt as SQLStatement) override async
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatementObject", stmt)
+	var sqlString = ss.sqlString
+	if not sqlString:
+		Error.throw("noSqlString", ss)
+	var v = await execute(sqlString, ss.params)
+	if not v.status:
+		Error.throw("failedMySqlQuery", v)
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatementObject", stmt)
+	var sqlString = ss.sqlString
+	if not sqlString:
+		Error.throw("noSqlString", ss)
+	var v = await execute(sqlString, ss.params)
+	if not v.status:
+		Error.throw("failedMySqlQuery", v)
+	var rows = v.rows
+	if not rows:
+		Error.throw("noRows", v)
+	return Integer.asValueOrDefaultValue(rows.affectedRows, 0)
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatementObject", stmt)
+	var sqlString = ss.sqlString
+	if not sqlString:
+		Error.throw("noSqlString", ss)
+	var v = await execute(sqlString, ss.params)
+	if not v.status:
+		Error.throw("failedMySqlQuery", v)
+	var r = new ResultSet()
+	r.rows = v.rows as vector<dynamic>
+	r.fields = v.fields as vector<dynamic>
+	return r
+}

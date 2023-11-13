@@ -23,44 +23,45 @@
  */
 
 import jk.fs
+import jk.log
 
 class:
 
-func forDirectory(dir as File, cached as bool = false) static as this
+func forDirectory(ctx as LoggingContext, dir as File, cached as bool = false) static as this?
 {
-	assert dir && dir.isDirectory()
-	var it = assert dir.entries()
+	assert dir.isDirectory()
+	var it = dir.entries()
 	var v = new map<string, object>
-	loop {
-		var f = it.next()
-		if not f:
-			break
+	foreach f in dir.entries() {
 		if f.isFile() {
 			if cached {
-				var b = assert f.getContentsUTF8()
+				var b = f.getContentsUTF8()
 				Map.set(v, f.getBasename(), b)
 				continue
 			}
 			Map.set(v, f.getBasename(), f)
 		}
 	}
-	return forTemplates(v)
+	return forTemplates(ctx, v)
 }
 
-func forTemplates(data as map<string,object>) static as this
+func forTemplates(ctx as LoggingContext, data as map<string,object>) static as this
 {
-	var v = new this()
+	var v = new this() {
+		ctx ctx
+	}
 	v.setTemplates(data)
 	return v
 }
 
-pvar templates as map<string,object>
+prop ctx as LoggingContext
+pvar templates as map<string,object>?
 
-func getTemplateData(name as string) as string
+func getTemplateData(name as string?) as string?
 {
 	assert name
 	assert templates
-	var o = assert Map.get(templates, name)
+	var o = assert Map.getValue(templates, name)
 	if o is string:
 		return o as! string
 	if o is buffer:
@@ -70,12 +71,12 @@ func getTemplateData(name as string) as string
 	return null
 }
 
-func getText(name as string, vars as DynamicMap = null) as string
+func getText(name as string?, vars as DynamicMap? = null) as string?
 {
 	var td = assert getTemplateData(name)
 	var vv = vars
 	if not vv:
 		vv = new DynamicMap()
-	var tt = assert TextTemplate.forHTMLString(td, null, templates)
+	var tt = assert TextTemplate.forHTMLString(ctx, td, null, templates)
 	return tt.execute(vv)
 }

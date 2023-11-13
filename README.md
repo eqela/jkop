@@ -22,7 +22,13 @@ you will therefore need to install Node.JS (v16 or higher), which includes NPM.
 To compile for Node.JS:
 
 ```
-npm run build-node-js
+npm run build-node
+```
+
+To compile for browser:
+
+```
+npm run build-browser
 ```
 
 This performs a full build of all modules of Jkop, and produces Javascript code as

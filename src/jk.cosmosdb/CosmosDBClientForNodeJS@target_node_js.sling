@@ -1,0 +1,214 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.lang
+import jk.json
+import jk.nodejs
+
+class is CosmosDBClient:
+
+depend "npm:@azure/cosmos:3.17.1"
+
+var cosmosClient as dynamic?
+
+func initialize(endpoint as string, key as string) override
+{
+	var api = NodeModule.require("@azure/cosmos")
+	var client = api.CosmosClient
+	lang "js" {{{
+		this.cosmosClient = new client({
+			endpoint: endpoint,
+			key: key
+		})
+	}}}
+}
+
+func getCosmosClient private as dynamic
+{
+	var v = cosmosClient
+	if not v:
+		Error.throw("cosmosClientNotInitialized", this)
+	return v
+}
+
+func convertResponse(response as dynamic) private as DynamicMap
+{
+	var responseBody as string?
+	lang "js" {{{
+		const getCircularReplacer = () => {
+			const seen = new WeakSet();
+			return (key, value) => {
+				if (typeof value === "object" && value !== null) {
+					if (seen.has(value)) {
+						return;
+					}
+					seen.add(value);
+				}
+				return value;
+			};
+		};
+		responseBody = JSON.stringify(response, getCircularReplacer())
+	}}}
+	if not responseBody:
+		Error.throw("invalidCosmosDbResponse", response)
+	return JSONParser.parseStringAsMap(responseBody)
+}
+
+func executeQuery(id as string, call as function<promise<dynamic?>>) private async as DynamicMap
+{
+	var v as dynamic?
+	try {
+		v = await call()
+	}
+	catch e {
+		Error.throw("cosmosDbError", e)
+	}
+	if not v:
+		Error.throw("noCosmosDbResult", id)
+	return convertResponse(v)
+}
+
+func executeOperation(id as string, call as function<promise<void>>) private async
+{
+	try {
+		await call()
+	}
+	catch e {
+		Error.throw("cosmosDbError", e)
+	}
+}
+
+func createDatabase(databaseName as string) override async
+{
+	await executeOperation("createDatabase:" .. databaseName, func async {
+		await getCosmosClient().databases!.createIfNotExists!({
+			id databaseName
+		})
+	})
+}
+
+func getAllDatabases override async as ResponseList
+{
+	var response = await executeQuery("getAllDatabases", func async as dynamic? {
+		return await getCosmosClient().databases!.readAll!()!.fetchAll!()
+	})
+	return ResponseList.forData(response)
+}
+
+func getDatabaseById(databaseId as string) override async as Response
+{
+	var response = await executeQuery("getDatabaseById:" .. databaseId, func async as dynamic? {
+		return await getCosmosClient().database!(databaseId)!.read!()
+	})
+	return Response.forData(response)
+}
+
+func deleteDatabaseById(databaseId as string) override async
+{
+	await executeOperation("deleteDatabaseById:" .. databaseId, func async {
+		await getCosmosClient().database!(databaseId)!.delete!()
+	})
+}
+
+func createContainer(databaseId as string, containerId as string) override async
+{
+	await executeOperation("createContainer:" .. databaseId .. ":" .. containerId, func async {
+		await getCosmosClient().database!(databaseId)!.containers!.createIfNotExists!({
+			id containerId
+		})
+	})
+}
+
+func getAllContainers(databaseId as string) override async as ResponseList
+{
+	var response = await executeQuery("getAllContainers:" .. databaseId, func async as dynamic? {
+		return await getCosmosClient().database!(databaseId)!.containers!.readAll!()!.fetchAll!()
+	})
+	return ResponseList.forData(response)
+}
+
+func getContainerById(databaseId as string, containerId as string) override async as Response
+{
+	var response = await executeQuery("getContainerById:" .. databaseId .. ":" .. containerId, func async as dynamic? {
+		return await getCosmosClient().database!(databaseId)!.container!(containerId)!.read!()
+	})
+	return Response.forData(response)
+}
+
+func deleteContainer(databaseId as string, containerId as string) override async
+{
+	await executeOperation("deleteContainer:" .. databaseId .. ":" .. containerId, func async {
+		await getCosmosClient().database!(databaseId)!.container!(containerId)!.delete!()
+	})
+}
+
+func addItem(databaseId as string, containerId as string, item as DynamicMap) override async
+{
+	var item = JSONEncoder.toString(item)
+	var json as dynamic?
+	lang "js" {{{
+		json = JSON.parse(item)
+	}}}
+	await executeOperation("addItem:" .. databaseId .. ":" .. containerId, func async {
+		await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.create!(json)
+	})
+}
+
+func getAllItems(databaseId as string, containerId as string) override async as ItemList
+{
+	var response = await executeQuery("getAllItems:" .. databaseId .. ":" .. containerId, func async as dynamic? {
+		return await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.readAll!()!.fetchAll!()
+	})
+	return ItemList.forData(response)
+}
+
+func getItemById(databaseId as string, containerId as string, itemId as string) override async as Item
+{
+	var response = await executeQuery("getItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async as dynamic? {
+		var partitionKey = itemId
+		return await getCosmosClient().database!(databaseId)!.container!(containerId)!.item!(itemId, partitionKey)!.read!()
+	})
+	return Item.forData(response)
+}
+
+func updateItem(databaseId as string, containerId as string, newItem as DynamicMap) override async
+{
+	var item = JSONEncoder.toString(newItem)
+	await executeOperation("updateItem:" .. databaseId .. ":" .. containerId, func async {
+		var json as dynamic?
+		lang "js" {{{
+			json = JSON.parse(item)
+		}}}
+		await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.upsert!(json)
+	})
+}
+
+func deleteItemById(databaseId as string, containerId as string, itemId as string) override async
+{
+	await executeOperation("deleteItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async {
+		var partitionKey = itemId
+		await getCosmosClient().database!(databaseId)!.container!(containerId)!.item!(itemId, partitionKey)!.delete!()
+	})
+}

@@ -30,8 +30,8 @@ func forReader(reader as Reader) static as this:
 func forReaderWithBufferSize(reader as Reader, bufferSize as int) static as this:
 	return new this(reader, bufferSize)
 
-var reader as Reader
-var buffer as buffer = null
+var reader as Reader?
+var buffer as buffer? = null
 var bufferStart as int = -1
 var bufferSize as int = 0
 var bufferDataSize as int = 0
@@ -41,14 +41,14 @@ var readPos as int = 0
 ctor(reader as Reader)
 {
 	this.reader = reader
-	this.buffer = malloc 1024
+	this.buffer = Buffer.allocate(1024)
 	this.bufferSize = 1024
 }
 
 ctor(reader as Reader, bufferSize as int)
 {
 	this.reader = reader
-	this.buffer = malloc bufferSize
+	this.buffer = Buffer.allocate(bufferSize)
 	this.bufferSize = bufferSize
 }
 
@@ -56,8 +56,11 @@ func makeDataAvailable(n as int) private as bool
 {
 	if n >= bufferStart && n < bufferStart + bufferDataSize:
 		return true
-	if reader is SeekableReader {
-		var rs = reader as! SeekableReader
+	var rr = reader
+	if not rr:
+		return false
+	if rr is SeekableReader {
+		var rs = rr as! SeekableReader
 		var block = n / bufferSize
 		var blockPos = block * bufferSize
 		if readPos != blockPos {
@@ -65,7 +68,8 @@ func makeDataAvailable(n as int) private as bool
 			readPos = blockPos
 		}
 	}
-	bufferDataSize = reader.read(buffer)
+	assert buffer
+	bufferDataSize = rr.read(buffer)
 	bufferStart = readPos
 	readPos += bufferDataSize
 	if n >= bufferStart && n < bufferStart + bufferDataSize:
@@ -87,8 +91,11 @@ func moveToNextByte override as bool
 	return true
 }
 
-func getCurrentByte override as int:
+func getCurrentByte override as int
+{
+	assert buffer
 	return Buffer.getByte(buffer, currentPos - bufferStart)
+}
 
 func getCurrentPosition override as int:
 	return currentPos as int

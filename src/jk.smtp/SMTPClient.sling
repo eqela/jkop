@@ -33,50 +33,46 @@ import jk.thread
 
 class:
 
-func connect(server as string, port as int, ctx as LoggingContext) private static as TCPSocket
+prop ctx as LoggingContext
+
+func connect(server as string, port as int) private as TCPSocket?
 {
 	if String.isEmpty(server) || port < 1:
 		return null
 	var address = server
-	var dns = DNSResolver.create()
-	if dns {
-		address = dns.getIPAddress(server, ctx)
-		if String.isEmpty(address) {
-			Log.error(ctx, "SMTPClient: Could not resolve SMTP server address: `" .. server .. "'")
-			return null
-		}
+	var dns = DNSResolver.instance(ctx)
+	var resolvedAddress = dns.getIPAddress(server)
+	if String.isEmpty(resolvedAddress) {
+		Log.error(ctx, "SMTPClient: Could not resolve SMTP server address: `" .. server .. "'")
+		return null
 	}
+	address = resolvedAddress
 	Log.debug(ctx, "SMTPClient: Connecting to SMTP server `" .. address .. ":" .. String.forInteger(port) .. "' ..")
 	var v = TCPSocket.createAndConnect(address, port)
-	if v {
-		Log.debug(ctx, "SMTPClient: Connected to SMTP server `" .. address .. ":" .. String.forInteger(port) .. "' ..")
-	}
-	else {
-		Log.error(ctx, "SMTPClient: FAILED connection to SMTP server `" .. address .. ":" .. String.forInteger(port) .. "' ..")
-	}
+	Log.debug(ctx, "SMTPClient: Connected to SMTP server `" .. address .. ":" .. String.forInteger(port) .. "' ..")
 	return v
 }
 
-func writeLine(ops as PrintWriter, str as string, ctx as LoggingContext) private static as bool
+func writeLine(ops as PrintWriter, str as string?) private as bool
 {
-	var v = ops.print(str .. "\r\n")
+	var v = ops.print(String.asValueOrEmptyString(str) .. "\r\n")
 	if v == false:
 		Log.error(ctx, "SMTPClient: Failed to write to server: `" .. str .. "'")
 	return v
 }
 
-func communicate(ins as PrintReader, expectCode as string, ctx as LoggingContext) private static as string
+func communicate(ins as PrintReader, expectCode as string) private as string?
 {
 	var sb = new StringBuilder()
 	var line = ins.readLine()
-	if String.isEmpty(line) == false:
+	if String.isNotEmpty(line):
 		sb.appendString(line)
-	while String.isEmpty(line) == false && String.getChar(line, 3) == '-' {
+	while String.isNotEmpty(line) && String.getChar(line, 3) == '-' {
 		line = ins.readLine()
-		if String.isEmpty(line) == false:
+		if String.isNotEmpty(line):
 			sb.appendString(line)
 	}
-	if String.isEmpty(line) == false && String.getChar(line, 3) == ' ' {
+	if String.isNotEmpty(line) && String.getChar(line, 3) == ' ' {
 		if String.isEmpty(expectCode):
 			return null
 		var rc = String.getSubString(line, 0, 3)
@@ -92,14 +88,14 @@ func communicate(ins as PrintReader, expectCode as string, ctx as LoggingContext
 	return v
 }
 
-func encode(enc as string) private static as string
+func encode(enc as string) private as string?
 {
 	if String.isEmpty(enc):
 		return null
 	return Base64Encoder.encode(String.toUTF8Buffer(enc))
 }
 
-func rcptAsEmailAddress(ss as string) private static as string
+func rcptAsEmailAddress(ss as string) private as string
 {
 	if String.isEmpty(ss):
 		return ss
@@ -112,13 +108,13 @@ func rcptAsEmailAddress(ss as string) private static as string
 	return String.getSubString(ss, b + 1, e - b - 1)
 }
 
-func resolveMXServerForDomain(domain as string) private static as string
+func resolveMXServerForDomain(domain as string) private as string?
 {
-	var dns = assert DNSResolver.instance()
-	var rcs = dns.getNSRecords(domain, "MX", null)
+	var dns = DNSResolver.instance(ctx)
+	var rcs = dns.getNSRecords(domain, "MX")
 	if rcs == null || rcs.getSize() < 1:
 		return null
-	var v as string
+	var v as string?
 	var pr as int
 	foreach mx as DNSRecordMX in rcs.toVector() {
 		var p = mx.getPriority()
@@ -130,18 +126,118 @@ func resolveMXServerForDomain(domain as string) private static as string
 	return v
 }
 
-func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as LoggingContext = null, acceptInvalidCertificate as bool = false) static as SMTPClientResult
+func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVector?, senderDomain as string, acceptInvalidCertificate as bool) private as SMTPClientTransactionResult
 {
-	if msg == null:
-		return SMTPClientResult.forMessage(msg).addTransaction(SMTPClientTransactionResult.forError("No message"))
+	var url = server
+	var socket as ConnectedSocket? = null
+	var scheme = url.getScheme()
+	var host = url.getHost()
+	if String.isEmpty(host):
+		return SMTPClientTransactionResult.forError("Empty server hostname")
+	var port = url.getPortInt()
+	for(var n = 0; n < 3; n++) {
+		if String.equals("smtp", scheme) || String.equals("smtp+tls", scheme) {
+			if port < 1:
+				port = 25
+			socket = connect(host, port)
+		}
+		else if String.equals("smtp+ssl", scheme) {
+			if port < 1:
+				port = 465
+			var ts = connect(host, port)
+			if ts:
+				socket = SSLSocket.forClient(ctx, ts, host, acceptInvalidCertificate)
+		}
+		else {
+			return SMTPClientTransactionResult.forError("SMTPClient: Unknown SMTP URI scheme `" .. scheme .. "'")
+		}
+		if socket:
+			break
+		Log.debug(ctx, "Failed to connect to SMTP server `" .. host .. ":" .. String.forInteger(port) .. "'. Waiting to retry ..")
+		CurrentThread.sleepSeconds(1)
+	}
+	if socket == null:
+		return SMTPClientTransactionResult.forError("Unable to connect to SMTP server `" .. host .. ":" .. String.forInteger(port) .. "'")
+	var ops = PrintWriterWrapper.forWriter(socket)
+	var ins = PrintReader.forReader(socket)
+	var err as string?
+	if var err = communicate(ins, "220"):
+		return SMTPClientTransactionResult.forError(err)
+	var sd = senderDomain
+	if String.isEmpty(sd):
+		return SMTPClientTransactionResult.forError("Sender Domain is empty")
+	if writeLine(ops, "EHLO " .. sd) == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	if var err = communicate(ins, "250"):
+		return SMTPClientTransactionResult.forError(err)
+	if String.equals("smtp+tls", scheme) {
+		if writeLine(ops, "STARTTLS") == false:
+			return SMTPClientTransactionResult.forNetworkError()
+		if var err = communicate(ins, "220"):
+			return SMTPClientTransactionResult.forError(err)
+		socket = SSLSocket.forClient(ctx, socket, host, acceptInvalidCertificate)
+		ops = PrintWriterWrapper.forWriter(socket)
+		ins = PrintReader.forReader(socket)
+		if writeLine(ops, "EHLO " .. sd) == false:
+			return SMTPClientTransactionResult.forNetworkError()
+		if var err = communicate(ins, "250"):
+			return SMTPClientTransactionResult.forError(err)
+	}
+	var username = url.getUsername()
+	var password = url.getPassword()
+	if String.isNotEmpty(username) {
+		if writeLine(ops, "AUTH login") == false:
+			return SMTPClientTransactionResult.forNetworkError()
+		if var err = communicate(ins, "334"):
+			return SMTPClientTransactionResult.forError(err)
+		if writeLine(ops, encode(username)) == false:
+			return SMTPClientTransactionResult.forNetworkError()
+		if var err = communicate(ins, "334"):
+			return SMTPClientTransactionResult.forError(err)
+		if writeLine(ops, encode(password ?? "")) == false:
+			return SMTPClientTransactionResult.forNetworkError()
+		if var err = communicate(ins, "235|530"):
+			return SMTPClientTransactionResult.forError(err)
+	}
+	if writeLine(ops, "MAIL FROM:<" .. msg.getMyAddress() .. ">") == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	if var err = communicate(ins, "250"):
+		return SMTPClientTransactionResult.forError(err)
+	if rcpts {
+		foreach rcpt as string in rcpts.toVector() {
+			if writeLine(ops, "RCPT TO:<" .. rcptAsEmailAddress(rcpt) .. ">") == false:
+				return SMTPClientTransactionResult.forNetworkError()
+			if var err = communicate(ins, "250"):
+				return SMTPClientTransactionResult.forError(err)
+		}
+	}
+	if writeLine(ops, "DATA") == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	if var err = communicate(ins, "354"):
+		return SMTPClientTransactionResult.forError(err)
+	if String.isEmpty(msg.getMessageID()):
+		msg.generateMessageID(sd)
+	var bod = msg.getMessageBody()
+	Log.debug(ctx, "Sending message body: `" .. bod .. "'")
+	if ops.print(bod) == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	if ops.print("\r\n.\r\n") == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	if var err = communicate(ins, "250"):
+		return SMTPClientTransactionResult.forError(err)
+	if writeLine(ops, "QUIT") == false:
+		return SMTPClientTransactionResult.forNetworkError()
+	return SMTPClientTransactionResult.forSuccess()
+}
+
+func sendMessage(msg as SMTPMessage, senderDomain as string, server as URL?, acceptInvalidCertificate as bool = false) as SMTPClientResult
+{
 	var rcpts = msg.getAllRcpts()
 	if server {
 		// simple case. single server transaction with a supplied address.
-		var t = executeTransaction(msg, server, rcpts, serverName, ctx, acceptInvalidCertificate)
-		if t {
-			t.setServer(server.getHost())
-			t.setRecipients(rcpts)
-		}
+		var t = executeTransaction(msg, server, rcpts, senderDomain, acceptInvalidCertificate)
+		t.setServer(server.getHost())
+		t.setRecipients(rcpts)
 		return SMTPClientResult.forMessage(msg).addTransaction(t)
 	}
 	var r = SMTPClientResult.forMessage(msg)
@@ -169,11 +265,7 @@ func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as
 		}
 		ss.appendObject(rcpt)
 	}
-	var itr = servers.iterateKeys()
-	while itr {
-		var domain = itr.next()
-		if String.isEmpty(domain):
-			break
+	foreach domain in servers.iterateKeys() {
 		var ds = resolveMXServerForDomain(domain)
 		if String.isEmpty(ds) {
 			r.addTransaction(SMTPClientTransactionResult.forError("Unable to determine mail server for `" .. domain .. "'"))
@@ -181,12 +273,10 @@ func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as
 		else {
 			Log.debug(ctx, "SMTP server for domain `" .. domain .. "': `" .. ds .. "'")
 			var trcpts = servers.get(domain) as DynamicVector
-			var t = executeTransaction(msg, URL.forString("smtp://" .. ds), trcpts, serverName, ctx, acceptInvalidCertificate)
-			if t {
-				t.setDomain(domain)
-				t.setServer(ds)
-				t.setRecipients(trcpts)
-			}
+			var t = executeTransaction(msg, URL.forString("smtp://" .. ds), trcpts, senderDomain, acceptInvalidCertificate)
+			t.setDomain(domain)
+			t.setServer(ds)
+			t.setRecipients(trcpts)
 			r.addTransaction(t)
 		}
 	}
@@ -194,117 +284,4 @@ func sendMessage(msg as SMTPMessage, server as URL, serverName as string, ctx as
 	if vt == null || vt.getSize() < 1:
 		r.addTransaction(SMTPClientTransactionResult.forError("Unknown error in SMTPClient"))
 	return r
-}
-
-func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVector, serverName as string, ctx as LoggingContext, acceptInvalidCertificate as bool) private static as SMTPClientTransactionResult
-{
-	var url = server
-	if url == null:
-		return SMTPClientTransactionResult.forError("No server URL")
-	var socket as ConnectedSocket = null
-	var scheme = url.getScheme()
-	var host = url.getHost()
-	var port = url.getPortInt()
-	for(var n = 0; n < 3; n++) {
-		if String.equals("smtp", scheme) || String.equals("smtp+tls", scheme) {
-			if port < 1:
-				port = 25
-			socket = connect(host, port, ctx)
-		}
-		else if String.equals("smtp+ssl", scheme) {
-			if port < 1:
-				port = 465
-			var ts = connect(host, port, ctx)
-			if ts {
-				socket = SSLSocket.forClient(ts, host, ctx, acceptInvalidCertificate)
-				if socket == null:
-					return SMTPClientTransactionResult.forError("Failed to start SSL")
-			}
-		}
-		else {
-			return SMTPClientTransactionResult.forError("SMTPClient: Unknown SMTP URI scheme `" .. scheme .. "'")
-		}
-		if socket:
-			break
-		Log.debug(ctx, "Failed to connect to SMTP server `" .. host .. ":" .. String.forInteger(port) .. "'. Waiting to retry ..")
-		CurrentThread.sleepSeconds(1)
-	}
-	if socket == null:
-		return SMTPClientTransactionResult.forError("Unable to connect to SMTP server `" .. host .. ":" .. String.forInteger(port) .. "'")
-	var ops = PrintWriterWrapper.forWriter(socket)
-	var ins = PrintReader.forReader(socket)
-	if ops == null || ins == null:
-		return SMTPClientTransactionResult.forError("Unable to establish SMTP I/O streams")
-	var err as string
-	if (err = communicate(ins, "220", ctx)) != null:
-		return SMTPClientTransactionResult.forError(err)
-	var sn = serverName
-	if String.isEmpty(sn):
-		sn = "smtpclient.jkop"
-	if writeLine(ops, "EHLO " .. sn, ctx) == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	if (err = communicate(ins, "250", ctx)) != null:
-		return SMTPClientTransactionResult.forError(err)
-	if String.equals("smtp+tls", scheme) {
-		if writeLine(ops, "STARTTLS", ctx) == false:
-			return SMTPClientTransactionResult.forNetworkError()
-		if (err = communicate(ins, "220", ctx)) != null:
-			return SMTPClientTransactionResult.forError(err)
-		ops = null
-		ins = null
-		socket = SSLSocket.forClient(socket, host, ctx, acceptInvalidCertificate)
-		if socket == null:
-			return SMTPClientTransactionResult.forError("Failed to start SSL")
-		ops = PrintWriterWrapper.forWriter(socket)
-		ins = PrintReader.forReader(socket)
-		if writeLine(ops, "EHLO " .. sn, ctx) == false:
-			return SMTPClientTransactionResult.forNetworkError()
-		if (err = communicate(ins, "250", ctx)) != null:
-			return SMTPClientTransactionResult.forError(err)
-	}
-	var username = url.getUsername()
-	var password = url.getPassword()
-	if String.isEmpty(username) == false {
-		if writeLine(ops, "AUTH login", ctx) == false:
-			return SMTPClientTransactionResult.forNetworkError()
-		if (err = communicate(ins, "334", ctx)) != null:
-			return SMTPClientTransactionResult.forError(err)
-		if writeLine(ops, encode(username), ctx) == false:
-			return SMTPClientTransactionResult.forNetworkError()
-		if (err = communicate(ins, "334", ctx)) != null:
-			return SMTPClientTransactionResult.forError(err)
-		if writeLine(ops, encode(password), ctx) == false:
-			return SMTPClientTransactionResult.forNetworkError()
-		if (err = communicate(ins, "235|530", ctx)) != null:
-			return SMTPClientTransactionResult.forError(err)
-	}
-	if writeLine(ops, "MAIL FROM:<" .. msg.getMyAddress() .. ">", ctx) == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	if (err = communicate(ins, "250", ctx)) != null:
-		return SMTPClientTransactionResult.forError(err)
-	if rcpts {
-		foreach rcpt as string in rcpts.toVector() {
-			if writeLine(ops, "RCPT TO:<" .. rcptAsEmailAddress(rcpt) .. ">", ctx) == false:
-				return SMTPClientTransactionResult.forNetworkError()
-			if (err = communicate(ins, "250", ctx)) != null:
-				return SMTPClientTransactionResult.forError(err)
-		}
-	}
-	if writeLine(ops, "DATA", ctx) == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	if (err = communicate(ins, "354", ctx)) != null:
-		return SMTPClientTransactionResult.forError(err)
-	if String.isEmpty(msg.getMessageID()):
-		msg.generateMessageID(sn)
-	var bod = msg.getMessageBody()
-	Log.debug(ctx, "Sending message body: `" .. bod .. "'")
-	if ops.print(bod) == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	if ops.print("\r\n.\r\n") == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	if (err = communicate(ins, "250", ctx)) != null:
-		return SMTPClientTransactionResult.forError(err)
-	if writeLine(ops, "QUIT", ctx) == false:
-		return SMTPClientTransactionResult.forNetworkError()
-	return SMTPClientTransactionResult.forSuccess()
 }

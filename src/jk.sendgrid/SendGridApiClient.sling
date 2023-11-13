@@ -73,28 +73,22 @@ model EmailSetting public
 	sandbox_mode as SandboxMode
 }
 
-func forApiKey(ctx as LoggingContext, sendGridApiKey as string) static as this
-{
-	var v = new this(ctx)
-	v.sendGridApiKey = sendGridApiKey
-	return v
-}
+func forApiKey(ctx as LoggingContext, sendGridApiKey as string, sender as EmailUser) static as this:
+	return new this() {
+		ctx ctx
+		sendGridApiKey sendGridApiKey
+		sender sender
+	}
 
-ctor(ctx as LoggingContext):
+ctor:
 	baseUrl = "https://api.sendgrid.com"
 
 prop sendGridApiKey as string
 prop sandboxMode as bool = false
 prop sender as EmailUser
 
-func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailContent>, subject as string, attachments as vector<Attachment> = null) async
+func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailContent>, subject as string, attachments as vector<Attachment>? = null) async
 {
-	assert recipients:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing recipients")
-	assert sender:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing sender")
-	assert sendGridApiKey:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing API key")
 	var body = new EmailBody()
 	body.from = sender
 	foreach cnt in content:
@@ -104,7 +98,7 @@ func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailCo
 		foreach attachment in attachments:
 			body.addObjectToVectorField("attachments", attachment)
 	}
-	var vrecipients = assert groupRecipients(recipients)
+	var vrecipients = groupRecipients(recipients)
 	foreach rctps in vrecipients {
 		var personalizations = new Personalization()
 		foreach rctp in rctps:
@@ -117,19 +111,11 @@ func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailCo
 
 func sendEmailTemplate(recipients as vector<EmailUser>, templateName as string, parameters as DynamicMap) async
 {
-	assert recipients:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing recipients")
-	assert templateName:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing templateName")
-	assert parameters:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing parameters")
-	assert sendGridApiKey:
-		throw ExceptionWithError.forCode("sendGridAPISend", "Missing API key")
 	var body = new EmailBody()
 	body.from = sender
 	body.template_id = templateName
 	var counter = 0
-	var vrecipients = assert groupRecipients(recipients)
+	var vrecipients = groupRecipients(recipients)
 	foreach rctps in vrecipients {
 		var personalizations = new Personalization()
 		foreach rctp in rctps:
@@ -148,12 +134,12 @@ func groupRecipients(recipients as vector<EmailUser>) as vector<vector<EmailUser
 	var recipientsItem = new vector<EmailUser>
 	var itr =  Vector.iterate(recipients)
 	loop {
-		var it = itr.next()
-		if !it {
+		if not itr.hasNext() {
 			if Vector.getSize(recipientsItem) > 0:
 				vrecipients += recipientsItem
 			break
 		}
+		var it = itr.next()
 		if counter == 1000 {
 			vrecipients += recipientsItem
 		}
@@ -164,8 +150,6 @@ func groupRecipients(recipients as vector<EmailUser>) as vector<vector<EmailUser
 
 func doSendEmail(body as EmailBody) async
 {
-	assert body:
-		Error.throw("sendGridAPISend", "Missing API body")
 	if sandboxMode {
 		var esetting = new EmailSetting()
 		var sm = new SandboxMode()

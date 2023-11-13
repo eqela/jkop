@@ -27,24 +27,18 @@ import jk.base64
 
 class:
 
-func callRemoteFunction(apiClient as ApiClient, name as string, data as DynamicMap) static async as DynamicMap
+func callRemoteFunction(apiClient as ApiClient, name as string, data as DynamicMap?) static async as DynamicMap
 {
 	var dd = data
 	if not dd:
 		dd = new DynamicMap()
-	var bdata = String.toUTF8Buffer(JSONEncoder.encode(dd))
+	var bdata = String.toUTF8Buffer(JSONEncoder.toString(dd))
 	var url = "/func/" .. name
 	var headers = new KeyValueList<string,string>()
 	headers.add("content-type", "application/json")
 	var response = await apiClient.request("POST", url, headers, bdata)
 	var status = response.statusCode
 	var body = response.body
-	if status == null {
-		var detail = new DynamicMap()
-		detail.setString("url", url)
-		detail.setString("error", String.forUTF8Buffer(body))
-		Error.throw("failedToCallRemoteFunction", JSONEncoder.toString(detail))
-	}
 	var str = String.forUTF8Buffer(body)
 	var data = JSONParser.parseString(str) as DynamicMap
 	if not data {
@@ -60,8 +54,6 @@ func callRemoteFunction(apiClient as ApiClient, name as string, data as DynamicM
 
 func validateResponse(response as DynamicMap) static as object
 {
-	if not response:
-		Error.throw("nullResponse", null)
 	if response.getCount() < 1:
 		Error.throw("responseWithNoContent", null)
 	var statusInBody = response.getString("status")
@@ -80,51 +72,42 @@ func validateResponse(response as DynamicMap) static as object
 			Error.throw("unsupportedRpcStatus", statusInBody)
 		}
 	}
-	return response.getObject("data")
+	var v = response.getObject("data")
+	if not v:
+		Error.throw("responseHasNoData", response)
+	return v
 }
 
 func responseAsString(response as DynamicMap) static as string
 {
 	var r = validateResponse(response)
-	var v = String.asString(r)
-	if not v:
-		Error.throw("responseIsNotString", response)
-	return v
+	return String.asValueOrThrowError(r)
 }
 
 func responseAsBoolean(response as DynamicMap) static as bool
 {
 	var r = validateResponse(response)
-	var v = Boolean.asObject(r)
-	if not v:
-		Error.throw("responseIsNotBoolean", response)
-	return v.toBoolean()
+	return Boolean.asValueOrThrowError(r)
 }
 
 func responseAsLongInteger(response as DynamicMap) static as long
 {
 	var r = validateResponse(response)
-	var v = LongInteger.asObject(r)
-	if not v:
-		Error.throw("responseIsNotLongInteger", response)
-	return v.toLong()
+	return LongInteger.asValueOrThrowError(r)
 }
 
 func responseAsInteger(response as DynamicMap) static as long
 {
 	var r = validateResponse(response)
-	var v = Integer.asObject(r)
-	if not v:
-		Error.throw("responseIsNotInteger", response)
-	return v.toInteger()
+	return Integer.asValueOrThrowError(r)
 }
 
 func responseAsBuffer(response as DynamicMap) static as buffer
 {
 	var r = validateResponse(response)
-	var v = Buffer.asBuffer(r)
+	var v = Buffer.asValueOrNull(r)
 	if not v {
-		var rs = String.asString(r)
+		var rs = String.asValueOrNull(r)
 		if rs:
 			v = Base64Decoder.decode(rs)
 	}
@@ -136,8 +119,5 @@ func responseAsBuffer(response as DynamicMap) static as buffer
 func responseAsDynamicMap(response as DynamicMap) static as DynamicMap
 {
 	var r = validateResponse(response)
-	var v = DynamicMap.asDynamicMap(r)
-	if not v:
-		Error.throw("responseIsNotDynamicMap", response)
-	return v
+	return DynamicMap.asValueOrThrowError(r)
 }

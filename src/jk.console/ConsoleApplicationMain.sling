@@ -34,26 +34,19 @@ meta
 	]]
 }
 
-func executeMain(app as this, args as array<string>) static as int
+func executeMain(app as this?, args as array<string>?) static as int
 {
 	if not app:
 		return -1
 	return app.executeWithArgumentArray(args)
 }
 
-var stdout public as PrintWriter
-var stdin public as PrintReader
-var ctx public as ConsoleApplicationContext
-var args public as vector<CommandLineArgument>
+var stdout public = Stdout.getIfAvailable()
+var stdin public = Stdin.getIfAvailable()
+var ctx public = new ConsoleApplicationContext()
+var args public as vector<CommandLineArgument>?
 var verbosityLevel = 3
-var terminal as Terminal
-
-ctor
-{
-	stdin = Stdin.instance()
-	stdout = Stdout.instance()
-	ctx = new ConsoleApplicationContext()
-}
+var terminal as Terminal?
 
 func setCtx(v as ConsoleApplicationContext) as this
 {
@@ -61,10 +54,13 @@ func setCtx(v as ConsoleApplicationContext) as this
 	return this
 }
 
-func getTerminal as Terminal
+func getCtx as LoggingContext:
+	return ctx
+
+func getTerminal as Terminal?
 {
 	if not terminal:
-		terminal = Terminal.forCurrent()
+		terminal = Terminal.getIfAvailable()
 	return terminal
 }
 
@@ -80,7 +76,7 @@ func println(value as string)
 		stdout.println(value)
 }
 
-func readLine as string
+func readLine as string?
 {
 	var tt = getTerminal()
 	if tt:
@@ -90,7 +86,7 @@ func readLine as string
 	return null
 }
 
-func readLineWithoutEcho as string
+func readLineWithoutEcho as string?
 {
 	var tt = getTerminal()
 	if tt:
@@ -144,7 +140,7 @@ func handleVerbosityParams
 {
 	var nargs = new vector<CommandLineArgument>
 	var vl = verbosityLevel
-	foreach arg in args {
+	if args: foreach arg in args {
 		if arg.isFlag("v0") {
 			vl = 0
 		}
@@ -169,7 +165,7 @@ func handleVerbosityParams
 		setVerbosityLevel(vl)
 }
 
-func executeWithArgumentArray(args as array<string>) virtual as int
+func executeWithArgumentVector(args as vector<string>?) virtual as int
 {
 	if args:
 		this.args = ConsoleApplicationUtil.parseCommandLineArguments(args)
@@ -182,19 +178,18 @@ func executeWithArgumentArray(args as array<string>) virtual as int
 	return 1
 }
 
-func executeWithArgumentVector(args as vector<string>) virtual as int
+func executeWithArgumentArray(args as array<string>?) virtual as int
 {
-	var arga as array<string>
+	var arga as vector<string>?
 	if args {
-		arga = new string[Vector.getSize(args)]
-		var n = 0
+		arga = new vector<string>
 		foreach arg in args:
-			arga[n++] = arg
+			arga += arg
 	}
-	return executeWithArgumentArray(arga)
+	return executeWithArgumentVector(arga)
 }
 
-func executeWithParsedArguments(args as vector<CommandLineArgument>) as bool
+func executeWithParsedArguments(args as vector<CommandLineArgument>?) as bool
 {
 	this.args = args
 	if not initialize():

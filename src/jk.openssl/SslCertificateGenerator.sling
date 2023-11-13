@@ -28,39 +28,30 @@ import jk.process
 
 class:
 
-prop openssl:opensslValue as File
-{
-	get {
-		var v = opensslValue
-		if not v:
-			v = ExternalCommand.findInPath("openssl")
-		if not v:
-			Error.throw("commandNotFound", "openssl")
-		return v
-	}
-	set {
-		opensslValue = value
-	}
-}
-
 prop name as string
-prop csrDetails as string
+prop csrDetails as string?
 prop validity as int = 36500
+prop openssl as File?
 
-func forName(name as string) static as this
+func forName(name as string) static as this:
+	return new this() {
+		name name
+	}
+
+func getOpensslCommand as File
 {
-	var v = new this()
-	v.name = name
+	var v = openssl
+	if not v:
+		v = ExternalCommand.getAndRequireCommandInPath("openssl")
 	return v
 }
 
 func doGeneratePem(wd as File) private as string
 {
-	var cmd = openssl
+	var cmd = getOpensslCommand()
 	var output = new StringBuilder()
-	var pl as ProcessLauncher
 	// Generate private key
-	pl = ProcessLauncher.forFile(cmd)
+	var pl = ProcessLauncher.forFile(cmd)
 	pl.addToParams("genrsa")
 	pl.addToParams("-out")
 	pl.addToParams("cert.key")
@@ -110,7 +101,7 @@ func doGeneratePem(wd as File) private as string
 func generatePem as string
 {
 	var wd = TemporaryDirectory.create()
-	var v as string
+	var v = ""
 	try {
 		v = doGeneratePem(wd)
 	}

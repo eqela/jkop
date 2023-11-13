@@ -32,16 +32,13 @@ func forWikiMarkupFile(file as File) static as this:
 func forWikiMarkupString(str as string) static as this:
 	return RichTextWikiMarkupParser.parseString(str)
 
-var metadata as DynamicMap
-pvar paragraphs as vector<RichTextParagraph>
+var metadata = new DynamicMap()
+pvar paragraphs as vector<RichTextParagraph>?
 
-ctor:
-	metadata = new DynamicMap()
-
-func getTitle as string:
+func getTitle as string?:
 	return metadata.getString("title")
 
-func setTitle(v as string) as this
+func setTitle(v as string?) as this
 {
 	metadata.setString("title", v)
 	return this
@@ -50,10 +47,10 @@ func setTitle(v as string) as this
 func getAllMetadata as DynamicMap:
 	return metadata
 
-func getMetadata(k as string) as string:
+func getMetadata(k as string) as string?:
 	return metadata.getString(k)
 
-func setMetadata(k as string, v as string) as this
+func setMetadata(k as string, v as string?) as this
 {
 	metadata.setString(k,v)
 	return this
@@ -61,29 +58,27 @@ func setMetadata(k as string, v as string) as this
 
 func addParagraph(rtp as RichTextParagraph) as this
 {
-	if rtp == null:
-		return this
 	if paragraphs == null:
 		paragraphs = new vector<RichTextParagraph>
-	Vector.append(paragraphs,rtp)
-	if getTitle() == null && rtp is RichTextStyledParagraph && (rtp as RichTextStyledParagraph).getHeading() == 1:
-		setTitle((rtp as RichTextStyledParagraph).getTextContent())
+	Vector.appendValue(paragraphs, rtp)
+	if getTitle() == null && rtp is RichTextStyledParagraph && (rtp as! RichTextStyledParagraph).getHeading() == 1:
+		setTitle((rtp as! RichTextStyledParagraph).getTextContent())
 	return this
 }
 
 func getAllReferences as vector<string>
 {
 	var v = new vector<string>
-	foreach paragraph in paragraphs {
+	if paragraphs: foreach paragraph in paragraphs {
 		if paragraph is RichTextReferenceParagraph {
 			var ref = (paragraph as! RichTextReferenceParagraph).getReference()
-			if String.isEmpty(ref) == false:
+			if String.isNotEmpty(ref):
 				v += ref
 		}
 		else if paragraph is RichTextStyledParagraph {
-			foreach segment in (paragraph as! RichTextStyledParagraph).getSegments() {
+			if var segments = (paragraph as! RichTextStyledParagraph).getSegments(): foreach segment in segments {
 				var ref = segment.getReference()
-				if String.isEmpty(ref) == false:
+				if String.isNotEmpty(ref):
 					v += ref
 			}
 		}
@@ -94,16 +89,16 @@ func getAllReferences as vector<string>
 func getAllLinks as vector<string>
 {
 	var v = new vector<string>
-	foreach paragraph in paragraphs {
+	if paragraphs: foreach paragraph in paragraphs {
 		if paragraph is RichTextLinkParagraph {
 			var link = (paragraph as! RichTextLinkParagraph).getLink()
-			if String.isEmpty(link) == false:
+			if String.isNotEmpty(link):
 				v += link
 		}
 		else if paragraph is RichTextStyledParagraph {
-			foreach segment in (paragraph as! RichTextStyledParagraph).getSegments() {
+			if var segments = (paragraph as! RichTextStyledParagraph).getSegments(): foreach segment in segments {
 				var link = segment.getLink()
-				if String.isEmpty(link) == false:
+				if String.isNotEmpty(link):
 					v += link
 			}
 		}
@@ -117,21 +112,20 @@ func toJson as DynamicMap
 	v.setObject("metadata", metadata)
 	v.setString("title", getTitle())
 	var pp = new vector<object>
-	foreach par as RichTextParagraph in paragraphs {
+	if paragraphs: foreach par in paragraphs {
 		var pj = par.toJson()
-		if pj:
-			Vector.append(pp, pj)
+		Vector.appendValue(pp, pj)
 	}
 	v.setObject("paragraphs", pp)
 	return v
 }
 
-func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async as string
+func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver?) async as string
 {
 	var sb = new StringBuilder()
-	foreach paragraph as RichTextParagraph in getParagraphs() {
+	if paragraphs: foreach paragraph in paragraphs {
 		var html = await paragraph.toHtmlWithResolver(refs)
-		if String.isEmpty(html) == false {
+		if String.isNotEmpty(html) {
 			sb.appendString(html)
 			sb.appendCharacter('\n')
 		}
@@ -142,9 +136,9 @@ func toHtmlWithResolver(refs as RichTextDocumentReferenceResolver) async as stri
 func toHtml as string
 {
 	var sb = new StringBuilder()
-	foreach paragraph as RichTextParagraph in getParagraphs() {
+	if paragraphs: foreach paragraph in paragraphs {
 		var html = paragraph.toHtml()
-		if String.isEmpty(html) == false {
+		if String.isNotEmpty(html) {
 			sb.appendString(html)
 			sb.appendCharacter('\n')
 		}

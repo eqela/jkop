@@ -1,0 +1,335 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.nodejs
+
+class is WebServer:
+
+class WebServerRequestForNodejs public is WebServerRequest
+{
+	prop req as dynamic?
+	prop res as dynamic?
+
+	ctor(req as dynamic?, res as dynamic?)
+	{
+		this.req = req
+		this.res = res
+	}
+
+	func getMethod override as string
+	{
+		var req = this.req
+		if req == null:
+			return ""
+		return String.asValueOrEmptyString(req.method)
+	}
+
+	func getPath(withQuery as bool = true) override as string
+	{
+		var req = this.req
+		if req == null:
+			return ""
+		var url = String.asValueOrEmptyString(req.url)
+		if withQuery:
+			return url
+		var v = Vector.getValue(String.split(url, '?'), 0)
+		if not v:
+			v = ""
+		return v
+	}
+
+	func getHeaders override as vector<KeyValuePair<string,string>>
+	{
+		var v = new vector<KeyValuePair<string,string>>
+		var req = this.req
+		if req {
+			var hdrs = req.headers
+			lang "js" {{{
+				for(var key in hdrs) {
+					var val = hdrs[key]
+					}}}
+					v += new KeyValuePair<string,string>() {
+						key lang "js" as string {{{ key }}}
+						value lang "js" as string {{{ val }}}
+					}
+					lang "js" {{{
+				}
+			}}}
+		}
+		return v
+	}
+
+	func getHeader(key as string) override as string?
+	{
+		var req = this.req
+		if req == null:
+			return null
+		var hdrs = req.headers
+		return lang "js" as string? {{{ hdrs[key.toLowerCase()] }}}
+	}
+
+	func setHeader(key as string, value as string) override
+	{
+		var req = this.req
+		if req == null:
+			return
+		var hdrs = req.headers
+		lang "js" {{{
+			hdrs[key.toLowerCase()] = value
+		}}}
+	}
+
+	func removeHeader(key as string) override
+	{
+		var req = this.req
+		if req == null:
+			return
+		var hdrs = req.headers
+		lang "js" {{{
+			delete hdrs[key.toLowerCase()]
+		}}}
+	}
+
+	func readBodyChunk override async as buffer?
+	{
+		var req = this.req
+		if req == null:
+			return null
+		return new promise<buffer?> {
+			var ondata as function<void,buffer?>?
+			var onend as function<void>?
+			ondata = func(data as buffer?) {
+				req.removeListener!("data", ondata)
+				req.removeListener!("end", onend)
+				resolve data
+			}
+			onend = func {
+				req.removeListener!("data", ondata)
+				req.removeListener!("end", onend)
+				resolve null
+			}
+			req.on!("data", ondata)
+			req.on!("end", onend)
+		}
+	}
+
+	func getBodyAsBuffer override async as buffer
+	{
+		var bb = new BufferBuilder()
+		loop {
+			var chunk = await readBodyChunk()
+			if not chunk:
+				break
+			bb.appendBuffer(chunk)
+		}
+		return bb.toBuffer()
+	}
+
+	func getBodyAsString override async as string
+	{
+		var buffer = await getBodyAsBuffer()
+		return String.forUTF8Buffer(buffer)
+	}
+
+	func setResponseHeader(key as string, value as string) override
+	{
+		var res = this.res
+		if res:
+			res.setHeader!(key, value)
+	}
+
+	func setResponseHeaderList(headers as KeyValueList<string,string>) override
+	{
+		foreach pair in headers:
+			setResponseHeader(pair.key, pair.value)
+	}
+
+	func setResponseHeaders(headers as dynamic) override
+	{
+		foreach name in DynamicObject.getPropertyNames(headers):
+			setResponseHeader(name, String.asValueOrEmptyString(DynamicObject.getPropertyValue(headers, name)))
+	}
+
+	func setResponseStatus(code as int) override
+	{
+		var res = this.res
+		if res:
+			res.statusCode = code
+	}
+
+	func writeResponseData(data as buffer) override async
+	{
+		var res = this.res
+		if not res:
+			Error.throw("noResponseObject", null)
+		return new promise<void> {
+			res.write!(data, null, func {
+				resolve
+			})
+		}
+	}
+
+	func endResponse override async
+	{
+		var res = this.res
+		if not res:
+			Error.throw("noResponseObject", null)
+		return new promise<void> {
+			res.end!(null, null, func {
+				resolve
+			})
+		}
+	}
+}
+
+class WebSocketServerRequestForNodejs public is WebServerRequestForNodejs
+{
+	prop socket as dynamic?
+	prop status as string?
+	prop headerList as vector<string>?
+	prop data as buffer?
+
+	ctor(req as dynamic?, socket as dynamic?)
+	{
+		base(req, null as! dynamic?)
+		this.socket = socket
+	}
+
+	func setResponseStatus(code as int) override:
+		status = String.forInteger(code)
+
+	func setResponseHeader(key as string, value as string) override
+	{
+		if not headerList:
+			headerList = new vector<string>
+		headerList += key .. ": " .. value
+	}
+
+	func writeResponseData(data as buffer) override async:
+		this.data = Buffer.append(this.data, data)
+	
+	func getStatusDescription(status as string) as string
+	{
+		var http = NodeModule.require("http")
+		var v = String.asValueOrNull(http.STATUS_CODES![status])
+		if String.isEmpty(v):
+			v = "Http" .. status
+		return v
+	}
+
+	func endResponse override async
+	{
+		var socket = this.socket
+		if not socket:
+			Error.throw("noSocketObject", null)
+		var sb = new StringBuilder()
+		var status = this.status
+		if String.isEmpty(status):
+			status = "200"
+		sb.appendString("HTTP/1.1 " .. status .. " " .. getStatusDescription(status) .. "\r\n")
+		if var headerList = this.headerList: foreach header in headerList:
+			sb.appendString(header .. "\r\n")
+		sb.appendString("\r\n")
+		var data = String.toUTF8Buffer(sb.toString())
+		var thisData = this.data
+		if thisData:
+			data = Buffer.append(data, thisData)
+		socket.end!(data)
+	}
+}
+
+func waitForServers(ctx as LoggingContext, servers as vector<WebServer>) async static
+{
+	var nservers = Vector.getSize(servers)
+	if nservers < 1:
+		Error.throw("noServersToWaitFor", servers)
+	var promises = new vector<promise<void>>
+	foreach server in servers {
+		var tserver = server as this
+		if not tserver:
+			Error.throw("unsupportedWebServer", server)
+		var nserver = tserver.server
+		if not nserver:
+			Error.throw("nodeHttpServerMissing", tserver)
+		promises += new promise<void> {
+			nserver.on!("close", func {
+				resolve
+			})
+		}
+	}
+	if nservers == 1 {
+		Log.info(ctx, "HTTP server ready and waiting.")
+	}
+	else {
+		Log.info(ctx, String.forInteger(nservers) .. " HTTP servers ready and waiting.")
+	}
+	lang "js" {{{
+		await Promise.all(promises)
+	}}}
+	if nservers == 1 {
+		Log.info(ctx, "Node.JS HTTP server ended.")
+	}
+	else {
+		Log.info(ctx, "Node.JS HTTP servers ended.")
+	}
+}
+
+var server as dynamic?
+
+func getNodeServerInstance as dynamic?:
+	return server
+
+func initialize override
+{
+	var http = NodeModule.require("http")
+	server = http.createServer!(func(req as dynamic?, res as dynamic?) async {
+		await handleRequest(new WebServerRequestForNodejs(req, res))
+	})
+	if not server:
+		Error.throw("failedToCreateHttpServerObject", null)
+	server.on!("upgrade", func(req as dynamic?, socket as dynamic?, head as dynamic?) async {
+		await handleRequest(new WebSocketServerRequestForNodejs(req, socket))
+	})
+}
+
+func start(port as int) async override
+{
+	if not server:
+		Error.throw("noHttpServerObject", null)
+	await server.listen!(port)
+	Log.info(ctx, "Node.JS HTTP server listening on port " .. String.forInteger(port))
+}
+
+func execute(port as int) async override
+{
+	await start(port)
+	await WebServer.waitForServers(ctx, new vector<WebServer> [ this ])
+}
+
+func stop async override
+{
+	if server:
+		server.close!()
+}

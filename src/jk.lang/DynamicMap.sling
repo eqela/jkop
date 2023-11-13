@@ -29,45 +29,40 @@ IFDEF "target_sushi"
 	var nullObject static as object = "null"
 }
 
-func asDynamicMap(value as dynamic) static as this
+func asValueOrNull(obj as dynamic?) static as this?
 {
-	assert value
-	if value is this:
-		return value as! this
-	if value is map:
-		return forMap(value as! map)
+	if not obj:
+		return null
+	if var valueThis = obj as this:
+		return valueThis
+	if var valueDmo = obj as DynamicMapObject:
+		return valueDmo.toDynamicMap()
+	if var valueMap = obj as map:
+		return forMap(valueMap)
 	return null
+}
+
+func asValueOrThrowError(obj as dynamic?) static as this
+{
+	var v = asValueOrNull(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToDynamicMap", obj)
+	return v
 }
 
 func forMap(map as map) static as this
 {
 	var v = new this()
-	if map {
-		var it = Map.iterateKeys(map)
-		while it {
-			var key = it.next()
-			if key == null:
-				break
-			if key is string == false:
-				continue
-			v.setDynamic(key as! string, Map.getValue(map, key as! string))
-		}
-	}
+	foreach key in Map.iterateKeys(map):
+		v.setDynamic(key, Map.getValue(map, key))
 	return v
 }
 
 func forStringMap(map as map<string,string>) static as this
 {
 	var v = new this()
-	if map {
-		var it = Map.iterateKeys(map)
-		while it {
-			var key = it.next()
-			if key == null:
-				break
-			v.setString(key, Map.getValue(map, key))
-		}
-	}
+	foreach key in Map.iterateKeys(map):
+		v.setString(key, Map.getValue(map, key))
 	return v
 }
 
@@ -79,27 +74,18 @@ func forDynamicMaps(map1 as this, map2 as this) static as this
 	return v
 }
 
-func forDynamicMap(map as this) static as this
-{
-	assert map
+func forDynamicMap(map as this) static as this:
 	return map.duplicateMap()
-}
 
-func forData(map as this) static as this
-{
-	assert map
+func forData(map as this) static as this:
 	return map.duplicateMap()
-}
 
-var map as map<string,dynamic>
+var map = new map
 
-ctor:
-	map = new map<string,dynamic>
-
-func asMap as map<string,dynamic>
+func asMap as map
 {
 	IFDEF "target_sushi" {
-		var v = new map<string,dynamic>
+		var v = new map
 		var it = iterateKeys()
 		while it {
 			var key = it.next()
@@ -120,26 +106,16 @@ func asStringMap as map<string,string>:
 func toStringMap as map<string,string>
 {
 	var v = new map<string,string>
-	var it = iterateKeys()
-	while it {
-		var key = it.next()
-		if not key:
-			break
-		Map.set(v, key, getString(key))
-	}
+	foreach key in iterateKeys():
+		Map.set(v, key, String.asValueOrEmptyString(getString(key)))
 	return v
 }
 
 func toMap as map
 {
 	var v = new map
-	var it = iterateKeys()
-	while it {
-		var key = it.next()
-		if not key:
-			break
+	foreach key in iterateKeys():
 		Map.set(v, key, getDynamic(key))
-	}
 	return v
 }
 
@@ -149,33 +125,24 @@ func duplicate as object:
 func duplicateMap as this
 {
 	var v = new this()
-	var it = iterateKeys()
-	while it {
-		var key = it.next()
-		if key == null:
-			break
+	foreach key in iterateKeys():
 		v.setDynamic(key, getDynamic(key))
-	}
 	return v
 }
 
-func mergeFrom(other as this) as this
+func mergeFrom(other as this?) as this
 {
 	if other == null:
 		return this
-	var it = other.iterateKeys()
-	while it {
-		var key = it.next()
-		if key == null:
-			break
+	foreach key in other.iterateKeys():
 		setDynamic(key, other.getDynamic(key))
-	}
 	return this
 }
 
-func setDynamic(key as string, value as dynamic) as this
+section "setters"
 {
-	if key {
+	func setDynamic(key as string, value as dynamic?) as this
+	{
 		IFDEF "target_sushi" {
 			if value == null {
 				map[key] = nullObject
@@ -186,169 +153,378 @@ func setDynamic(key as string, value as dynamic) as this
 		}
 		ELSE {
 			map[key] = value
-		}
-	}
-	return this
-}
-
-func setObject(key as string, value as object) as this:
-	return setDynamic(key, value)
-
-func setString(key as string, value as string) as this
-{
-	if key {
-		IFDEF "target_sushi" {
-			if value == null {
-				map[key] = nullObject
-			}
-			else {
-				map[key] = value
-			}
-		}
-		ELSE {
-			map[key] = value
-		}
-	}
-	return this
-}
-
-func setBuffer(key as string, value as buffer) as this
-{
-	if key != null && value == null {
-		IFDEF "target_sushi" {
-			map[key] = nullObject
-		}
-		ELSE {
-			map[key] = null
 		}
 		return this
 	}
-	return setObject(key, Buffer.asObject(value))
-}
 
-func setInteger(key as string, value as int) as this:
-	return setObject(key, Integer.asObject(value))
+	func setObject(key as string, value as object?) as this:
+		return setDynamic(key, value)
 
-func setLong(key as string, value as long) as this #deprecated:
-	return setObject(key, LongInteger.asObject(value))
-
-func setLongInteger(key as string, value as long) as this:
-	return setObject(key, LongInteger.asObject(value))
-
-func setBoolean(key as string, value as bool) as this:
-	return setObject(key, Boolean.asObject(value))
-
-func setDouble(key as string, value as double) as this:
-	return setObject(key, Double.asObject(value))
-
-func get(key as string) as dynamic:
-	return getDynamic(key)
-
-func getDynamic(key as string) as dynamic
-{
-	var v = Map.getValue(map, key)
-	IFDEF "target_sushi" {
-		if v == nullObject:
-			v = null
+	func setString(key as string, value as string?) as this
+	{
+		IFDEF "target_sushi" {
+			if value == null {
+				map[key] = nullObject
+			}
+			else {
+				map[key] = value
+			}
+		}
+		ELSE {
+			map[key] = value
+		}
+		return this
 	}
-	return v
-}
 
-func getObject(key as string) as object:
-	return getDynamic(key) as object
-
-func getString(key as string, defval as string = null) as string
-{
-	var v = String.asString(getDynamic(key))
-	if v == null:
-		return defval
-	return v
-}
-
-func getInteger(key as string, defval as int = 0) as int
-{
-	var vv = getDynamic(key)
-	if vv == null:
-		return defval
-	return Integer.asInteger(vv)
-}
-
-func getLongInteger(key as string, defval as long = 0) as long
-{
-	var vv = getDynamic(key)
-	if vv == null:
-		return defval
-	return LongInteger.asLong(vv)
-}
-
-func getBoolean(key as string, defval as bool = false) as bool
-{
-	var vv = getDynamic(key)
-	if vv == null:
-		return defval
-	return Boolean.asBoolean(vv)
-}
-
-func getDouble(key as string, defval as double = 0.0) as double
-{
-	var vv = getDynamic(key)
-	if vv == null:
-		return defval
-	return Double.asDouble(vv)
-}
-
-func getBuffer(key as string) as buffer
-{
-	var vv = assert getDynamic(key)
-	return Buffer.asBuffer(vv)
-}
-
-func getDynamicVector(key as string) as DynamicVector
-{
-	var vv = getDynamic(key) as DynamicVector
-	if vv:
-		return vv
-	var v = getVector(key)
-	if v:
-		return DynamicVector.forVector(v)
-	return null
-}
-
-func getVector(key as string) as vector
-{
-	var val = assert getDynamic(key)
-	if val is vector:
-		return val as! vector
-	if val is VectorObject<dynamic> {
-		var vo = val as! VectorObject<dynamic>
-		return vo.toVector()
+	func setBuffer(key as string, value as buffer?) as this
+	{
+		if value == null {
+			IFDEF "target_sushi" {
+				map[key] = nullObject
+			}
+			ELSE {
+				map[key] = null
+			}
+			return this
+		}
+		return setObject(key, Buffer.wrapValue(value))
 	}
-	return null
+
+	func setInteger(key as string, value as int?) as this:
+		return setObject(key, Integer.asObject(value))
+
+	func setLongInteger(key as string, value as long?) as this:
+		return setObject(key, LongInteger.asObject(value))
+
+	func setBoolean(key as string, value as bool?) as this:
+		return setObject(key, Boolean.asObject(value))
+
+	func setDouble(key as string, value as double?) as this:
+		return setObject(key, Double.asObject(value))
 }
 
-func getVectorOfStrings(key as string) as vector<string>
+section "get dynamic"
 {
-	var vv = assert getVector(key)
-	var v = new vector<string>
-	foreach o in vv {
-		var s = String.asString(o)
-		if s:
-			v += s
+	func get(key as string) as dynamic?:
+		return getDynamicOrNull(key)
+
+	func getDynamicOrNull(key as string) as dynamic?
+	{
+		var v = Map.getValue(map, key)
+		IFDEF "target_sushi" {
+			if v == nullObject:
+				v = null
+		}
+		return v
 	}
-	return v
+
+	func getDynamicOrDefaultValue(key as string, defaultValue as dynamic) as dynamic
+	{
+		var v = getDynamicOrNull(key)
+		if v == null:
+			v = defaultValue
+		return v
+	}
+
+	func getDynamicOrThrowError(key as string) as dynamic
+	{
+		var v = getDynamicOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getDynamic(key as string) as dynamic?:
+		return getDynamicOrNull(key)
 }
 
-func getDynamicMap(key as string) as this:
-	return getDynamic(key) as this
+section "get object"
+{
+	func getObjectOrNull(key as string) as object?:
+		return getDynamic(key) as object
+
+	func getObjectOrDefaultValue(key as string, defaultValue as object) as object
+	{
+		var v = getObjectOrNull(key)
+		if v == null:
+			v = defaultValue
+		return v
+	}
+
+	func getObjectOrThrowError(key as string) as object
+	{
+		var v = getObjectOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getObject(key as string) as object?:
+		return getObjectOrNull(key)
+}
+
+section "get string"
+{
+	func getStringOrNull(key as string) as string?:
+		return String.asValueOrNull(getDynamic(key))
+
+	func getStringOrDefaultValue(key as string, defaultValue as string) as string
+	{
+		var v = getStringOrNull(key)
+		if v == null:
+			return defaultValue
+		return v
+	}
+
+	func getStringOrThrowError(key as string) as string
+	{
+		var v = getStringOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getString(key as string) as string?:
+		return getStringOrNull(key)
+}
+
+section "get integer"
+{
+	func getIntegerOrNull(key as string) as int?
+	{
+		var v = Integer.asObject(getDynamic(key))
+		if v == null:
+			return null
+		return v.toInteger()
+	}
+
+	func getIntegerOrDefaultValue(key as string, defaultValue as int) as int
+	{
+		var v = Integer.asObject(getDynamic(key))
+		if v == null:
+			return defaultValue
+		return v.toInteger()
+	}
+
+	func getIntegerOrThrowError(key as string) as int
+	{
+		var v = getIntegerOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getInteger(key as string) as int:
+		return getIntegerOrDefaultValue(key, 0)
+}
+
+section "get long integer"
+{
+	func getLongIntegerOrNull(key as string) as long?
+	{
+		var v = LongInteger.asObject(getDynamic(key))
+		if v == null:
+			return null
+		return v.toLongInteger()
+	}
+
+	func getLongIntegerOrDefaultValue(key as string, defaultValue as long) as long
+	{
+		var v = LongInteger.asObject(getDynamic(key))
+		if v == null:
+			return defaultValue
+		return v.toLongInteger()
+	}
+
+	func getLongIntegerOrThrowError(key as string) as long
+	{
+		var v = getLongIntegerOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getLongInteger(key as string) as long:
+		return getLongIntegerOrDefaultValue(key, 0L)
+}
+
+section "get boolean"
+{
+	func getBooleanOrNull(key as string) as bool?
+	{
+		var v = Boolean.asObject(getDynamic(key))
+		if v == null:
+			return null
+		return v.toBoolean()
+	}
+
+	func getBooleanOrDefaultValue(key as string, defaultValue as bool) as bool
+	{
+		var v = Boolean.asObject(getDynamic(key))
+		if v == null:
+			return defaultValue
+		return v.toBoolean()
+	}
+
+	func getBooleanOrThrowError(key as string) as bool
+	{
+		var v = getBooleanOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getBoolean(key as string) as bool:
+		return getBooleanOrDefaultValue(key, false)
+}
+
+section "get double"
+{
+	func getDoubleOrNull(key as string) as double?
+	{
+		var v = Double.asObject(getDynamic(key))
+		if v == null:
+			return null
+		return v.toDouble()
+	}
+
+	func getDoubleOrDefaultValue(key as string, defaultValue as double) as double
+	{
+		var v = Double.asObject(getDynamic(key))
+		if v == null:
+			return defaultValue
+		return v.toDouble()
+	}
+
+	func getDoubleOrThrowError(key as string) as double
+	{
+		var v = getDoubleOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getDouble(key as string) as double:
+		return getDoubleOrDefaultValue(key, 0.0)
+}
+
+section "get buffer"
+{
+	func getBufferOrNull(key as string) as buffer?:
+		return Buffer.asValueOrNull(getDynamic(key))
+
+	func getBufferOrDefaultValue(key as string, defaultValue as buffer) as buffer
+	{
+		var v = getBufferOrNull(key)
+		if v == null:
+			return defaultValue
+		return v
+	}
+
+	func getBufferOrThrowError(key as string) as buffer
+	{
+		var v = getBufferOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getBuffer(key as string) as buffer?:
+		return getBufferOrNull(key)
+}
+
+section "get dynamic map"
+{
+	func getDynamicMapOrNull(key as string) as this?:
+		return getDynamic(key) as this
+
+	func getDynamicMapOrThrowError(key as string) as this
+	{
+		var v = getDynamicMapOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getDynamicMap(key as string) as this?:
+		return getDynamicMapOrNull(key)
+}
+
+section "get vector"
+{
+	func getVectorOfDynamicOrNull(key as string) as vector<dynamic>?
+	{
+		var val = assert getDynamic(key)
+		if val is vector<dynamic>:
+			return val as! vector<dynamic>
+		if val is VectorObject<dynamic> {
+			var vo = val as! VectorObject<dynamic>
+			return vo.toVector()
+		}
+		if val is DynamicVector:
+			return (val as! DynamicVector).toNonNullableVector()
+		return null
+	}
+
+	func getVectorOfDynamicOrThrowError(key as string) as vector<dynamic>
+	{
+		var v = getVectorOfDynamicOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getDynamicVectorOrNull(key as string) as DynamicVector?
+	{
+		var vv = getDynamic(key) as DynamicVector
+		if vv:
+			return vv
+		var v = getVectorOfDynamicOrNull(key)
+		if v:
+			return DynamicVector.forVector(v)
+		return null
+	}
+
+	func getDynamicVectorOrThrowError(key as string) as DynamicVector
+	{
+		var v = getDynamicVectorOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+
+	func getDynamicVector(key as string) as DynamicVector?:
+		return getDynamicVectorOrNull(key)
+
+	func getVectorOfStringOrNull(key as string) as vector<string>?
+	{
+		var vv = assert getVectorOfDynamicOrNull(key)
+		var v = new vector<string>
+		foreach o in vv {
+			var s = String.asValueOrNull(o)
+			if s:
+				v += s
+		}
+		return v
+	}
+
+	func getVectorOfStringOrThrowError(key as string) as vector<string>
+	{
+		var v = getVectorOfStringOrNull(key)
+		if v == null:
+			Error.throw("missingValue", key)
+		return v
+	}
+}
 
 func getKeys as vector<string>:
 	return Map.getKeys(map)
 
-func getValues as vector
+func getValues as vector<dynamic?>
 {
 	var v = Map.getValues(map)
 	IFDEF "target_sushi" {
-		var v2 = new vector
+		var v2 = new vector<dynamic?>
 		foreach o in v {
 			if o != nullObject:
 				v2 += o
@@ -364,7 +540,7 @@ func iterate as Iterator<string>:
 func iterateKeys as Iterator<string>:
 	return Map.iterateKeys(map)
 
-func iterateValues as Iterator<dynamic>:
+func iterateValues as Iterator<dynamic?>:
 	return Vector.iterate(getValues())
 
 func remove(key as string):
@@ -381,8 +557,7 @@ func containsKey(key as string) as bool:
 
 func removeNullValues as this
 {
-	var keys = getKeys()
-	foreach key in keys {
+	foreach key in getKeys() {
 		var value = getDynamic(key)
 		if value == null:
 			remove(key)

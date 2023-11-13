@@ -26,30 +26,28 @@ class:
 
 class MyMapObject<K,V> is MapObject<K,V> private
 {
-	pvar map as map<K,V>
+	prop value as map<K,V>
 
 	func toMap as map<K,V>:
-		return map
+		return value
 }
 
-func asObject<K,V> (map as map<K,V>) static as MapObject<K,V>
-{
-	assert map
-	var v = new MyMapObject<K,V>()
-	v.setMap(map)
-	return v
-}
+func wrapValue<K,V> (value as map<K,V>) static as MapObject<K,V>:
+	return new MyMapObject<K,V>() {
+		value value
+	}
 
-func asMap(o as dynamic) static as map
+func asValueOrNull(obj as dynamic?) static as map?
 {
-	assert o
+	if not obj:
+		return null
 	IFDEF "target_js" {
-		var v as map
+		var v as map?
 		lang "js" {{{
 			v = new Map()
-			for(var k in o) {
-				if(o.hasOwnProperty(k)) {
-					v.set(k, o[k]);
+			for(var k in obj) {
+				if(obj.hasOwnProperty(k)) {
+					v.set(k, obj[k]);
 				}
 			}
 		}}}
@@ -60,56 +58,47 @@ func asMap(o as dynamic) static as map
 	}
 }
 
-func getWithDefault <K,V> (map as map<K,V>, key as K, ddf as V) static as V
+func asValueOrThrowError(obj as dynamic?) static as map
 {
-	if map == null || key == null:
-		return ddf
-	if containsKey(map, key) == false:
-		return ddf
-	return getValue(map, key)
+	var v = asValueOrNull(obj)
+	if not v:
+		Error.throw("valueCannotBeConvertedToMap", obj)
+	return v
 }
 
-func get <K,V> (map as map<K,V>, key as K) static as V:
-	return getValue(map, key)
-
-func getValue <K,V> (map as map<K,V> #used, key as K #used) static as V
+func getValue <K,V> (map as map<K,V>, key as K) static as V?
 {
-	if map == null || key == null:
-		return defaultValue<V>
-	IFDEF "target_cs" {
-		var v as V
-		lang "cs" {{{
-			try {
-				v = map[key];
-			}
-			catch {
-				v = default(V);
-			}
-		}}}
-		return v
+	IFDEF "target_dotnet_cs" {
+		assert containsKey(map, key)
+		return lang "cs" as V {{{ map[key] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" V {{{ map.get(key) }}}
+		assert containsKey(map, key)
+		return lang "java" as V {{{ map.get(key) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" V {{{ map.get(key) }}}
+		var rv = lang "js" as V {{{ map.get(key) }}}
+		if lang "js" as bool {{{ rv === undefined || rv === null }}}:
+			return null
+		return rv
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" V {{{ map.get(key) }}}
+		assert containsKey(map, key)
+		return lang "kotlin" as V {{{ map.get(key) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" V {{{ map![key!] }}}
+		assert containsKey(map, key)
+		return lang "swift" as V {{{ map![key!] }}}
 	}
 	ELSE {
+		assert containsKey(map, key)
 		return map[key]
 	}
 }
 
-func set <K,V> (data as map<K,V> #used, key as K #used, val as V #used) static as bool
+func set <K,V> (data as map<K,V>, key as K, val as V) static as bool
 {
-	assert data
-	assert key
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			data[key] = val;
 		}}}
@@ -149,11 +138,9 @@ func set <K,V> (data as map<K,V> #used, key as K #used, val as V #used) static a
 func setValue <K,V> (data as map<K,V>, key as K, val as V) static as bool:
 	return set(data, key, val)
 
-func remove <K,V> (data as map<K,V> #used, key as K #used) static
+func remove <K,V> (data as map<K,V>, key as K) static
 {
-	assert data
-	assert key
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			data.Remove(key);
 		}}}
@@ -189,59 +176,55 @@ func remove <K,V> (data as map<K,V> #used, key as K #used) static
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
-func count <K,V> (data as map<K,V> #used) static as int
+func count <K,V> (data as map<K,V>) static as int
 {
-	if data == null:
-		return 0
-	IFDEF "target_cs" {
-		return lang "cs" int {{{ data.Count }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as int {{{ data.Count }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" int {{{ data.size() }}}
+		return lang "java" as int {{{ data.size() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" int {{{ data.size }}}
+		return lang "js" as int {{{ data.size }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" int {{{ [data count] }}}
+		return lang "objc" as int {{{ [data count] }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" int {{{ data.count() }}}
+		return lang "kotlin" as int {{{ data.count() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ data.count }}}
+		return lang "swift" as int {{{ data.count }}}
 	}
 	ELSE {
 		return Vector.getSize(getKeys(data))
 	}
 }
 
-func containsKey <K,V> (data as map<K,V> #used, key as K #used) static as bool
+func containsKey <K,V> (data as map<K,V>, key as K) static as bool
 {
-	assert data
-	assert key
-	IFDEF "target_cs" {
-		return lang "cs" bool {{{ data.ContainsKey(key) }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as bool {{{ data.ContainsKey(key) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" bool {{{ data.containsKey(key) }}}
+		return lang "java" as bool {{{ data.containsKey(key) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" bool {{{ data.has(key) }}}
+		return lang "js" as bool {{{ data.has(key) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" bool {{{ [data objectForKey:key] == nil ? NO : YES }}}
+		return lang "objc" as bool {{{ [data objectForKey:key] == nil ? NO : YES }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" bool {{{ data.containsKey(key) }}}
+		return lang "kotlin" as bool {{{ data.containsKey(key) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		var v = false
-		lang "swift" bool {{{ 
+		lang "swift" {{{ 
 			if(data![key!] != nil) {
 				v = true
 			}
@@ -257,19 +240,17 @@ func containsKey <K,V> (data as map<K,V> #used, key as K #used) static as bool
 	}
 }
 
-func containsValue <K,V> (data as map<K,V>, val as V #used) static as bool
+func containsValue <K,V> (data as map<K,V>, val as V) static as bool
 {
-	assert data
-	assert val
-	IFDEF "target_cs" {
-		return lang "cs" bool {{{ data.ContainsValue(val) }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as bool {{{ data.ContainsValue(val) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" bool {{{ data.containsValue(val) }}}
+		return lang "java" as bool {{{ data.containsValue(val) }}}
 	}
 	ELSE IFDEF "target_js" {
-		var vals #used = getValues(data)
-		return lang "js" bool {{{ vals.includes(val) }}}
+		var vals = getValues(data)
+		return lang "js" as bool {{{ vals.includes(val) }}}
 	}
 	ELSE IFDEF "target_objc" {
 		var v = false
@@ -281,11 +262,11 @@ func containsValue <K,V> (data as map<K,V>, val as V #used) static as bool
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = val
-		return lang "kotlin" bool {{{ data.containsValue(v) }}}
+		return lang "kotlin" as bool {{{ data.containsValue(v) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		var v = false
-		lang "swift" bool {{{
+		lang "swift" {{{
 			let keys = data.allKeys(for: val!)
 			if(keys != nil && keys.count > 0) {
 				v = true
@@ -302,10 +283,9 @@ func containsValue <K,V> (data as map<K,V>, val as V #used) static as bool
 	}
 }
 
-func clear <K,V> (data as map<K, V> #used) static
+func clear <K,V> (data as map<K, V>) static
 {
-	assert data
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			data.Clear();
 		}}}
@@ -341,27 +321,26 @@ func clear <K,V> (data as map<K, V> #used) static
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
-func dup <K,V> (data as map<K, V> #used) static as map<K,V>
+func dup <K,V> (data as map<K, V>) static as map<K,V>
 {
-	assert data
-	IFDEF "target_cs" {
-		return lang "cs" map<K,V> {{{ new System.Collections.Generic.Dictionary<K, V>(data) }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as map<K,V> {{{ new System.Collections.Generic.Dictionary<K, V>(data) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" magical<java.lang.Object> {{{ data.clone() }}} as! map<K,V>
+		return lang "java" as native<java.lang.Object> {{{ data.clone() }}} as! map<K,V>
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" map<K,V> {{{ new Map(data) }}}
+		return lang "js" as map<K,V> {{{ new Map(data) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" map<K, V> {{{ kotlin.collections.HashMap(data) }}}
+		return lang "kotlin" as map<K, V> {{{ kotlin.collections.HashMap(data) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var map as map<K,V>
+		var map as map<K,V>?
 		lang "swift" {{{
 			let m = (NSDictionary.init(dictionary: data as! [AnyHashable : Any]))
 			map = m.mutableCopy() as? NSMutableDictionary
@@ -369,16 +348,14 @@ func dup <K,V> (data as map<K, V> #used) static as map<K,V>
 		return map
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func getKeys <K,V> (data as map<K,V> #used) static as vector<K>
+func getKeys <K,V> (data as map<K,V>) static as vector<K>
 {
-	assert data
-	IFDEF "target_cs" {
-		var v as vector<K> #force = new vector<K>
+	IFDEF "target_dotnet_cs" {
+		var v = new vector<K>
 		lang "cs" {{{
 			foreach(K key in data.Keys) {
 				v.Add(key);
@@ -396,10 +373,10 @@ func getKeys <K,V> (data as map<K,V> #used) static as vector<K>
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" vector<K> {{{ [[data allKeys] mutableCopy] }}}
+		return lang "objc" as vector<K> {{{ [[data allKeys] mutableCopy] }}}
 	}
 	ELSE IFDEF "target_js" {
-		var v #used = new vector<K>
+		var v = new vector<K>
 		lang "js" {{{
 			data.forEach(function(value, key) {
 				this.push(key)
@@ -417,14 +394,10 @@ func getKeys <K,V> (data as map<K,V> #used) static as vector<K>
 		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		var v as vector<K>
-		lang "lua" {{{
-			v = _vm:get_table_keys(data)
-		}}}
-		return v
+		return lang "lua" as vector<K> {{{ _vm:get_table_keys(data) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v as vector<K>
+		var v as vector<K>?
 		lang "swift" {{{
 			let arr = NSArray(array: data.allKeys)
 			v = arr.mutableCopy() as? NSMutableArray
@@ -432,16 +405,14 @@ func getKeys <K,V> (data as map<K,V> #used) static as vector<K>
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func getValues <K,V> (data as map<K,V> #used) static as vector<V>
+func getValues <K,V> (data as map<K,V>) static as vector<V>
 {
-	assert data
-	IFDEF "target_cs" {
-		var v as vector<V> #force = new vector<V>
+	IFDEF "target_dotnet_cs" {
+		var v = new vector<V>
 		lang "cs" {{{
 			foreach(V value in data.Values) {
 				v.Add(value);
@@ -459,7 +430,7 @@ func getValues <K,V> (data as map<K,V> #used) static as vector<V>
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" vector<V> {{{ [[data allValues] mutableCopy] }}}
+		return lang "objc" as vector<V> {{{ [[data allValues] mutableCopy] }}}
 	}
 	ELSE IFDEF "target_js" {
 		var v = new vector<V>
@@ -480,14 +451,14 @@ func getValues <K,V> (data as map<K,V> #used) static as vector<V>
 		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		var v as vector<K>
+		var v as vector<K>?
 		lang "lua" {{{
 			v = _vm:get_table_values(data)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as vector<V>
+		var v as vector<V>?
 		lang "swift" {{{
 			let arr = NSArray(array: data.allValues)
 			v = arr.mutableCopy() as? NSMutableArray
@@ -495,22 +466,21 @@ func getValues <K,V> (data as map<K,V> #used) static as vector<V>
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-IFDEF "target_cs" {
+IFDEF "target_dotnet_cs" {
 	class MyKeyIterator<K> is Iterator<K>
 	{
 		lang "cs" {{{
 			public System.Collections.Generic.IEnumerator<K> enumerator;
 		}}}
-		var current as K
+		var current as K?
 
-		func doNext as K
+		func doNext as K?
 		{
-			var v as K = defaultValue<K>
+			var v as K? = null
 			lang "cs" {{{
 				if(enumerator != null) {
 					if(enumerator.MoveNext() == false) {
@@ -528,10 +498,13 @@ IFDEF "target_cs" {
 		{
 			if current {
 				var vv = current
-				current = defaultValue<K>
+				current = null
 				return vv
 			}
-			return doNext()
+			var v = doNext()
+			if v == null:
+				Error.throw("noMoreValues", this)
+			return v
 		}
 
 		func hasNext as bool
@@ -539,7 +512,7 @@ IFDEF "target_cs" {
 			if current:
 				return true
 			var v = doNext()
-			if v {
+			if v != null {
 				current = v
 				return true
 			}
@@ -550,8 +523,7 @@ IFDEF "target_cs" {
 
 func iterateKeys <K,V> (data as map<K,V>) static as Iterator<K>
 {
-	IFDEF "target_cs" {
-		assert data
+	IFDEF "target_dotnet_cs" {
 		var v = new MyKeyIterator<K>()
 		lang "cs" {{{
 			var keys = data.Keys;

@@ -27,7 +27,7 @@ import jk.io
 
 class:
 
-var sharedInstance private static as this
+var sharedInstance private static as this?
 
 func getSharedInstance static as this
 {
@@ -36,15 +36,11 @@ func getSharedInstance static as this
 	return sharedInstance
 }
 
-var htMime private as map<string,string> = null
-var htExt private as map<string,string> = null
+var htMime private = new map<string,string>
+var htExt private = new map<string,string>
 
-ctor
-{
-	htMime = new map<string,string>
-	htExt = new map<string,string>
+ctor:
 	addBuiltinTypes()
-}
 
 func addBuiltinTypes virtual
 {
@@ -851,44 +847,38 @@ func addBuiltinTypes virtual
 
 func getTypeForExtension(ext as string) as string
 {
-	assert ext
-	return Map.get(htMime, String.toLowerCase(ext))
-}
-
-func getTypeForFile(f as File) as string
-{
-	if not f:
-		return "application/unknown"
-	return getMimeType(f.getBasename())
-}
-
-func getMimeType(str as string) as string
-{
-	var v as string = null
-	if str {
-		var mime as string = null
-		var ld = String.getLastIndexOfCharacter(str, '.')
-		if ld >= 0:
-			mime = String.getEndOfString(str, ld+1)
-		v = Map.get(htMime, String.toLowerCase(mime))
-		if String.isEmpty(v):
-			v = Map.get(htMime, String.toLowerCase(str))
-	}
+	var v = Map.getValue(htMime, String.toLowerCase(ext))
 	if String.isEmpty(v):
 		v = "application/unknown"
 	return v
 }
 
-func getExtension(mimeType as string) as string:
-	return Map.get(htExt, mimeType)
+func getTypeForFile(f as File) as string:
+	return getMimeType(f.getBasename())
+
+func getMimeType(str as string) as string
+{
+	var v as string? = null
+	var mime as string? = null
+	var ld = String.getLastIndexOfCharacter(str, '.')
+	if ld >= 0:
+		mime = String.getEndOfString(str, ld+1)
+	if mime:
+		v = Map.getValue(htMime, String.toLowerCase(mime))
+	if String.isEmpty(v):
+		v = Map.getValue(htMime, String.toLowerCase(str))
+	if String.isEmpty(v):
+		v = "application/unknown"
+	return v
+}
+
+func getExtension(mimeType as string) as string?:
+	return Map.getValue(htExt, mimeType)
 
 func add(pattern as string, mimeType as string) as bool
 {
 	var v = false
-	if pattern == null || mimeType == null {
-		nop // no action
-	}
-	else if String.startsWith(pattern, ".") == true {
+	if String.startsWith(pattern, ".") == true {
 		var key = String.getSubString(pattern, 1, String.getLength(pattern) - 1)
 		Map.set(htMime, key, mimeType)
 		Map.set(htExt, mimeType, key)
@@ -913,25 +903,23 @@ func add(pattern as string, mimeType as string) as bool
 
 func read(file as File) as bool
 {
-	assert file
-	var buf = assert PrintReader.forReader(file.read())
+	var buf = PrintReader.forReader(file.read())
 	var n = 0
 	loop {
 		var line = buf.readLine()
 		if not line:
 			break
 		var va = String.split(line, ':')
-		var val as Iterator<string> #force = Vector.iterate(va)
-		if val {
-			var front = val.next()
-			var back = val.next()
-			if front:
-				front = String.strip(front)
-			if back:
-				back = String.strip(back)
-			if add(front, back):
-				n ++
-		}
+		var front = Vector.getValue(va, 0)
+		var back = Vector.getValue(va, 1)
+		if not front:
+			continue
+		if not back:
+			continue
+		front = String.strip(front)
+		back = String.strip(back)
+		if add(front, back):
+			n ++
 	}
 	return true
 }

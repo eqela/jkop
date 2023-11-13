@@ -37,40 +37,42 @@ meta
 	]]
 }
 
-var entryPoints as map<string,function<int,vector<string>>>
+var entryPoints as map<string,function<int,vector<string>>>?
 
-var ctx public as LoggingContext
+var ctx public = new ConsoleApplicationContext()
 
 ctor
 {
-	CurrentDirectory.set(CommonPath.getAppDirectory())
-	ctx = new ConsoleApplicationContext()
+	var appdir = CommonPath.getAppDirectory()
+	if not appdir:
+		Error.throw("noApplicationDirectory", null)
+	CurrentDirectory.set(appdir)
 }
 
 func print(message as dynamic):
-	println String.asString(message)
+	println String.asValueOrEmptyString(message)
 
 func status(message as dynamic):
-	Log.status(ctx, String.asString(message))
+	Log.status(ctx, String.asValueOrEmptyString(message))
 
 func debug(message as dynamic):
-	Log.debug(ctx, String.asString(message))
+	Log.debug(ctx, String.asValueOrEmptyString(message))
 
 func info(message as dynamic):
-	Log.info(ctx, String.asString(message))
+	Log.info(ctx, String.asValueOrEmptyString(message))
 
 func warning(message as dynamic):
-	Log.warning(ctx, String.asString(message))
+	Log.warning(ctx, String.asValueOrEmptyString(message))
 
 func error(message as dynamic):
-	throw ExceptionWithString.forString(String.asString(message), false)
+	throw ExceptionWithString.forString(String.asValueOrEmptyString(message), false)
 
 func initialize virtual:
 	nop
 
-func requireParameter(args as array<string>, index as int, name as string) as string
+func requireParameter(args as array<string>?, index as int, name as string) as string?
 {
-	var v as string
+	var v as string?
 	if args && index < sizeof args:
 		v = args[index]
 	if String.isEmpty(v):
@@ -78,9 +80,8 @@ func requireParameter(args as array<string>, index as int, name as string) as st
 	return v
 }
 
-func executeFunction(script as function) as int
+func executeFunction(script as function<void>) as int
 {
-	assert script
 	initialize()
 	try {
 		script()
@@ -94,7 +95,7 @@ func executeFunction(script as function) as int
 
 func command(name as dynamic, handler as function<int,vector<string>>)
 {
-	var sname = assert String.asString(name)
+	var sname = assert String.asValueOrNull(name)
 	if not entryPoints:
 		entryPoints = new map<string,function<int,vector<string>>>
 	entryPoints[sname] = handler
@@ -103,14 +104,14 @@ func command(name as dynamic, handler as function<int,vector<string>>)
 func main(args as array<string>) virtual as int
 {
 	initialize()
-	var cmd as string
-	if args && sizeof args > 0:
+	var cmd as string?
+	if sizeof args > 0:
 		cmd = args[0]
 	if String.isEmpty(cmd) {
 		var sb = new StringBuilder()
 		sb.appendString("Missing command parameter: <")
 		var first = true
-		foreach cc in Map.getKeys(entryPoints) {
+		if entryPoints: foreach cc in Map.getKeys(entryPoints) {
 			if not first:
 				sb.appendCharacter('|')
 			sb.appendString(cc)
@@ -121,7 +122,7 @@ func main(args as array<string>) virtual as int
 		return -1
 	}
 	if entryPoints {
-		var handler = Map.get(entryPoints, cmd)
+		var handler = Map.getValue(entryPoints, cmd)
 		if handler {
 			var v = new vector<string>
 			var nargs = sizeof args

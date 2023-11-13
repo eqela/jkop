@@ -26,7 +26,7 @@ import jk.log
 
 class is WebServerMiddleware:
 
-var routes = new map<string,function<promise,WebServerRequest,DynamicMap>>
+var routes = new map<string,function<promise<void>,WebServerRequest,DynamicMap>>
 
 ctor:
 	initializeRoutes()
@@ -45,7 +45,7 @@ func addHealthCheckRoute
 func deleteAllRoutes:
 	Map.clear(routes)
 
-func addRoute(method as string, pattern as string, handler as function<promise,WebServerRequest,DynamicMap>)
+func addRoute(method as string, pattern as string, handler as function<promise<void>,WebServerRequest,DynamicMap>)
 {
 	assert String.isNotEmpty(method)
 	assert String.isNotEmpty(pattern)
@@ -60,10 +60,10 @@ func addEndpoint(method as string, pattern as string, handler as function<promis
 	})
 }
 
-func handleRequest(request as WebServerRequest, next as function<promise>) async override
+func handleRequest(request as WebServerRequest, next as function<promise<void>>) async override
 {
-	var match as string
-	var matchVars as DynamicMap
+	var match as string?
+	var matchVars as DynamicMap?
 	var method = String.toUpperCase(request.getMethod())
 	if String.isEmpty(method):
 		method = "GET"
@@ -75,19 +75,19 @@ func handleRequest(request as WebServerRequest, next as function<promise>) async
 	foreach route in Map.getKeys(routes) {
 		if not String.startsWith(route, method):
 			continue
-		var vars as DynamicMap
+		var vars as DynamicMap?
 		var pattern = String.getEndOfString(route, String.getLength(method))
 		var pcomps = String.split(pattern, '/')
 		var plen = Vector.getSize(pcomps)
 		var n1 = 0
 		var n2 = 0
 		loop {
-			var s1 as string
-			var s2 as string
+			var s1 as string?
+			var s2 as string?
 			while String.isEmpty(s1) && n1 < ccount:
-				s1 = Vector.get(comps, n1++)
+				s1 = Vector.getValue(comps, n1++)
 			while String.isEmpty(s2) && n2 < plen:
-				s2 = Vector.get(pcomps, n2++)
+				s2 = Vector.getValue(pcomps, n2++)
 			if String.isEmpty(s1):
 				s1 = null
 			if String.isEmpty(s2):
@@ -97,11 +97,13 @@ func handleRequest(request as WebServerRequest, next as function<promise>) async
 				matchVars = vars
 				break
 			}
-			if s1 && String.startsWith(s2, ":") {
-				if not vars:
-					vars = new DynamicMap()
-				vars.setString(String.getEndOfString(s2, 1), s1)
-				continue
+			if s1 && s2 {
+				if String.startsWith(s2, ":") {
+					if not vars:
+						vars = new DynamicMap()
+					vars.setString(String.getEndOfString(s2, 1), s1)
+					continue
+				}
 			}
 			if s1 == s2 {
 				continue
@@ -112,7 +114,7 @@ func handleRequest(request as WebServerRequest, next as function<promise>) async
 			break
 	}
 	if match {
-		var handler = Map.get(routes, match)
+		var handler = Map.getValue(routes, match)
 		if handler {
 			if not matchVars:
 				matchVars = new DynamicMap()

@@ -1,0 +1,136 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+
+class is SSLSocket:
+
+pvar socket as TCPSocket?
+var sslStream private as native<System.Net.Security.SslStream>?
+
+func getNetSocket as native<System.Net.Sockets.Socket>
+{
+	var s = socket as TCPSocketForDotnetCS
+	if not s:
+		ERROR "noTcpSocket"
+	return s.getNetSocket()
+}
+
+lang "cs" {{{
+	public bool ValidateServerCertificate(object sender, System.Security.Cryptography.X509Certificates.X509Certificate certificate, System.Security.Cryptography.X509Certificates.X509Chain chain, System.Net.Security.SslPolicyErrors sslPolicyErrors) {
+		if(sslPolicyErrors == System.Net.Security.SslPolicyErrors.None) {
+			return(true);
+		}
+		if(acceptInvalidCertificate) {
+			System.Console.WriteLine("Certificate error: {0} (but accepting it)", sslPolicyErrors);
+			return(true);
+		}
+		System.Console.WriteLine("Certificate error: {0} (rejecting it)", sslPolicyErrors);
+		return(false);
+	}
+}}}
+
+func open(cSocket as ConnectedSocket, certFile as File? = null, keyFile as File? = null, isServer as bool = false, passphrase as string? = null) as bool
+{
+	socket = cSocket as TCPSocket
+	assert socket
+	var nsocket = (socket as! TCPSocketForDotnetCS).getNetSocket()
+	if isServer {
+		assert certFile
+		var path = certFile.getPath()
+		lang "cs" {{{
+			var oblocking = nsocket.Blocking;
+			nsocket.Blocking = true;
+			sslStream = new System.Net.Security.SslStream(new System.Net.Sockets.NetworkStream(nsocket), false);
+			System.Security.Cryptography.X509Certificates.X509Certificate2 cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(path, passphrase);
+			sslStream.AuthenticateAsServer(cert, clientCertificateRequired: false, checkCertificateRevocation: true);
+			nsocket.Blocking = oblocking;
+		}}}
+	}
+	else {
+		lang "cs" {{{
+			sslStream = new System.Net.Security.SslStream(new System.Net.Sockets.NetworkStream(nsocket), false, new System.Net.Security.RemoteCertificateValidationCallback (ValidateServerCertificate), null);
+			sslStream.AuthenticateAsClient(serverAddress);
+		}}}
+	}
+	return true
+}
+
+func read(buffer as buffer) override as int:
+	return readWithTimeout(buffer, -1)
+
+func close override
+{
+	lang "cs" {{{
+		if(sslStream != null) {
+			sslStream.Close();
+			sslStream = null;
+		}
+	}}}
+	if socket != null {
+		socket.close()
+		socket = null
+	}
+}
+
+func readWithTimeout(buffer as buffer, timeout as int) override as int
+{
+	var v = 0
+	lang "cs" {{{
+		if(sslStream != null && socket != null) {
+			sslStream.ReadTimeout = timeout;
+			v = sslStream.Read(buffer, 0, buffer.Length);
+			if(v < 1) {
+				close();
+				v = -1;
+			}
+		}
+	}}}
+	return v
+}
+
+func write(buffer as buffer, size as int) override as int
+{
+	var sz = size
+	lang "cs" {{{
+		if(sslStream != null && socket != null) {
+			if(size < 0) {
+				sslStream.Write(buffer, 0, buffer.Length);
+				sz = buffer.Length;
+			}
+			else {
+				sslStream.Write(buffer, 0, size);
+			}
+		}
+	}}}
+	return sz
+}
+
+func getSocket override as ConnectedSocket
+{
+	if not socket:
+		ERROR "noConnectedSocket"
+	return socket
+}

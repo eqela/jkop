@@ -23,20 +23,23 @@
  */
 
 import jk.jwt
+import jk.log
 import jk.webserver
 
 class is WebServerMiddleware:
 
 prop issuerBaseUrl as string
 
-var jwtValidator as JWTValidator
+var jwtValidator as JWTValidator?
 
 func initializeMiddleware(server as WebServer) override:
 	jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, issuerBaseUrl)
 
-func handleRequest(request as WebServerRequest, next as function<promise>) async override
+func handleRequest(request as WebServerRequest, next as function<promise<void>>) async override
 {
-	var authorization = String.strip(request.getHeader("authorization"))
+	var authorization = request.getHeader("authorization")
+	if authorization:
+		authorization = String.strip(authorization)
 	if String.isEmpty(authorization):
 		throw WebServerException.forUnauthorized()
 	if String.startsWithIgnoreCase(authorization, "bearer ") == false:
@@ -44,14 +47,21 @@ func handleRequest(request as WebServerRequest, next as function<promise>) async
 	var token = String.strip(String.getEndOfString(authorization, 7))
 	if String.isEmpty(token):
 		throw WebServerException.forUnauthorized()
-	if not await jwtValidator.validateSignature(token):
+	if not jwtValidator:
 		throw WebServerException.forUnauthorized()
-	var jwt = JWT.decode(token, null)
+	if not await jwtValidator.validateSignatureOrReturnFalse(ctx, token):
+		throw WebServerException.forUnauthorized()
+	var jwt as JWT?
+	try {
+		jwt = JWT.decode(token, null)
+	}
+	catch e {
+		Log.error(ctx, "JWT decoding failed: `" .. String.asValueOrEmptyString(e) .. "'")
+		jwt = null
+	}
 	if not jwt:
 		throw WebServerException.forUnauthorized()
-	var jwtData = jwt.getClaims()
-	if not jwtData:
-		throw WebServerException.forUnauthorized()
+	var jwtData = jwt.claims
 	request.setUserData("jwtToken", token)
 	request.setUserData("jwtTokenData", jwtData)
 	await next()

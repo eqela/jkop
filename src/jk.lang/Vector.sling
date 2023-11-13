@@ -24,59 +24,35 @@
 
 class:
 
-func asVector <T> (obj as dynamic) static as vector<T>
-{
-	var vo = assert obj as VectorObject<T>
-	return vo.toVector()
-}
-
-func asObjectVector(o as dynamic) static as vector<object>
-{
-	var it = assert DynamicObject.iterate(o)
-	var v = new vector<object>
-	loop {
-		var oo = it.next() as object
-		if not oo:
-			break
-		v += oo
-	}
-	return v
-}
-
 func forIterator <T> (iterator as Iterator<T>) static as vector<T>
 {
-	assert iterator
 	var v = new vector<T>
-	loop {
-		var o = iterator.next()
-		if o == null:
-			break
-		v += o
-	}
+	while iterator.hasNext():
+		v += iterator.next()
 	return v
 }
 
 func forArray <T> (array as array<T>) static as vector<T>
 {
-	assert array
 	var v = new vector<T>
 	for(var n = 0; n<sizeof array; n++):
 		v += array[n]
 	return v
 }
 
-func toVectorOfObject <T> (collection as vector<T>) static as vector
+func toVectorOfObject <T> (collection as vector<T>) static as vector<object>
 {
-	assert collection
-	var nvec = new vector
-	foreach item in collection:
-		nvec += item as! object
+	var nvec = new vector<object>
+	foreach item in collection {
+		var o = item as object
+		if o:
+			nvec += o
+	}
 	return nvec
 }
 
 func dupObjectVector(vector as vector<object>) static as vector<object>
 {
-	assert vector
 	var v = new vector<object>
 	foreach o in vector:
 		v += o
@@ -91,133 +67,45 @@ func toArray<T> (vector as vector<T>) static as array<T>
 }
 */
 
-func contains <T> (vector as vector<T> #used, item as T #used) static as bool
+func isEmpty <T> (vector as vector<T>?) static as bool #nullcheck
 {
-	assert vector
-	IFDEF "target_cs" {
-		return lang "cs" bool {{{ vector.Contains(item) }}}
-	}
-	ELSE IFDEF "target_java" {
-		return lang "java" bool {{{ vector.contains(item) }}}
-	}
-	ELSE IFDEF "target_html" {
-		return lang "js" bool {{{ vector.includes(item) }}}
+	if vector == null:
+		return true
+	IFDEF "target_java" {
+		return lang "java" as bool {{{ vector.isEmpty() }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" bool {{{ vector.contains(item) }}}
-	}
-	ELSE IFDEF "target_swift" {
-		return lang "swift" bool {{{ vector.contains(item) }}}
-	}
-	ELSE {
-		foreach oo in vector {
-			if item == oo:
-				return true
-		}
-		return false
-	}
-}
-
-func append <T> (vector as vector<T> #used, item as T #used) static
-{
-	IFDEF "target_cs" {
-		lang "cs" {{{
-			vector.Add(item);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			vector.add(item);
-		}}}
-	}
-	ELSE IFDEF "target_objc" {
-		lang "objc" {{{
-			[vector addObject:item];
-		}}}
-	}
-	ELSE IFDEF "target_js" {
-		lang "js" {{{
-			vector.push(item);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			vector!!.add(item)
-		}}}
-	}
-	ELSE IFDEF "target_lua" {
-		lang "lua" {{{
-			local sz = vector["n"] or 0
-			vector[sz + 1] = item
-			vector["n"] = sz + 1
-		}}}
-	}
-	ELSE IFDEF "target_swift" {
-		lang "swift" {{{ vector.add(item) }}}
-	}
-	ELSE {
-		ERROR "Not implemented"
-	}
-}
-
-func prepend <T> (vector as vector<T>, item as T) static:
-	insert(vector, item, 0)
-
-func insert <T> (vector as vector<T> #used, item as T #used, index as int #used) static
-{
-	IFDEF "target_cs" {
-		lang "cs" {{{
-			vector.Insert(index, item);
-		}}}
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			vector.add(index, item);
-		}}}
-	}
-	ELSE IFDEF "target_objc" {
-		lang "objc" {{{
-			[vector insertObject:item atIndex:index];
-		}}}
-	}
-	ELSE IFDEF "target_js" {
-		lang "js" {{{
-			vector.splice(index, 0, item);
-		}}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
-			vector!!.add(index, item)
-		}}}
-	}
-	ELSE IFDEF "target_swift" {
-		lang "swift" {{{ vector.insert(item, at: index) }}}
+		return lang "kotlin" as bool {{{ vector!!.isEmpty() }}}
 	}
 	ELSE IFDEF "target_sushi" {
+		var v = false
 		lang "lua" {{{
-			local sz = vector["n"] or 0
-			_vm:insert_to_indexed_table(vector, index + 1, item)
-			vector["n"] = sz + 1
+			local sz = vector["n"]
+			if sz == nil or sz < 1 then
+				v = true
+			end
 		}}}
+		return v
 	}
 	ELSE {
-		ERROR "Not implemented"
+		return getSize(vector) < 1
 	}
 }
 
-func setCapacity <T> (vector as vector<T> #used, capacity as int) static
+func isNotEmpty <T> (vector as vector<T>?) static as bool #notnullcheck:
+	return not isEmpty(vector)
+
+func setCapacity <T> (vector as vector<T>, capacity as int) static
 {
-	assert vector
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			vector.Capacity = capacity;
 		}}}
 	}
 }
 
-func setSize <T> (vector as vector<T> #used, newSize as int) static as vector<T>
+func setSize <T> (vector as vector<T>, newSize as int, padWithValue as T) static as vector<T>
 {
-	assert vector
 	var sz = newSize
 	if sz < 0:
 		sz = 0
@@ -226,163 +114,270 @@ func setSize <T> (vector as vector<T> #used, newSize as int) static as vector<T>
 		return vector
 	if sz < osz {
 		for(var n = osz - 1; n >= sz; n--):
-			remove(vector, n)
+			removeIndex(vector, n)
 	}
 	else {
-		for(var n = osz; n < sz; n++) {
-			IFDEF "target_cs" {
-				vector += lang "cs" T {{{ default(T) }}}
-			}
-			ELSE {
-				vector += null
-			}
-		}
+		for(var n = osz; n < sz; n++):
+			vector += padWithValue
 	}
 	return vector
 }
 
-func getSize <T> (vector as vector<T> #used) static as int
+func getSize <T> (vector as vector<T>) static as int
 {
-	if vector == null:
-		return 0
-	IFDEF "target_cs" {
-		return lang "cs" int {{{ vector.Count }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as int {{{ vector.Count }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" int {{{ vector.size() }}}
+		return lang "java" as int {{{ vector.size() }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" int {{{ [vector count] }}}
+		return lang "objc" as int {{{ [vector count] }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" int {{{ vector.length }}}
+		return lang "js" as int {{{ vector.length }}}
 	}
 	ELSE IFDEF "target_lua" {
-		return lang "lua" int {{{ vector["n"] or 0 }}}
+		return lang "lua" as int {{{ vector["n"] or 0 }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" int {{{ vector.count() }}}
+		return lang "kotlin" as int {{{ vector.count() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" int {{{ vector.count }}}
+		return lang "swift" as int {{{ vector.count }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return 0
+		ERROR "notImplemented"
 	}
 }
 
-func getAt <T> (vector as vector<T>, index as int) static as T:
-	return get(vector, index)
-
-func get <T> (vector as vector<T> #used, index as int #used) static as T
+func containsValue <T> (vector as vector<T>, value as T) static as bool
 {
-	if index < 0 || index >= getSize(vector):
-		return defaultValue<T>
-	IFDEF "target_cs" {
-		return lang "cs" T {{{ vector[index] }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as bool {{{ vector.Contains(value) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" T {{{ vector.get(index) }}}
-	}
-	ELSE IFDEF "target_objc" {
-		return lang "objc" T {{{ [vector objectAtIndex:index] }}}
+		return lang "java" as bool {{{ vector.contains(value) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" T {{{ vector[index] }}}
-	}
-	ELSE IFDEF "target_lua" {
-		return lang "lua" T {{{ vector[index + 1] }}}
+		return lang "js" as bool {{{ vector.includes(value) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" T {{{ vector!!.get(index) }}}
+		return lang "kotlin" as bool {{{ vector.contains(value) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" T {{{ vector![index] }}}
+		return lang "swift" as bool {{{ vector.contains(value) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		foreach oo in vector {
+			if value == oo:
+				return true
+		}
+		return false
 	}
 }
 
-func getFirst <T> (vector as vector<T>) static as T:
-	return get(vector, 0)
-
-func getLast <T> (vector as vector<T>) static as T:
-	return get(vector, getSize(vector) - 1)
-
-func set <T> (vector as vector<T> #used, index as int #used, val as T #used) static
+func appendValue <T> (vector as vector<T>, value as T) static
 {
-	if index < 0 || index >= getSize(vector):
-		return
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
-			vector[index] = val;
+			vector.Add(value);
 		}}}
 	}
 	ELSE IFDEF "target_java" {
 		lang "java" {{{
-			vector.set(index, val);
+			vector.add(value);
 		}}}
 	}
 	ELSE IFDEF "target_objc" {
 		lang "objc" {{{
-			[vector replaceObjectAtIndex:index withObject:val];
+			[vector addObject:value];
 		}}}
 	}
 	ELSE IFDEF "target_js" {
 		lang "js" {{{
-			vector.splice(index, 1, val);
+			vector.push(value);
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		lang "kotlin" {{{
-			vector!!.set(index, _val)
+			vector!!.add(value)
+		}}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{
+			local sz = vector["n"] or 0
+			vector[sz + 1] = value
+			vector["n"] = sz + 1
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{ vector![index] = val }}}
-	}
-	ELSE IFDEF "target_lua" {
-		lang "lua" {{{ vector[index + 1]  = val }}}
+		lang "swift" {{{ vector.add(value) }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
-func remove <T> (vector as vector<T>, index as int) static as T
+func prependValue <T> (vector as vector<T>, value as T) static:
+	insertValue(vector, value, 0)
+
+func insertValue <T> (vector as vector<T>, value as T, index as int) static
+{
+	if index < 0 || index > getSize(vector):
+		Error.throw("vectorIndexOutOfBounds", String.forInteger(index))
+	IFDEF "target_dotnet_cs" {
+		lang "cs" {{{
+			vector.Insert(index, value);
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.add(index, value);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector insertObject:value atIndex:index];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(index, 0, value);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.add(index, value)
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector.insert(value, at: index) }}}
+	}
+	ELSE IFDEF "target_sushi" {
+		lang "lua" {{{
+			local sz = vector["n"] or 0
+			_vm:insert_to_indexed_table(vector, index + 1, value)
+			vector["n"] = sz + 1
+		}}}
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
+}
+
+func isValidIndex <T> (vector as vector<T>, index as int) static as bool
+{
+	if index < 0 || index >= getSize(vector):
+		return false
+	return true
+}
+
+func getValue <T> (vector as vector<T>, index as int) static as T?
+{
+	if index < 0 || index >= getSize(vector):
+		return null
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" as T {{{ vector[index] }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" as T {{{ vector.get(index) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		return lang "objc" as T {{{ [vector objectAtIndex:index] }}}
+	}
+	ELSE IFDEF "target_js" {
+		return lang "js" as T {{{ vector[index] }}}
+	}
+	ELSE IFDEF "target_lua" {
+		return lang "lua" as T {{{ vector[index + 1] }}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		return lang "kotlin" as T {{{ vector!!.get(index) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" as T {{{ vector![index] }}}
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
+}
+
+func getFirstValue <T> (vector as vector<T>) static as T?:
+	return getValue(vector, 0)
+
+func getLastValue <T> (vector as vector<T>) static as T?:
+	return getValue(vector, getSize(vector) - 1)
+
+func setValue <T> (vector as vector<T>, index as int, value as T) static
+{
+	if index < 0 || index >= getSize(vector):
+		Error.throw("vectorIndexOutOfBounds", String.forInteger(index))
+	IFDEF "target_dotnet_cs" {
+		lang "cs" {{{
+			vector[index] = value;
+		}}}
+	}
+	ELSE IFDEF "target_java" {
+		lang "java" {{{
+			vector.set(index, value);
+		}}}
+	}
+	ELSE IFDEF "target_objc" {
+		lang "objc" {{{
+			[vector replaceObjectAtIndex:index withObject:value];
+		}}}
+	}
+	ELSE IFDEF "target_js" {
+		lang "js" {{{
+			vector.splice(index, 1, value);
+		}}}
+	}
+	ELSE IFDEF "target_kotlin" {
+		lang "kotlin" {{{
+			vector!!.set(index, _value)
+		}}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{ vector![index] = value }}}
+	}
+	ELSE IFDEF "target_lua" {
+		lang "lua" {{{ vector[index + 1]  = value }}}
+	}
+	ELSE {
+		ERROR "notImplemented"
+	}
+}
+
+func removeIndex <T> (vector as vector<T>, index as int) static as bool
 {
 	var sz = getSize(vector)
 	if index < 0 || index >= sz:
-		return defaultValue<T>
-	IFDEF "target_cs" {
-		var t = lang "cs" T {{{ vector[index] }}}
+		return false
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			vector.RemoveAt(index);
 		}}}
-		return t
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" T {{{ vector.remove(index) }}}
+		lang "java" {{{
+			vector.remove(index)
+		}}}
 	}
 	ELSE IFDEF "target_objc" {
-		var t = vector[index]
 		lang "objc" {{{
 			[vector removeObjectAtIndex:index];
 		}}}
-		return t
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" T {{{ vector.splice(index, 1) }}}
+		lang "js" {{{
+			vector.splice(index, 1)
+		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		var t = get(vector, index)
 		lang "kotlin" {{{
 			vector!!.remove(t)
 		}}}
-		return t
 	}
 	ELSE IFDEF "target_stdlua" {
 		lang "lua" {{{
@@ -391,65 +386,51 @@ func remove <T> (vector as vector<T>, index as int) static as T
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		var v = lang "lua" T {{{ vector[index + 1] }}}
 		lang "lua" {{{
 			_vm:remove_from_indexed_table(vector, index+1)
 			vector["n"] = sz - 1
 		}}}
-		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v = get(vector, index)
-		lang "swift" {{{ vector.removeObject(at: index) }}}
-		return v
+		lang "swift" {{{
+			vector.removeObject(at: index)
+		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return defaultValue<T>
+		ERROR "notImplemented"
 	}
+	return true
 }
 
-func popFirst <T> (vector as vector<T>) static as T
+func removeFirstValue <T> (vector as vector<T>) static as bool:
+	return removeIndex(vector, 0)
+
+func popFirstValue <T> (vector as vector<T>) static as T?
 {
-	if vector == null || getSize(vector) < 1:
-		return defaultValue<T>
-	var v = get(vector, 0)
-	removeFirst(vector)
+	if isEmpty(vector):
+		return null
+	var v = getFirstValue(vector)
+	removeFirstValue(vector)
 	return v
 }
 
-func removeFirst <T> (vector as vector<T>) static
+func popLastValue <T> (vector as vector<T>) static as T?
 {
-	if vector == null || getSize(vector) < 1:
-		return
-	remove(vector, 0)
-}
-
-func popLast <T> (vector as vector<T>) static as T
-{
-	var sz = getSize(vector)
-	if vector == null || sz < 1:
-		return defaultValue<T>
-	var v = get(vector, sz-1)
-	removeLast(vector)
+	if isEmpty(vector):
+		return null
+	var v = getLastValue(vector)
+	removeLastValue(vector)
 	return v
 }
 
-func removeLast <T> (vector as vector<T>) static
-{
-	if vector == null:
-		return
-	var sz = getSize(vector)
-	if sz < 1:
-		return
-	remove(vector, sz - 1)
-}
+func removeLastValue <T> (vector as vector<T>) static as bool:
+	return removeIndex(vector, getSize(vector) - 1)
 
-func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
+func removeValue <T> (vector as vector<T>, value as T) static as int
 {
-	var n as int #used
+	var n as int
 	for(n = 0; n < sizeof vector; n++) {
-		IFDEF "target_cs" {
+		IFDEF "target_dotnet_cs" {
 			lang "cs" {{{
 				if(object.Equals(vector[n], value)) {
 					remove(vector, n);
@@ -475,7 +456,7 @@ func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
 		}
 		ELSE {
 			if vector[n] == value {
-				remove(vector, n)
+				removeIndex(vector, n)
 				return n
 			}
 		}
@@ -483,9 +464,9 @@ func removeValue <T> (vector as vector<T> #used, value as T #used) static as int
 	return -1
 }
 
-func clear <T> (vector as vector<T> #used) static
+func clear <T> (vector as vector<T>) static
 {
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			vector.Clear();
 		}}}
@@ -517,41 +498,13 @@ func clear <T> (vector as vector<T> #used) static
 		lang "lua" {{{ _vm:clear_table(vector) vector["n"] = 0 }}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
-func isEmpty <T> (vector as vector<T> #used) static as bool
+func removeRange <T> (vector as vector<T>, index as int, count as int) static
 {
-	IFDEF "target_java" {
-		return vector == null || lang "java" bool {{{ vector.isEmpty() }}}
-	}
-	ELSE IFDEF "target_kotlin" {
-		return vector == null || lang "kotlin" bool {{{ vector!!.isEmpty() }}}
-	}
-	ELSE IFDEF "target_sushi" {
-		if vector == null:
-			return true
-		var v = false
-		lang "lua" {{{
-			local sz = vector["n"]
-			if sz == nil or sz < 1 then
-				v = true
-			end
-		}}}
-		return v
-	}
-	ELSE {
-		return getSize(vector) < 1
-	}
-}
-
-func isNotEmpty <T> (vector as vector<T>) static as bool:
-	return !isEmpty(vector)
-
-func removeRange <T> (vector as vector<T> #used, index as int #used, count as int #used) static
-{
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			vector.RemoveRange(index, count);
 		}}}
@@ -570,7 +523,7 @@ func removeRange <T> (vector as vector<T> #used, index as int #used, count as in
 		var range = index+count
 		var i = index
 		while i <= range {
-			remove(vector, i)
+			removeIndex(vector, i)
 			i += 1
 		}
 	}
@@ -579,59 +532,58 @@ func removeRange <T> (vector as vector<T> #used, index as int #used, count as in
 	}
 	ELSE {
 		for(var n=0; n<count; n++):
-			remove(vector, index)
+			removeIndex(vector, index)
 	}
 }
 
 class VectorIterator <T> is Iterator<T>
 {
-	var vector public as vector<T>
-	var index = 0
-	var increment = 1
-
-	ctor(vector as vector<T>, increment as int)
-	{
-		this.vector = vector
-		this.increment = increment
-		if increment < 0 && vector:
-			index = sizeof vector - 1
-	}
+	prop vector as vector<T>
+	prop index = 0
+	prop increment = 1
 
 	func next as T
 	{
-		if vector == null:
-			return defaultValue<T>
 		if index < 0 || index >= sizeof vector:
-			return defaultValue<T>
+			Error.throw("vectorIndexOutOfBounds", String.forInteger(index))
 		var v = vector[index]
-		index += increment
+		index = index + increment
 		return v
 	}
 
 	func hasNext as bool
 	{
-		assert vector
-		assert index < sizeof vector
+		if increment > 0:
+			assert index < sizeof vector
+		if increment < 0:
+			assert index >= 0
 		return true
 	}
 }
 
 func iterate <T> (vector as vector<T>) static as Iterator<T>:
-	return new VectorIterator<T>(vector, 1)
+	return new VectorIterator<T>() {
+		vector vector
+		index 0
+		increment 1
+	}
 
 func iterateReverse <T> (vector as vector<T>) static as Iterator<T>:
-	return new VectorIterator<T>(vector, -1)
+	return new VectorIterator<T>() {
+		vector vector
+		index sizeof vector - 1
+		increment -1
+	}
 
 func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
 {
-	assert vector
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
 			vector.Sort((a,b) => { return(comparer(a,b)); });
 		}}}
 	}
 	ELSE IFDEF "target_java" {
-		var comp final #used = comparer
+		var comp final = comparer
 		IFDEF "target_java8" {
 			lang "java" {{{
 				java.util.Collections.sort(vector, new java.util.Comparator<T>() {
@@ -687,13 +639,13 @@ func sort <T> (vector as vector<T>, comparer as function<int,T,T>) static
 		}}}
 	}
 	ELSE {
-		ERROR "Not implemented"
+		ERROR "notImplemented"
 	}
 }
 
 func sortReverse <T> (vector as vector<T>, comparer as function<int,T,T>) static
 {
-	var cc final = comparer
+	var cc = comparer
 	sort(vector, func(a as T, b as T) as int {
 		return -cc(a,b)
 	})
@@ -702,26 +654,25 @@ func sortReverse <T> (vector as vector<T>, comparer as function<int,T,T>) static
 func sortAsStrings <T> (vector as vector<T>) static
 {
 	sort(vector, func(a as T, b as T) as int {
-		return String.compare(String.asString(a), String.asString(b))
+		return String.compare(String.asValueOrNull(a), String.asValueOrNull(b))
 	})
 }
 
 func sortAsStringsReverse <T> (vector as vector<T>) static
 {
 	sortReverse(vector, func(a as T, b as T) as int {
-		return String.compare(String.asString(a), String.asString(b))
+		return String.compare(String.asValueOrNull(a), String.asValueOrNull(b))
 	})
 }
 
 func reverse <T> (vector as vector<T>) static
 {
-	assert vector
 	var a = 0
 	var b = getSize(vector)-1
 	while a < b {
-		var t = getAt(vector, b)
-		set(vector, b, getAt(vector, a))
-		set(vector, a, t)
+		var t = vector[b]
+		setValue(vector, b, vector[a])
+		setValue(vector, a, t)
 		a ++
 		b --
 	}

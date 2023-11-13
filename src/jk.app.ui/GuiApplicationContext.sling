@@ -33,41 +33,41 @@ interface TimerObject public
 	func cancel
 }
 
-var styles as map<string, map>
+var styles as map<string, map<string,dynamic>>?
 var errorCounter = 0
 var warningCounter = 0
 var infoCounter = 0
 var debugCounter = 0
 
-func setStyle(id as string, style as map)
+func setStyle(id as string, style as map<string,dynamic>)
 {
 	if not styles:
-		styles = new map<string, map>
+		styles = new map<string, map<string,dynamic>>
 	styles[id] = style
 }
 
-func getStyle(id as string) as map
+func getStyle(id as string) as map<string,dynamic>?
 {
 	assert styles
-	assert id
 	return styles[id]
 }
 
-func getStyleObject(id as string, style as string) as object
+func getStyleObject(id as string, style as string) as object?
 {
+	assert styles
 	var ss = assert Map.getValue(styles, id)
 	return Map.getValue(ss, style) as object
 }
 
-func getStyleString(id as string, style as string, defval as string = null) as string
+func getStyleString(id as string, style as string, defval as string? = null) as string?
 {
-	var v = String.asString(getStyleObject(id, style))
+	var v = String.asValueOrNull(getStyleObject(id, style))
 	if String.isEmpty(v):
 		v = defval
 	return v
 }
 
-func getStyleColor(id as string, style as string, defval as string = null) as Color
+func getStyleColor(id as string, style as string, defval as string? = null) as Color?
 {
 	var v = Color.asColor(getStyleObject(id, style))
 	if not v && defval:
@@ -75,77 +75,78 @@ func getStyleColor(id as string, style as string, defval as string = null) as Co
 	return v
 }
 
-func getStylePixels(id as string, style as string, defval as string = null) as int
+func getStylePixels(id as string, style as string, defval as string? = null) as int
 {
 	var ss = getStyleString(id, style)
 	if String.isEmpty(ss):
 		ss = defval
+	if not ss:
+		Error.throw("noStyleFound", style)
 	return getHeightValue(ss)
 }
 
-func getApplicationDataDirectory abstract as File
 func getResourceImage(id as string) abstract as Image
 func getImageForBufferSync(buffer as buffer, mimeType as string) abstract as Image
-func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void, Image>) abstract
-func showMessageDialog(title as string, message as string, callback as function = null) abstract
-func showConfirmDialog(title as string, message as string, okcallback as function, cancelcallback as function) abstract
-func showErrorDialog(message as string, callback as function = null) abstract
+func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void, Image?>?) abstract
+func showMessageDialog(title as string, message as string, callback as function<void>? = null) abstract
+func showConfirmDialog(title as string, message as string, okcallback as function<void>?, cancelcallback as function<void>?) abstract
+func showErrorDialog(message as string, callback as function<void>? = null) abstract
 func getScreenTopMargin abstract as int
 func getScreenWidth abstract as int
 func getScreenHeight abstract as int
 func getScreenDensity abstract as int
 func getHeightValue(spec as string) abstract as int
 func getWidthValue(spec as string) abstract as int
-func startTimer(timeout as long, callback as function) abstract as TimerObject
+func startTimer(timeout as long, callback as function<void>) abstract as TimerObject
 func enableKeepAwakeMode abstract
 func disableKeepAwakeMode abstract
 
 func px(spec as string) as int:
 	return getHeightValue(spec)
 
-func logError(message as string)
+func logError(message as string) override
 {
 	println "[ERROR] " .. message
 	errorCounter ++
 }
 
-func logWarning(message as string)
+func logWarning(message as string) override
 {
 	println "[WARNING] " .. message
 	warningCounter ++
 }
 
-func logInfo(message as string)
+func logInfo(message as string) override
 {
 	println "[INFO] " .. message
 	infoCounter ++
 }
 
-func logDebug(message as string)
+func logDebug(message as string) override
 {
 	println "[DEBUG] " .. message
 	debugCounter ++
 }
 
-func logStatus(message as string):
+func logStatus(message as string?) override:
 	println "[STATUS] " .. message
 
-func isInDebugMode as bool:
+func isInDebugMode override as bool:
 	return false
 
-func getErrorCount as int:
+func getErrorCount override as int:
 	return errorCounter
 
-func getWarningCount as int:
+func getWarningCount override as int:
 	return warningCounter
 
-func getInfoCount as int:
+func getInfoCount override as int:
 	return infoCounter
 
-func getDebugCount as int:
+func getDebugCount override as int:
 	return debugCounter
 
-func resetCounters
+func resetCounters override
 {
 	errorCounter = 0
 	warningCounter = 0
@@ -156,14 +157,11 @@ func resetCounters
 func runScheduled(timeout as long, runnable as Runnable)
 {
 	assert timeout >= 0
-	var rr final = assert runnable
+	var rr = runnable
 	startTimer(timeout, func {
 		rr.run()
 	})
 }
 
-func runInBackground(runnable as Runnable)
-{
-	assert runnable
+func runInBackground(runnable as Runnable):
 	Thread.start(runnable)
-}

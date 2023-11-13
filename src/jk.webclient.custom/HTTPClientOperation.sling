@@ -22,9 +22,10 @@
  * SOFTWARE.
  */
 
+import jk.io
+import jk.log
 import jk.socket
 import jk.socket.ssl
-import jk.io
 
 class is HTTPClient:
 
@@ -32,17 +33,17 @@ class MyResponseParser
 {
 	class Chunk
 	{
-		var data public as buffer
+		var data public as buffer?
 		var completed public = true
 	}
 
-	var receivedData as buffer = null
-	var headers public as HTTPClientResponse
+	var receivedData as buffer? = null
+	var headers public as HTTPClientResponse?
 	var isChunked public = false
 	var isStream public = false
 	var contentLength public = 0
 	var dataCounter public = 0
-	pvar listener as HTTPClientListener
+	pvar listener as HTTPClientListener?
 	pvar endOfResponse = false
 	pvar aborted = false
 
@@ -71,11 +72,11 @@ class MyResponseParser
 		return v
 	}
 
-	func parseResponse(buf as buffer) private as HTTPClientResponse
+	func parseResponse(buf as buffer) private as HTTPClientResponse?
 	{
 		var i = 0
 		var p = '0' as uint8
-		var v as HTTPClientResponse
+		var v as HTTPClientResponse?
 		var first = true
 		var isChunked = false
 		loop {
@@ -99,22 +100,26 @@ class MyResponseParser
 			if first {
 				var comps = String.split(t, ' ', 3)
 				v = new HTTPClientResponse()
-				v.setHttpVersion(Vector.get(comps, 0))
-				v.setHttpStatus(Vector.get(comps, 1))
-				v.setHttpStatusDescription(Vector.get(comps, 2))
+				v.setHttpVersion(Vector.getValue(comps, 0))
+				v.setHttpStatus(Vector.getValue(comps, 1))
+				v.setHttpStatusDescription(Vector.getValue(comps, 2))
 			}
 			else {
 				var comps = String.split(t, ':', 2)
-				var key = Vector.get(comps, 0)
-				if String.isEmpty(key) == false {
-					var val = String.strip(Vector.get(comps, 1))
-					v.addHeader(key, val)
-					if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
-						if val == "chunked":
-							isChunked = true
-					}
-					else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
-						contentLength = String.toInteger(val)
+				var key = Vector.getValue(comps, 0)
+				if String.isNotEmpty(key) {
+					var val = Vector.getValue(comps, 1)
+					if val {
+						val = String.strip(val)
+						if v:
+							v.addHeader(key, val)
+						if isChunked == false && String.equalsIgnoreCase(key, "transfer-encoding") {
+							if val == "chunked":
+								isChunked = true
+						}
+						else if contentLength < 1 && String.equalsIgnoreCase(key, "content-length") {
+							contentLength = Integer.forStringOrDefaultValue(val, 0)
+						}
 					}
 				}
 			}
@@ -128,12 +133,13 @@ class MyResponseParser
 			receivedData = null
 		}
 		this.isChunked = isChunked
-		if contentLength < 1 && (String.equalsIgnoreCase(v.getHeader("connection"), "close") || String.equalsIgnoreCase(v.getHttpVersion(), "HTTP/1.0")):
-			isStream = true
+		if v:
+			if contentLength < 1 && (String.equalsIgnoreCase(v.getHeader("connection"), "close") || String.equalsIgnoreCase(v.getHttpVersion(), "HTTP/1.0")):
+				isStream = true
 		return v
 	}
 
-	func getChunk private as Chunk
+	func getChunk private as Chunk?
 	{
 		var i = 0
 		var sb = new StringBuilder()
@@ -160,18 +166,20 @@ class MyResponseParser
 				return null
 			}
 		}
+		assert receivedData
 		var cl = -1
 		var t = String.strip(sb.toString())
 		if String.isEmpty(t) == false:
-			cl = String.toIntegerFromHex(t)
+			cl = Integer.forHexStringOrDefaultValue(t)
 		var chunk = new Chunk()
 		if cl > 0 {
 			if Buffer.getSize(receivedData) - i < cl + 2 {
 				chunk.completed = false
 				return chunk
 			}
-			chunk.data = malloc cl
-			Buffer.copyFrom(chunk.data, receivedData, i, 0, cl)
+			var chunkData = Buffer.allocate(cl)
+			chunk.data = chunkData
+			Buffer.copyFrom(chunkData, receivedData, i, 0, cl)
 			i += cl
 		}
 		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n'):
@@ -179,7 +187,7 @@ class MyResponseParser
 		var rem = Buffer.getSize(receivedData) - i as int
 		if rem > 0 {
 			var tmp = receivedData
-			receivedData = malloc rem
+			receivedData = Buffer.allocate(rem)
 			Buffer.copyFrom(receivedData, tmp, i, 0, rem)
 		}
 		else {
@@ -188,11 +196,12 @@ class MyResponseParser
 		return chunk
 	}
 
-	func onDataReceived(buf as buffer, size as int)
+	func onDataReceived(buf as buffer?, size as int)
 	{
-		if size > 0:
+		assert buf
+		if size > 0 && receivedData:
 			receivedData = Buffer.append(receivedData, buf, size)
-		if not headers {
+		if not headers && receivedData {
 			if hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
 				headers = parseResponse(receivedData)
 				if headers:
@@ -226,7 +235,7 @@ class MyResponseParser
 					break
 			}
 		}
-		else if isStream {
+		else if isStream && receivedData {
 			var sz = Buffer.getSize(receivedData) as int
 			if sz > 0 {
 				var v = receivedData
@@ -235,7 +244,7 @@ class MyResponseParser
 				onBodyDataReceived(v, sz)
 			}
 		}
-		else if contentLength > 0 {
+		else if contentLength > 0 && receivedData {
 			var rsz = Buffer.getSize(receivedData) as int
 			if rsz > 0 {
 				if contentLength <= 0 || dataCounter + rsz <= contentLength {
@@ -266,17 +275,15 @@ class MyResponseParser
 	func onHeadersReceived(headers as HTTPClientResponse)
 	{
 		if listener && listener.onResponseReceived(headers) == false {
-			if listener:
-				listener.onAborted()
+			listener.onAborted()
 			aborted = true
 		}
 	}
 
-	func onBodyDataReceived(buffer as buffer, size as long)
+	func onBodyDataReceived(buffer as buffer?, size as long)
 	{
-		if listener && listener.onDataReceived(buffer) == false {
-			if listener:
-				listener.onAborted()
+		if listener && listener.onDataReceived(buffer ?? Buffer.allocate(0)) == false {
+			listener.onAborted()
 			aborted = true
 		}
 	}
@@ -289,19 +296,21 @@ class MyResponseParser
 	}
 }
 
-var openSocket as ConnectedSocket
-var openSocketProtocol as string
-var openSocketAddress as string
+prop ctx as LoggingContext
+
+var openSocket as ConnectedSocket?
+var openSocketProtocol as string?
+var openSocketAddress as string?
 var openSocketPort as int
-pvar defaultUserAgent as string = null
-var parser as MyResponseParser
-var receiveBuffer as buffer
+pvar defaultUserAgent as string? = null
+var parser as MyResponseParser?
+var receiveBuffer as buffer?
 pvar acceptInvalidCertificate = false
 
 ctor:
-	receiveBuffer = malloc 64 * 1024
+	receiveBuffer = Buffer.allocate(64 * 1024)
 
-func openConnectionWithDetails(protocol as string, address as string, aport as int, listener as HTTPClientListener) as bool
+func openConnectionWithDetails(protocol as string?, address as string?, aport as int, listener as HTTPClientListener?) as bool
 {
 	closeConnection(listener)
 	if String.isEmpty(address) {
@@ -328,19 +337,8 @@ func openConnectionWithDetails(protocol as string, address as string, aport as i
 	openSocket = TCPSocket.createAndConnect(address, port)
 	if listener:
 		listener.onStatus(null)
-	if openSocket == null {
-		if listener:
-			listener.onError("Connection failed: `" .. address .. ":" .. String.forInteger(port) .. "'")
-		return false
-	}
-	if protocol == "https" {
-		openSocket = SSLSocket.forClient(openSocket, address, null, acceptInvalidCertificate)
-		if openSocket == null && listener {
-			listener.onError("FAILED to create SSL socket for HTTPS")
-			closeConnection(listener)
-			return false
-		}
-	}
+	if protocol == "https":
+		openSocket = SSLSocket.forClient(ctx, openSocket, address, acceptInvalidCertificate)
 	openSocketProtocol = protocol
 	openSocketAddress = address
 	openSocketPort = port
@@ -348,7 +346,7 @@ func openConnectionWithDetails(protocol as string, address as string, aport as i
 	return true
 }
 
-func openConnection(request as HTTPClientRequest, listener as HTTPClientListener) as bool
+func openConnection(request as HTTPClientRequest?, listener as HTTPClientListener?) as bool
 {
 	if request == null {
 		if listener:
@@ -358,7 +356,7 @@ func openConnection(request as HTTPClientRequest, listener as HTTPClientListener
 	return openConnectionWithDetails(request.getProtocol(), request.getServerAddress(), request.getServerPort(), listener)
 }
 
-func closeConnection(listener as HTTPClientListener)
+func closeConnection(listener as HTTPClientListener?)
 {
 	assert openSocket
 	if listener:
@@ -373,7 +371,7 @@ func closeConnection(listener as HTTPClientListener)
 		listener.onStatus(null)
 }
 
-func sendRequest(request as HTTPClientRequest, listener as HTTPClientListener) as bool
+func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) as bool
 {
 	if request == null {
 		if listener:
@@ -388,8 +386,8 @@ func sendRequest(request as HTTPClientRequest, listener as HTTPClientListener) a
 	}
 	if openSocket == null {
 		openConnection(request, listener)
-		assert openSocket
 	}
+	assert openSocket
 	if listener:
 		listener.onStatus("Sending request headers ..")
 	var rqs = request.toStringWithUserAgent(defaultUserAgent)
@@ -408,7 +406,7 @@ func sendRequest(request as HTTPClientRequest, listener as HTTPClientListener) a
 		if listener:
 			listener.onStatus("Sending request body ..")
 		var rv = true
-		var bf = malloc 4096 * 4
+		var bf = Buffer.allocate(4096 * 4)
 		loop {
 			var r = body.read(bf)
 			if r < 1:
@@ -433,24 +431,27 @@ func sendRequest(request as HTTPClientRequest, listener as HTTPClientListener) a
 	return true
 }
 
-func readResponse(listener as HTTPClientListener, timeout as int) as bool
+func readResponse(listener as HTTPClientListener?, timeout as int) as bool
 {
 	if openSocket == null {
 		if listener:
 			listener.onError("No open socket")
 		return false
 	}
+	assert parser
 	if listener:
 		listener.onStatus("Receiving response ..")
 	var rv = true
 	parser.setListener(listener)
 	loop {
 		var r as int
-		if openSocket is SSLSocket {
-			r = (openSocket as! SSLSocket).readWithTimeout(receiveBuffer, timeout)
-		}
-		else {
-			r = (openSocket as! TCPSocket).readWithTimeout(receiveBuffer, timeout)
+		if receiveBuffer {
+			if openSocket is SSLSocket {
+				r = (openSocket as! SSLSocket).readWithTimeout(receiveBuffer, timeout)
+			}
+			else {
+				r = (openSocket as! TCPSocket).readWithTimeout(receiveBuffer, timeout)
+			}
 		}
 		if r == 0 {
 			rv = false
@@ -480,8 +481,7 @@ func readResponse(listener as HTTPClientListener, timeout as int) as bool
 			break
 		}
 	}
-	if parser:
-		parser.setListener(null)
+	parser.setListener(null)
 	if listener {
 		listener.onStatus(null)
 		if listener.onEndRequest() == false:
@@ -490,10 +490,10 @@ func readResponse(listener as HTTPClientListener, timeout as int) as bool
 	return rv
 }
 
-func executeRequest(request as HTTPClientRequest, listener as HTTPClientListener) override
+func executeRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) override
 {
 	assert sendRequest(request, listener)
 	assert readResponse(listener, 30000)
-	if String.equalsIgnoreCase(request.getHeader("connection"), "close"):
+	if request && String.equalsIgnoreCase(request.getHeader("connection"), "close"):
 		closeConnection(listener)
 }

@@ -28,6 +28,7 @@ import jk.email
 
 class is EmailProvider:
 
+prop ctx as LoggingContext
 prop serverType as string
 prop username as string
 prop password as string
@@ -48,26 +49,17 @@ prop sender:senderValue as SMTPSender
 			configMap.setString("server_port", port)
 			configMap.setString("sender_address", senderAddress)
 			configMap.setString("sender_name", senderName)
-			senderValue = SMTPSender.forConfiguration(configMap, ctx)
+			senderValue = SMTPSender.forConfiguration(ctx, configMap)
 		}
 		return senderValue
 	}
 }
 
-var ctx as LoggingContext
-
-ctor(ctx as LoggingContext):
-	this.ctx = ctx
-
 func sendEmailContent(recipients as EmailRecipients, content as EmailContent) override async
 {
 	var sender = this.sender
-	if not sender:
-		Error.throw("noSmtpSenderObject", null)
 	var message = new SMTPMessage()
 	var rcpts = recipients.to
-	if !rcpts:
-		Error.throw("noRecipientsObject", null)
 	foreach rcpt in rcpts:
 		message.setTo(rcpt.emailAddress)
 	message.setContentType(content.contentType)
@@ -76,11 +68,9 @@ func sendEmailContent(recipients as EmailRecipients, content as EmailContent) ov
 	message.setMyName(senderName)
 	message.setText(content.content)
 	var transaction = sender.sendSync(message)
-	if not transaction:
-		Error.throw("failedToSendMessage", message)
 	if not transaction.getStatus() {
 		var transactions = transaction.getTransactions()
-		foreach rr as SMTPClientTransactionResult in transactions.toVector() {
+		if transactions: foreach rr as SMTPClientTransactionResult in transactions.toVector() {
 			if not rr.getStatus():
 				Log.error(ctx, "SMTP ERROR : " .. rr.getErrorMessage())
 		}
@@ -88,7 +78,5 @@ func sendEmailContent(recipients as EmailRecipients, content as EmailContent) ov
 	}
 }
 
-func sendEmailTemplate(recipients as EmailRecipients, templateName as string, language as string, parameters as DynamicMap) override async
-{
-	ERROR "Not implemented"
-}
+func sendEmailTemplate(recipients as EmailRecipients, templateName as string, language as string, parameters as DynamicMap) override async:
+	ERROR "notImplemented"

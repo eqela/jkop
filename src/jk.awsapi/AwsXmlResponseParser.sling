@@ -1,0 +1,162 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.xml
+import jk.log
+import jk.model
+
+class:
+
+prop ctx as LoggingContext
+
+func warning(text as string):
+	Log.warning(ctx, text)
+
+func elementToString(element as object) as string?
+{
+	var cdata = element as MarkupLanguageParser.CharacterData
+	if cdata:
+		return cdata.getData()
+	var tdata = element as MarkupLanguageParser.TextData
+	if tdata:
+		return tdata.getData()
+	return null
+}
+
+func getModelField(model as DynamicModel, field as string) as DynamicModelField?
+{
+	foreach mfield in model.getFields() {
+		if String.equals(mfield.name, field):
+			return mfield
+	}
+	return null
+}
+
+func parseValue(parser as XMLParser, type as DynamicModelField?) as object
+{
+	if type && type.type == DynamicModelField.TYPE_OBJECT {
+		var tinfo = type.typeinfo
+		if tinfo == null:
+			Error.throw("noTypeInfo", type)
+		var vo = Reflection.createClassInstanceByTypeinfo(tinfo)
+		var v = vo as DynamicModel
+		if v == null:
+			Error.throw("classInstanceIsNotDynamicModel", vo)
+		loop {
+			var value = parser.next()
+			if value == null || value is MarkupLanguageParser.EndElement:
+				break
+			var s = value as MarkupLanguageParser.StartElement
+			if s {
+				var sname = s.getName()
+				if not sname:
+					sname = ""
+				var field = getModelField(v, sname)
+				if field {
+					v.setField(sname, parseValue(parser, field))
+				}
+				else {
+					// This is an unsupported field. We just parse it away nicely.
+					Log.warning(ctx, "Unsupported field: `" .. sname .. "'")
+					var ff = new DynamicModelField() {
+						name sname
+						encodedName sname
+						type DynamicModelField.TYPE_STRING
+					}
+					parseValue(parser, ff)
+				}
+			}
+		}
+		return v.toDynamicMap()
+	}
+	if type && type.type == DynamicModelField.TYPE_VECTOR {
+		var v = new DynamicVector()
+		var ff = new DynamicModelField() {
+			name ""
+			encodedName ""
+		}
+		if type.typeinfo {
+			ff.type = DynamicModelField.TYPE_OBJECT
+			ff.typeinfo = type.typeinfo
+		}
+		else {
+			ff.type = DynamicModelField.TYPE_STRING
+			ff.typeinfo = null
+		}
+		loop {
+			var value = parser.next()
+			if value == null || value is MarkupLanguageParser.EndElement:
+				break
+			var s = value as MarkupLanguageParser.StartElement
+			if s:
+				v.appendObject(parseValue(parser, ff))
+		}
+		return v
+	}
+	var sb = new StringBuilder()
+	loop {
+		var value = parser.next()
+		if value == null || value is MarkupLanguageParser.EndElement:
+			break
+		if value is MarkupLanguageParser.StartElement {
+			var vv = parseValue(parser, null) as string
+			if String.isNotEmpty(vv):
+				sb.appendString(vv)
+			continue
+		}
+		var elms = elementToString(value)
+		if elms {
+			var str = String.strip(elms)
+			if String.isNotEmpty(str):
+				sb.appendString(str)
+		}
+	}
+	return sb.toString()
+}
+
+func parseString(content as string, resultWrapper as string?, resultType as typeinfo) as object
+{
+	var parser = XMLParser.forString(content)
+	loop {
+		var value = parser.next()
+		if not value:
+			break
+		var s = value as MarkupLanguageParser.StartElement
+		if s {
+			var name = s.getName()
+			if String.equals(name, "?xml"):
+				continue
+			if resultWrapper == null || String.equals(name, resultWrapper) {
+				var type = new DynamicModelField() {
+					name ""
+					encodedName ""
+				}
+				type.type = DynamicModelField.TYPE_OBJECT
+				type.typeinfo = resultType
+				return parseValue(parser, type)
+			}
+		}
+	}
+	Error.throw("noXmlContentFound", content)
+}

@@ -26,8 +26,8 @@ class is BlockCipher:
 
 const ENCRYPT_MODE = 0
 const DECRYPT_MODE = 1
-var key as buffer
-var iv as buffer
+var key as buffer?
+var iv as buffer?
 
 func setKey(str as string)
 {
@@ -50,8 +50,6 @@ func doCipher(src as buffer, dest as buffer, mode as int)
 {
 	assert key
 	assert iv
-	assert src
-	assert dest
 	if Buffer.getSize(src) != 16 || Buffer.getSize(dest) != 16:
 		return
 	if mode == ENCRYPT_MODE {
@@ -77,8 +75,8 @@ class AES128
 	var nk = 4
 	var nb = 4
 	var nr = 10
-	var sbox as array<uint32>
-	var sboxINV as array<uint32>
+	var sbox as array<uint32>?
+	var sboxINV as array<uint32>?
 	var rcon = new int[] [
 		0x8d, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36, 0x6c, 0xd8, 0xab, 0x4d, 0x9a, 0x2f, 0x5e, 0xbc, 0x63, 0xc6,
 		0x97, 0x35, 0x6a, 0xd4, 0xb3, 0x7d, 0xfa, 0xef, 0xc5, 0x91, 0x39, 0x72, 0xe4, 0xd3, 0xbd, 0x61, 0xc2, 0x9f, 0x25, 0x4a, 0x94,
@@ -396,38 +394,28 @@ class AES128
 
 	func encrypt(src as buffer, key as buffer, iv as buffer) static as buffer
 	{
-		assert src
-		assert key
-		assert iv
 		var aes = new this()
 		return aes.encryptBlock(src, key, iv)
 	}
 
 	func decrypt(src as buffer, key as buffer, iv as buffer) static as buffer
 	{
-		assert src
-		assert key
-		assert iv
 		var aes = new this()
 		return aes.decryptBlock(src, key, iv)
 	}
 
 	func encryptBlock(block as buffer, keyData as buffer, ivData as buffer) as buffer
 	{
-		assert block
 		var buf = xor(ivData, block)
 		return encryptCipherOperation(buf, keyData)
 	}
 
 	func xor(iv as buffer, block as buffer) as buffer
 	{
-		assert iv
-		assert block
 		var size = Buffer.getSize(block)
 		var buf = Buffer.allocate(size)
-		for(var i = 0; i < size; i++) {
+		for(var i = 0; i < size; i++):
 			buf[i] = (iv[i] ^ block[i]) as uint8
-		}
 		return buf
 	}
 
@@ -486,14 +474,14 @@ class AES128
 
 	func decryptBlock(block as buffer, keyData as buffer, ivData as buffer) as buffer
 	{
-		assert block
 		var decrypted = decryptCipherOperation(block, keyData)
-		var buf = xor(ivData, decrypted)
-		return buf
+		return xor(ivData, decrypted)
 	}
 
 	func decryptCipherOperation(block as buffer, keyData as buffer) as buffer
 	{
+		if not sboxINV:
+			Error.throw("decryptCipherOperation", "sboxINV")
 		var rounds = nr
 		var rk = expandKeyInv(keyData)
 		var b = toUInt32Array(block)
@@ -633,15 +621,16 @@ class AES128
 
 	func arrayToInteger(array as array<uint8>) as uint32
 	{
-		assert array
 		var result = 0u
 		foreach v in array:
 			result = result << 8 | v
 		return result
 	}
 
-	func subWord(word as array<uint8>!) as array<uint8>!
+	func subWord(word as array<uint8>) as array<uint8>
 	{
+		if not sbox:
+			Error.throw("subWord", "sbox")
 		var result = word
 		for(var i = 0; i < 4; i++):
 			result[i] = sbox[(word[i] as int)] as uint8
@@ -725,8 +714,7 @@ class AES128
 				c = (value[i + 1] as uint) << 8
 			val = val | c
 			var d = 0 as uint32
-			if value != null:
-				d = (value[i] as uint)
+			d = (value[i] as uint)
 			val = val | d
 			result[i/4] = val
 		}

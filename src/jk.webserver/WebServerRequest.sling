@@ -27,36 +27,34 @@ import jk.json
 
 class abstract:
 
-var url as URL
-var userData as DynamicMap
+var url as URL?
+var userData as DynamicMap?
 
 func getMethod abstract as string
 func getPath(withQuery as bool = true) abstract as string
 func getHeaders abstract as vector<KeyValuePair<string,string>>
-func getHeader(key as string) abstract as string
+func getHeader(key as string) abstract as string?
 func setHeader(key as string, value as string) abstract
 func removeHeader(key as string) abstract
-func readBodyChunk abstract async as promise<buffer>
-func readBodyAsBuffer abstract async as buffer
-func readBodyAsString abstract async as string
+func readBodyChunk abstract async as buffer?
+func getBodyAsBuffer abstract async as buffer
+func getBodyAsString abstract async as string
 func setResponseHeader(key as string, value as string) abstract
 func setResponseHeaderList(headers as KeyValueList<string,string>) abstract
 func setResponseHeaders(headers as dynamic) abstract
 func setResponseStatus(code as int) abstract
-func writeResponseData(data as buffer) abstract async as promise
-func endResponse abstract async as promise
+func writeResponseData(data as buffer) abstract async
+func endResponse abstract async
 
-func setUserData(key as string, data as dynamic)
+func setUserData(key as string, data as dynamic?)
 {
-	assert key
 	if not userData:
 		userData = new DynamicMap()
 	userData.setDynamic(key, data)
 }
 
-func getUserData(key as string) as dynamic
+func getUserData(key as string) as dynamic?
 {
-	assert key
 	assert userData
 	return userData.getDynamic(key)
 }
@@ -70,8 +68,6 @@ func setResponseRedirect(url as string)
 func setResponseRedirectAsDirectory
 {
 	var path = getUrlPath()
-	if path == null:
-		path = ""
 	setResponseRedirect(path .. "/")
 }
 
@@ -84,28 +80,44 @@ func getUrl virtual as URL
 
 func getUrlPath virtual as string
 {
-	var url = assert getUrl()
-	return url.getPath()
+	var url = getUrl()
+	return url.getPath() ?? ""
 }
 
 func getQueryParameters as map<string,string>
 {
-	var url = assert getUrl()
-	return url.getQueryParameters()
+	var url = getUrl()
+	var v = url.getQueryParameters()
+	if not v:
+		v = new map<string,string>
+	return v
 }
 
 func iterateQueryParameters as Iterator<KeyValuePair<string,string>>
 {
-	var url = assert getUrl()
-	var list = assert url.getRawQueryParameters()
-	return list.iterate()
+	var url = getUrl()
+	var list = url.getRawQueryParameters()
+	if list:
+		return list.iterate()
+	return Vector.iterate(new vector<KeyValuePair<string,string>>)
 }
 
-func getQueryParameter(key as string) as string
+func getQueryParameterOrNull(key as string) as string?
 {
-	var url = assert getUrl()
+	var url = getUrl()
 	return url.getQueryParameter(key)
 }
+
+func getQueryParameterOrThrowError(key as string) as string
+{
+	var v = getQueryParameter(key)
+	if not v:
+		Error.throw("requiredQueryParameterMissing", key)
+	return v
+}
+
+func getQueryParameter(key as string) as string?:
+	return getQueryParameterOrNull(key)
 
 func getCookies virtual as map<string,string>
 {
@@ -129,20 +141,20 @@ func getCookies virtual as map<string,string>
 	return cookies
 }
 
-func getCookie(cookieName as string) virtual as string
+func getCookie(cookieName as string) virtual as string?
 {
-	var cookies = assert getCookies()
-	var v = Map.get(cookies, cookieName)
+	var cookies = getCookies()
+	var v = Map.getValue(cookies, cookieName)
 	if v:
 		return v
-	var v0 = Map.get(cookies, cookieName .. ".0")
+	var v0 = Map.getValue(cookies, cookieName .. ".0")
 	if not v0:
 		return null
 	var sb = new StringBuilder()
 	sb.appendString(v0)
 	var n = 1
 	loop {
-		var vn = Map.get(cookies, cookieName .. "." .. String.forInteger(n))
+		var vn = Map.getValue(cookies, cookieName .. "." .. String.forInteger(n))
 		if not vn:
 			break
 		sb.appendString(vn)
@@ -153,8 +165,7 @@ func getCookie(cookieName as string) virtual as string
 
 func isForResource(res as string) virtual as bool
 {
-	assert res
-	var path = assert getUrlPath()
+	var path = getUrlPath()
 	while String.endsWith(path, "/"):
 		path = String.getSubString(path, 0, String.getLength(path) - 1)
 	if path == res:
@@ -165,84 +176,68 @@ func isForResource(res as string) virtual as bool
 func isForDirectory virtual as bool
 {
 	var path = getUrlPath()
-	if path && String.endsWith(path, "/"):
+	if String.endsWith(path, "/"):
 		return true
 	return false
 }
 
 func isForPrefix(res as string) virtual as bool
 {
-	assert res
 	var rr = getUrlPath()
-	if rr && String.startsWith(rr, res):
+	if String.startsWith(rr, res):
 		return true
 	return false
 }
 
 func isForMethod(mm as string) virtual as bool
 {
-	assert mm
 	if String.equalsIgnoreCase(mm, getMethod()):
 		return true
 	return false
 }
 
-func readBodyAsJsonDynamicMap async as DynamicMap
+func getBodyAsDynamicMapOrNull async as DynamicMap?
 {
-	var bodyString = assert await readBodyAsString()
-	return JSONParser.parse(bodyString) as DynamicMap
+	var bodyString = await getBodyAsString()
+	if String.isEmpty(bodyString):
+		return null
+	return JSONParser.parseStringAsMap(bodyString)
 }
 
-func sendResponse(response as dynamic) async
+func getBodyAsDynamicMapOrThrowError async as DynamicMap
+{
+	var bodyString = await getBodyAsString()
+	return JSONParser.parseStringAsMap(bodyString)
+}
+
+func sendResponse(response as dynamic?) async
 {
 	setResponseStatus(200)
 	if response == null {
 		await endResponse()
 		return
 	}
-	if response is buffer || response is BufferObject {
-		var vv = Buffer.asBuffer(response)
-		if vv {
-			setResponseHeader("Content-Type", "application/octet-stream")
-			await writeResponseData(vv)
-			await endResponse()
-			return
-		}
+	if var vv = DynamicMap.asValueOrNull(response) {
+		setResponseHeader("Content-Type", "application/json")
+		await writeResponseData(String.toUTF8Buffer(JSONEncoder.toString(vv)))
+		await endResponse()
+		return
 	}
-	if response is map || response is DynamicMap {
-		var vv = DynamicMap.asDynamicMap(response)
-		if vv {
-			setResponseHeader("Content-Type", "application/json")
-			await writeResponseData(String.toUTF8Buffer(JSONEncoder.encode(vv)))
-			await endResponse()
-			return
-		}
+	if var vv = DynamicVector.asValueOrNull(response) {
+		setResponseHeader("Content-Type", "application/json")
+		await writeResponseData(String.toUTF8Buffer(JSONEncoder.toString(vv)))
+		await endResponse()
+		return
 	}
-	if response is array || response is vector || response is DynamicVector {
-		var vv = DynamicVector.asDynamicVector(response)
-		if vv {
-			setResponseHeader("Content-Type", "application/json")
-			await writeResponseData(String.toUTF8Buffer(JSONEncoder.encode(vv)))
-			await endResponse()
-			return
-		}
-	}
-	if response is JSONObject {
-		var vv = (response as! JSONObject).toJsonObject()
-		if vv {
-			var ee = JSONEncoder.encode(vv)
-			if ee {
-				setResponseHeader("Content-Type", "application/json")
-				await writeResponseData(String.toUTF8Buffer(ee))
-				await endResponse()
-				return
-			}
-		}
-	}
-	var str = String.asString(response)
-	if str {
+	if var vv = String.asValueOrNull(response) {
 		setResponseHeader("Content-Type", "text/plain")
-		await writeResponseData(String.toUTF8Buffer(str))
+		await writeResponseData(String.toUTF8Buffer(vv))
+		await endResponse()
+		return
+	}
+	if var vv = Buffer.asValueOrNull(response) {
+		setResponseHeader("Content-Type", "application/octet-stream")
+		await writeResponseData(vv)
 		await endResponse()
 		return
 	}

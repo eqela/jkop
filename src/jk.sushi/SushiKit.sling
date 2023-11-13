@@ -28,20 +28,13 @@ import jk.process
 
 class:
 
-var ctx as LoggingContext
-
-ctor(ctx as LoggingContext):
-	this.ctx = ctx
+prop ctx as LoggingContext
 
 func asStringVector(o as dynamic) as vector<string>
 {
-	var it = assert DynamicObject.iterate(o)
 	var v = new vector<string>
-	loop {
-		var oo = it.next()
-		if not oo:
-			break
-		var s = String.asString(oo)
+	if var iterator = DynamicObject.iterate(o): foreach oo in iterator {
+		var s = String.asValueOrNull(oo)
 		if s:
 			v += s
 	}
@@ -51,36 +44,30 @@ func asStringVector(o as dynamic) as vector<string>
 func executeBuffer(code as buffer, args as dynamic) as int
 {
 	var cc = SushiCode.forBuffer(code)
-	if not cc:
-		Error.throw("failedToInitialize", "SushiCode")
 	return cc.execute(asStringVector(args))
 }
 
 func executeFile(file as dynamic, args as dynamic) as int
 {
-	var ff = new FileKit(ctx).asFile(file)
+	var ff = new FileKit() { ctx ctx }.asFile(file)
 	var code = SushiCode.forFile(ff)
-	if not code:
-		Error.throw("failedToRead", ff.getPath())
 	return code.execute(asStringVector(args))
 }
 
 func createProcessLauncher as ProcessLauncher
 {
-	var pl as ProcessLauncher
+	var pl as ProcessLauncher?
 	IFDEF "target_sushi" {
 		pl = ProcessLauncher.forSelf()
 	}
 	if not pl:
 		pl = ProcessLauncher.forCommand("sushi")
-	if not pl:
-		Error.throw("failedToFindSushiVm", null)
 	return pl
 }
 
 func executeFileProcess(file as dynamic, args as dynamic) as int
 {
-	var ff = new FileKit(ctx).asFile(file)
+	var ff = new FileKit() { ctx ctx }.asFile(file)
 	var pl = createProcessLauncher()
 	pl.addToParams(ff.getPath())
 	foreach arg in asStringVector(args):
@@ -88,7 +75,7 @@ func executeFileProcess(file as dynamic, args as dynamic) as int
 	return pl.execute()
 }
 
-func executeProcess(args as array) as int
+func executeProcess(args as array<dynamic>) as int
 {
 	var pl = createProcessLauncher()
 	foreach arg as string in args:

@@ -38,15 +38,11 @@ func generatePem(passPhrase as string) static as this:
 func generatePkcs8(passPhrase as string) static as this:
 	return doGenerate(passPhrase, "PKCS8")
 
-func doGenerate(passPhrase as string, format as string) private static as this
+func doGenerate(passPhrase as string, format as string?) private static as this
 {
-	var keygen = ExternalCommand.findInPath("ssh-keygen")
-	if not keygen:
-		Error.throw("commandNotFound", "ssh-keygen")
+	var keygen = ExternalCommand.getAndRequireCommandInPath("ssh-keygen")
 	var pl = ProcessLauncher.forFile(keygen)
 	var dir = TemporaryDirectory.create()
-	if not dir:
-		Error.throw("failedToCreate", "TemporaryDirectory")
 	pl.addToParams("-t")
 	pl.addToParams("rsa")
 	pl.addToParams("-f")
@@ -59,13 +55,14 @@ func doGenerate(passPhrase as string, format as string) private static as this
 	}
 	pl.cwd = dir
 	pl.executeSilent()
-	var v as this
+	var v as this?
 	var prfile = dir.entry("sshkey")
 	var pufile = dir.entry("sshkey.pub")
 	if prfile.isFile() && pufile.isFile() {
-		v = new this()
-		v.setPrivateKey(prfile.getContentsBuffer())
-		v.setPublicKey(pufile.getContentsBuffer())
+		v = new this() {
+			privateKey prfile.getContentsBuffer()
+			publicKey pufile.getContentsBuffer()
+		}
 	}
 	dir.removeRecursive()
 	if not v:
@@ -88,40 +85,38 @@ func getPublic(name as string) static as buffer:
 func getDefaultPublic static as buffer:
 	return getPublic("id_rsa")
 
-pvar privateKey as buffer
-pvar publicKey as buffer
+prop privateKey as buffer?
+prop publicKey as buffer?
 
 func getDefaultStorageDirectory private as File
 {
 	var dd = CommonPath.getHomeDirectory()
 	if dd:
 		dd = dd.entry(".ssh")
+	if not dd:
+		Error.throw("noDefaultStorageDirectory", "SshKey")
 	return dd
 }
 
 func save(keyName as string) as this
 {
 	if String.isEmpty(keyName):
-		Error.throw("invalidKeyName", "SshKey")
+		Error.throw("invalidKeyName", keyName)
 	var dir = getDefaultStorageDirectory()
-	if not dir:
-		Error.throw("noDefaultStorageDirectory", "SshKey")
 	dir.createDirectoryRecursive()
-	var prfile = dir.entry(keyName)
-	var pufile = dir.entry(keyName .. ".pub")
-	if prfile.exists():
-		Error.throw("alreadyExists", prfile)
-	if pufile.exists():
-		Error.throw("alreadyExists", pufile)
-	prfile.setContentsBuffer(getPrivateKey())
-	if OS.isLinux() || OS.isMacOS():
-		prfile.setMode(384)
-	try {
-		pufile.setContentsBuffer(getPublicKey())
+	if var privateKey = privateKey {
+		var prfile = dir.entry(keyName)
+		if prfile.exists():
+			Error.throw("alreadyExists", prfile)
+		prfile.setContentsBuffer(privateKey)
+		if OS.isLinux() || OS.isMacOS():
+			prfile.setMode(384)
 	}
-	catch e {
-		prfile.remove()
-		throw e
+	if var publicKey = publicKey {
+		var pufile = dir.entry(keyName .. ".pub")
+		if pufile.exists():
+			Error.throw("alreadyExists", pufile)
+		pufile.setContentsBuffer(publicKey)
 	}
 	return this
 }
@@ -129,33 +124,22 @@ func save(keyName as string) as this
 func loadPublicKey(keyName as string) as buffer
 {
 	if String.isEmpty(keyName):
-		Error.throw("invalidKeyName", "SshKey")
+		Error.throw("invalidKeyName", keyName)
 	var dir = getDefaultStorageDirectory()
-	if not dir:
-		Error.throw("noDefaultStorageDirectory", "SshKey")
 	var pufile = dir.entry(keyName .. ".pub")
-	var pudata = pufile.getContentsBuffer()
-	if not pudata:
-		Error.throw("failedToRead", pufile)
-	return pudata
+	return pufile.getContentsBuffer()
 }
 
 func load(keyName as string) as this
 {
 	if String.isEmpty(keyName):
-		Error.throw("invalidKeyName", "SshKey")
+		Error.throw("invalidKeyName", keyName)
 	var dir = getDefaultStorageDirectory()
-	if not dir:
-		Error.throw("noDefaultStorageDirectory", "SshKey")
 	var prfile = dir.entry(keyName)
 	var pufile = dir.entry(keyName .. ".pub")
 	var prdata = prfile.getContentsBuffer()
-	if not prdata:
-		Error.throw("failedToRead", prfile)
 	var pudata = pufile.getContentsBuffer()
-	if not pudata:
-		Error.throw("failedToRead", pufile)
-	setPrivateKey(prdata)
-	setPublicKey(pudata)
+	privateKey = prdata
+	publicKey = pudata
 	return this
 }

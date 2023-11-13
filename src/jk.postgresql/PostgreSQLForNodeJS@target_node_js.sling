@@ -1,0 +1,455 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.sql
+import jk.log
+import jk.nodejs
+import jk.json
+
+class is PostgreSQLDatabase:
+
+depend "npm:pg:8.7.3"
+
+var pool as dynamic?
+var databaseName as string?
+
+class Statement is SQLStatement
+{
+	prop sqlString as string
+	var params as vector<dynamic>?
+	var columns as vector<string>?
+	var pcounter = 0
+
+	func forSql(sql as string) static as this:
+		return new this() {
+			sqlString sql
+		}
+
+	func addToParams(value as dynamic)
+	{
+		if not params:
+			params = new vector<dynamic>
+		params += value
+	}
+
+	func addToColumns(column as string)
+	{
+		if not columns:
+			columns = new vector<string>
+		columns += column
+	}
+
+	func getNextParamName as string:
+		return "$" .. String.forInteger(++ pcounter)
+
+	func addParamString(val as string) override:
+		addToParams(val)
+
+	func addParamInteger(val as int) override:
+		addToParams(val)
+
+	func addParamLongInteger(val as long) override:
+		addToParams(val)
+
+	func addParamDouble(val as double) override:
+		addToParams(val)
+
+	func addParamBlob(val as buffer) override:
+		addToParams(val)
+
+	func setParamString(name as string, val as string) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamInteger(name as string, val as int) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamLongInteger(name as string, val as long) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamDouble(name as string, val as double) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func setParamBlob(name as string, val as buffer) override
+	{
+		addToColumns(name)
+		addToParams(val)
+	}
+
+	func resetStatement override
+	{
+		columns = null
+		params = null
+		pcounter = 0
+	}
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	prop result as dynamic
+	var current as DynamicMap?
+	var index = -1
+
+	func getCurrent as DynamicMap
+	{
+		if not current:
+			Error.throw("noCurrentObject", this)
+		return current
+	}
+
+	func hasNext override as bool
+	{
+		var length = lang "js" as int {{{ this.result.rows.length }}}
+		assert index + 1 < length
+		return true
+	}
+
+	func step override
+	{
+		index ++
+		var map = new DynamicMap()
+		lang "js" {{{
+			var v = this.result.rows[this.index]
+			Object.keys(v).forEach(key => {
+				map.setObject(key, v[key])
+			})
+		}}}
+		current = map
+	}
+
+	func next override as DynamicMap
+	{
+		step()
+		return getCurrent()
+	}
+
+	func nextValues(values as vector<object>) override
+	{
+		step()
+		Vector.clear(values)
+		var current = getCurrent()
+		foreach value in current.getValues() {
+			if value && value is object:
+				values += value as! object
+		}
+	}
+
+	func getColumnCount override as int:
+		return getCurrent().getCount()
+
+	func getColumnName(n as int) override as string:
+		return getCurrent().getKeys()[n]
+
+	func getColumnNames override as vector<string>:
+		return getCurrent().getKeys()
+
+	func getCurrentRowValue(n as int) private as dynamic
+	{
+		var v = Vector.getValue(getCurrent().getValues(), n)
+		if not v:
+			Error.throw("invalidColumnIndex", String.forInteger(n))
+		return v
+	}
+
+	func getColumnObject(n as int) override as object
+	{
+		var dv = getCurrentRowValue(n)
+		var v = dv as object
+		if not v:
+			Error.throw("notObjectValue", dv)
+		return v
+	}
+
+	func getColumnInt(n as int) override as int:
+		return Integer.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnDouble(n as int) override as double:
+		return Double.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnBuffer(n as int) override as buffer:
+		return Buffer.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnString(n as int) as string:
+		return String.asValueOrThrowError(getCurrentRowValue(n))
+
+	func getColumnLong(n as int) override as long:
+		return LongInteger.asValueOrThrowError(getCurrentRowValue(n))
+
+	func close override
+	{
+		current = null
+		index = -1
+	}
+}
+
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, port as int, enableSSL as bool) override
+{
+	var pg = NodeModule.require("pg")
+	lang "js" {{{
+		this.pool = new pg.Pool({
+			user: username,
+			host: serverAddress,
+			database: database,
+			password: password,
+			port: port,
+			ssl: enableSSL
+		})
+	}}}
+	databaseName = database
+}
+
+func getPool as dynamic
+{
+	if pool == null:
+		Error.throw("noConnectionPool", this)
+	return pool
+}
+
+func closeConnection async override:
+	getPool().end!()
+
+func getDatabaseName as string
+{
+	if not databaseName:
+		Error.throw("noDatabaseName", this)
+	return databaseName
+}
+
+func prepareStatement(sql as string) async override as SQLStatement
+{
+	var sb = new StringBuilder()
+	var n = 1
+	foreach c in String.iterate(sql) {
+		if c == '?' {
+			sb.appendString("$" .. String.forInteger(n))
+			n++
+		}
+		else {
+			sb.appendCharacter(c)
+		}
+	}
+	return Statement.forSql(sb.toString())
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+{
+	var pool = getPool()
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatementObject", stmt)
+	var result = lang "js" as dynamic? {{{ await pool.query(ss.sqlString, ss.params) }}}
+	if result == null:
+		Error.throw("failedToExecuteSqlQueryStatement", stmt)
+	return new ResultSet() {
+		result result
+	}
+}
+
+func executeStatement(stmt as SQLStatement) override async
+{
+	var pool = getPool()
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("invalidStatementObject", stmt)
+	var sqlString = ss.sqlString
+	var params = ss.params
+	lang "js" {{{
+		await pool.query(sqlString, params)
+	}}}
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+{
+	await executeStatement(stmt)
+	return 0 // FIXME
+}
+
+func checkIfTableExists(table as string) override async as bool
+{
+	var stmt = await prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_catalog = ? AND table_name = ? LIMIT 1;")
+	stmt.addParamString(getDatabaseName())
+	stmt.addParamString(table)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
+	return String.equalsIgnoreCase(table, sr.getString("table_name"))
+}
+
+func getAllTableNames override async as vector<string>
+{
+	var v = new vector<string>
+	var stmt = await prepareStatement("SELECT table_name FROM information_schema.tables WHERE table_catalog = ?;")
+	stmt.addParamString(getDatabaseName())
+	foreach vv in await executeQueryStatement(stmt) {
+		var nn = vv.getString("table_name")
+		if nn:
+			v += nn
+	}
+	return v
+}
+
+func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as bool = false) as string
+{
+	if tt == SQLTableColumnInfo.TYPE_INTEGER_KEY {
+		if forDataTypeChecking:
+			return "INTEGER"
+		return "INTEGER AUTO_INCREMENT PRIMARY KEY"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_INTEGER {
+		return "INTEGER"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG_KEY {
+		if forDataTypeChecking:
+			return "BIGINT"
+		return "BIGINT AUTO_INCREMENT PRIMARY KEY"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_LONG {
+		return "BIGINT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING {
+		if forDataTypeChecking:
+			return "CHARACTER VARYING"
+		return "VARCHAR(255)"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_STRING_KEY {
+		if forDataTypeChecking:
+			return "CHARACTER VARYING"
+		return "VARCHAR(255) PRIMARY KEY"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_TEXT {
+		return "TEXT"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_BLOB {
+		return "BYTEA"
+	}
+	else if tt == SQLTableColumnInfo.TYPE_DOUBLE {
+		return "DOUBLE PRECISION"
+	}
+	Log.error(ctx, "Unknown column type: " .. String.forInteger(tt))
+	return "UNKNOWN"
+}
+
+func columnToCreateString(cc as SQLTableColumnInfo) private as string
+{
+	var sb = new StringBuilder()
+	var columnName = cc.name
+	sb.appendString("\"")
+	sb.appendString(columnName)
+	sb.appendString("\"")
+	sb.appendCharacter(' ')
+	var tt = cc.type
+	sb.appendString(prepareTypeAsString(tt, columnName))
+	return sb.toString()
+}
+
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+{
+	var sql = "ALTER TABLE \"" .. table .. "\" ADD COLUMN \"" .. column.name .. "\" " .. prepareTypeAsString(column.type, column.name) .. ";"
+	return await prepareStatement(sql)
+}
+
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+{
+	var sql = "ALTER TABLE \"" .. table .. "\" ALTER COLUMN \"" .. column.name .. "\" TYPE " .. prepareTypeAsString(column.type, column.name) .. ";"
+	return await prepareStatement(sql)
+}
+
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.appendString("CREATE TABLE ")
+	sb.appendString("\"")
+	sb.appendString(table)
+	sb.appendString("\"")
+	sb.appendString(" (")
+	var first = true
+	foreach column in columns {
+		if not first:
+			sb.appendCharacter(',')
+		sb.appendCharacter(' ')
+		sb.appendString(columnToCreateString(column))
+		first = false
+	}
+	sb.appendString(" );")
+	return await prepareStatement(sb.toString())
+}
+
+func prepareDeleteTableStatement(table as string) async override as SQLStatement
+{
+	var sb = new StringBuilder()
+	sb.appendString("DROP TABLE ")
+	sb.appendString("\"")
+	sb.appendString(table)
+	sb.appendString("\"")
+	sb.appendString(";")
+	return await prepareStatement(sb.toString())
+}
+
+func checkIfColumnExists(table as string, column as string) override async as bool
+{
+	var stmt = await prepareStatement("SELECT column_name FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(getDatabaseName())
+	stmt.addParamString(table)
+	stmt.addParamString(column)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
+	return String.equalsIgnoreCase(column, sr.getString("column_name"))
+}
+
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
+{
+	var stmt = await prepareStatement("SELECT data_type FROM information_schema.columns WHERE table_catalog = ? AND table_name = ? AND column_name = ? LIMIT 1;")
+	stmt.addParamString(getDatabaseName())
+	stmt.addParamString(table)
+	stmt.addParamString(column.name)
+	var sr = await getSingleRowOrNull(stmt)
+	if not sr:
+		return false
+	var type = prepareTypeAsString(column.type, column.name, true)
+	var ctype = sr.getString("data_type")
+	if String.equalsIgnoreCase(type, ctype):
+		return true
+	return false
+}
+
+func getIdentityColumnName(table as string) override async as string?:
+	ERROR "notImplemented"
+
+func getPrimaryKeyColumnName(table as string) override async as string?:
+	ERROR "notImplemented"
+
+func getLastInsertId(table as string) override async as long:
+	ERROR "notImplemented"

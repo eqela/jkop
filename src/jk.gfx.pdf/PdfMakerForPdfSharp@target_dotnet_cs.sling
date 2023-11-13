@@ -1,0 +1,572 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2023 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.gfx
+import jk.log
+
+class is PdfMaker:
+
+class MyPdfMakerPage is PdfMakerPage private
+{
+	var ctx public as LoggingContext?
+	var page as native<PdfSharp.Pdf.PdfPage>?
+	var gfx as native<PdfSharp.Drawing.XGraphics>?
+	var lineWidth = 1.0
+	var font as FontDescription?
+	var textAlign = 0
+	var fillColor as Color?
+	var strokeColor as Color?
+	var shadowColor as Color?
+	var shadowBlur as double
+	var shadowOffsetX as double
+	var shadowOffsetY as double
+	var lineCap as int
+	var lineJoin as int
+	var miterLimit as double
+
+	func setPage(page as native<PdfSharp.Pdf.PdfPage>)
+	{
+		this.page = page
+		lang "cs" {{{
+			gfx = PdfSharp.Drawing.XGraphics.FromPdfPage(page);
+		}}}
+	}
+
+	func getPpi override as double:
+		return 72.0
+
+	func toXFont(font as FontDescription) as native<PdfSharp.Drawing.XFont>
+	{
+		lang "cs" {{{
+			PdfSharp.Drawing.XFontStyle style;
+			if(font.getBold()) {
+				if(font.getItalic()) {
+					style = PdfSharp.Drawing.XFontStyle.BoldItalic;
+				}
+				else {
+					style = PdfSharp.Drawing.XFontStyle.Bold;
+				}
+			}
+			else if(font.getItalic()) {
+				style = PdfSharp.Drawing.XFontStyle.Italic;
+			}
+			else if(font.getUnderline()) {
+				style = PdfSharp.Drawing.XFontStyle.Underline;
+			}
+			else {
+				style = PdfSharp.Drawing.XFontStyle.Regular;
+			}
+		}}}
+		return lang "cs" as native<PdfSharp.Drawing.XFont> {{{ new PdfSharp.Drawing.XFont(font.getName(), lengthToPoints(font.getSize()), style) }}}
+	}
+
+	macro DEBUG(x)
+	{
+		if ctx:
+			Log.debug(ctx, x)
+	}
+
+	func getWidth override as double
+	{
+		assert page
+		return lang "cs" as double {{{ page.Width }}}
+	}
+
+	func getHeight override as double
+	{
+		assert page
+		return lang "cs" as double {{{ page.Height }}}
+	}
+
+	func setFillStyle(style as object?) override
+	{
+		DEBUG("Set fill style to `" .. String.asValueOrEmptyString(style) .. "'")
+		fillColor = Color.asColor(style)
+	}
+
+	func setStrokeStyle(style as object?) override
+	{
+		DEBUG("Set stroke style to `" .. String.asValueOrEmptyString(style) .. "'")
+		strokeColor = Color.asColor(style)
+	}
+
+	func setShadowColor(color as Color?) override
+	{
+		DEBUG("Set shadow color to `" .. String.asValueOrEmptyString(color) .. "'")
+		shadowColor = color
+	}
+
+	func setShadowBlur(blur as double) override
+	{
+		DEBUG("Set shadow blur to `" .. String.forDouble(blur) .. "'")
+		shadowBlur = blur
+	}
+
+	func setShadowOffsetX(offset as double) override
+	{
+		DEBUG("Set shadow offset X to `" .. String.forDouble(offset) .. "'")
+		shadowOffsetX = offset
+	}
+
+	func setShadowOffsetY(offset as double) override
+	{
+		DEBUG("Set shadow offset Y to `" .. String.forDouble(offset) .. "'")
+		shadowOffsetY = offset
+	}
+
+	func setLineCap(cap as int) override
+	{
+		DEBUG("Set line cap to `" .. String.forInteger(cap) .. "'")
+		lineCap = cap
+	}
+
+	func setLineJoin(join as int) override
+	{
+		DEBUG("Set line join to `" .. String.forInteger(join) .. "'")
+		lineJoin = join
+	}
+
+	func setLineWidth(width as double) override
+	{
+		DEBUG("Set line width to `" .. String.forDouble(width) .. "'")
+		lineWidth = width
+	}
+
+	func setMiterLimit(limit as double) override
+	{
+		DEBUG("Set miter limit to `" .. String.forDouble(limit) .. "'")
+		miterLimit = limit
+	}
+
+	func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object
+	{
+		ERROR "notImplemented"
+	}
+
+	func createPattern(image as Image, repeat as int) override as object
+	{
+		ERROR "notImplemented"
+	}
+
+	func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object
+	{
+		ERROR "notImplemented"
+	}
+
+	func addColorStop(gradient as object, index as double, color as Color?) override
+	{
+		ERROR "notImplemented"
+	}
+
+	func rect(x as double, y as double, width as double, height as double) override
+	{
+		ERROR "notImplemented"
+	}
+
+	func toXColor(color as Color?) as native<PdfSharp.Drawing.XColor>
+	{
+		var cc = color
+		if not cc:
+			cc = Color.forRGBA(0, 0, 0, 0)
+		return lang "cs" as native<PdfSharp.Drawing.XColor> {{{ PdfSharp.Drawing.XColor.FromArgb(cc.getAlphaInt(), cc.getRedInt(), cc.getGreenInt(), cc.getBlueInt()) }}}
+	}
+
+	func fillRect(x as double, y as double, width as double, height as double) override
+	{
+		assert fillColor
+		DEBUG("Fill rectangle " .. String.forDouble(x) .. "," .. String.forDouble(y) .. "," .. String.forDouble(width) .. "," .. String.forDouble(height))
+		lang "cs" {{{
+			var brush = new PdfSharp.Drawing.XSolidBrush(toXColor(fillColor));
+			gfx.DrawRectangle(brush, x, y, width, height);
+		}}}
+	}
+
+	func strokeRect(x as double, y as double, width as double, height as double) override
+	{
+		assert strokeColor
+		DEBUG("Stroke rectangle " .. String.forDouble(x) .. "," .. String.forDouble(y) .. "," .. String.forDouble(width) .. "," .. String.forDouble(height))
+		lang "cs" {{{
+			var pen = new PdfSharp.Drawing.XPen(toXColor(strokeColor));
+			pen.Width = lineWidth;
+			gfx.DrawRectangle(pen, x, y, width, height);
+		}}}
+	}
+
+	func clearRect(x as double, y as double, width as double, height as double) override
+	{
+		DEBUG("Clear rectangle " .. String.forDouble(x) .. "," .. String.forDouble(y) .. "," .. String.forDouble(width) .. "," .. String.forDouble(height))
+		var fc = fillColor
+		fillColor = Color.white()
+		fillRect(x, y, width, height)
+		fillColor = fc
+	}
+
+	func fill override
+	{
+	}
+
+	func stroke override
+	{
+	}
+
+	func beginPath override
+	{
+	}
+
+	func moveTo(x as double, y as double) override
+	{
+	}
+
+	func closePath override
+	{
+	}
+
+	func lineTo(x as double, y as double) override
+	{
+	}
+
+	func clip override
+	{
+	}
+
+	func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override
+	{
+	}
+
+	func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override
+	{
+	}
+
+	func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override
+	{
+	}
+
+	func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) override
+	{
+	}
+
+	func isPointInPath(x as double, y as double) override as bool
+	{
+		return false
+	}
+
+	func scale(scalewidth as double, scaleheight as double) override
+	{
+	}
+
+	func rotate(angle as double) override
+	{
+	}
+
+	func translate(x as double, y as double) override
+	{
+	}
+
+	func transform(a as double, b as double, c as double, d as double, e as double, f as double) override
+	{
+	}
+
+	func setTransform(a as double, b as double, c as double, d as double, e as double, f as double) override
+	{
+	}
+
+	func setFont(font as FontDescription?) override
+	{
+		if font:
+			DEBUG("Set font to `" .. font.toString() .. "'")
+		this.font = font
+	}
+
+	func getFont as FontDescription
+	{
+		if not font:
+			font = new FontDescription()
+		return font
+	}
+
+	func setTextAlign(align as int) override
+	{
+		DEBUG("Set text align to `" .. String.forInteger(align) .. "'")
+		textAlign = align
+	}
+
+	func setTextBaseline(baseline as int) override
+	{
+	}
+
+	func fillText(text as string, x as double, y as double, maxWidth as double) override
+	{
+		// FIXME: Should this be somehow different?
+		strokeText(text, x, y, maxWidth)
+	}
+
+	func strokeText(text as string, x as double, y as double, maxWidth as double) override
+	{
+		DEBUG("Stroke text `" .. text .. "' at " .. String.forDouble(x) .. "," .. String.forDouble(y))
+		lang "cs" {{{
+			var myfont = toXFont(getFont());
+			var point = new PdfSharp.Drawing.XPoint(x, y);
+			var brush = new PdfSharp.Drawing.XSolidBrush(toXColor(strokeColor));
+			gfx.DrawString(text, myfont, brush, point, PdfSharp.Drawing.XStringFormats.TopLeft);
+		}}}
+	}
+
+	func measureTextWidth(text as string) override as double
+	{
+		var v = 0.0
+		lang "cs" {{{
+			var xsize = gfx.MeasureString(text, toXFont(getFont()));
+			v = xsize.Width;
+		}}}
+		DEBUG("Measure text width `" .. text .. "': " .. String.forDouble(v))
+		return v
+	}
+
+	func measureTextHeight(text as string) override as double
+	{
+		var v = 0.0
+		lang "cs" {{{
+			var xsize = gfx.MeasureString(text, toXFont(getFont()));
+			v = xsize.Height;
+		}}}
+		DEBUG("Measure text height `" .. text .. "': " .. String.forDouble(v))
+		return v
+	}
+
+	func drawImage(img as Image, x as double, y as double) override
+	{
+		var ii = assert img as MyImage
+		lang "cs" {{{
+			gfx.DrawImage(ii.getImage(), x, y);
+		}}}
+	}
+
+	func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
+	{
+		var ii = assert img as MyImage
+		lang "cs" {{{
+			gfx.DrawImage(ii.getImage(), x, y, width, height);
+		}}}
+	}
+
+	func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) override
+	{
+	}
+
+	func setGlobalAlpha(alpha as double) override
+	{
+	}
+
+	func save override
+	{
+	}
+
+	func restore override
+	{
+	}
+}
+
+class MyPdfMakerDocument is PdfMakerDocument
+{
+	var ctx public as LoggingContext?
+	var document as native<PdfSharp.Pdf.PdfDocument>?
+
+	ctor
+	{
+		document = new native<PdfSharp.Pdf.PdfDocument>()
+		if File.forPath("/usr/share/fonts").isDirectory() {
+			lang "cs" {{{
+				PdfSharp.Internal.NativeMethods.FontDirectory = "/usr/share/fonts/";
+			}}}
+		}
+	}
+
+	func setTitle(title as string) override
+	{
+		lang "cs" {{{
+			document.Info.Title = title;
+		}}}
+	}
+
+	func addPageWithSize(size as PaperSize) override as PdfMakerPage
+	{
+		var v = new MyPdfMakerPage()
+		v.ctx = ctx
+		lang "cs" {{{
+			var page = document.AddPage();
+			v.setPage(page);
+		}}}
+		if size.getValue() == PaperSize.LETTER {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.Letter;
+			}}}
+		}
+		else if size.getValue() == PaperSize.LEGAL {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.Legal;
+			}}}
+		}
+		else if size.getValue() == PaperSize.A3 {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.A3;
+			}}}
+		}
+		else if size.getValue() == PaperSize.A4 {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.A4;
+			}}}
+		}
+		else if size.getValue() == PaperSize.A5 {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.A5;
+			}}}
+		}
+		else if size.getValue() == PaperSize.B4 {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.B4;
+			}}}
+		}
+		else if size.getValue() == PaperSize.B5 {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.B5;
+			}}}
+		}
+		else {
+			lang "cs" {{{
+				page.Size = PdfSharp.PageSize.A4;
+			}}}
+		}
+		return v
+	}
+
+	func saveToFile(file as File) override as bool
+	{
+		lang "cs" {{{
+			document.Save(file.getPath());
+		}}}
+		return true
+	}
+}
+
+func createDocument override as PdfMakerDocument
+{
+	var v = new MyPdfMakerDocument()
+	v.ctx = ctx
+	return v
+}
+
+class MyImage is Image
+{
+	pvar image as native<PdfSharp.Drawing.XImage>?
+
+	func getPixelWidth override as int:
+		return lang "cs" as int {{{ (int)image.PixelWidth }}}
+
+	func getPixelHeight override as int:
+		return lang "cs" as int {{{ (int)image.PixelHeight }}}
+
+	func scaleToSizeSync(w as int, h as int) override as Image
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func scaleToSize(w as int, h as int, callback as function<void, Image?>) override
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func scaleToWidthSync(w as int) override as Image
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func scaleToWidth(w as int, callback as function<void, Image?>) override
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func scaleToHeightSync(h as int) override as Image
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func scaleToHeight(h as int, callback as function<void, Image?>) override
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func cropSync(x as int, y as int, w as int, h as int) override as Image
+	{
+		// FIXME
+		return this
+		ERROR "notImplemented"
+	}
+
+	func crop(x as int, y as int, w as int, h as int, callback as function<void, Image?>) override
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func toJPGData override as buffer
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func toPNGData override as buffer
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func toRGBAData override as buffer
+	{
+		// FIXME
+		ERROR "notImplemented"
+	}
+
+	func releaseImage override
+	{
+		image = null
+	}
+}
+
+func prepareImageForFile(file as File) override as Image
+{
+	var path = file.getPath()
+	var img = lang "cs" as native<PdfSharp.Drawing.XImage>? {{{ PdfSharp.Drawing.XImage.FromFile(path) }}}
+	if not img:
+		Error.throw("failedToCreatePdfSharpImage", null)
+	var v = new MyImage()
+	v.setImage(img)
+	return v
+}

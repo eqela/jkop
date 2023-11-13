@@ -28,7 +28,7 @@ class:
 
 func fromUrlSafeFormat(str as string) static as string
 {
-	var v = assert str
+	var v = str
 	v = String.replaceCharacter(v, '-', '+')
 	v = String.replaceCharacter(v, '_', '/')
 	var mod = String.getLength(v) % 4
@@ -80,9 +80,8 @@ ELSE {
 
 func decode(text as string) static as buffer
 {
-	assert text
 	IFDEF "target_android_java" {
-		var bytes as buffer
+		var bytes as buffer?
 		var blen as long = 0
 		lang "java" {{{
 			bytes = android.util.Base64.decode(text, android.util.Base64.DEFAULT);
@@ -91,76 +90,66 @@ func decode(text as string) static as buffer
 			}
 		}}}
 		if bytes == null || blen < 1:
-			return null
+			return Buffer.allocate(0)
 		return Buffer.resize(bytes, blen)
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" buffer {{{ NSMutableData(data: (Data(base64Encoded: text!))!) }}}
+		return lang "swift" as buffer {{{ NSMutableData(data: (Data(base64Encoded: text!))!) }}}
 	}
-	ELSE IFDEF "target_cs" {
-		return lang "cs" buffer {{{ System.Convert.FromBase64String(text) }}}
+	ELSE IFDEF "target_dotnet_cs" {
+		return lang "cs" as buffer {{{ System.Convert.FromBase64String(text) }}}
 	}
-	ELSE IFDEF "target_browser" {
+	ELSE IFDEF "target_browser_js" {
+		var arr as buffer?
 		lang "js" {{{
-			try {
-				var binaryString = window.atob(text);
-				var len = binaryString.length;
-				var arr = new Uint8Array(len);
-				for(var i = 0; i < len; i++) {
-					arr[i] = binaryString.charCodeAt(i);
-				}
-				if(arr != null) {
-					return arr;
-				}
-			} catch(e) {
-				console.log("Exception: " + e.message);
-				return null;
+			var binaryString = window.atob(text);
+			var len = binaryString.length;
+			arr = new Uint8Array(len);
+			for(var i = 0; i < len; i++) {
+				arr[i] = binaryString.charCodeAt(i);
 			}
 		}}}
-		return null
+		return arr as! buffer
 	}
-	ELSE IFDEF "target_js" {
-		return lang "js" buffer {{{ Buffer.from(text, "base64") }}}
+	ELSE IFDEF "target_node_js" {
+		return lang "js" as buffer {{{ Buffer.from(text, "base64") }}}
 	}
 	ELSE {
 		var data = Buffer.allocate(String.getLength(text))
-		var iter = String.iterate(text)
+		var iter = String.iterateAsCharacterIterator(text)
 		var dstIndex = 0
-		if iter {
-			var ch = 0 as char
-			while (ch = iter.getNextChar()) > 0 {
-				var c1 = 0
-				var c2 = 0
-				var c3 = 0
-				var c4 = 0
-				var byte1 = 0 as uint8
-				var byte2 = 0 as uint8
-				var byte3 = 0 as uint8
-				c1 = fromLookupChar(ch)
-				c2 = fromLookupChar(ch = iter.getNextChar())
-				byte1 = ((c1 << 2) + (c2 >> 4)) as uint8
-				data[dstIndex++] = byte1
-				ch = iter.getNextChar()
-				if ch == '=' {
-					break
-				}
-				else {
-					c3 = fromLookupChar(ch)
-				}
-				byte2 = (((c2 & 0x0F) << 4) + (c3 >> 2)) as uint8
-				data[dstIndex++] = byte2
-				ch = iter.getNextChar()
-				if ch == '=' {
-					break
-				}
-				else {
-					c4 = fromLookupChar(ch)
-				}
-				byte3 = (((c3 & 0x03) << 6) + c4) as uint8
-				data[dstIndex++] = byte3
+		var ch = 0 as char
+		while (ch = iter.getNextChar()) > 0 {
+			var c1 = 0
+			var c2 = 0
+			var c3 = 0
+			var c4 = 0
+			var byte1 = 0 as uint8
+			var byte2 = 0 as uint8
+			var byte3 = 0 as uint8
+			c1 = fromLookupChar(ch)
+			c2 = fromLookupChar(ch = iter.getNextChar())
+			byte1 = ((c1 << 2) + (c2 >> 4)) as uint8
+			data[dstIndex++] = byte1
+			ch = iter.getNextChar()
+			if ch == '=' {
+				break
 			}
+			else {
+				c3 = fromLookupChar(ch)
+			}
+			byte2 = (((c2 & 0x0F) << 4) + (c3 >> 2)) as uint8
+			data[dstIndex++] = byte2
+			ch = iter.getNextChar()
+			if ch == '=' {
+				break
+			}
+			else {
+				c4 = fromLookupChar(ch)
+			}
+			byte3 = (((c3 & 0x03) << 6) + c4) as uint8
+			data[dstIndex++] = byte3
 		}
-		var rdata = Buffer.resize(data, dstIndex)
-		return rdata
+		return Buffer.resize(data, dstIndex)
 	}
 }

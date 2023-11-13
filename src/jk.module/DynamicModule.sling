@@ -27,7 +27,7 @@ import jk.fs
 
 class:
 
-IFDEF "target_netcore"
+IFDEF "target_dotnet_cs"
 {
 	depend "nuget:System.Reflection@4.3.*"
 	depend "nuget:System.Runtime.Loader@4.3.*"
@@ -36,47 +36,34 @@ IFDEF "target_netcore"
 func forFile(ctx as LoggingContext, file as File) static as this
 {
 	var v = new this()
-	if v.loadFile(ctx, file) == false:
-		return null
+	v.loadFile(ctx, file)
 	return v
 }
 
 func forObject(ctx as LoggingContext, oo as object #preserve) static as this
 {
-	assert oo
-	IFDEF "target_cs" {
-		var asm as !"System.Reflection.Assembly" #preserve
-		IFDEF "target_dotnet4" {
-			lang "cs" {{{
-				var type = oo.GetType();
-				if(type != null) {
-					asm = type.Assembly;
-				}
-			}}}
-		}
-		ELSE {
-			lang "cs" {{{
-				var type = oo.GetType();
-				if(type != null) {
-					asm = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).Assembly;
-				}
-			}}}
-		}
-		assert asm
+	IFDEF "target_dotnet_cs" {
+		var asm as native<System.Reflection.Assembly>? #preserve
+		lang "cs" {{{
+			var type = oo.GetType();
+			if(type != null) {
+				asm = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).Assembly;
+			}
+		}}}
+		if not asm:
+			Error.throw("failedToGetAssemblyObject", null)
 		var v = new this()
 		v.setAssembly(asm)
 		return v
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+	    ERROR "notImplemented"
 	}
 }
 
 func isModuleFile(ctx as LoggingContext, file as File) static as bool
 {
-	assert file
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		if file.hasExtension("dll"):
 			return true
 	}
@@ -87,63 +74,48 @@ func isModuleFile(ctx as LoggingContext, file as File) static as bool
 	return false
 }
 
-IFDEF "target_cs" {
-	pvar assembly as !"System.Reflection.Assembly" #preserve
+IFDEF "target_dotnet_cs" {
+	pvar assembly as native<System.Reflection.Assembly>? #preserve
 }
 
 IFDEF "target_swift" {
-	pvar handle as !"UnsafeMutableRawPointer"
+	pvar handle as native<UnsafeMutableRawPointer>?
 }
 
 func getModuleDescription as string
 {
-	IFDEF "target_cs" {
+	IFDEF "target_dotnet_cs" {
 		if assembly:
-			return lang "cs" string {{{ assembly.FullName }}}
+			return lang "cs" as string {{{ assembly.FullName }}}
 	}
 	return "builtin"
 }
 
-func loadFile(ctx as LoggingContext, file as File #preserve) as bool
+func loadFile(ctx as LoggingContext, file as File #preserve)
 {
-	assert file:
-		ctx.logError(VALUE "__THIS__" .. ": Null file")
-	assert file.isFile():
-		ctx.logError(VALUE "__THIS__" .. ": Not a file: `" .. file.getPath() .. "'")
+	if not file.isFile():
+		Error.throw("fileDoesNotExist", file)
 	ctx.logDebug("Loading dynamic module: `" .. file.getPath() .. "'")
-	IFDEF "target_cs" {
-		var error as string #preserve
-		IFDEF "target_dotnet4cs" {
-			lang "cs" {{{
-				try {
-					assembly = System.Reflection.Assembly.UnsafeLoadFrom(file.getPath());
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
-		ELSE IFDEF "target_uwp" {
-			ctx.logError("Loading assemblies on UWP: Not supported")
-		}
-		ELSE {
-			lang "cs" {{{
-				try {
-					assembly = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(file.getPath());
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
+	IFDEF "target_uwp" {
+		ERROR "notImplemented"
+	}
+	ELSE IFDEF "target_dotnet_cs" {
+		var error as string? #preserve
+		lang "cs" {{{
+			try {
+				assembly = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(file.getPath());
+			}
+			catch(System.Exception e) {
+				error = e.ToString();
+			}
+		}}}
 		if assembly == null {
 			if error:
 				ctx.logDebug(error)
-			ctx.logError("Failed to load assembly: `" .. file.getPath() .. "'")
-			return false
+			Error.throw("failedToLoadAssembly", file)
 		}
 		ctx.logDebug("Assembly successfully loaded: `" .. file.getPath() .. "'")
-		return true
+		return
 	}
 	ELSE IFDEF "target_swift" {
 		var path = file.getPath()
@@ -159,47 +131,34 @@ func loadFile(ctx as LoggingContext, file as File #preserve) as bool
 		return true
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return false
+	    ERROR "notImplemented"
 	}
 }
 
 func executeStaticMethod(ctx as LoggingContext, entityName as string #preserve, methodName as string #preserve, parameters as array<object> #preserve) as bool
 {
-	IFDEF "target_cs" {
+	IFDEF "target_uwp" {
+		ERROR "notSupported"
+	}
+	ELSE IFDEF "target_dotnet_cs" {
 		assert assembly:
 			ctx.logError("executeStaticMethod: No assembly has been loaded.")
-		var mainType as !"System.Type" #preserve
+		var mainType as native<System.Type>? #preserve
 		lang "cs" {{{
 			mainType = assembly.GetType(entityName);
 		}}}
 		assert mainType:
 			ctx.logError("Failed to find class `" .. entityName .. "' in dynamic module: `" .. getModuleDescription() .. "'")
-		var error as string #preserve
-		var methodRef as !"System.Reflection.MethodInfo" #preserve
-		IFDEF "target_uwp" {
-			ctx.logError("GetMethod on UWP: Not supported")
-		}
-		ELSE IFDEF "target_dotnet4" {
-			lang "cs" {{{
-				try {
-					methodRef = mainType.GetMethod(methodName);
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
-		ELSE {
-			lang "cs" {{{
-				try {
-					methodRef = System.Reflection.IntrospectionExtensions.GetTypeInfo(mainType).GetMethod(methodName);
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
+		var error as string? #preserve
+		var methodRef as native<System.Reflection.MethodInfo>? #preserve
+		lang "cs" {{{
+			try {
+				methodRef = System.Reflection.IntrospectionExtensions.GetTypeInfo(mainType).GetMethod(methodName);
+			}
+			catch(System.Exception e) {
+				error = e.ToString();
+			}
+		}}}
 		if methodRef == null {
 			if error:
 				ctx.logDebug(error)
@@ -242,80 +201,40 @@ func executeStaticMethod(ctx as LoggingContext, entityName as string #preserve, 
 		}
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return false
+		ERROR "notImplemented"
 	}
 }
 
 func createObject(ctx as LoggingContext, className as string #preserve) as object
 {
-	IFDEF "target_cs" {
-		assert assembly:
-			ctx.logError("createObject: No assembly has been loaded.")
-		var type as !"System.Type" #preserve
+	IFDEF "target_uwp" {
+		ERROR "notImplemented"
+	}
+	ELSE IFDEF "target_dotnet_cs" {
+		if not assembly:
+			ERROR "noAssemblyObjectLoaded"
+		var type as native<System.Type>? #preserve
 		lang "cs" {{{
 			type = assembly.GetType(className);
 		}}}
-		assert type:
-			ctx.logError("Failed to find class `" .. className .. "' in dynamic module: `" .. getModuleDescription() .. "'")
-		var error as string #preserve
-		var constructor as !"System.Reflection.ConstructorInfo" #preserve
-		IFDEF "target_uwp" {
-			ctx.logError("GetConstructor on UWP: Not supported")
-		}
-		ELSE IFDEF "target_dotnet4cs" {
-			lang "cs" {{{
-				try {
-					constructor = type.GetConstructor(new System.Type[0]);
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
-		ELSE {
-			lang "cs" {{{
-				try {
-					constructor = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).GetConstructor(new System.Type[0]);
-				}
-				catch(System.Exception e) {
-					error = e.ToString();
-				}
-			}}}
-		}
-		if constructor == null {
-			if error:
-				ctx.logDebug(error)
-			ctx.logError("Failed to find a default constructor in class `" .. className .. "' in module: `" .. getModuleDescription() .. "'")
-			return null
-		}
-		var v as object #preserve
+		if not type:
+			Error.throw("failedToFindClassInDynamicModule", className)
+		var constructor as native<System.Reflection.ConstructorInfo>? #preserve
 		lang "cs" {{{
-			try {
-				v = constructor.Invoke(null);
-			}
-			catch(System.Exception e) {
-				error = e.ToString();
-			}
+			constructor = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).GetConstructor(new System.Type[0]);
 		}}}
-		if error {
-			ctx.logDebug(error)
-			ctx.logError("Failed to call default constructor of class `" .. className .. "' in module: `" .. getModuleDescription() .. "'")
-			return null
-		}
-		if v == null {
-			ctx.logError("Constructor called without error for class `" .. className .. "' in module `" .. getModuleDescription() .. "', but no object was created!")
-			return null
-		}
+		if constructor == null:
+			Error.throw("failedToFindConstructorInClass", className)
+		var v = lang "cs" as object? {{{ constructor.Invoke(null) }}}
+		if not v:
+			Error.throw("failedToCreateObject", className)
 		return v
 	}
 	ELSE IFDEF "target_swift" {
 		// FIXME: Need for appropriate API
-		ERROR "Not implemented."
-		return null
+	    ERROR "notImplemented"
 	}
 	ELSE {
-		ERROR "Not implemented."
-		return null
+	    ERROR "notImplemented"
 	}
 }

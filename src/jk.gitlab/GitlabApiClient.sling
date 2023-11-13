@@ -47,18 +47,16 @@ model GitlabRepositoryDetails public
 	web_url as string
 }
 
-func forAccessToken(ctx as LoggingContext, accessToken as string) static as this
-{
-	var v = new this(ctx)
-	v.accessToken = accessToken
-	return v
-}
+func forAccessToken(ctx as LoggingContext, accessToken as string) static as this:
+	return new this() {
+		ctx ctx
+		accessToken accessToken
+	}
 
 prop accessToken as string
 
 func getUserDetails async as GitlabUserDetails
 {
-	assert accessToken
 	var hdrs = new KeyValueList<string,string>()
 	hdrs.add("Authorization", "Bearer " .. accessToken)
 	var response = await request("GET", "https://gitlab.com/api/v4/user", hdrs, null)
@@ -70,16 +68,13 @@ func getUserDetails async as GitlabUserDetails
 
 func getUserRepositories(gitlabUserId as string) async as vector<GitlabRepositoryDetails>
 {
-	assert accessToken
-	assert gitlabUserId
 	var hdrs = new KeyValueList<string,string>()
 	hdrs.add("Authorization", "Bearer " .. accessToken)
 	var response = await request("GET", "https://gitlab.com/api/v4/users/" .. gitlabUserId .. "/projects", hdrs, null)
 	var body = response.getBodyAsBuffer()
-	var res = assert JSONParser.parseBuffer(body) as DynamicVector:
-		Error.throw("httpResponseIsNotJsonArray", "HTTP response is not a JSON array")
+	var res = JSONParser.parseBufferAsVector(body)
 	var v = new vector<GitlabRepositoryDetails>
-	foreach data as DynamicMap in (res as DynamicVector).toVector() {
+	foreach data as DynamicMap in res.toVector() {
 		var repo = GitlabRepositoryDetails.forData(data)
 		v += repo
 	}

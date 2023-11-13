@@ -31,25 +31,35 @@ class is WebServerRouter:
 ctor:
 	addHealthCheckRoute()
 
-func base64decode(data as string) as buffer:
+func decodeBase64StringOrThrowError(data as string) as buffer:
 	return Base64Decoder.decode(data)
 
-func addFunction(name as string, handler as function<promise<dynamic>,DynamicMap>)
+func decodeBase64StringOrReturnNull(data as string?) as buffer?
+{
+	if not data:
+		return null
+	return Base64Decoder.decode(data)
+}
+
+func addFunction(name as string, handler as function<promise<dynamic?>,DynamicMap>)
 {
 	addRoute("POST", "/func/" .. name, func(req as WebServerRequest, vars as DynamicMap) async {
 		try {
-			var body = await req.readBodyAsBuffer()
-			var data = JSONParser.parse(body) as DynamicMap
-			if not data {
-				if ctx && ctx.isInDebugMode():
-					Log.debug(ctx, "Invalid body: `" .. String.asString(data) .. "'")
-				Error.throw("invalidBody", null)
-			}
-			if ctx && ctx.isInDebugMode():
-				Log.debug(ctx, "Received : [ Method Name: " .. name .. " ]" .. " [ Paramameters : `" .. JSONEncoder.encode(data)  .. " `] ")
+			var body = await req.getBodyAsBuffer()
+			var data = JSONParser.parseBufferAsMap(body)
+			if ctx.isInDebugMode():
+				Log.debug(ctx, "Received : [ Method Name: " .. name .. " ]" .. " [ Paramameters : `" .. JSONEncoder.toString(data)  .. " `] ")
 			var v = await handler(data)
-			if ctx && ctx.isInDebugMode():
-				Log.debug(ctx, "Responding : [ Method Name: " .. name .. " ]" .. " [ Result : `" .. JSONEncoder.encode(v)  .. " `] ")
+			if ctx.isInDebugMode() {
+				var response as string?
+				if v {
+					response = JSONEncoder.toString(v)
+				}
+				else {
+					response = "null"
+				}
+				Log.debug(ctx, "Responding : [ Method Name: " .. name .. " ]" .. " [ Result : `" .. response  .. " `] ")
+			}
 			var rdata = String.toUTF8Buffer(JSONEncoder.toString(new map {
 				status "ok"
 				data v
@@ -60,15 +70,15 @@ func addFunction(name as string, handler as function<promise<dynamic>,DynamicMap
 			await req.endResponse()
 		}
 		catch e {
-			Log.error(ctx, String.asString(e))
-			var rdata = String.toUTF8Buffer(JSONEncoder.toString(new map {
-				status "error"
-				errorCode e.getErrorCode()
-				errorDetail String.asString(e.getErrorDetail())
-			}))
+			Log.error(ctx, String.asValueOrEmptyString(e))
 			req.setResponseStatus(500)
 			req.setResponseHeader("Content-Type", "application/json")
-			await req.writeResponseData(rdata)
+			if var ee = e as ExceptionWithError:
+				await req.writeResponseData(String.toUTF8Buffer(JSONEncoder.toString(new map {
+					status "error"
+					errorCode ee.getErrorCode()
+					errorDetail String.asValueOrEmptyString(ee.getErrorDetail())
+				})))
 			await req.endResponse()
 		}
 	})

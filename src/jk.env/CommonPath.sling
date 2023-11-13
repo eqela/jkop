@@ -28,10 +28,10 @@ import jk.env
 
 class:
 
-func getTemporaryDirectory static as File
+func getTemporaryDirectory static as File?
 {
-	IFDEF "target_cs" {
-		return File.forPath(lang "cs" string {{{ System.IO.Path.GetTempPath() }}})
+	IFDEF "target_dotnet_cs" {
+		return File.forPath(lang "cs" as string {{{ System.IO.Path.GetTempPath() }}})
 	}
 	ELSE IFDEF "target_objc" {
 		return File.forPath("/tmp")
@@ -52,11 +52,10 @@ func getTemporaryDirectory static as File
 			Error.throw("missingEnvironmentVariable", "TEMP/TMP")
 			return null
 		}
-		Error.throw("notImplemented", "CommonPath.getTemporaryDirectory")
-		return null
+		ERROR "notImplemented"
 	}
 	/* FIXME: Android implementation
-	func forTemporaryDirectory(context as !"android.content.Context") static as File
+	func forTemporaryDirectory(context as native<android.content.Context>) static as File
 	{
 		var v = new this()
 		lang "java" {{{
@@ -67,10 +66,10 @@ func getTemporaryDirectory static as File
 	*/
 }
 
-func getHomeDirectory static as File
+func getHomeDirectory static as File?
 {
-	IFDEF "target_cs" {
-		var v as string = null
+	IFDEF "target_dotnet_cs" {
+		var v as string? = null
 		lang "cs" {{{
 			var hd = System.Environment.GetEnvironmentVariable("HOMEDRIVE");
 			if(hd != null) {
@@ -88,13 +87,8 @@ func getHomeDirectory static as File
 				}
 			}}}
 		}
-		IFDEF "target_dotnet4cs" {
-			if v == null {
-				lang "cs" {{{
-					v = System.Environment.GetFolderPath(System.Environment.SpecialFolder.UserProfile);
-				}}}
-			}
-		}
+		if not v:
+			return null
 		return File.forPath(v)
 	}
 	ELSE IFDEF "target_objc" {
@@ -110,7 +104,7 @@ func getHomeDirectory static as File
 		return null
 	}
 	/* FIXME: Android implementation
-	func forHomeDirectory(context as !"android.content.Context") static as File
+	func forHomeDirectory(context as native<android.content.Context>) static as File
 	{
 		var v = new this()
 		lang "java" {{{
@@ -121,28 +115,23 @@ func getHomeDirectory static as File
 	*/
 }
 
-func getAppDirectory static as File
+func getAppDirectory static as File?
 {
-	IFDEF "target_dotnet4cs" {
-		return File.forPath(lang "cs" string {{{ System.AppDomain.CurrentDomain.BaseDirectory }}})
-	}
-	ELSE IFDEF "target_sushi" {
-		var program = lang "lua" string {{{ _vm:get_program_path() }}}
+	IFDEF "target_sushi" {
+		var program = lang "lua" as string {{{ _vm:get_program_path() }}}
 		assert String.isNotEmpty(program)
 		var pf = assert File.forPath(program)
 		return pf.getParent()
 	}
 	ELSE {
-		Error.throw("notImplemented", "CommonPath.getAppDirectory")
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func getCodeFileForObject(oo as object) static as File
+func getCodeFileForObject(oo as object) static as File?
 {
-	assert oo
-	IFDEF "target_cs" {
-		var path as string
+	IFDEF "target_dotnet_cs" {
+		var path as string?
 		lang "cs" {{{
 			var type = oo.GetType();
 			if(type != null) {
@@ -160,46 +149,19 @@ func getCodeFileForObject(oo as object) static as File
 		return null
 	}
 	ELSE {
-		ERROR "Not implemented"
-		return null
+		ERROR "notImplemented"
 	}
 }
 
-func getProgramFilesDirectory static as File
-{
-	IFDEF "target_dotnet4cs" {
-		if OS.isWindows() {
-			var dirName = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFiles) }}}
-			if String.isEmpty(dirName):
-				dirName = "C:\\Program Files"
-			var v = File.forPath(dirName)
-			if v.isDirectory() == false:
-				v = null
-			return v
-		}
-	}
+func getProgramFilesDirectory static as File?:
 	return null
-}
 
-func getProgramFilesX86Directory static as File
-{
-	IFDEF "target_dotnet4cs" {
-		if OS.isWindows() {
-			var dirName = lang "cs" string {{{ System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86) }}}
-			if String.isEmpty(dirName):
-				dirName = "C:\\Program Files (x86)"
-			var v = File.forPath(dirName)
-			if v.isDirectory() == false:
-				v = null
-			return v
-		}
-	}
+func getProgramFilesX86Directory static as File?:
 	return null
-}
 
-func getApplicationsDirectory static as File
+func getApplicationsDirectory static as File?
 {
-	IFDEF "target_browser" {
+	IFDEF "target_browser_js" {
 		return null
 	}
 	ELSE IFDEF "target_android" {
@@ -218,7 +180,7 @@ func getApplicationsDirectory static as File
 		if OS.isMacOS() {
 			var v = File.forPath("/Applications")
 			if v.isDirectory() == false:
-				v = null
+				return null
 			return v
 		}
 		return null

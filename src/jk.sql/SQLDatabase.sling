@@ -39,13 +39,12 @@ prop ctx as LoggingContext
 func closeConnection async abstract
 func getDatabaseTypeId abstract as string
 func getLastInsertId(table as string) abstract async as long
-func getIdentityColumnName(table as string) abstract async as string
-func getPrimaryKeyColumnName(table as string) abstract async as string
+func getIdentityColumnName(table as string) abstract async as string?
+func getPrimaryKeyColumnName(table as string) abstract async as string?
 func prepareStatement(sql as string) async abstract as SQLStatement
-func executeStatement(stmt as SQLStatement) abstract async as bool
+func executeStatement(stmt as SQLStatement) abstract async
 func executeUpdateDeleteStatement(stmt as SQLStatement) abstract async as int
 func executeQueryStatement(stmt as SQLStatement) abstract async as SQLResultSetIterator
-func executeSingleRowQueryStatement(stmt as SQLStatement) abstract async as DynamicMap
 func checkIfTableExists(table as string) abstract async as bool
 func checkIfColumnExists(table as string, name as string) abstract async as bool
 func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) abstract async as bool
@@ -55,7 +54,27 @@ func prepareDeleteTableStatement(table as string) async abstract as SQLStatement
 func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
 func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
 
-func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async as bool
+func getSingleRowOrNull(stmt as SQLStatement) virtual async as DynamicMap?
+{
+	var it = await executeQueryStatement(stmt)
+	if not it.hasNext():
+		return null
+	var v = it.next()
+	it.close()
+	return v
+}
+
+func getSingleRowOrThrowError(stmt as SQLStatement) virtual async as DynamicMap
+{
+	var it = await executeQueryStatement(stmt)
+	if not it.hasNext():
+		ERROR "notFound"
+	var v = it.next()
+	it.close()
+	return v
+}
+
+func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async
 {
 	meta {
 		description [[
@@ -63,41 +82,15 @@ func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableCo
 			Returns false if something went wrong.
 		]]
 	}
-	foreach column as SQLTableColumnInfo in columns {
-		if await checkIfColumnExists(tableName, column.getName()) {
+	foreach column in columns {
+		if await checkIfColumnExists(tableName, column.name) {
 			if not await checkIfColumnTypeMatches(tableName, column):
-				assert await executeStatement(await prepareUpdateColumnTypeStatement(tableName, column))
+				await executeStatement(await prepareUpdateColumnTypeStatement(tableName, column))
 		}
 		else {
-			assert await executeStatement(await prepareCreateColumnStatement(tableName, column))
+			await executeStatement(await prepareCreateColumnStatement(tableName, column))
 		}
 	}
-	return true
-}
-
-func tryEnsureTableExists(table as SQLTableInfo) virtual async as bool
-{
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-			Returns false in any failure scenario.
-		]]
-	}
-	assert table
-	var name = table.getName()
-	assert String.isNotEmpty(name)
-	if await checkIfTableExists(name) {
-		var v = await ensureColumnsExistInTable(name, table.getColumns())
-		if v:
-			return true
-		return false
-	}
-	assert await executeStatement(await prepareCreateTableStatement(name, table.getColumns()))
-	foreach cii as SQLTableColumnIndexInfo in table.getIndexes() {
-		if not await executeStatement(await prepareCreateIndexStatement(name, cii.getColumns(), cii.getUnique())):
-			await executeStatement(await prepareDeleteTableStatement(name))
-	}
-	return true
 }
 
 func ensureTableExists(table as SQLTableInfo) virtual async
@@ -108,9 +101,18 @@ func ensureTableExists(table as SQLTableInfo) virtual async
 			Throws an exception in any failure scenario.
 		]]
 	}
-	assert table
-	if not await tryEnsureTableExists(table):
-		Error.throw("failedToUpdateDatabaseTable", table.getName())
+	var name = table.name
+	if String.isEmpty(name):
+		Error.throw("emptyTableName", table)
+	if await checkIfTableExists(name) {
+		await ensureColumnsExistInTable(name, table.columns)
+		return
+	}
+	await executeInTransaction(func async {
+		await executeStatement(await prepareCreateTableStatement(name, table.columns))
+		foreach cii in table.indexes:
+			await executeStatement(await prepareCreateIndexStatement(name, cii.columns, cii.unique))
+	})
 }
 
 func prepareCreateIndexStatement(table as string, columns as vector<string>, unique as bool) async virtual as SQLStatement
@@ -121,7 +123,8 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 			indicates if the index will be unique.
 		]]
 	}
-	assert String.isNotEmpty(table) && Vector.isNotEmpty(columns)
+	if Vector.getSize(columns) < 1:
+		Error.throw("noColumnsForPrepareIndexStatement", table)
 	var namesb = new StringBuilder()
 	namesb.appendString(table)
 	foreach column in columns {
@@ -155,7 +158,7 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 	return await prepareStatement(sqlsb.toString())
 }
 
-func createColumnSelectionString(columns as vector<string>) private as string
+func createColumnSelectionString(columns as vector<string>?) private as string
 {
 	meta {
 		description [[
@@ -185,16 +188,17 @@ func createOrderByString(order as vector<SQLOrderingRule>) private as string
 			or instance(s) of SQLOrderingRule class.
 		]]
 	}
-	assert order && sizeof order > 0
+	if sizeof order < 1:
+		Error.throw("emptyOrderByRuleVector", order)
 	var sb = new StringBuilder()
 	sb.appendString(" ORDER BY ")
 	var first = true
 	foreach sr in order {
 		if not first:
 			sb.appendString(", ")
-		sb.appendString(prepareColumnName(sr.getColumn()))
+		sb.appendString(prepareColumnName(sr.column))
 		sb.appendCharacter(' ')
-		if sr.getDescending() {
+		if sr.descending {
 			sb.appendString("DESC")
 		}
 		else {
@@ -205,7 +209,7 @@ func createOrderByString(order as vector<SQLOrderingRule>) private as string
 	return sb.toString()
 }
 
-func prepareSelectAllStatement(table as string, columns as vector<string> = null, order as vector<SQLOrderingRule> = null) async virtual as SQLStatement
+func prepareSelectAllStatement(table as string, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -219,12 +223,13 @@ func prepareSelectAllStatement(table as string, columns as vector<string> = null
 	sb.appendString(createColumnSelectionString(columns))
 	sb.appendString(" FROM ")
 	sb.appendString(prepareTableName(table))
-	sb.appendString(createOrderByString(order))
+	if order:
+		sb.appendString(createOrderByString(order))
 	sb.appendString(";")
 	return await prepareStatement(sb.toString())
 }
 
-func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap, limit as int = 0, offset as int = 0, columns as vector<string> = null, order as vector<SQLOrderingRule> = null, likeOperator as bool = false) async virtual as SQLStatement
+func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?, limit as int = 0, offset as int = 0, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null, likeOperator as bool = false) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -241,10 +246,10 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 	sb.appendString(" FROM ")
 	sb.appendString(prepareTableName(table))
 	var first = true
-	var keys as vector<string>
+	var keys as vector<string>?
 	if criteria {
 		keys = criteria.getKeys()
-		foreach key as string in keys {
+		foreach key in keys {
 			if first {
 				sb.appendString(" WHERE ")
 				first = false
@@ -267,7 +272,8 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 			}
 		}
 	}
-	sb.appendString(createOrderByString(order))
+	if order:
+		sb.appendString(createOrderByString(order))
 	if limit > 0 {
 		sb.appendString(" LIMIT ")
 		sb.appendString(String.forInteger(limit))
@@ -279,10 +285,8 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 	sb.appendCharacter(';')
 	var sql = sb.toString()
 	var stmt = await prepareStatement(sql)
-	if not stmt:
-		return null
-	if keys {
-		foreach key as string in keys {
+	if keys && criteria {
+		foreach key in keys {
 			var val = criteria.getString(key)
 			if val == null:
 				continue
@@ -297,7 +301,7 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap,
 	return stmt
 }
 
-func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeOperator as bool = false) async virtual as SQLStatement
+func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, likeOperator as bool = false) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -309,10 +313,10 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeO
 	sb.appendString("SELECT COUNT(*) AS count FROM ")
 	sb.appendString(prepareTableName(table))
 	var first = true
-	var keys as vector<string>
+	var keys as vector<string>?
 	if criteria {
 		keys = criteria.getKeys()
-		foreach key as string in keys {
+		foreach key in keys {
 			if first {
 				sb.appendString(" WHERE ")
 				first = false
@@ -336,9 +340,9 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap, likeO
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = assert await prepareStatement(sb.toString())
-	if keys {
-		foreach key as string in keys {
+	var stmt = await prepareStatement(sb.toString())
+	if keys && criteria {
+		foreach key in keys {
 			var val = criteria.getString(key)
 			if val == null:
 				continue
@@ -361,7 +365,6 @@ func prepareSelectDistinctValuesStatement(table as string, column as string) asy
 			with the specified database table name and column name.
 		]]
 	}
-	assert String.isNotEmpty(table) && String.isNotEmpty(column)
 	var sb = new StringBuilder()
 	sb.appendString("SELECT DISTINCT ")
 	sb.appendString(prepareColumnName(column))
@@ -379,7 +382,6 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 			specified database table name and an instance of DynamicMap for values.
 		]]
 	}
-	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.appendString("INSERT INTO ")
 	sb.appendString(prepareTableName(table))
@@ -389,7 +391,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 	foreach key in keys {
 		if not first:
 			sb.appendCharacter(',')
-		sb.appendString(prepareColumnName(key as string))
+		sb.appendString(prepareColumnName(key))
 		first = false
 	}
 	sb.appendString(" ) VALUES ( ")
@@ -406,43 +408,46 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 		first = false
 	}
 	sb.appendString(" );")
-	var stmt = assert await prepareStatement(sb.toString())
+	var stmt = await prepareStatement(sb.toString())
 	foreach key in keys {
 		var o = data.get(key)
 		if o == null:
 			continue
-		if o is string || o is StringObject {
-			stmt.addParamString(String.asString(o))
+		if o is string {
+			stmt.addParamString(o as! string)
+		}
+		else if o is buffer {
+			stmt.addParamBlob(o as! buffer)
+		}
+		else if o is StringObject {
+			stmt.addParamString((o as! StringObject).toString())
 		}
 		else if o is IntegerObject {
-			stmt.addParamInteger(Integer.asInteger(o))
+			stmt.addParamInteger((o as! IntegerObject).toInteger())
 		}
 		else if o is LongIntegerObject {
-			stmt.addParamLongInteger(LongInteger.asLong(o))
+			stmt.addParamLongInteger((o as! LongIntegerObject).toLongInteger())
 		}
 		else if o is DoubleObject {
-			stmt.addParamDouble(Double.asDouble(o))
+			stmt.addParamDouble((o as! DoubleObject).toDouble())
 		}
 		else if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
-		}
-		else if o is buffer {
-			stmt.addParamBlob(o as buffer)
 		}
 		else if o is BooleanObject {
 			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
 		}
 		else {
-			var s = String.asString(o)
+			var s = String.asValueOrNull(o)
 			if not s:
-				s = ""
+				Error.throw("unsupportedDataRecordDataValue", o)
 			stmt.addParamString(s)
 		}
 	}
 	return stmt
 }
 
-func prepareUpdateStatement(table as string, criteria as DynamicMap, data as DynamicMap) async virtual as SQLStatement
+func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as DynamicMap) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -451,18 +456,13 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 			criteria and an instance of DynamicMap for values.
 		]]
 	}
-	assert String.isNotEmpty(table) && data && data.getCount() > 0
 	var sb = new StringBuilder()
 	sb.appendString("UPDATE ")
 	sb.appendString(prepareTableName(table))
 	sb.appendString(" SET ")
-	var params = new vector<object>
+	var params = new vector<dynamic>
 	var first = true
-	var keys = data.iterateKeys()
-	while keys {
-		var key = keys.next()
-		if not key:
-			break
+	foreach key in data.iterateKeys() {
 		if not first:
 			sb.appendString(", ")
 		sb.appendString(prepareColumnName(key))
@@ -479,11 +479,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 	if criteria && criteria.getCount() > 0 {
 		sb.appendString(" WHERE ")
 		first = true
-		var criterias = criteria.iterateKeys()
-		while criterias {
-			var criterium = criterias.next()
-			if not criterium:
-				break
+		foreach criterium in criteria.iterateKeys() {
 			if not first:
 				sb.appendString(" AND ")
 			sb.appendString(prepareColumnName(criterium))
@@ -499,7 +495,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 		}
 	}
 	sb.appendCharacter(';')
-	var stmt = assert await prepareStatement(sb.toString())
+	var stmt = await prepareStatement(sb.toString())
 	foreach o in params {
 		if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
@@ -511,16 +507,16 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap, data as Dyn
 			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
 		}
 		else {
-			var s = String.asString(o)
+			var s = String.asValueOrNull(o)
 			if not s:
-				s = ""
+				Error.throw("unsupportedDataRecordDataValue", o)
 			stmt.addParamString(s)
 		}
 	}
 	return stmt
 }
 
-func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtual as SQLStatement
+func prepareDeleteStatement(table as string, criteria as DynamicMap?) async virtual as SQLStatement
 {
 	meta {
 		description [[
@@ -529,31 +525,30 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtu
 			criteria and an instance of DynamicMap for values.
 		]]
 	}
-	assert String.isNotEmpty(table)
 	var sb = new StringBuilder()
 	sb.appendString("DELETE FROM ")
 	sb.appendString(prepareTableName(table))
-	var params = new vector<object>
+	var params = new vector<dynamic>
 	if criteria && criteria.getCount() > 0 {
 		sb.appendString(" WHERE ")
 		var first = true
-		var criterias = criteria.iterateKeys()
-		while criterias {
-			var criterium = criterias.next()
-			if not criterium:
-				break
+		foreach criterium in criteria.iterateKeys() {
 			if not first:
 				sb.appendString(" AND ")
 			sb.appendString(prepareColumnName(criterium))
-			sb.appendString(" = ?")
+			var value = criteria.get(criterium)
+			if value == null {
+				sb.appendString(" IS NULL")
+			}
+			else {
+				sb.appendString(" = ?")
+				params += value
+			}
 			first = false
-			params += criteria.get(criterium)
 		}
 	}
 	sb.appendCharacter(';')
 	var stmt = await prepareStatement(sb.toString())
-	if not stmt:
-		return null
 	foreach o in params {
 		if o is BufferObject {
 			stmt.addParamBlob((o as! BufferObject).toBuffer())
@@ -565,9 +560,9 @@ func prepareDeleteStatement(table as string, criteria as DynamicMap) async virtu
 			stmt.addParamInteger(((o as! BooleanObject).toBoolean()) ? 1 : 0)
 		}
 		else {
-			var s = String.asString(o)
+			var s = String.asValueOrNull(o)
 			if not s:
-				s = ""
+				Error.throw("unsupportedDataRecordDataValue", o)
 			stmt.addParamString(s)
 		}
 	}
@@ -579,3 +574,25 @@ func prepareTableName(tableName as string) virtual as string:
 
 func prepareColumnName(columnName as string) virtual as string:
 	return columnName
+
+func rollbackTransaction virtual async:
+	await executeStatement(await prepareStatement("ROLLBACK;"))
+
+func beginTransaction virtual async:
+	await executeStatement(await prepareStatement("BEGIN;"))
+
+func commitTransaction virtual async:
+	await executeStatement(await prepareStatement("COMMIT;"))
+
+func executeInTransaction(function as function<promise<void>>) virtual async
+{
+	await beginTransaction()
+	try {
+		await function()
+		await commitTransaction()
+	}
+	catch e {
+		await rollbackTransaction()
+		throw e
+	}
+}

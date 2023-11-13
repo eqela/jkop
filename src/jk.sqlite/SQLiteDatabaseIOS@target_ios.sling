@@ -33,36 +33,26 @@ IFDEF "target_objc" {
 	depend "ldlib:sqlite3"
 	depend "ldlib:z"
 
-	var db as !"sqlite3*"
+	var db as native<"sqlite3*">?
 }
 ELSE IFDEF "target_swift" {
 	depend "swift-import:SQLite3"
 
-	var db as !"OpaquePointer"
+	var db as native<OpaquePointer>?
 }
 
 class Statement is SQLStatement
 {
 	var paramidx as int
-	var sql as string #used
+	var sql as string?
 	IFDEF "target_objc" {
-		var compiledStmt as !"sqlite3_stmt*"
+		var compiledStmt as native<"sqlite3_stmt*">?
 	}
 	ELSE IFDEF "target_swift" {
-		var compiledStmt as !"OpaquePointer"
+		var compiledStmt as native<OpaquePointer>?
 	}
-	var err as string
-	var strings as vector<string>
-	var isStoredProcedure = false
-
-	func setIsStoredProcedure(v as bool) as SQLStatement
-	{
-		isStoredProcedure = v
-		return this
-	}
-
-	func getIsStoredProcedure as bool:
-		return isStoredProcedure
+	var err as string?
+	var strings as vector<string>?
 
 	ctor:
 		strings = new vector<string>
@@ -71,11 +61,11 @@ class Statement is SQLStatement
 		clear()
 
 	IFDEF "target_objc" {
-		func create(db as !"sqlite3", ss as string) as bool
+		func create(db as native<sqlite3>, ss as string) as bool
 		{
 			var b as bool
-			var r as int #used
-			var compiledStatement as !"sqlite3_stmt*"
+			var r as int
+			var compiledStatement as native<"sqlite3_stmt*">?
 			paramidx = 1
 			lang "objc" {{{
 				if (sqlite3_prepare_v2(db, [ss UTF8String], -1, &compiledStatement, NULL) == SQLITE_OK) {
@@ -94,11 +84,11 @@ class Statement is SQLStatement
 		}
 	}
 	ELSE IFDEF "target_swift" {
-		func create(db as !"OpaquePointer", ss as string) as bool
+		func create(db as native<OpaquePointer>, ss as string) as bool
 		{
 			var b as bool
-			var r as int #used
-			var compiledStatement as !"OpaquePointer"
+			var r as int
+			var compiledStatement as native<OpaquePointer>?
 			paramidx = 1
 			lang "swift" {{{
 				if(sqlite3_prepare_v2(db, (ss! as NSString).utf8String, -1, &compiledStatement, nil) == SQLITE_OK) {
@@ -116,13 +106,13 @@ class Statement is SQLStatement
 		}
 	}
 
-	func addParamString(val as string) as SQLStatement
+	func addParamString(val as string) override
 	{
 		var v = -1
 		if compiledStmt {
 			var p = compiledStmt
 			var pi = paramidx
-			var valString #used = val
+			var valString = val
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					if (sqlite3_bind_text((sqlite3_stmt*)p, pi, [valString UTF8String], -1, SQLITE_STATIC) == SQLITE_OK) {
@@ -144,16 +134,15 @@ class Statement is SQLStatement
 		}
 		if v > 0:
 			strings += val
-		return this
 	}
 
-	func addParamInteger(val as int) as SQLStatement
+	func addParamInteger(val as int) override
 	{
-		var v #used = -1
+		var v = -1
 		if compiledStmt {
 			var p = compiledStmt
 			var pi = paramidx
-			var valInt #used = val
+			var valInt = val
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					if (sqlite3_bind_int((sqlite3_stmt**)p, pi, valInt) == SQLITE_OK) {
@@ -172,19 +161,18 @@ class Statement is SQLStatement
 			}
 			paramidx = pi
 		}
-		return this
 	}
 
-	func addParamLongInteger(val as long) as SQLStatement:
-		return addParamInteger(val as int)
+	func addParamLongInteger(val as long) override:
+		addParamInteger(val as int)
 
-	func addParamDouble(val as double) as SQLStatement
+	func addParamDouble(val as double) override
 	{
-		var v #used = -1
+		var v = -1
 		if compiledStmt {
 			var p = compiledStmt
 			var pi = paramidx
-			var valDouble #used = val
+			var valDouble = val
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					if (sqlite3_bind_double(p, pi, valDouble) == SQLITE_OK) {
@@ -203,17 +191,16 @@ class Statement is SQLStatement
 			}
 			paramidx = pi
 		}
-		return this
 	}
 
-	func addParamBlob(val as buffer) as SQLStatement
+	func addParamBlob(val as buffer) override
 	{
-		var v #used = -1
+		var v = -1
 		if compiledStmt {
 			var p = compiledStmt
 			var pi = paramidx
-			var s #used = Buffer.getSize(val)
-			var valBuffer #used = val
+			var s = Buffer.getSize(val)
+			var valBuffer = val
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					if (sqlite3_bind_blob(p, pi, (__bridge void *)(valBuffer), s, SQLITE_TRANSIENT) == SQLITE_OK) {
@@ -233,25 +220,24 @@ class Statement is SQLStatement
 			}
 			paramidx = pi
 		}
-		return this
 	}
 
-	func setParamString(name as string, val as string) as SQLStatement:
-		return addParamString(val)
+	func setParamString(name as string, val as string) override:
+		addParamString(val)
 
-	func setParamInteger(name as string, val as int) as SQLStatement:
-		return addParamInteger(val)
+	func setParamInteger(name as string, val as int) override:
+		addParamInteger(val)
 
-	func setParamLongInteger(name as string, val as long) as SQLStatement:
-		return addParamLongInteger(val)
+	func setParamLongInteger(name as string, val as long) override:
+		addParamLongInteger(val)
 
-	func setParamDouble(name as string, val as double) as SQLStatement:
-		return addParamDouble(val)
+	func setParamDouble(name as string, val as double) override:
+		addParamDouble(val)
 
-	func setParamBlob(name as string, val as buffer) as SQLStatement:
-		return addParamBlob(val)
+	func setParamBlob(name as string, val as buffer) override:
+		addParamBlob(val)
 
-	func resetStatement
+	func resetStatement override
 	{
 		assert compiledStmt
 		IFDEF "target_objc" {
@@ -267,12 +253,6 @@ class Statement is SQLStatement
 			}}}
 		}
 	}
-
-	func getError as string:
-		return err
-
-	func close:
-		nop
 
 	func execute as bool
 	{
@@ -323,11 +303,11 @@ class Statement is SQLStatement
 	}
 
 	IFDEF "target_objc" {
-		func getCompiledStmt as !"sqlite3_stmt*":
+		func getCompiledStmt as native<"sqlite3_stmt*">:
 			return compiledStmt
 	}
 	ELSE IFDEF "target_swift" {
-		func getCompiledStmt as !"OpaquePointer":
+		func getCompiledStmt as native<OpaquePointer>:
 			return compiledStmt
 	}
 }
@@ -335,12 +315,12 @@ class Statement is SQLStatement
 class ResultSet is SQLResultSetIterator
 {
 	IFDEF "target_objc" {
-		var compiledStmt as !"sqlite3_stmt*"
+		var compiledStmt as native<"sqlite3_stmt*">?
 	}
 	ELSE IFDEF "target_swift" {
-		var compiledStmt as !"OpaquePointer"
+		var compiledStmt as native<OpaquePointer>?
 	}
-	var columnNames as vector<string>
+	var columnNames as vector<string>?
 	var hasNextRecord as bool
 
 	func create(stmt as Statement) static as this
@@ -353,15 +333,15 @@ class ResultSet is SQLResultSetIterator
 	func next override as DynamicMap
 	{
 		assert compiledStmt
-		var n as DynamicMap
-		var columnNames as vector<string>
+		var n as DynamicMap?
+		var columnNames as vector<string>?
 		assert step()
 		n = new DynamicMap()
 		columnNames = getColumnNames()
 		var cnCount = Vector.getSize(columnNames)
 		for(var i = 0; i < cnCount; i++) {
 			var s = getColumnObject(i)
-			var cn = Vector.get(columnNames, i)
+			var cn = Vector.getValue(columnNames, i)
 			n.setObject(cn, s)
 		}
 		return n
@@ -375,7 +355,7 @@ class ResultSet is SQLResultSetIterator
 		Vector.clear(values)
 		var cols = getColumnCount()
 		for(var i = 0; i < cols; i++) {
-			var s as string
+			var s as string?
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					char *ss = sqlite3_column_text(compiledStmt, i);
@@ -446,7 +426,7 @@ class ResultSet is SQLResultSetIterator
 
 	func getColumnName(n as int) override as string
 	{
-		var name as string
+		var name as string?
 		assert compiledStmt
 		IFDEF "target_objc" {
 			lang "objc" {{{
@@ -501,7 +481,7 @@ class ResultSet is SQLResultSetIterator
 		if type == 2:
 			return Double.asObject(getColumnDouble(n))
 		if type == 3 {
-			var s as string
+			var s as string?
 			IFDEF "target_objc" {
 				lang "objc" {{{
 					char* ss = (char*)sqlite3_column_text(compiledStmt, n);
@@ -521,7 +501,7 @@ class ResultSet is SQLResultSetIterator
 			return s
 		}
 		if type == 4:
-			return Buffer.asObject(getColumnBuffer(n))
+			return Buffer.wrapValue(getColumnBuffer(n))
 		return ""
 	}
 
@@ -564,7 +544,7 @@ class ResultSet is SQLResultSetIterator
 	func getColumnBuffer(n as int) override as buffer
 	{
 		assert compiledStmt
-		var v as buffer
+		var v as buffer?
 		IFDEF "target_objc" {
 			lang "objc" {{{
 				void *data = (void *)sqlite3_column_blob(compiledStmt, n);
@@ -613,9 +593,9 @@ func initialize(file as File, create as bool) override as bool
 	var nativePath = assert file.getPath():
 		Log.error(getLogger(), "Database file '" .. file.getPath() .. "' is not on a native filesystem. Cannot open.")
 	var v = false
-	var error as string = null
+	var error as string? = null
 	IFDEF "target_objc" {
-		var dbp as !"sqlite3*"
+		var dbp as native<"sqlite3*">?
 		lang "objc" {{{
 			if (sqlite3_open([nativePath UTF8String], &dbp) == SQLITE_OK) {
 				v = true;
@@ -626,7 +606,7 @@ func initialize(file as File, create as bool) override as bool
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		var dbp as !"OpaquePointer"
+		var dbp as native<OpaquePointer>?
 		lang "swift" {{{
 			if(sqlite3_open((nativePath! as NSString).utf8String, &dbp) == SQLITE_OK) {
 				v = true
@@ -650,14 +630,14 @@ func closeConnection async override
 {
 	assert this.db
 	IFDEF "target_objc" {
-		var dbp as !"sqlite3*"
+		var dbp as native<"sqlite3*">?
 		dbp = this.db
 		lang "objc" {{{
 			sqlite3_close(dbp);
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		var dbp as !"OpaquePointer"
+		var dbp as native<OpaquePointer>?
 		dbp = this.db
 		lang "swift" {{{
 			sqlite3_close(dbp);
@@ -688,14 +668,14 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	var v = 0
 	if executeStatement(stmt) {
 		IFDEF "target_objc" {
-			var dbp as !"sqlite3*"
+			var dbp as native<"sqlite3*">?
 			dbp = this.db
 			lang "objc" {{{
 				v = sqlite3_changes(dbp);
 			}}}
 		}
 		ELSE IFDEF "target_swift" {
-			var dbp as !"OpaquePointer"
+			var dbp as native<OpaquePointer>?
 			dbp = this.db
 			lang "swift" {{{
 				v = Swift.Int(sqlite3_changes(dbp!))
@@ -707,7 +687,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 
 func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
 {
-	var v as SQLResultSetIterator
+	var v as SQLResultSetIterator?
 	assert stmt
 	var ss = stmt as Statement
 	v = ResultSet.create(ss)

@@ -28,33 +28,30 @@ class is File:
 
 class MyFileReader is FileReader is SizedReader is Reader is Closable is SeekableReader
 {
-	var stream as !"java.io.FileInputStream"
-	var file as !"java.io.File"
+	var stream as native<java.io.FileInputStream>?
+	var file as native<java.io.File>?
 
-	func initialize as this
+	func initialize
 	{
-		lang "java" {{{
-			if(file != null) {
-				try {
-					stream = new java.io.FileInputStream(file);
-				}
-				catch(java.io.FileNotFoundException e) {
-					System.out.printf("File.read: `%s' : `%s'\n", e.getMessage(), file.getPath());
-					return(null);
-				}
-				return(this);
-			}
-		}}}
-		return null
+		if file == null:
+			Error.throw("nullFile", null)
+		try {
+			lang "java" {{{
+				stream = new java.io.FileInputStream(file);
+			}}}
+		}
+		catch e as native<java.io.FileNotFoundException> {
+			Error.throw("fileNotFound", file.getPath())
+		}
 	}
 
 	func read(buffer as buffer) as int
 	{
 		if buffer == null:
 			return 0
-		var ptr #used = buffer
-		var sz #used = Buffer.getSize(buffer) as int
-		var v as int #used
+		var ptr = buffer
+		var sz = Buffer.getSize(buffer) as int
+		var v as int
 		lang "java" {{{
 			try {
 				v = stream.read(ptr, 0, sz);
@@ -66,9 +63,9 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 		return v
 	}
 
-	func getSize as int
+	func getSize as long
 	{
-		var v as int
+		var v as long
 		lang "java" {{{
 			try {
 				v = stream.available();
@@ -105,33 +102,29 @@ class MyFileReader is FileReader is SizedReader is Reader is Closable is Seekabl
 class MyFileWriter is FileWriter is Writer is PrintWriter is Closable is SeekableWriter is FlushableWriter
 {
 	pvar append as bool
-	var stream as !"java.io.FileOutputStream"
-	var file as !"java.io.File"
+	var stream as native<java.io.FileOutputStream>?
+	var file as native<java.io.File>?
 
-	func initialize as this
+	func initialize
 	{
-		lang "java" {{{
-			if(file != null) {
-				try {
-					stream = new java.io.FileOutputStream(file);
-				}
-				catch(java.io.IOException e) {
-					if(append) {
-						System.out.printf("File." + (append ? "append " : "write ") + ": `%s' : `%s'\n", e.getMessage(), file.getPath());
-					}
-				}
-				return(this);
-			}
-		}}}
-		return null
+		if file == null:
+			Error.throw("nullFile", null)
+		try {
+			lang "java" {{{
+				stream = new java.io.FileOutputStream(file);
+			}}}
+		}
+		catch e as native<java.io.IOException> {
+			Error.throw("failedToWriteFile", file.getPath())
+		}
 	}
 
 	func write(buffer as buffer, size as int) as int
 	{
 		if buffer == null:
 			return 0
-		var ptr #used = buffer
-		var sz #used = size
+		var ptr = buffer
+		var sz = size
 		if sz < 1:
 			sz = Buffer.getSize(buffer) as int
 		lang "java" {{{
@@ -198,7 +191,7 @@ class MyFileWriter is FileWriter is Writer is PrintWriter is Closable is Seekabl
 	}
 }
 
-var path as !"java.lang.String"
+var path as string?
 
 func forPath(path as string) static as File
 {
@@ -213,7 +206,9 @@ func forPath(path as string) static as File
 
 func stat override as FileInfo
 {
-	var v #used = new FileInfo()
+	var v = new FileInfo() {
+		file this
+	}
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		if(f.exists() == false) {
@@ -238,7 +233,8 @@ func getPath override as string
 			return(path);
 		}
 	}}}
-	return null
+	Error.throw("noPathForFile", this)
+	return ""
 }
 
 func createDirectoryRecursive override as bool
@@ -269,12 +265,12 @@ func move(dest as File, replace as bool) override as bool
 			return false
 		dest.remove()
 	}
-	var destpath as string
+	var destpath as string?
 	var dp = dest.getPath()
 	if dp == null:
 		return false
 	destpath = dp
-	var v as bool #used
+	var v as bool
 	lang "java" {{{
 		java.io.File src = new java.io.File(path);
 		java.io.File dst = new java.io.File(destpath);
@@ -285,7 +281,7 @@ func move(dest as File, replace as bool) override as bool
 
 func touch override as bool
 {
-	var v as bool #used
+	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		try {
@@ -300,11 +296,12 @@ func touch override as bool
 
 func read override as FileReader
 {
-	var v #used = new MyFileReader()
+	var v = new MyFileReader()
 	lang "java" {{{
 		v.file = new java.io.File(path);
 	}}}
-	return v.initialize()
+	v.initialize()
+	return v
 }
 
 func write override as FileWriter
@@ -313,7 +310,8 @@ func write override as FileWriter
 	lang "java" {{{
 		v.file = new java.io.File(path);
 	}}}
-	return v.initialize()
+	v.initialize()
+	return v
 }
 
 func append override as FileWriter
@@ -322,12 +320,13 @@ func append override as FileWriter
 	lang "java" {{{
 		v.file = new java.io.File(path);
 	}}}
-	return v.initialize()
+	v.initialize()
+	return v
 }
 
 func createDirectory override as bool
 {
-	var v as bool #used
+	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		v = f.mkdir();
@@ -337,7 +336,7 @@ func createDirectory override as bool
 
 func isExecutable override as bool
 {
-	var v as bool #used
+	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		v = f.canExecute();
@@ -347,28 +346,27 @@ func isExecutable override as bool
 
 func entries override as Iterator<File>
 {
-	var files as array<string>
 	var v = new vector<File>
+	var files as array<string>?
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		files = f.list();
 	}}}
-	if not files:
-		return null
-	foreach path in files {
-		var ff = new this()
-		lang "java" {{{
-			ff.path = this.path + "/" + path;
-		}}}
-		Vector.append(v, ff)
+	if files {
+		foreach path in files {
+			var ff = new this()
+			lang "java" {{{
+				ff.path = this.path + "/" + path;
+			}}}
+			Vector.appendValue(v, ff)
+		}
 	}
-	var entries as Iterator<File> #force = Vector.iterate(v)
-	return entries
+	return Vector.iterate(v)
 }
 
 func remove override as bool
 {
-	var v as bool #used
+	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		v = f.delete();
