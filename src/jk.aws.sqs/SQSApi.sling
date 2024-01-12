@@ -1,0 +1,71 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.awsapi
+
+class is AwsApi:
+
+model Request public
+{
+	body as DynamicMap #payload
+	contentType as string #[location=header] #[locationName=Content-Type]
+	target as string #[location=header] #[locationName=X-Amz-Target]
+}
+
+model QueueUrlProperties public
+{
+	QueueUrl as string
+}
+
+func generateRequest(action as string, body as DynamicMap) as Request
+{
+	var request = new Request()
+	request.contentType = "application/x-amz-json-1.0"
+	request.target = "AmazonSQS." .. action
+	request.body = body
+	return request
+}
+
+func executeRequest(parameters as DynamicModel?, result as DynamicModel? = null) async
+{
+	var v = new map
+	Map.set(v, "protocol", "rest-xml")
+	Map.set(v, "service", "sqs")
+	Map.set(v, "version", "2012-11-05")
+	Map.set(v, "method", "POST")
+	Map.set(v, "path", "/")
+	if parameters:
+		Map.set(v, "parameters", parameters)
+	await callAwsApi(v, result)
+}
+
+func getQueueUrl(queueName as string) async as string
+{
+	var body = new DynamicMap()
+	body.setString("QueueName", queueName)
+	var request = generateRequest("GetQueueUrl", body)
+	var result = new QueueUrlProperties()
+	await executeRequest(request, result)
+	return String.asValueOrEmptyString(result.QueueUrl)
+}

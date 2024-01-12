@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -134,8 +134,8 @@ class MyWSMessage
 			var rBuffer = String.toUTF8Buffer(reason)
 			var size = sizeof rBuffer
 			var plBuffer = Buffer.allocate(size + 2)
-			Buffer.setByte(plBuffer, 0, ((statusCode >> 8) & 0xFF) as byte)
-			Buffer.setByte(plBuffer, 1, (statusCode & 0xFF) as byte)
+			Buffer.setByte(plBuffer, 0, ((statusCode >> 8) & 0xFF) as! uint8)
+			Buffer.setByte(plBuffer, 1, (statusCode & 0xFF) as! uint8)
 			Buffer.copyFrom(plBuffer, rBuffer, 0, 2, size)
 			return new this().setFin(1).setOpcode(CLOSE_FRAME).setPayloadBuffer(plBuffer)
 		}
@@ -161,9 +161,7 @@ class MyWSMessage
 	{
 		if messageBuffer != null:
 			return messageBuffer
-
 		// Calculate the total size of the message buffer
-
 		var size = 2
 		if maskingBuffer != null:
 			size += 4
@@ -186,14 +184,10 @@ class MyWSMessage
 			size += 8
 		}
 		size += payloadLength
-
 		// Allocate a new buffer with the calculated size
-
 		messageBuffer = Buffer.allocate(size)
-
 		// Set the first byte
-
-		var b1 = opcode as uint8
+		var b1 = opcode as! uint8
 		if fin != 0:
 			b1 |= 0x80
 		if rsv1 != 0:
@@ -203,17 +197,13 @@ class MyWSMessage
 		if rsv3 != 0:
 			b1 |= 0x10
 		Buffer.setByte(messageBuffer, 0, b1)
-
 		// Set the second byte
-
 		var b2 as uint8
-		b2 = plb as uint8
+		b2 = plb as! uint8
 		b2 |= 0x80
 		Buffer.setByte(messageBuffer, 1, b2)
-
 		// Set the following 2 bytes - 16bit (if payload length < 65536 && payload length > 125)
 		// or the following 8 bytes - 64bit (if payload length > 65535)
-
 		var p = 2
 		var tp = p
 		var n = 0
@@ -227,24 +217,20 @@ class MyWSMessage
 		}
 		while p < tp {
 			if n != 0 {
-				Buffer.setByte(messageBuffer, p, ((payloadLength >> n) & 0xFF) as byte)
+				Buffer.setByte(messageBuffer, p, ((payloadLength >> n) & 0xFF) as! uint8)
 			}
 			else {
-				Buffer.setByte(messageBuffer, p, (payloadLength & 0xFF) as byte)
+				Buffer.setByte(messageBuffer, p, (payloadLength & 0xFF) as! uint8)
 			}
 			p++
 			n -= 8
 		}
-
 		// Append the four bytes of masking buffer if it's not null
-
 		if maskingBuffer != null {
 			Buffer.copyFrom(messageBuffer, maskingBuffer, 0, p, 4)
 			p += 4
 			if payloadBuffer != null {
-
 				// Mask the payload buffer
-
 				var i = 0
 				while i < payloadLength {
 					var b = Buffer.getByte(payloadBuffer, i)
@@ -254,9 +240,7 @@ class MyWSMessage
 				}
 			}
 		}
-
 		// Append the payload buffer if it's not null
-
 		if payloadBuffer != null:
 			Buffer.copyFrom(messageBuffer, payloadBuffer, 0, p, payloadLength)
 		return messageBuffer
@@ -265,8 +249,8 @@ class MyWSMessage
 
 class MyWSCloseEvent is WSCloseEvent
 {
-	var statusCode private as int
-	var reason private as string?
+	var statusCode as int
+	var reason as string?
 
 	func setStatusCode(v as int) as this
 	{
@@ -342,6 +326,7 @@ class HTTPResponseParser
 	var isChunked public = false
 	var contentLength public = 0
 	var dataCounter public = 0
+
 	pvar endOfResponse = false
 	pvar aborted = false
 
@@ -361,7 +346,7 @@ class HTTPResponseParser
 		var n = 0
 		var v = false
 		while n <= size - 4 {
-			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n+1) == '\n' && Buffer.getByte(buf, n+2) == '\r' && Buffer.getByte(buf, n+3) == '\n' {
+			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n + 1) == '\n' && Buffer.getByte(buf, n + 2) == '\r' && Buffer.getByte(buf, n + 3) == '\n' {
 				v = true
 				break
 			}
@@ -373,7 +358,7 @@ class HTTPResponseParser
 	func parseResponseHeader(buf as buffer) private as HTTPClientResponse?
 	{
 		var i = 0
-		var p = '0' as uint8
+		var p = '0' as! uint8
 		var v as HTTPClientResponse?
 		var first = true
 		var isChunked = false
@@ -381,21 +366,20 @@ class HTTPResponseParser
 			var sb = new StringBuilder()
 			while ((p = Buffer.getByte(buf, i)) != 0) {
 				if p == '\r' {
-					;
+					nop
 				}
 				else if p == '\n' {
 					i++
 					break
 				}
 				else {
-					sb.appendCharacter(p as char)
+					sb.appendCharacter(p as! char)
 				}
 				i++
 			}
 			var t = sb.toString()
-			if String.isEmpty(t) {
+			if String.isEmpty(t):
 				break
-			}
 			if first {
 				var comps = String.split(t, ' ', 3)
 				v = new HTTPClientResponse()
@@ -441,14 +425,14 @@ class HTTPResponseParser
 		loop {
 			var p = Buffer.getByte(receivedData, i)
 			if p == '\r' {
-				;
+				nop
 			}
 			else if p == '\n' {
 				i++
 				break
 			}
 			else {
-				sb.appendCharacter(p as char)
+				sb.appendCharacter(p as! char)
 			}
 			i++
 			if sb.count() >= 16 {
@@ -458,9 +442,8 @@ class HTTPResponseParser
 		}
 		var cl = -1
 		var t = String.strip(sb.toString())
-		if String.isEmpty(t) == false {
+		if String.isEmpty(t) == false:
 			cl = Integer.forHexStringOrDefaultValue(t)
-		}
 		var chunk = new Chunk()
 		if cl > 0 {
 			if Buffer.getSize(receivedData) - i < cl + 2 {
@@ -472,10 +455,9 @@ class HTTPResponseParser
 			Buffer.copyFrom(chunkData, receivedData, i, 0, cl)
 			i += cl
 		}
-		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n') {
+		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n'):
 			i++
-		}
-		var rem = Buffer.getSize(receivedData) - i as int
+		var rem = Buffer.getSize(receivedData) - i as! int
 		if rem > 0 {
 			var tmp = receivedData
 			receivedData = Buffer.allocate(rem)
@@ -489,13 +471,11 @@ class HTTPResponseParser
 
 	func onDataReceived(buf as buffer, size as int)
 	{
-		if size > 0 {
+		if size > 0:
 			receivedData = Buffer.append(receivedData, buf, size)
-		}
 		if headers == null {
-			if receivedData && hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)) {
+			if receivedData && hasEndOfHeaders(receivedData, Buffer.getSize(receivedData)):
 				headers = parseResponseHeader(receivedData)
-			}
 		}
 		if isChunked {
 			loop {
@@ -507,7 +487,7 @@ class HTTPResponseParser
 					if not rdata:
 						continue
 					var sz = Buffer.getSize(rdata)
-					dataCounter += sz as int
+					dataCounter += sz as! int
 					onBodyDataReceived(rdata, sz)
 				}
 				else {
@@ -519,8 +499,9 @@ class HTTPResponseParser
 					break
 			}
 		}
-		else if contentLength > 0 { // FIXME: Or HTTP/1.0 or HTTP/0.9
-			var rsz = Buffer.getSize(receivedData) as int
+		else if contentLength > 0 {
+			// FIXME: Or HTTP/1.0 or HTTP/0.9
+			var rsz = Buffer.getSize(receivedData) as! int
 			if receivedData && rsz > 0 {
 				if contentLength <= 0 || dataCounter + rsz <= contentLength {
 					var v = receivedData
@@ -531,38 +512,34 @@ class HTTPResponseParser
 				else {
 					var vsz = contentLength - dataCounter
 					var v = Buffer.getSubBuffer(receivedData, 0, vsz)
-					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz-vsz)
+					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz - vsz)
 					dataCounter += vsz
 					onBodyDataReceived(v, vsz)
 				}
 			}
-			if dataCounter >= contentLength {
+			if dataCounter >= contentLength:
 				onEndOfResponse()
-			}
 		}
 		else {
 			onEndOfResponse()
 		}
 	}
 
-	func onBodyDataReceived(buffer as buffer, size as long)
-	{
+	func onBodyDataReceived(buffer as buffer, size as long):
 		bodyData = Buffer.append(bodyData, buffer)
-	}
 
-	func onEndOfResponse
-	{
+	func onEndOfResponse:
 		endOfResponse = true
-	}
 }
 
 const WEBSOCKET_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 prop ctx as LoggingContext
-var client private as TCPClient?
-var key private as string?
-var accept private as string?
-var parser private as HTTPResponseParser?
+
+var client as TCPClient?
+var key as string?
+var accept as string?
+var parser as HTTPResponseParser?
 var leftOverBuffer as buffer? = null
 var frameNo = 1
 
@@ -678,17 +655,17 @@ func processData(data as buffer, size as int) private as bool
 					rsv2 = 1
 				if b & 0x10:
 					rsv3 = 1
-				opcode = b & 0x0f
+				opcode = b & 0x0F
 			}
 			else if p == 1 {
 				mask = b & 0x80
 				if mask == 0 {
-					;
+					nop
 				}
 				else {
 					maskingBuffer = Buffer.allocate(4)
 				}
-				payloadLength = b & 0x7f
+				payloadLength = b & 0x7F
 				if payloadLength >= 0 && payloadLength < 126 {
 					p++
 					if maskingBuffer != null:
@@ -707,7 +684,7 @@ func processData(data as buffer, size as int) private as bool
 				}
 				else if payloadLength == 127 {
 					var v = 0
-					v |= Buffer.getByte(nbuffer, p + 1) & 0x7f << 56
+					v |= Buffer.getByte(nbuffer, p + 1) & 0x7F << 56
 					v |= Buffer.getByte(nbuffer, p + 2) & 0xFF << 48
 					v |= Buffer.getByte(nbuffer, p + 3) & 0xFF << 40
 					v |= Buffer.getByte(nbuffer, p + 4) & 0xFF << 32
@@ -737,7 +714,7 @@ func processData(data as buffer, size as int) private as bool
 		if nsize < frameLength {
 			leftOverBuffer = Buffer.allocate(nsize)
 			Buffer.copyFrom(leftOverBuffer, nbuffer, 0, 0, nsize)
-			frameNo ++
+			frameNo++
 			break
 		}
 		payloadBuffer = Buffer.allocate(payloadLength)
@@ -760,9 +737,8 @@ func processData(data as buffer, size as int) private as bool
 
 func processFrame(fin as int, rsv1 as int, rsv2 as int, rsv3 as int, opcode as int, mask as int, maskingBuffer as buffer?, payloadLength as long, payloadBuffer as buffer) private
 {
-	if fin == 0 {
+	if fin == 0:
 		return
-	}
 	// No payload masking for client
 	onNewMessage(MyWSMessage.create(fin, rsv1, rsv2, rsv3, opcode, maskingBuffer, payloadBuffer))
 }
@@ -804,14 +780,10 @@ func connect(url as string, protocols as vector<string>) override
 		port = 80
 	var scheme = u.getScheme()
 	if String.equals("https", scheme) || String.equals("wss", scheme) {
-		client.connectSSL(u.getHost() ?? "", port, func(e as Error?) {
-			handleConnect(u, protocols, e)
-		})
+		client.connectSSL(u.getHost() ?? "", port, func(e as Error?) => handleConnect(u, protocols, e))
 		return
 	}
-	client.connect(u.getHost() ?? "", port, func(e as Error?) {
-		handleConnect(u, protocols, e)
-	})
+	client.connect(u.getHost() ?? "", port, func(e as Error?) => handleConnect(u, protocols, e))
 }
 
 func closeWithError(error as Error?) private
@@ -849,7 +821,7 @@ func handleConnect(u as URL, protocols as vector<string>, error as Error?) priva
 		onOpenHandshakeResponse(data, size)
 	})
 	var v = createOpenHandshakeHTTPRequest(u, protocols, key ?? "")
-	client.send(v, (sizeof v) as int, func(oe as Error?) {
+	client.send(v, (sizeof v) as! int, func(oe as Error?) {
 		if oe:
 			closeWithError(oe)
 	})
@@ -932,7 +904,7 @@ func doSend(message as MyWSMessage) private
 {
 	assert client
 	var data = message.toBuffer()
-	client.send(data, (sizeof data) as int, func(error as Error?) {
+	client.send(data, (sizeof data) as! int, func(error as Error?) {
 		if error:
 			closeWithError(error)
 	})
@@ -943,7 +915,7 @@ func closeWithReason(statusCode as int, reason as string, callback as function<v
 	assert client
 	var data = MyWSMessage.forCloseControlFrame(WSCloseEvent.CLOSE_NORMAL).toBuffer()
 	var cb = callback
-	client.send(data, (sizeof data) as int, func(error as Error?) {
+	client.send(data, (sizeof data) as! int, func(error as Error?) {
 		if error {
 			closeWithError(error)
 		}

@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,10 +27,11 @@ import jk.fs
 class is SSLSocket:
 
 pvar socket as TCPSocket?
+
 var blocking as bool = true
-var sslSocket as native<javax.net.ssl.SSLSocket>?
-var jvcSocket as native<java.net.Socket>?
-var sslEngine as native<javax.net.ssl.SSLEngine>?
+var sslSocket as [magical:javax.net.ssl.SSLSocket]?
+var jvcSocket as [magical:java.net.Socket]?
+var sslEngine as [magical:javax.net.ssl.SSLEngine]?
 
 func open(cSocket as ConnectedSocket, certFile as File? = null, keyFile as File? = null, isServer as bool = false, passphrase as string? = null) as bool
 {
@@ -62,7 +63,7 @@ func open(cSocket as ConnectedSocket, certFile as File? = null, keyFile as File?
 
 				var keyManagerFactory = javax.net.ssl.KeyManagerFactory.getInstance(javax.net.ssl.KeyManagerFactory.getDefaultAlgorithm())
 				keyManagerFactory.init(keyStore, passphrase!!.toCharArray())
-				
+
 				var trustManagerFactory = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
 				trustManagerFactory.init(keyStore)
 				if (acceptInvalidCertificate) {
@@ -100,15 +101,15 @@ func open(cSocket as ConnectedSocket, certFile as File? = null, keyFile as File?
 func handleHandshake as bool
 {
 	assert sslEngine
-	var asize as int = sslEngine.getSession!()!.getApplicationBufferSize!() as int
-	var psize as int = sslEngine.getSession!()!.getPacketBufferSize!() as int
-	var mdsrc = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(asize) }}}
-	var mndst = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(psize) }}}
-	var pdsrc = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(asize) }}}
-	var pndst = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(psize) }}}
-	var executor = lang "kotlin" as native<java.util.concurrent.ExecutorService> {{{ java.util.concurrent.Executors.newSingleThreadExecutor() }}}
-	var result as native<javax.net.ssl.SSLEngineResult>?
-	var status as native<javax.net.ssl.SSLEngineResult.HandshakeStatus>? = sslEngine.getHandshakeStatus!()
+	var asize as int = sslEngine.getSession!()!.getApplicationBufferSize!() as! int
+	var psize as int = sslEngine.getSession!()!.getPacketBufferSize!() as! int
+	var mdsrc = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(asize) }}}
+	var mndst = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(psize) }}}
+	var pdsrc = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(asize) }}}
+	var pndst = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(psize) }}}
+	var executor = lang "kotlin" as [magical:java.util.concurrent.ExecutorService] {{{ java.util.concurrent.Executors.newSingleThreadExecutor() }}}
+	var result as [magical:javax.net.ssl.SSLEngineResult]?
+	var status as [magical:javax.net.ssl.SSLEngineResult.HandshakeStatus]? = sslEngine.getHandshakeStatus!()
 	lang "kotlin" {{{
 		while (status != javax.net.ssl.SSLEngineResult.HandshakeStatus.FINISHED && status != javax.net.ssl.SSLEngineResult.HandshakeStatus.NOT_HANDSHAKING) {
 			switch@ when (status) {
@@ -214,55 +215,54 @@ func handleHandshake as bool
 	return true
 }
 
-func shrinkBuffer(buff as native<java.nio.ByteBuffer>) as native<java.nio.ByteBuffer>
+func shrinkBuffer(buff as [magical:java.nio.ByteBuffer]) as [magical:java.nio.ByteBuffer]
 {
 	var v = lang "kotlin" as int {{{ sslEngine!!.getSession()?.getPacketBufferSize()!! }}}
-	var limit = buff.limit!() as int
-	if v < limit {
+	var limit = buff.limit!() as! int
+	if v < limit:
 		return buff
-	}
 	var newBuff = enlargePacketBuffer(buff)
 	buff.flip!()
 	newBuff.put!(buff)
 	return newBuff
 }
 
-func enlargeApplicationBuffer(buff as native<java.nio.ByteBuffer>) private as native<java.nio.ByteBuffer>:
+func enlargeApplicationBuffer(buff as [magical:java.nio.ByteBuffer]) private as [magical:java.nio.ByteBuffer]:
 	return enlargeBuffer(buff, lang "kotlin" as int {{{ sslEngine!!.getSession()?.getApplicationBufferSize()!! }}})
 
-func enlargePacketBuffer(buff as native<java.nio.ByteBuffer>) private as native<java.nio.ByteBuffer>:
+func enlargePacketBuffer(buff as [magical:java.nio.ByteBuffer]) private as [magical:java.nio.ByteBuffer]:
 	return enlargeBuffer(buff, lang "kotlin" as int {{{ sslEngine!!.getSession()?.getPacketBufferSize()!! }}})
 
-func enlargeBuffer(buff as native<java.nio.ByteBuffer>, size as int) private as native<java.nio.ByteBuffer>
+func enlargeBuffer(buff as [magical:java.nio.ByteBuffer], size as int) private as [magical:java.nio.ByteBuffer]
 {
-	if size > buff.capacity!() as int {
-		buff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(size) }}}
+	if size > buff.capacity!() as! int {
+		buff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(size) }}}
 	}
 	else {
-		buff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(buff!!.capacity() * 2) }}}
+		buff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(buff!!.capacity() * 2) }}}
 	}
 	return buff
 }
 
-func readJvcSocket(buff as native<java.nio.ByteBuffer>) private as int
+func readJvcSocket(buff as [magical:java.nio.ByteBuffer]) private as int
 {
 	assert jvcSocket
 	var channel = jvcSocket.getChannel!()
 	var v = 0
 	try {
 		if channel {
-			v = channel.read!(buff) as int
+			v = channel.read!(buff) as! int
 		}
 		else {
 			var ins = jvcSocket.getInputStream!()
 			if ins == null:
 				return 0
-			if blocking == false && (ins.available!() as int) < 1 {
+			if blocking == false && (ins.available!() as! int) < 1 {
 				return 0
 			}
 			else {
 				var b = buff.array!()
-				v = ins.read!(b) as int
+				v = ins.read!(b) as! int
 			}
 		}
 	}
@@ -275,7 +275,7 @@ func readJvcSocket(buff as native<java.nio.ByteBuffer>) private as int
 	return v
 }
 
-func writeJvcSocket(buff as native<java.nio.ByteBuffer>) private
+func writeJvcSocket(buff as [magical:java.nio.ByteBuffer]) private
 {
 	assert jvcSocket
 	var channel = jvcSocket.getChannel!()
@@ -322,8 +322,8 @@ func read(buffer as buffer) override as int:
 
 func readWithTimeout(buffer as buffer, timeout as int) override as int
 {
-	var appBuff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getApplicationBufferSize()!!) }}}
-	var netBuff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	var appBuff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getApplicationBufferSize()!!) }}}
+	var netBuff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
 	var exitLoop = false
 	var v = 0
 	var r = 0
@@ -331,7 +331,7 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 		v = readJvcSocket(netBuff)
 		if v > 0 {
 			netBuff.flip!()
-			while (netBuff.remaining!() as int) > 0 {
+			while (netBuff.remaining!() as! int) > 0 {
 				try {
 					appBuff.clear!()
 					lang "kotlin" {{{
@@ -373,9 +373,9 @@ func readWithTimeout(buffer as buffer, timeout as int) override as int
 
 func write(buffer as buffer, size as int) override as int
 {
-	var appBuff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size) }}}
-	var netBuff = lang "kotlin" as native<java.nio.ByteBuffer> {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
-	while (appBuff.remaining!() as int) > 0 {
+	var appBuff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.wrap(buffer!!.toByteArray(), 0, size) }}}
+	var netBuff = lang "kotlin" as [magical:java.nio.ByteBuffer] {{{ java.nio.ByteBuffer.allocate(sslEngine!!.getSession()?.getPacketBufferSize()!!) }}}
+	while (appBuff.remaining!() as! int) > 0 {
 		netBuff.clear!()
 		try {
 			lang "kotlin" {{{
@@ -415,7 +415,7 @@ func getSocket override as ConnectedSocket
 	return socket
 }
 
-func getJavaClientSocket as native<java.net.Socket>
+func getJavaClientSocket as [magical:java.net.Socket]
 {
 	if not jvcSocket:
 		ERROR "noJvcSocket"

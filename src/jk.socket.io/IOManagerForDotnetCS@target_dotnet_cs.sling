@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,6 +35,7 @@ class MyTimer is IOManagerTimer is Runnable
 	pvar delay as long
 	pvar parent as parent?
 	pvar handler as function<bool>?
+
 	var stopFlag = false
 	var targetTime as TimeValue?
 
@@ -66,7 +67,7 @@ class MyTimer is IOManagerTimer is Runnable
 				break
 			if diff > 5000000:
 				diff = 5000000
-			CurrentThread.sleepMicroSeconds(diff as int)
+			CurrentThread.sleepMicroSeconds(diff as! int)
 		}
 		if parent:
 			parent.sendSignal()
@@ -87,6 +88,7 @@ class MyEntry is IOManagerEntry
 {
 	pvar socket as ConnectedSocket?
 	pvar master as parent?
+
 	var rrl as function<void>?
 	var wrl as function<void>?
 	var added = false
@@ -149,7 +151,7 @@ class MyEntry is IOManagerEntry
 		return true
 	}
 
-	func getNetSocket as native<System.Net.Sockets.Socket>
+	func getNetSocket as [magical:System.Net.Sockets.Socket]
 	{
 		if socket is TCPSocket {
 			var myss = socket as TCPSocketForDotnetCS
@@ -174,7 +176,7 @@ var readlist public = new vector<IOManagerEntry>
 var writelist public = new vector<IOManagerEntry>
 var timers = new vector<MyTimer>
 
-func getEntryForSocket(socket as native<System.Net.Sockets.Socket>, list as vector<IOManagerEntry>) as IOManagerEntry?
+func getEntryForSocket(socket as [magical:System.Net.Sockets.Socket], list as vector<IOManagerEntry>) as IOManagerEntry?
 {
 	foreach ee as MyEntry in list {
 		if ee.getNetSocket() == socket:
@@ -197,11 +199,8 @@ func doExecute(ctx as LoggingContext) override as bool
 	var signalSocket = openSignalSocket()
 	if signalSocket != null {
 		var ee = add(signalSocket)
-		if ee != null {
-			ee.setReadListener(func {
-				onReadReady(signalSocket)
-			})
-		}
+		if ee != null:
+			ee.setReadListener(func => onReadReady(signalSocket))
 	}
 	var reads = new vector<object>
 	var writes = new vector<object>
@@ -292,7 +291,7 @@ func openSignalSocket as TCPSocket?
 {
 	var v = TCPSocket.create()
 	var n as int
-	for(n = 20000; n < 60000; n++) {
+	for(n = 20000 ; n < 60000 ; n++) {
 		// FIXME: This should be bound to localhost only
 		try {
 			v.listen(n)

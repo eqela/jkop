@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,7 +28,7 @@ class is File private:
 
 class MyReader is FileReader is Reader is SizedReader is Closable is SeekableReader
 {
-	pvar handle as native<"NSFileHandle*">?
+	pvar handle as [magical:@[NSFileHandle*]]?
 	pvar size as int
 
 	func close
@@ -93,15 +93,13 @@ class MyReader is FileReader is Reader is SizedReader is Closable is SeekableRea
 		return dlen
 	}
 
-	func readAll as buffer
-	{
+	func readAll as buffer:
 		return lang "objc" as buffer {{{ [handle readDataToEndOfFile] }}}
-	}
 }
 
 class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 {
-	pvar handle as native<"NSFileHandle*">?
+	pvar handle as [magical:@[NSFileHandle*]]?
 
 	func write(buffer as buffer, size as int) as int
 	{
@@ -119,7 +117,7 @@ class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 				v = -1;
 			}
 		}}}
-		return v as int
+		return v as! int
 	}
 
 	func setCurrentPosition(n as int64) as bool
@@ -169,7 +167,7 @@ func forPath(path as string) static as File:
 	return new this(path)
 
 var path as string?
-var manager as native<"NSFileManager*">?
+var manager as [magical:@[NSFileManager*]]?
 
 ctor(path as string)
 {
@@ -195,11 +193,8 @@ func entries override as Iterator<File>
 	lang "objc" {{{
 		files = [manager contentsOfDirectoryAtPath:path error:nil];
 	}}}
-	if files {
-		foreach p as string in files {
-			Vector.appendValue(v, new this(this.path .. "/" .. p))
-		}
-	}
+	if files: foreach p as string in files:
+		Vector.appendValue(v, new this(this.path .. "/" .. p))
 	return Vector.iterate(v)
 }
 
@@ -215,7 +210,7 @@ func stat override as FileInfo
 	var v = new FileInfo() {
 		file this
 	}
-	var dict as native<"NSDictionary*">?
+	var dict as [magical:@[NSDictionary*]]?
 	lang "objc" {{{
 		dict = [manager attributesOfItemAtPath:path error:nil];
 		[v setSize:[[dict objectForKey:NSFileSize] integerValue]];
@@ -232,8 +227,9 @@ func stat override as FileInfo
 			[v setLink:YES];
 		}
 	}}}
-	if isFile():
+	if isFile() {
 		v.type = FileInfo.FILE_TYPE_FILE
+	}
 	else if isDirectory() {
 		v.type = FileInfo.FILE_TYPE_DIR
 	}
@@ -242,7 +238,7 @@ func stat override as FileInfo
 
 func getMyReader private as MyReader
 {
-	var handle as native<"NSFileHandle*">?
+	var handle as [magical:@[NSFileHandle*]]?
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForReadingAtPath:path];
 	}}}
@@ -256,22 +252,20 @@ func getMyReader private as MyReader
 
 func getMyWriter(truncate as bool) private as MyWriter
 {
-	if exists() == false {
+	if exists() == false:
 		lang "objc" {{{
 			[manager createFileAtPath:path contents:nil attributes:nil];
 		}}}
-	}
-	var handle as native<"NSFileHandle*">?
+	var handle as [magical:@[NSFileHandle*]]?
 	lang "objc" {{{
 		handle = [NSFileHandle fileHandleForWritingAtPath:path];
 	}}}
 	if handle == null:
 		Error.throw("failedToOpenFileForWriting", path)
-	if truncate {
+	if truncate:
 		lang "objc" {{{
 			[handle truncateFileAtOffset:0];
 		}}}
-	}
 	var v = new MyWriter()
 	v.setHandle(handle)
 	return v
@@ -310,10 +304,8 @@ func isDirectory override as bool
 	return isdir
 }
 
-func createDirectory override as bool
-{
+func createDirectory override as bool:
 	return lang "objc" as bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
-}
 
 func isLink override stub as bool
 func createDirectoryRecursive override stub as bool

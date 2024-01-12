@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -35,10 +35,8 @@ func asDynamicMap(object as this?) static as DynamicMap?
 macro SET_VECTOR_FIELD(name, value)
 {
 	setField(name, null)
-	if value {
-		foreach element in value:
-			addToVectorField(name, element)
-	}
+	if value: foreach element in value:
+		addToVectorField(name, element)
 }
 
 macro RETURN_VECTOR_FIELD_OBJECTS(objects, type)
@@ -296,64 +294,62 @@ func filterMapToModel(data as DynamicMap) as DynamicMap
 		var fname = field.name
 		fieldMap.setObject(fname, field)
 	}
-	if fieldMap.getCount() > 0 {
-		foreach key in data.getKeys() {
-			if fieldMap.containsKey(key) {
-				var inf = fieldMap.get(key) as DynamicModelField
-				if not inf {
-					finalMap.setDynamic(key, data.get(key))
+	if fieldMap.getCount() > 0: foreach key in data.getKeys() {
+		if fieldMap.containsKey(key) {
+			var inf = fieldMap.get(key) as DynamicModelField
+			if not inf {
+				finalMap.setDynamic(key, data.get(key))
+			}
+			else if inf.type == DynamicModelField.TYPE_OBJECT {
+				var dmap as DynamicMap?
+				var val = data.get(key)
+				if val is string {
+					dmap = JSONParser.parse(val as! string) as DynamicMap
 				}
-				else if inf.type == DynamicModelField.TYPE_OBJECT {
-					var dmap as DynamicMap?
-					var val = data.get(key)
-					if val is string {
-						dmap = JSONParser.parse(val as! string) as DynamicMap
-					}
-					else if val is DynamicMap {
-						dmap = val as! DynamicMap
-					}
-					var iti = inf.typeinfo
-					if dmap && dmap.getCount() > 0 && iti {
-						var dmo = Reflection.createClassInstanceByTypeinfo(iti) as DynamicModel
-						if dmo:
-							finalMap.setObject(key, dmo.filterMapToModel(dmap))
-					}
+				else if val is DynamicMap {
+					dmap = val as! DynamicMap
 				}
-				else if inf.type == DynamicModelField.TYPE_VECTOR {
-					var dvec as DynamicVector?
-					var val = data.get(key)
-					if val is string {
-						dvec = JSONParser.parse(val as! string) as DynamicVector
+				var iti = inf.@typeinfo
+				if dmap && dmap.getCount() > 0 && iti {
+					var dmo = Reflection.createClassInstanceByTypeinfo(iti) as DynamicModel
+					if dmo:
+						finalMap.setObject(key, dmo.filterMapToModel(dmap))
+				}
+			}
+			else if inf.type == DynamicModelField.TYPE_VECTOR {
+				var dvec as DynamicVector?
+				var val = data.get(key)
+				if val is string {
+					dvec = JSONParser.parse(val as! string) as DynamicVector
+				}
+				else if val is DynamicVector {
+					dvec = val as! DynamicVector
+				}
+				if dvec {
+					var iti = inf.@typeinfo
+					if iti {
+						var val = filterVectorToModels(dvec, iti)
+						finalMap.setObject(key, val)
 					}
-					else if val is DynamicVector {
-						dvec = val as! DynamicVector
-					}
-					if dvec {
-						var iti = inf.typeinfo
-						if iti {
-							var val = filterVectorToModels(dvec, iti)
-							finalMap.setObject(key, val)
-						}
-						else {
-							finalMap.setObject(key, dvec)
-						}
+					else {
+						finalMap.setObject(key, dvec)
 					}
 				}
-				else if inf.type == DynamicModelField.TYPE_MAP {
-					var dmap as DynamicMap?
-					var val = data.get(key)
-					if val is string {
-						dmap = JSONParser.parse(val as! string) as DynamicMap
-					}
-					else if val is DynamicMap {
-						dmap = val as! DynamicMap
-					}
-					if dmap:
-						finalMap.setObject(key, dmap)
+			}
+			else if inf.type == DynamicModelField.TYPE_MAP {
+				var dmap as DynamicMap?
+				var val = data.get(key)
+				if val is string {
+					dmap = JSONParser.parse(val as! string) as DynamicMap
 				}
-				else {
-					finalMap.setDynamic(key, data.get(key))
+				else if val is DynamicMap {
+					dmap = val as! DynamicMap
 				}
+				if dmap:
+					finalMap.setObject(key, dmap)
+			}
+			else {
+				finalMap.setDynamic(key, data.get(key))
 			}
 		}
 	}
@@ -364,7 +360,7 @@ func filterVectorToModels(data as DynamicVector, typeinfo as typeinfo) as Dynami
 {
 	var finalVector = new DynamicVector()
 	foreach map in data.toVectorOfDynamicMaps() {
-		var dmo = Reflection.createClassInstanceByTypeinfo(typeinfo) as DynamicModel
+		var dmo = Reflection.createClassInstanceByTypeinfo(@typeinfo) as DynamicModel
 		if dmo:
 			finalVector.appendObject(dmo.filterMapToModel(map))
 	}
@@ -389,17 +385,21 @@ func toFlatDynamicMap as DynamicMap
 		}
 		else if inf.type == DynamicModelField.TYPE_OBJECT || inf.type == DynamicModelField.TYPE_MAP {
 			var val = data.getDynamicMap(key)
-			if val:
+			if val {
 				finalMap.setObject(key, JSONEncoder.toString(val))
-			else:
+			}
+			else {
 				finalMap.setObject(key, null)
+			}
 		}
 		else if inf.type == DynamicModelField.TYPE_VECTOR {
 			var vec = data.getDynamicVector(key)
-			if vec:
+			if vec {
 				finalMap.setObject(key, JSONEncoder.toString(vec))
-			else:
+			}
+			else {
 				finalMap.setObject(key, null)
+			}
 		}
 		else {
 			finalMap.setDynamic(key, data.get(key))

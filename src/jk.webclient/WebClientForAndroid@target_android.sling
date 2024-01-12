@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,7 +26,7 @@ class is WebClient:
 
 depend "androidPermission:android.permission.INTERNET"
 
-func query(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) override
+func query(method as string, url as string, requestHeaders as KeyValueList<string,string>, body as buffer, callback as function<void,string,KeyValueList<string,string>,buffer>) override
 {
 	if String.isEmpty(method) || String.isEmpty(url) {
 		callback(null, null, null)
@@ -60,23 +60,21 @@ class WebClientRequest
 class WebClientResponse
 {
 	pvar responseCode as string?
-	pvar responseHeaders as KeyValueList<string, string>?
+	pvar responseHeaders as KeyValueList<string,string>?
 	pvar responseBody as buffer?
 }
 
-class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebClientResponse>">
+class WebClientTask is [magical:@[android.os.AsyncTask<WebClientRequest, Void, WebClientResponse>]]
 {
-	var callback as function<void, string, KeyValueList<string,string>, buffer>?
-	var reader as native<java.io.InputStream>?
+	var callback as function<void,string,KeyValueList<string,string>,buffer>?
+	var reader as [magical:java.io.InputStream]?
 
-	ctor(cb as function<void, string, KeyValueList<string,string>, buffer>)
-	{
+	ctor(cb as function<void,string,KeyValueList<string,string>,buffer>):
 		callback = cb
-	}
 
-	func getConnectionForURL(url as string) private as native<java.net.HttpURLConnection>
+	func getConnectionForURL(url as string) private as [magical:java.net.HttpURLConnection]
 	{
-		var conn as native<java.net.HttpURLConnection>? = null
+		var conn as [magical:java.net.HttpURLConnection]? = null
 		IFDEF "target_java" {
 			lang "java" {{{
 				try {
@@ -103,7 +101,7 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 		return conn
 	}
 
-	func setRequestHeaders(conn as native<java.net.HttpURLConnection>, requestHeaders as KeyValueList<string,string>) private
+	func setRequestHeaders(conn as [magical:java.net.HttpURLConnection], requestHeaders as KeyValueList<string,string>) private
 	{
 		if requestHeaders {
 			var iter = requestHeaders.iterate()
@@ -151,7 +149,7 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 		}
 	}
 
-	func processResponse(conn as native<java.net.HttpURLConnection>) private as WebClientResponse
+	func processResponse(conn as [magical:java.net.HttpURLConnection]) private as WebClientResponse
 	{
 		var responseHeaders = new KeyValueList<string,string>()
 		var responseCode as int
@@ -176,7 +174,7 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 					val iterator = respHeaders!!.entries!!.iterator()
 			}}}
 		}
-		while true {
+		loop {
 			IFDEF "target_java" {
 				lang "java" {{{
 					java.util.Map.Entry<String, java.util.List<String>> rh = iterator.next();
@@ -293,13 +291,13 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 		}
 		var bb = Buffer.allocate(length)
 		var i = 0
-		while true {
-			if i > length-1:
+		loop {
+			if i > length - 1:
 				break
 			var c as int
 			IFDEF "target_java" {
 				c = lang "java" as int {{{ (int)(responseBuffer[i] & 0xFF) }}}
-				jk.lang.Buffer.setByte(bb, i, c as uint8)
+				jk.lang.Buffer.setByte(bb, i, c as! uint8)
 			}
 			ELSE IFDEF "target_kotlin" {
 				lang "kotlin" {{{
@@ -329,7 +327,8 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 		return response
 	}
 
-	IFDEF "target_java" {
+	IFDEF "target_java"
+	{
 		lang "java" {{{
 			protected WebClientResponse doInBackground(WebClientRequest... req) {
 				java.lang.String url = req[0].getUrl();
@@ -389,7 +388,8 @@ class WebClientTask is native<"android.os.AsyncTask<WebClientRequest, Void, WebC
 			}
 		}}}
 	}
-	ELSE IFDEF "target_kotlin" {
+	ELSE IFDEF "target_kotlin"
+	{
 		lang "kotlin" {{{
 			protected override fun doInBackground(vararg req: WebClientRequest): WebClientResponse? {
 				var url = req[0].getUrl()

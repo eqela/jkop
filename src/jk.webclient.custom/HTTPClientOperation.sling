@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -43,6 +43,7 @@ class MyResponseParser
 	var isStream public = false
 	var contentLength public = 0
 	var dataCounter public = 0
+
 	pvar listener as HTTPClientListener?
 	pvar endOfResponse = false
 	pvar aborted = false
@@ -63,7 +64,7 @@ class MyResponseParser
 		var n = 0
 		var v = false
 		while n <= size - 4 {
-			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n+1) == '\n' && Buffer.getByte(buf, n+2) == '\r' && Buffer.getByte(buf, n+3) == '\n' {
+			if Buffer.getByte(buf, n) == '\r' && Buffer.getByte(buf, n + 1) == '\n' && Buffer.getByte(buf, n + 2) == '\r' && Buffer.getByte(buf, n + 3) == '\n' {
 				v = true
 				break
 			}
@@ -75,7 +76,7 @@ class MyResponseParser
 	func parseResponse(buf as buffer) private as HTTPClientResponse?
 	{
 		var i = 0
-		var p = '0' as uint8
+		var p = '0' as! uint8
 		var v as HTTPClientResponse?
 		var first = true
 		var isChunked = false
@@ -83,14 +84,14 @@ class MyResponseParser
 			var sb = new StringBuilder()
 			while (p = Buffer.getByte(buf, i)) != 0 {
 				if p == '\r' {
-					;
+					nop
 				}
 				else if p == '\n' {
 					i++
 					break
 				}
 				else {
-					sb.appendCharacter(p as char)
+					sb.appendCharacter(p as! char)
 				}
 				i++
 			}
@@ -133,9 +134,10 @@ class MyResponseParser
 			receivedData = null
 		}
 		this.isChunked = isChunked
-		if v:
+		if v {
 			if contentLength < 1 && (String.equalsIgnoreCase(v.getHeader("connection"), "close") || String.equalsIgnoreCase(v.getHttpVersion(), "HTTP/1.0")):
 				isStream = true
+		}
 		return v
 	}
 
@@ -151,14 +153,14 @@ class MyResponseParser
 			}
 			var p = Buffer.getByte(receivedData, i)
 			if p == '\r' {
-				;
+				nop
 			}
 			else if p == '\n' {
 				i++
 				break
 			}
 			else {
-				sb.appendCharacter(p as char)
+				sb.appendCharacter(p as! char)
 			}
 			i++
 			if sb.count() >= 16 {
@@ -184,7 +186,7 @@ class MyResponseParser
 		}
 		while i < Buffer.getSize(receivedData) && (Buffer.getByte(receivedData, i) == '\r' || Buffer.getByte(receivedData, i) == '\n'):
 			i++
-		var rem = Buffer.getSize(receivedData) - i as int
+		var rem = Buffer.getSize(receivedData) - i as! int
 		if rem > 0 {
 			var tmp = receivedData
 			receivedData = Buffer.allocate(rem)
@@ -222,7 +224,7 @@ class MyResponseParser
 						onEndOfResponse()
 						break
 					}
-					var sz = Buffer.getSize(r.data) as int
+					var sz = Buffer.getSize(r.data) as! int
 					dataCounter += sz
 					onBodyDataReceived(r.data, sz)
 				}
@@ -236,7 +238,7 @@ class MyResponseParser
 			}
 		}
 		else if isStream && receivedData {
-			var sz = Buffer.getSize(receivedData) as int
+			var sz = Buffer.getSize(receivedData) as! int
 			if sz > 0 {
 				var v = receivedData
 				receivedData = null
@@ -245,7 +247,7 @@ class MyResponseParser
 			}
 		}
 		else if contentLength > 0 && receivedData {
-			var rsz = Buffer.getSize(receivedData) as int
+			var rsz = Buffer.getSize(receivedData) as! int
 			if rsz > 0 {
 				if contentLength <= 0 || dataCounter + rsz <= contentLength {
 					var v = receivedData
@@ -256,7 +258,7 @@ class MyResponseParser
 				else {
 					var vsz = contentLength - dataCounter
 					var v = Buffer.getSubBuffer(receivedData, 0, vsz)
-					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz-vsz)
+					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz - vsz)
 					dataCounter += vsz
 					onBodyDataReceived(v, vsz)
 				}
@@ -302,9 +304,12 @@ var openSocket as ConnectedSocket?
 var openSocketProtocol as string?
 var openSocketAddress as string?
 var openSocketPort as int
+
 pvar defaultUserAgent as string? = null
+
 var parser as MyResponseParser?
 var receiveBuffer as buffer?
+
 pvar acceptInvalidCertificate = false
 
 ctor:
@@ -384,9 +389,8 @@ func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?)
 		if request.getServerAddress() != openSocketAddress || request.getProtocol() != openSocketProtocol || request.getServerPort() != openSocketPort:
 			closeConnection(listener)
 	}
-	if openSocket == null {
+	if openSocket == null:
 		openConnection(request, listener)
-	}
 	assert openSocket
 	if listener:
 		listener.onStatus("Sending request headers ..")
@@ -420,9 +424,8 @@ func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?)
 				break
 			}
 		}
-		if body is Closable {
+		if body is Closable:
 			(body as! Closable).close()
-		}
 		if listener:
 			listener.onStatus(null)
 		if rv == false:
@@ -457,7 +460,8 @@ func readResponse(listener as HTTPClientListener?, timeout as int) as bool
 			rv = false
 			break
 		}
-		if r < 1 { // socket closed
+		if r < 1 {
+			// socket closed
 			if parser.isStream {
 				parser.reset()
 				parser.onEndOfResponse()

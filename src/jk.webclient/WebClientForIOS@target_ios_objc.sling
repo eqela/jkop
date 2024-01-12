@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,14 +26,15 @@ class is WebClient:
 
 depend "plist:{ \"NSAppTransportSecurity\" : { \"NSAllowsArbitraryLoads\" : \"true\" } }"
 
-class MyRequestListener implements native<NSURLConnectionDelegate>
+class MyRequestListener implements [magical:NSURLConnectionDelegate]
 {
-	pvar callback as function<void, string, KeyValueList<string,string>, buffer>?
+	pvar callback as function<void,string,KeyValueList<string,string>,buffer>?
+
 	var responseData as buffer?
 	var responseCode as string?
 	var responseHeaders as KeyValueList<string,string>?
 
-	func processNSURLResponse(response as native<NSURLResponse>)
+	func processNSURLResponse(response as [magical:NSURLResponse])
 	{
 		responseHeaders = new KeyValueList<string,string>()
 		var k as string?
@@ -46,10 +47,10 @@ class MyRequestListener implements native<NSURLConnectionDelegate>
 		}}}
 		responseCode = String.forInteger(c)
 		lang "objc" {{{
-				NSDictionary* d = [r allHeaderFields];
-				for(NSString* key in d) {
-					k = key;
-					v = [d objectForKey:key];
+			NSDictionary* d = [r allHeaderFields];
+			for(NSString* key in d) {
+				k = key;
+				v = [d objectForKey:key];
 		}}}
 		k = String.toLowerCase(k)
 		responseHeaders.add(k, v)
@@ -65,21 +66,21 @@ class MyRequestListener implements native<NSURLConnectionDelegate>
 			[self processNSURLResponse:response];
 			responseData = [[NSMutableData alloc] init];
 		}
-		
+
 		- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
 			NSLog(@"HTTP data received");
 			[responseData appendData:data];
 		}
-		
+
 		- (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse*)cachedResponse {
 			return nil;
 		}
-		
+
 		- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
 			NSLog(@"Finished receiving HTTP response");
 			callback(responseCode, responseHeaders, responseData);
 		}
-		
+
 		- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
 			NSLog(@"HTTP connection failed: %@", error);
 			callback(nil, nil, nil);
@@ -87,7 +88,7 @@ class MyRequestListener implements native<NSURLConnectionDelegate>
 	}}}
 }
 
-func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void, string, KeyValueList<string,string>, buffer>) override
+func query(method as string, url as string, headers as KeyValueList<string,string>, body as buffer, callback as function<void,string,KeyValueList<string,string>,buffer>) override
 {
 	lang "objc" {{{
 		NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:url]];

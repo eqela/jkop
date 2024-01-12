@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,6 +26,7 @@ import jk.log
 import jk.url
 import jk.sha
 import jk.time
+import jk.json
 
 class:
 
@@ -43,8 +44,8 @@ func hmacSha256(key as buffer, data as string) private static as buffer
 	var blockSize = 64
 	var okey = Buffer.allocate(blockSize)
 	var ikey = Buffer.allocate(blockSize)
-	Buffer.fill(okey, 0 as uint8)
-	Buffer.fill(ikey, 0 as uint8)
+	Buffer.fill(okey, 0 as! uint8)
+	Buffer.fill(ikey, 0 as! uint8)
 	var ksiz = Buffer.getSize(key)
 	if ksiz > blockSize {
 		var hash = sha256(key)
@@ -56,8 +57,8 @@ func hmacSha256(key as buffer, data as string) private static as buffer
 		Buffer.copyFrom(okey, key, 0, 0, ksiz)
 		Buffer.copyFrom(ikey, key, 0, 0, ksiz)
 	}
-	for(var n=0; n<blockSize; n++) {
-		okey[n] = okey[n] ^ 0x5c
+	for(var n = 0 ; n < blockSize ; n++) {
+		okey[n] = okey[n] ^ 0x5C
 		ikey[n] = ikey[n] ^ 0x36
 	}
 	var b1 = Buffer.append(ikey, String.toUTF8Buffer(data))
@@ -122,7 +123,7 @@ func createCanonicalHeaders(headers as KeyValueList<string,string>) static priva
 		var hsb = new StringBuilder()
 		hsb.appendString(String.toLowerCase(header.key))
 		hsb.appendCharacter(':')
-		var pc = 0 as char
+		var pc = 0 as! char
 		foreach c in String.iterate(String.strip(header.value)) {
 			if c == ' ' && pc == ' ' {
 				nop
@@ -171,10 +172,12 @@ func createCanonicalRequest(method as string, url as URL, headers as KeyValueLis
 	sb.appendCharacter('\n')
 	sb.appendString(signedHeaders)
 	sb.appendCharacter('\n')
-	if body:
+	if body {
 		sb.appendString(hashBuffer(body))
-	else:
+	}
+	else {
 		sb.appendString(hashString(""))
+	}
 	return sb.toString()
 }
 
@@ -255,6 +258,9 @@ class HttpRequestInfo public
 	prop url as string
 	prop headers as KeyValueList<string,string>
 	prop body as buffer?
+	prop queryParameters as map<string,string>?
+
+	pvar preAuthUrl as string?
 }
 
 func signRequest(context as AwsApiContext, request as HttpRequestInfo, service as string, region as string) static
@@ -262,7 +268,7 @@ func signRequest(context as AwsApiContext, request as HttpRequestInfo, service a
 	var url = URL.forString(request.url, true)
 	var host = url.getHost() ?? ""
 	var timestamp = createIsoTimestamp()
-	request.headers.add("X-Amz-Date", timestamp)
+	var headers = request.headers
 	request.headers.add("Host", host)
 	var algorithm = "AWS4-HMAC-SHA256"
 	var signedHeaders = createSignedHeaders(request.headers)
@@ -278,11 +284,44 @@ func signRequest(context as AwsApiContext, request as HttpRequestInfo, service a
 	var signature = hmacSha256(signingKey, stringToSign)
 	var signatureHex = String.toLowerCase(String.forBufferHex(signature))
 	Log.debug(context.ctx, "SIGNATURE: " .. signatureHex)
+	generatePreAuthenticatedUrl(context, request, headers, signingKey, algorithm, credential)
+	request.headers.add("X-Amz-Date", timestamp)
 	var authorization = createAuthorizationString(algorithm, context.accessKeyId, credential, signedHeaders, signatureHex)
 	Log.debug(context.ctx, "Authorization: `" .. authorization .. "'")
 	request.headers.add("Authorization", authorization)
 	if var sectok = context.securityToken:
 		request.headers.add("X-Amz-Security-Token", sectok)
-	// FIXME: We could also support generating the pre-authenticated URLs here
 	request.url = url.toString()
+}
+
+func generatePreAuthenticatedUrl(context as AwsApiContext, request as HttpRequestInfo, hdrs as KeyValueList<string,string>, signingKey as buffer, algorithm as string, credential as string) static
+{
+	var timestamp = createIsoTimestamp()
+	var signedHeaders = createSignedHeaders(hdrs)
+	var urlObject = URL.forString(request.url, true)
+	var qp = request.queryParameters
+	if not qp:
+		qp = new map<string,string>
+	var keys = Map.getKeys(qp)
+	foreach key as string in keys {
+		if String.isEmpty(key):
+			continue
+		var val = Map.getValue(qp, key)
+		urlObject.addQueryParameter(key, String.asValueOrEmptyString(val))
+	}
+	urlObject.addQueryParameter("X-Amz-Algorithm", algorithm)
+	urlObject.addQueryParameter("X-Amz-Credential", context.accessKeyId .. "/" .. credential)
+	urlObject.addQueryParameter("X-Amz-Date", timestamp)
+	urlObject.addQueryParameter("X-Amz-SignedHeaders", signedHeaders)
+	var cr = createCanonicalRequest(request.method, urlObject, hdrs, signedHeaders, request.body)
+	var ss = createStringToSign(algorithm, timestamp, credential, cr)
+	var s = hmacSha256(signingKey, ss)
+	var sh = String.toLowerCase(String.forBufferHex(s))
+	var queryString = createCanonicalQueryString(urlObject)
+	var sb = new StringBuilder()
+	sb.appendString(urlObject.getOriginal() ?? "")
+	sb.appendCharacter('?')
+	sb.appendString(queryString)
+	sb.appendString("&X-Amz-Signature=" .. sh)
+	request.setPreAuthUrl(sb.toString())
 }

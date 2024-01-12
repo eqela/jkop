@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,13 +26,10 @@ import jk.log
 
 class abstract:
 
-meta
-{
-	description [[
-		SQL database connection. This is the base class and abstraction for all
-		database-specific driver classes.
-	]]
-}
+description [[
+	SQL database connection. This is the base class and abstraction for all
+	database-specific driver classes.
+]]
 
 prop ctx as LoggingContext
 
@@ -76,12 +73,10 @@ func getSingleRowOrThrowError(stmt as SQLStatement) virtual async as DynamicMap
 
 func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async
 {
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-			Returns false if something went wrong.
-		]]
-	}
+	description [[
+		Checks if the database table exists and creates it if it does not exist. Returns
+		false if something went wrong.
+	]]
 	foreach column in columns {
 		if await checkIfColumnExists(tableName, column.name) {
 			if not await checkIfColumnTypeMatches(tableName, column):
@@ -95,12 +90,10 @@ func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableCo
 
 func ensureTableExists(table as SQLTableInfo) virtual async
 {
-	meta {
-		description [[
-			Checks if the database table exists and creates it if it does not exist.
-			Throws an exception in any failure scenario.
-		]]
-	}
+	description [[
+		Checks if the database table exists and creates it if it does not exist. Throws
+		an exception in any failure scenario.
+	]]
 	var name = table.name
 	if String.isEmpty(name):
 		Error.throw("emptyTableName", table)
@@ -117,12 +110,10 @@ func ensureTableExists(table as SQLTableInfo) virtual async
 
 func prepareCreateIndexStatement(table as string, columns as vector<string>, unique as bool) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Prepares a CREATE INDEX statement as a string for the supplied table name, column name and a boolean flag which
-			indicates if the index will be unique.
-		]]
-	}
+	description [[
+		Prepares a CREATE INDEX statement as a string for the supplied table name,
+		column name and a boolean flag which indicates if the index will be unique.
+	]]
 	if Vector.getSize(columns) < 1:
 		Error.throw("noColumnsForPrepareIndexStatement", table)
 	var namesb = new StringBuilder()
@@ -160,12 +151,10 @@ func prepareCreateIndexStatement(table as string, columns as vector<string>, uni
 
 func createColumnSelectionString(columns as vector<string>?) private as string
 {
-	meta {
-		description [[
-			Creates the column selection part of an SQL select statement
-			in string from the supplied array of column name(s).
-		]]
-	}
+	description [[
+		Creates the column selection part of an SQL select statement in string from the
+		supplied array of column name(s).
+	]]
 	if not columns || sizeof columns < 1:
 		return "*"
 	var sb = new StringBuilder()
@@ -181,13 +170,10 @@ func createColumnSelectionString(columns as vector<string>?) private as string
 
 func createOrderByString(order as vector<SQLOrderingRule>) private as string
 {
-	meta {
-		description [[
-			Creates the order by part of an SQL select statement
-			in string from the supplied array of column name(s)
-			or instance(s) of SQLOrderingRule class.
-		]]
-	}
+	description [[
+		Creates the order by part of an SQL select statement in string from the supplied
+		array of column name(s) or instance(s) of SQLOrderingRule class.
+	]]
 	if sizeof order < 1:
 		Error.throw("emptyOrderByRuleVector", order)
 	var sb = new StringBuilder()
@@ -211,13 +197,11 @@ func createOrderByString(order as vector<SQLOrderingRule>) private as string
 
 func prepareSelectAllStatement(table as string, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for select statement with the specified
-			database table name, an array of column name(s) and an array of column
-			name(s) or instance(s) of SQLOrderingRule for order by clause.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for select statement with the specified
+		database table name, an array of column name(s) and an array of column name(s)
+		or instance(s) of SQLOrderingRule for order by clause.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("SELECT ")
 	sb.appendString(createColumnSelectionString(columns))
@@ -231,15 +215,12 @@ func prepareSelectAllStatement(table as string, columns as vector<string>? = nul
 
 func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?, limit as int = 0, offset as int = 0, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null, likeOperator as bool = false) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for select statement
-			with the specified database table name, a map of criteria,
-			limit, offset, an array of column name(s), an array of column
-			name(s) or instance(s) of SQLOrderingRule for order by clause
-			and a flag to use LIKE operator.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for select statement with the specified
+		database table name, a map of criteria, limit, offset, an array of column
+		name(s), an array of column name(s) or instance(s) of SQLOrderingRule for order
+		by clause and a flag to use LIKE operator.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("SELECT ")
 	sb.appendString(createColumnSelectionString(columns))
@@ -262,13 +243,11 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?
 			if value == null {
 				sb.appendString(" IS NULL")
 			}
+			else if likeOperator {
+				sb.appendString(" LIKE ?")
+			}
 			else {
-				if likeOperator {
-					sb.appendString(" LIKE ?")
-				}
-				else {
-					sb.appendString(" = ?")
-				}
+				sb.appendString(" = ?")
 			}
 		}
 	}
@@ -285,17 +264,15 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?
 	sb.appendCharacter(';')
 	var sql = sb.toString()
 	var stmt = await prepareStatement(sql)
-	if keys && criteria {
-		foreach key in keys {
-			var val = criteria.getString(key)
-			if val == null:
-				continue
-			if likeOperator {
-				stmt.addParamString("%" .. val .. "%")
-			}
-			else {
-				stmt.addParamString(val)
-			}
+	if keys && criteria: foreach key in keys {
+		var val = criteria.getString(key)
+		if val == null:
+			continue
+		if likeOperator {
+			stmt.addParamString("%" .. val .. "%")
+		}
+		else {
+			stmt.addParamString(val)
 		}
 	}
 	return stmt
@@ -303,12 +280,10 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?
 
 func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, likeOperator as bool = false) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for select count statement
-			with the specified database table name and a map of criteria.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for select count statement with the
+		specified database table name and a map of criteria.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("SELECT COUNT(*) AS count FROM ")
 	sb.appendString(prepareTableName(table))
@@ -329,29 +304,25 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, like
 			if value == null {
 				sb.appendString(" IS NULL")
 			}
+			else if likeOperator {
+				sb.appendString(" LIKE ?")
+			}
 			else {
-				if likeOperator {
-					sb.appendString(" LIKE ?")
-				}
-				else {
-					sb.appendString(" = ?")
-				}
+				sb.appendString(" = ?")
 			}
 		}
 	}
 	sb.appendCharacter(';')
 	var stmt = await prepareStatement(sb.toString())
-	if keys && criteria {
-		foreach key in keys {
-			var val = criteria.getString(key)
-			if val == null:
-				continue
-			if likeOperator {
-				stmt.addParamString("%" .. val .. "%")
-			}
-			else {
-				stmt.addParamString(val)
-			}
+	if keys && criteria: foreach key in keys {
+		var val = criteria.getString(key)
+		if val == null:
+			continue
+		if likeOperator {
+			stmt.addParamString("%" .. val .. "%")
+		}
+		else {
+			stmt.addParamString(val)
 		}
 	}
 	return stmt
@@ -359,12 +330,10 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, like
 
 func prepareSelectDistinctValuesStatement(table as string, column as string) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for query distinct values
-			with the specified database table name and column name.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for query distinct values with the specified
+		database table name and column name.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("SELECT DISTINCT ")
 	sb.appendString(prepareColumnName(column))
@@ -376,12 +345,10 @@ func prepareSelectDistinctValuesStatement(table as string, column as string) asy
 
 func prepareInsertStatement(table as string, data as DynamicMap) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for insert statement with the
-			specified database table name and an instance of DynamicMap for values.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for insert statement with the specified
+		database table name and an instance of DynamicMap for values.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("INSERT INTO ")
 	sb.appendString(prepareTableName(table))
@@ -449,13 +416,11 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 
 func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as DynamicMap) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for update statement with the
-			specified database table name, an instance of DynamicMap for
-			criteria and an instance of DynamicMap for values.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for update statement with the specified
+		database table name, an instance of DynamicMap for criteria and an instance of
+		DynamicMap for values.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("UPDATE ")
 	sb.appendString(prepareTableName(table))
@@ -518,13 +483,11 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as Dy
 
 func prepareDeleteStatement(table as string, criteria as DynamicMap?) async virtual as SQLStatement
 {
-	meta {
-		description [[
-			Creates an instance of SQLStatement for delete statement with the
-			specified database table name, an instance of DynamicMap for
-			criteria and an instance of DynamicMap for values.
-		]]
-	}
+	description [[
+		Creates an instance of SQLStatement for delete statement with the specified
+		database table name, an instance of DynamicMap for criteria and an instance of
+		DynamicMap for values.
+	]]
 	var sb = new StringBuilder()
 	sb.appendString("DELETE FROM ")
 	sb.appendString(prepareTableName(table))

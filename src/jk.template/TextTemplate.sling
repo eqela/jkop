@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -195,7 +195,7 @@ func tokenizeString(inputdata as string) private as vector<object>?
 				tag.appendCharacter(c)
 				if c == me2 {
 					var tt = tag.toString()
-					var tts = String.strip(String.getSubString(tt, 2, String.getLength(tt)-4))
+					var tts = String.strip(String.getSubString(tt, 2, String.getLength(tt) - 4))
 					var words = StringUtil.quotedStringToVector(tts, ' ')
 					if Vector.getValue(words, 0) == "include" {
 						var fileName = Vector.getValue(words, 1)
@@ -209,10 +209,8 @@ func tokenizeString(inputdata as string) private as vector<object>?
 								if nt == null {
 									Log.warning(logContext, "Failed to process included template file: `" .. fileName .. "'")
 								}
-								else {
-									if var tokens = nt.getTokens(): foreach token in tokens:
-										v += token
-								}
+								else if var tokens = nt.getTokens(): foreach token in tokens:
+									v += token
 							}
 							else {
 								Log.warning(logContext, "Failed to get include file content: `" .. fileName .. "'")
@@ -229,29 +227,27 @@ func tokenizeString(inputdata as string) private as vector<object>?
 				tag.appendCharacter(c)
 			}
 		}
-		else {
-			if pc == mb1 {
-				if c == mb2 {
-					if data {
-						v += data
-						data = null
-					}
-					tag = new StringBuilder()
-					tag.appendCharacter(pc)
-					tag.appendCharacter(c)
+		else if pc == mb1 {
+			if c == mb2 {
+				if data {
+					v += data
+					data = null
 				}
-				else {
-					if data == null:
-						data = new StringBuilder()
-					data.appendCharacter(pc)
-					data.appendCharacter(c)
-				}
+				tag = new StringBuilder()
+				tag.appendCharacter(pc)
+				tag.appendCharacter(c)
 			}
-			else if c != mb1 {
+			else {
 				if data == null:
 					data = new StringBuilder()
+				data.appendCharacter(pc)
 				data.appendCharacter(c)
 			}
+		}
+		else if c != mb1 {
+			if data == null:
+				data = new StringBuilder()
+			data.appendCharacter(c)
 		}
 		pc = c
 	}
@@ -310,13 +306,11 @@ func substituteVariables(orig as string?, vars as DynamicMap?) private as string
 					}
 					var r = getVariableValueString(vars, varname)
 					if r {
-						if String.isNotEmpty(varcut) {
-							foreach cx in String.iterate(varcut) {
-								var n = String.getLastIndexOfCharacter(r, cx)
-								if n < 0:
-									break
-								r = String.getSubString(r, 0, n)
-							}
+						if String.isNotEmpty(varcut): foreach cx in String.iterate(varcut) {
+							var n = String.getLastIndexOfCharacter(r, cx)
+							if n < 0:
+								break
+							r = String.getSubString(r, 0, n)
 						}
 						sb.appendString(r)
 					}
@@ -444,7 +438,7 @@ func handleBlock(vars as DynamicMap, tag as vector<string>?, data as vector<obje
 				return false
 			if index == 0:
 				vars.setString("__for_first", "false")
-			index ++
+			index++
 		}
 		vars.remove("__for_first")
 		vars.remove("__for_parity")
@@ -535,7 +529,7 @@ func doExecute(data as vector<object>?, avars as DynamicMap?, result as StringBu
 		if not words:
 			continue
 		if tagname == "end" {
-			blockctr --
+			blockctr--
 			if blockctr == 0 && blockdata != null {
 				if handleBlock(vars, blocktag, blockdata, result, importDirs) == false {
 					Log.error(logContext, "Handling of a block failed")
@@ -547,7 +541,7 @@ func doExecute(data as vector<object>?, avars as DynamicMap?, result as StringBu
 		}
 		if blockctr > 0 {
 			if tagname == "for" || tagname == "if":
-				blockctr ++
+				blockctr++
 			if blockdata == null:
 				blockdata = new vector<object>
 			blockdata += o
@@ -756,21 +750,19 @@ func doExecute(data as vector<object>?, avars as DynamicMap?, result as StringBu
 		else if tagname == "for" || tagname == "if" {
 			if blockctr == 0:
 				blocktag = words
-			blockctr ++
+			blockctr++
 		}
 		else if tagname == "end" {
 			nop // already handled
 		}
+		else if type == TYPE_HTML {
+			onHTMLTag(vars, result, importDirs, tagname, words)
+		}
+		else if type == TYPE_JSON {
+			onJSONTag(vars, result, importDirs, tagname, words)
+		}
 		else {
-			if type == TYPE_HTML {
-				onHTMLTag(vars, result, importDirs, tagname, words)
-			}
-			else if type == TYPE_JSON {
-				onJSONTag(vars, result, importDirs, tagname, words)
-			}
-			else {
-				nop // Ignore unknown tags so they can be used for extensions
-			}
+			nop // Ignore unknown tags so they can be used for extensions
 		}
 	}
 	return true

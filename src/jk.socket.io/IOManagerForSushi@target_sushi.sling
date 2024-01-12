@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -33,13 +33,14 @@ class MyTimer is FileDescriptor is IOManagerTimer
 	pvar entry as IOManagerEntry?
 	pvar handler as function<bool>?
 	pvar delay as long
+
 	var reader as FileDescriptorReader?
 
 	func initialize as bool
 	{
 		var osec = delay * 0.000001
-		var nsec = (osec % 1.0) * 1000000 as long
-		var fsec = osec as int
+		var nsec = (osec % 1.0) * 1000000 as! long
+		var fsec = osec as! int
 		var fd = lang "lua" as int {{{ _io:start_timer(fsec, nsec) }}}
 		assert fd > -1
 		reader = FileDescriptorReader.forFileDescriptor(fd)
@@ -82,6 +83,7 @@ class MyEntry is IOManagerEntry
 {
 	pvar mgrfd as object?
 	pvar fd as int
+
 	var objref = 0
 	var rrl as function<void>?
 	var wrl as function<void>?
@@ -148,24 +150,20 @@ class MyEntry is IOManagerEntry
 		if mode < 0 {
 			v = remove()
 		}
+		else if objref > 0 {
+			var objref = this.objref
+			var r = lang "lua" as int {{{ _net:update_io_listener(mgrfd, fd, mode, objref) }}}
+			if r != 0:
+				v = false
+		}
 		else {
-			if objref > 0 {
-				var objref = this.objref
-				var r = lang "lua" as int {{{
-					_net:update_io_listener(mgrfd, fd, mode, objref)
-				}}}
-				if r != 0:
-					v = false
-			}
-			else {
-				var objref = 0
-				lang "lua" {{{
-					objref = _net:register_io_listener(mgrfd, fd, mode, myself)
-				}}}
-				this.objref = objref
-				if objref < 1:
-					v = false
-			}
+			var objref = 0
+			lang "lua" {{{
+				objref = _net:register_io_listener(mgrfd, fd, mode, myself)
+			}}}
+			this.objref = objref
+			if objref < 1:
+				v = false
 		}
 		return v
 	}
@@ -176,9 +174,7 @@ class MyEntry is IOManagerEntry
 		var mgrfd = this.mgrfd
 		var fd = this.fd
 		var objref = this.objref
-		var r = lang "lua" as int {{{
-			_net:remove_io_listener(mgrfd, fd, objref)
-		}}}
+		var r = lang "lua" as int {{{ _net:remove_io_listener(mgrfd, fd, objref) }}}
 		this.objref = 0
 		if r != 0:
 			return false

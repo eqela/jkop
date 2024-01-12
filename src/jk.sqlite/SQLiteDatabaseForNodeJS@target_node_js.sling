@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -31,23 +31,24 @@ class is SQLiteDatabase:
 
 depend "npm:better-sqlite3:8.4.0"
 
-var sqldatabase private as native<sqlite.Database>?
+var sqldatabase as [magical:sqlite.Database]?
 
 class Statement is SQLStatement
 {
-	func create(db as native<sqlite.Database>, statement as string) static as this
+	func create(db as [magical:sqlite.Database], statement as string) static as this
 	{
 		var sqlPreparedStmt = db.prepare!(statement)
 		if sqlPreparedStmt == null:
 			Error.throw("failedToPrepareSqlStatement", statement)
 		return new this() {
 			sqlitedb db
-			sqlPreparedStmt sqlPreparedStmt
+			sqlPreparedStmt sqlPreparedStmt as! [magical:sqlite.Statement]
 		}
 	}
 
-	prop sqlitedb as native<sqlite.Database>
-	prop sqlPreparedStmt as native<sqlite.Statement>
+	prop sqlitedb as [magical:sqlite.Database]
+	prop sqlPreparedStmt as [magical:sqlite.Statement]
+
 	var params = new vector<dynamic>
 
 	func addParamString(val as string) override:
@@ -109,7 +110,7 @@ class ResultSet is SQLResultSetIterator
 	var currentRowValue as vector<dynamic>?
 	var rawColumnData as vector<dynamic>?
 	var columnNames = new vector<string>
-	var iterator as native<sqlite.Iterator>?
+	var iterator as [magical:sqlite.Iterator]?
 
 	ctor(stmt as Statement):
 		initialize(stmt.getIteratorStmt())
@@ -117,7 +118,7 @@ class ResultSet is SQLResultSetIterator
 	func initialize(stmt as dynamic)
 	{
 		rawColumnData = stmt.columns!() as vector<dynamic>
-		iterator = stmt.raw!()!.iterate!()
+		iterator = stmt.raw!()!.iterate!() as! [magical:sqlite.Iterator]
 	}
 
 	func hasNext override as bool
@@ -148,7 +149,7 @@ class ResultSet is SQLResultSetIterator
 		step()
 		var columns = getColumnNames()
 		var data = new DynamicMap()
-		for(var i = 0; i < Vector.getSize(columns); i++):
+		for(var i = 0 ; i < Vector.getSize(columns) ; i++):
 			data.setObject(columns[i], getColumnObject(i))
 		return data
 	}
@@ -158,7 +159,7 @@ class ResultSet is SQLResultSetIterator
 		step()
 		Vector.clear(values)
 		var columns = getColumnCount()
-		for(var i = 0; i < columns; i++):
+		for(var i = 0 ; i < columns ; i++):
 			values += getColumnObject(i)
 	}
 
@@ -261,11 +262,11 @@ func initialize(file as File, openCreate as bool) override
 	var ctx as LoggingContext?
 	if openCreate == false && file.isFile() == false:
 		Error.throw("databaseDoesNotExist", file)
-	sqldatabase = sqlite(file.getPath()) 
+	sqldatabase = sqlite(file.getPath()) as! [magical:sqlite.Database]
 	Log.debug(ctx, "Opened Sqlite database: '" .. file.getPath() .. "'")
 }
 
-func closeConnection async override 
+func closeConnection async override
 {
 	lang "js" {{{
 		if (this.sqldatabase !== null) {
@@ -290,7 +291,7 @@ func executeStatement(stmt as SQLStatement) async override
 	ss.execute()
 }
 
-func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetIterator 
+func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss:

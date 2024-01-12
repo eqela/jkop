@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -60,7 +60,7 @@ class BlobListIteratorImpl is AsyncIterator<BlobProperties>
 
 class ReadableStreamImpl is ReadableStream public
 {
-	prop stream as native<RetriableReadableStream>
+	prop stream as [magical:RetriableReadableStream]
 
 	func readAsString async as string
 	{
@@ -113,7 +113,7 @@ func getBlobServiceClient private as dynamic
 	var api = getStorageBlobApi()
 	var accountName = account
 	var storageSharedKey = accountKey
-	var endpoint = "https://"..account..".blob.core.windows.net"
+	var endpoint = "https://" .. account .. ".blob.core.windows.net"
 	var storageSharedKeyCredential = lang "js" as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
 	return lang "js" as dynamic {{{ new api.BlobServiceClient(endpoint, storageSharedKeyCredential) }}}
 }
@@ -147,9 +147,8 @@ func createBlobContainerIfNotExists(properties as CreateBlobContainerModel) over
 		params.access = "Container"
 	var metadata = {}
 	if var imd = properties.containerMetadata {
-		foreach key in imd.getKeys() {
+		foreach key in imd.getKeys():
 			metadata[key] = imd.getString(key)
-		}
 		params.metadata = metadata
 	}
 	await blobContainerClient.createIfNotExists!(params)
@@ -179,18 +178,21 @@ func getBlobContainerProperties(containerName as string) override async as BlobC
 	blobProperties.version = String.asValueOrNull(properties.version)
 	blobProperties.date = String.asValueOrNull(properties.date)
 	blobProperties.blobPublicAccess = String.asValueOrNull(properties.blobPublicAccess)
-	blobProperties.hasImmutabilityPolicy = properties.hasImmutabilityPolicy as bool
-	blobProperties.hasLegalHold = properties.hasLegalHold as bool
+	blobProperties.hasImmutabilityPolicy = properties.hasImmutabilityPolicy as! bool
+	blobProperties.hasLegalHold = properties.hasLegalHold as! bool
 	blobProperties.defaultEncryptionScope = String.asValueOrNull(properties.defaultEncryptionScope)
-	blobProperties.denyEncryptionScopeOverride = properties.denyEncryptionScopeOverride as bool
-	blobProperties.isImmutableStorageWithVersioningEnabled = properties.isImmutableStorageWithVersioningEnabled as bool
+	blobProperties.denyEncryptionScopeOverride = properties.denyEncryptionScopeOverride as! bool
+	blobProperties.isImmutableStorageWithVersioningEnabled = properties.isImmutableStorageWithVersioningEnabled as! bool
 	return blobProperties
 }
 
 func getContainerBlobsList(containerName as string, includeSnapshots as bool, includeVersions as bool) override async as AsyncIterator<BlobProperties>
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
-	var iterator = await blobContainerClient.listBlobsFlat!({ includeSnapshots includeSnapshots includeVersions includeVersions })
+	var iterator = await blobContainerClient.listBlobsFlat!({
+		includeSnapshots includeSnapshots
+		includeVersions includeVersions
+	})
 	if not iterator:
 		Error.throw("unableToIterateContainerBlobs", containerName)
 	return new BlobListIteratorImpl() {
@@ -348,7 +350,7 @@ func downloadAsReadableStream(containerName as string, blobName as string) overr
 	if not body:
 		Error.throw("failedToReadBodyStream", containerName .. ":" .. blobName)
 	return new ReadableStreamImpl() {
-		stream body
+		stream body as! [magical:RetriableReadableStream]
 	}
 }
 
@@ -385,5 +387,7 @@ func deleteBlob(containerName as string, blobName as string) override async
 		Error.throw("noBlobClient", blobName)
 	if await blobClient.exists!() == false:
 		Error.throw("blobDoesNotExists", blobName)
-	await blobClient.delete!({ deleteSnapshots "include" })
+	await blobClient.delete!({
+		deleteSnapshots "include"
+	})
 }

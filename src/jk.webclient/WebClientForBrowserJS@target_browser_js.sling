@@ -1,7 +1,7 @@
 
 /*
  * This file is part of Eqela Jkop
- * Copyright (c) 2016-2023 J42 Pte Ltd
+ * Copyright (c) 2016-2024 J42 Pte Ltd
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -26,7 +26,7 @@ import jk.log
 
 class is WebClient:
 
-func getXMLHttpRequestObject as native<XMLHttpRequest>
+func getXMLHttpRequestObject as [magical:XMLHttpRequest]
 {
 	lang "js" {{{
 		if(typeof XMLHttpRequest === "undefined") {
@@ -47,7 +47,7 @@ func getXMLHttpRequestObject as native<XMLHttpRequest>
 			}
 		}
 	}}}
-	return lang "js" as native<XMLHttpRequest> {{{ new XMLHttpRequest() }}}
+	return lang "js" as [magical:XMLHttpRequest] {{{ new XMLHttpRequest() }}}
 }
 
 func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override as Response
@@ -66,23 +66,16 @@ func executeQuery(ctx as LoggingContext, method as string, url as string, header
 			xhr.timeout = 30000
 			xhr.responseType = "arraybuffer"
 			xhr.onload = () => {
-				if(xhr.status >= 200 && xhr.status < 300) {
-					r.setStatusCode("" + xhr.status)
-					r.setStatusMessage("" + xhr.statusText)
-					if(xhr.headers) {
-						for(var key in xhr.headers) {
-							hdrs.add(key, xhr.headers[key]);
-						}
+				r.setStatusCodePropertyValue("" + xhr.status)
+				r.setStatusMessagePropertyValue("" + xhr.statusText)
+				if(xhr.headers) {
+					for(var key in xhr.headers) {
+						hdrs.add(key, xhr.headers[key]);
 					}
-					r.setHeaders(hdrs);
-					r.setBody(new Uint8Array(xhr.response))
-					resolve(r)
-				} else {
-					reject({
-						status: xhr.status,
-						statusText: xhr.statusText
-					})
 				}
+				r.setHeadersPropertyValue(hdrs);
+				r.setBodyPropertyValue(new Uint8Array(xhr.response))
+				resolve(r)
 			}
 			xhr.onerror = () => {
 				reject({
@@ -93,10 +86,8 @@ func executeQuery(ctx as LoggingContext, method as string, url as string, header
 		}}}
 		if headers {
 			var itr = headers.iterate()
-			loop {
-				var next = itr.next() as KeyValuePair<string,string>
-				if not next:
-					break
+			while itr.hasNext() {
+				var next = itr.next()
 				var key = next.key
 				var value = next.value
 				lang "js" {{{
