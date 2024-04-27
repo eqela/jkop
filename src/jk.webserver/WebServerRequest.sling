@@ -36,15 +36,15 @@ func getHeaders abstract as vector<KeyValuePair<string,string>>
 func getHeader(key as string) abstract as string?
 func setHeader(key as string, value as string) abstract
 func removeHeader(key as string) abstract
-func readBodyChunk abstract async as buffer?
-func getBodyAsBuffer abstract async as buffer
-func getBodyAsString abstract async as string
-func setResponseHeader(key as string, value as string) abstract
-func setResponseHeaderList(headers as KeyValueList<string,string>) abstract
-func setResponseHeaders(headers as dynamic) abstract
-func setResponseStatus(code as int) abstract
-func writeResponseData(data as buffer) abstract async
-func endResponse abstract async
+func readBodyChunk abstract async throws Exception as buffer?
+func getBodyAsBuffer abstract async throws Exception as buffer
+func getBodyAsString abstract async throws Exception as string
+func setResponseHeader(key as string, value as string) abstract throws Exception
+func setResponseHeaderList(headers as KeyValueList<string,string>) abstract throws Exception
+func setResponseHeaders(headers as dynamic) abstract throws Exception
+func setResponseStatus(code as int) abstract throws Exception
+func writeResponseData(data as buffer) abstract async throws Exception
+func endResponse abstract async throws Exception
 
 func setUserData(key as string, data as dynamic?)
 {
@@ -59,13 +59,13 @@ func getUserData(key as string) as dynamic?
 	return userData.getDynamic(key)
 }
 
-func setResponseRedirect(url as string)
+func setResponseRedirect(url as string) throws Exception
 {
 	setResponseStatus(303)
 	setResponseHeader("Location", url)
 }
 
-func setResponseRedirectAsDirectory
+func setResponseRedirectAsDirectory throws Exception
 {
 	var path = getUrlPath()
 	setResponseRedirect(path .. "/")
@@ -108,7 +108,7 @@ func getQueryParameterOrNull(key as string) as string?
 	return url.getQueryParameter(key)
 }
 
-func getQueryParameterOrThrowError(key as string) as string
+func getQueryParameterOrThrowError(key as string) throws Exception as string
 {
 	var v = getQueryParameter(key)
 	if not v:
@@ -196,21 +196,18 @@ func isForMethod(mm as string) virtual as bool
 	return false
 }
 
-func getBodyAsDynamicMapOrNull async as DynamicMap?
+func getBodyAsDynamicMapOrThrowError async throws Exception as DynamicMap
 {
 	var bodyString = await getBodyAsString()
 	if String.isEmpty(bodyString):
-		return null
+		Error.throw("emptyBodyStringReceived")
 	return JSONParser.parseStringAsMap(bodyString)
 }
 
-func getBodyAsDynamicMapOrThrowError async as DynamicMap
-{
-	var bodyString = await getBodyAsString()
-	return JSONParser.parseStringAsMap(bodyString)
-}
+func getBodyAsDynamicMapOrNull async as DynamicMap?:
+	return try? await getBodyAsDynamicMapOrThrowError()
 
-func sendResponse(response as dynamic?) async
+func sendResponse(response as dynamic?) async throws Exception
 {
 	setResponseStatus(200)
 	if response == null {

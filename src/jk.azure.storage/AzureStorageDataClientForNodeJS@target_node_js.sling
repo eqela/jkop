@@ -24,8 +24,7 @@
 
 import jk.fs
 import jk.io
-import jk.lang
-import jk.nodejs
+import jk.lang.js
 
 class is AzureStorageDataClient:
 
@@ -35,12 +34,12 @@ class BlobListIteratorImpl is AsyncIterator<BlobProperties>
 {
 	prop iterator as dynamic
 
-	func next async as BlobProperties?
+	func next implement async as BlobProperties?
 	{
 		var data = await iterator.next!()
 		if data == null:
 			return null
-		if data.done == true:
+		if Boolean.asValueOrDefaultValue(data.done, false) == true:
 			return null
 		var blobProperties = new BlobProperties()
 		blobProperties.name = String.asValueOrNull(data.value!.name)
@@ -62,10 +61,10 @@ class ReadableStreamImpl is ReadableStream public
 {
 	prop stream as [magical:RetriableReadableStream]
 
-	func readAsString async as string
+	func readAsString implement async as string
 	{
 		var readableStream = stream
-		return lang "js" as promise<string> {{{
+		return await lang "js" (readableStream) as task<string> {{{
 			new Promise((resolve, reject) => {
 				const chunk = [];
 				readableStream.on("data", (data) => {
@@ -82,10 +81,10 @@ class ReadableStreamImpl is ReadableStream public
 		}}}
 	}
 
-	func readAsBuffer async as buffer
+	func readAsBuffer implement async as buffer
 	{
 		var readableStream = stream
-		return lang "js" as promise<buffer> {{{
+		return await lang "js" (readableStream) as task<buffer> {{{
 			new Promise((resolve, reject) => {
 				const chunk = [];
 				readableStream.on("data", (data) => {
@@ -106,7 +105,7 @@ prop account as string
 prop accountKey as string
 
 func getStorageBlobApi private static as dynamic:
-	return NodeModule.require("@azure/storage-blob")
+	return JsCommonModule.require("@azure/storage-blob")
 
 func getBlobServiceClient private as dynamic
 {
@@ -114,11 +113,11 @@ func getBlobServiceClient private as dynamic
 	var accountName = account
 	var storageSharedKey = accountKey
 	var endpoint = "https://" .. account .. ".blob.core.windows.net"
-	var storageSharedKeyCredential = lang "js" as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
-	return lang "js" as dynamic {{{ new api.BlobServiceClient(endpoint, storageSharedKeyCredential) }}}
+	var storageSharedKeyCredential = lang "js" (api, accountName, storageSharedKey) as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
+	return lang "js" (api, endpoint, storageSharedKeyCredential) as dynamic {{{ new api.BlobServiceClient(endpoint, storageSharedKeyCredential) }}}
 }
 
-func getBlobContainerClient(containerName as string) private as dynamic
+func getBlobContainerClient(containerName as string) private throws Exception as dynamic
 {
 	var blobServiceClient = getBlobServiceClient()
 	var blobContainerClient = blobServiceClient.getContainerClient!(containerName)
@@ -127,15 +126,15 @@ func getBlobContainerClient(containerName as string) private as dynamic
 	return blobContainerClient
 }
 
-func getClientForExistingContainer(containerName as string) async as dynamic
+func getClientForExistingContainer(containerName as string) async throws Exception as dynamic
 {
 	var client = getBlobContainerClient(containerName)
-	if await client.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await client.exists!()) == false:
 		Error.throw("blobContainerDoesNotExists", containerName)
 	return client
 }
 
-func createBlobContainerIfNotExists(properties as CreateBlobContainerModel) override async
+func createBlobContainerIfNotExists(properties as CreateBlobContainerModel) override async throws Exception
 {
 	var containerName = properties.containerName
 	if not containerName:
@@ -154,10 +153,10 @@ func createBlobContainerIfNotExists(properties as CreateBlobContainerModel) over
 	await blobContainerClient.createIfNotExists!(params)
 }
 
-func getBlobContainerProperties(containerName as string) override async as BlobContainerProperties?
+func getBlobContainerProperties(containerName as string) override async throws Exception as BlobContainerProperties?
 {
 	var blobContainerClient = getBlobContainerClient(containerName)
-	if await blobContainerClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobContainerClient.exists!()) == false:
 		return null
 	var properties = await blobContainerClient.getProperties!()
 	if not properties:
@@ -186,7 +185,7 @@ func getBlobContainerProperties(containerName as string) override async as BlobC
 	return blobProperties
 }
 
-func getContainerBlobsList(containerName as string, includeSnapshots as bool, includeVersions as bool) override async as AsyncIterator<BlobProperties>
+func getContainerBlobsList(containerName as string, includeSnapshots as bool, includeVersions as bool) override async throws Exception as AsyncIterator<BlobProperties>
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var iterator = await blobContainerClient.listBlobsFlat!({
@@ -200,7 +199,7 @@ func getContainerBlobsList(containerName as string, includeSnapshots as bool, in
 	}
 }
 
-func updateBlobContainerAccessPolicy(properties as UpdateBlobContainerModel) override async
+func updateBlobContainerAccessPolicy(properties as UpdateBlobContainerModel) override async throws Exception
 {
 	var containerName = properties.containerName
 	if not containerName:
@@ -214,7 +213,7 @@ func updateBlobContainerAccessPolicy(properties as UpdateBlobContainerModel) ove
 		id accessPolicy.policyId
 		accessPolicy {
 			startsOn lang "js" as dynamic {{{ new Date() }}}
-			expiresOn lang "js" as dynamic {{{ new Date(new Date().getTime() + expiry * 24 * 60 * 60 * 1000) }}}
+			expiresOn lang "js" (expiry) as dynamic {{{ new Date(new Date().getTime() + expiry * 24 * 60 * 60 * 1000) }}}
 			permissions ""
 		}
 	}
@@ -231,39 +230,39 @@ func updateBlobContainerAccessPolicy(properties as UpdateBlobContainerModel) ove
 	if accessPolicy.list:
 		signedIdentifiersParams.accessPolicy!.permissions += "l"
 	var signedIdentifiers = [ signedIdentifiersParams ]
-	await await blobContainerClient.setAccessPolicy!(properties.access, signedIdentifiers)
+	await blobContainerClient.setAccessPolicy!(properties.access, signedIdentifiers)
 }
 
-func deleteBlobContainer(containerName as string) override async
+func deleteBlobContainer(containerName as string) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	await blobContainerClient.delete!()
 }
 
-func upload(containerName as string, blobName as string, blobData as buffer, forceUpdate as bool) override async
+func upload(containerName as string, blobName as string, blobData as buffer, forceUpdate as bool) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
 	if not blockClient:
 		Error.throw("noBlockBlobClient", blobName)
-	if await blockClient.exists!() == true && not forceUpdate:
+	if Boolean.asValueOrDefaultValue(await blockClient.exists!()) == true && not forceUpdate:
 		Error.throw("blobAlreadyExists", blobName)
 	await blockClient.upload!(blobData, Buffer.getSize(blobData))
 }
 
-func uploadFile(containerName as string, blobData as File, forceUpdate as bool = false) override async
+func uploadFile(containerName as string, blobData as File, forceUpdate as bool = false) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobName = blobData.getBasename()
 	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
 	if not blockClient:
 		Error.throw("noBlockBlobClient", blobName)
-	if await blockClient.exists!() == true && not forceUpdate:
+	if Boolean.asValueOrDefaultValue(await blockClient.exists!()) == true && not forceUpdate:
 		Error.throw("blobAlreadyExists", blobName)
 	await blockClient.uploadFile!(blobData.getPath())
 }
 
-func uploadStream(containerName as string, blobData as File, forceUpdate as bool = false) override async
+func uploadStream(containerName as string, blobData as File, forceUpdate as bool = false) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobName = blobData.getBasename()
@@ -271,7 +270,7 @@ func uploadStream(containerName as string, blobData as File, forceUpdate as bool
 	var blockClient = blobContainerClient.getBlockBlobClient!(blobName)
 	if not blockClient:
 		Error.throw("noBlockBlobClient", blobName)
-	if await blockClient.exists!() == true && not forceUpdate:
+	if Boolean.asValueOrDefaultValue(await blockClient.exists!()) == true && not forceUpdate:
 		Error.throw("blobAlreadyExists", blobName)
 	var stream = fs.createReadStream!(blobData.getPath())
 	var bufferSize = 4 * 1024 * 1024
@@ -279,14 +278,14 @@ func uploadStream(containerName as string, blobData as File, forceUpdate as bool
 	await blockClient.uploadStream!(stream, bufferSize, maxConcurrency)
 }
 
-func uploadPageBlob(containerName as string, blobData as File, offset as int, pageSize as int, forceUpdate as bool) override async
+func uploadPageBlob(containerName as string, blobData as File, offset as int, pageSize as int, forceUpdate as bool) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobName = blobData.getBasename()
 	var pageClient = blobContainerClient.getPageBlobClient!(blobName)
 	if not pageClient:
 		Error.throw("noPageBlobClient", blobName)
-	if await pageClient.exists!() == true && not forceUpdate:
+	if Boolean.asValueOrDefaultValue(await pageClient.exists!()) == true && not forceUpdate:
 		Error.throw("blobAlreadyExists", blobName)
 	if pageSize % 512 != 0:
 		Error.throw("pageSizeMustBeMultipleOf512", pageSize)
@@ -297,26 +296,26 @@ func uploadPageBlob(containerName as string, blobData as File, offset as int, pa
 	await pageClient.uploadPages!(blobData.getContentsBuffer(), offset, bufferSize)
 }
 
-func uploadAppendBlob(containerName as string, blobData as File, forceUpdate as bool) override async
+func uploadAppendBlob(containerName as string, blobData as File, forceUpdate as bool) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobName = blobData.getBasename()
 	var appendClient = blobContainerClient.getAppendBlobClient!(blobName)
 	if not appendClient:
 		Error.throw("noAppendBlobClient", blobName)
-	if await appendClient.exists!() == true && not forceUpdate:
+	if Boolean.asValueOrDefaultValue(await appendClient.exists!()) == true && not forceUpdate:
 		Error.throw("blobAlreadyExists", blobName)
 	await appendClient.createIfNotExists!()
 	await appendClient.appendBlock!(blobData.getContentsBuffer(), Buffer.getSize(blobData.getContentsBuffer()))
 }
 
-func getBlobProperties(containerName as string, blobName as string) override async as BlobProperties
+func getBlobProperties(containerName as string, blobName as string) override async throws Exception as BlobProperties
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobClient = blobContainerClient.getBlobClient!(blobName)
 	if not blobClient:
 		Error.throw("noBlobClient", blobName)
-	if await blobClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobClient.exists!()) == false:
 		Error.throw("blobDoesNotExists", blobName)
 	var data = await blobClient.getProperties!()
 	if not data:
@@ -335,13 +334,13 @@ func getBlobProperties(containerName as string, blobName as string) override asy
 	return blobProperties
 }
 
-func downloadAsReadableStream(containerName as string, blobName as string) override async as ReadableStream
+func downloadAsReadableStream(containerName as string, blobName as string) override async throws Exception as ReadableStream
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobClient = blobContainerClient.getBlobClient!(blobName)
 	if not blobClient:
 		Error.throw("noBlobClient", blobName)
-	if await blobClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobClient.exists!()) == false:
 		Error.throw("blobDoesNotExists", containerName .. ":" .. blobName)
 	var v = await blobClient.download!()
 	if not v:
@@ -354,13 +353,13 @@ func downloadAsReadableStream(containerName as string, blobName as string) overr
 	}
 }
 
-func downloadAsBuffer(containerName as string, blobName as string) override async as buffer
+func downloadAsBuffer(containerName as string, blobName as string) override async throws Exception as buffer
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobClient = blobContainerClient.getBlobClient!(blobName)
 	if not blobClient:
 		Error.throw("noBlobClient", blobName)
-	if await blobClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobClient.exists!()) == false:
 		Error.throw("blobDoesNotExists", blobName)
 	var o = await blobClient.downloadToBuffer!()
 	if not o:
@@ -368,24 +367,24 @@ func downloadAsBuffer(containerName as string, blobName as string) override asyn
 	return Buffer.asValueOrThrowError(o)
 }
 
-func downloadAsFile(containerName as string, blobName as string, directory as File) override async
+func downloadAsFile(containerName as string, blobName as string, directory as File) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobClient = blobContainerClient.getBlobClient!(blobName)
 	if not blobClient:
 		Error.throw("noBlobClient", blobName)
-	if await blobClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobClient.exists!()) == false:
 		Error.throw("blobDoesNotExists", blobName)
 	await blobClient.downloadToFile!(directory.entry(blobName).getPath())
 }
 
-func deleteBlob(containerName as string, blobName as string) override async
+func deleteBlob(containerName as string, blobName as string) override async throws Exception
 {
 	var blobContainerClient = await getClientForExistingContainer(containerName)
 	var blobClient = blobContainerClient.getBlobClient!(blobName)
 	if not blobClient:
 		Error.throw("noBlobClient", blobName)
-	if await blobClient.exists!() == false:
+	if Boolean.asValueOrDefaultValue(await blobClient.exists!()) == false:
 		Error.throw("blobDoesNotExists", blobName)
 	await blobClient.delete!({
 		deleteSnapshots "include"

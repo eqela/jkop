@@ -23,6 +23,7 @@
  */
 
 import jk.fs
+import jk.env
 
 class:
 
@@ -34,22 +35,27 @@ func terminate(value as int) static
 		}}}
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (value) {{{
 			System.Environment.Exit(value);
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
+		lang "kotlin" (value) {{{
 			kotlin.system.exitProcess(value)
 		}}}
 	}
 	ELSE IFDEF "target_node_js" {
-		lang "js" {{{
+		lang "js" (value) {{{
 			require("process").exit(value);
 		}}}
 	}
+	ELSE IFDEF "target_browser" {
+		nop value
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop value
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -58,7 +64,7 @@ IFDEF "target_darwin"
 	depend "objc-header-m:<mach-o/dyld.h>"
 }
 
-func getExecutableFile static as File?
+func getExecutableFileOrThrowError static throws Exception as File
 {
 	IFDEF "target_linux" {
 		var filepath as string?
@@ -73,7 +79,8 @@ func getExecutableFile static as File?
 				filepath = file;
 			}
 		}}}
-		assert filepath
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
 		return File.forPath(filepath)
 	}
 	ELSE IFDEF "target_darwin" {
@@ -94,7 +101,8 @@ func getExecutableFile static as File?
 			}
 			filepath = [[NSString alloc] initWithUTF8String:rpx];
 		}}}
-		assert filepath
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
 		return File.forPath(filepath)
 	}
 	ELSE IFDEF "target_win32" {
@@ -105,63 +113,110 @@ func getExecutableFile static as File?
 				filepath = buffer;
 			}
 		}}}
-		assert filepath
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
 		return File.forPath(filepath)
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		var fn as string?
-		lang "cs" {{{
-			fn = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
-		}}}
-		if String.isEmpty(fn):
-			return null
-		return File.forPath(fn)
+		var filepath = lang "cs" as string {{{ System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName }}}
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
+		return File.forPath(filepath)
 	}
 	IFDEF "target_objc" {
-		lang "objc" {{{
-			NSString* executablePath = [[NSBundle mainBundle] executablePath];
-			return [JkFsFile forPath: executablePath];
-		}}}
+		var filepath = lang "objc" as string {{{ [[NSBundle mainBundle] executablePath] }}}
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
+		return File.forPath(filepath)
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			let executablePath = Bundle.main.executablePath!
-			return JkFsFile.forPath(executablePath)
-		}}}
+		var filepath = lang "swift" as string? {{{ Bundle.main.executablePath }}}
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
+		return File.forPath(filepath)
+	}
+	ELSE IFDEF "target_sushi" {
+		var filepath = lang "lua" as string {{{ _vm.get_program_path() }}}
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
+		return File.forPath(filepath)
+	}
+	ELSE IFDEF "target_node_js" {
+		var filepath = lang "js" as string {{{ require.main.filename }}}
+		if String.isEmpty(filepath):
+			Error.throw("failedToDetermineExecutableFilePath")
+		return File.forPath(filepath)
+	}
+	ELSE IFDEF "target_browser" {
+		ERROR NOT_SUPPORTED
+	}
+	ELSE {
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
+func getExecutableFileOrNull static as File?
+{
+	try {
+		return getExecutableFileOrThrowError()
+	}
+	catch {
+	}
+	return null
+}
+
+func getInterpreterFileOrNull static as File?
+{
+	IFDEF "target_node_js" {
+		return File.forPath(lang "js" as string {{{ process.execPath }}})
 	}
 	ELSE IFDEF "target_sushi" {
 		return File.forPath(lang "lua" as string {{{ _vm.get_sushi_executable_path() }}})
-	}
-	ELSE IFDEF "target_node_js" {
-		var path = lang "js" as string {{{ require.main.filename }}}
-		return File.forPath(path)
 	}
 	ELSE {
 		return null
 	}
 }
 
-func requireExecutableFile static as File
+func getInterpreterFileOrThrowError static throws Exception as File
 {
-	var v = getExecutableFile()
+	var v = getInterpreterFileOrNull()
 	if not v:
-		Error.throw("failedToFindProcessExecutableFile", null)
+		Error.throw("noInterpreterFile")
 	return v
 }
 
-func getProcessName static as string?
+func getProcessNameOrNull static as string?
 {
-	var v as string?
-	var exe = getExecutableFile()
+	var exe = getExecutableFileOrNull()
 	if exe:
-		v = exe.getBasenameWithoutExtension()
+		return exe.getBasenameWithoutExtension()
+	return null
+}
+
+func getProcessNameOrThrowError static throws Exception as string
+{
+	var v = getProcessNameOrNull()
+	if not v:
+		Error.throw("failedToGetProcessName")
 	return v
 }
 
-func requireProcessName static as string
+func getExecutableDirectoryOrNull static as File?
 {
-	var v = getProcessName()
+	var srs = EnvironmentVariable.get("SLING_RUN_SOURCE")
+	if String.isNotEmpty(srs):
+		return File.forPath(srs).getParent()
+	var ef = getExecutableFileOrNull()
+	if ef:
+		return ef.getParent()
+	return null
+}
+
+func getExecutableDirectoryOrThrowError static throws Exception as File
+{
+	var v = getExecutableDirectoryOrNull()
 	if not v:
-		Error.throw("failedToGetProcessName", null)
+		Error.throw("failedToGetExecutableDirectory")
 	return v
 }

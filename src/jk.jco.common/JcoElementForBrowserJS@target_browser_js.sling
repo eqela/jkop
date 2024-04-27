@@ -1,0 +1,130 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is JcoElement:
+
+prop element as dynamic
+
+func setAttribute(key as string, value as dynamic?) override
+{
+	if value == null {
+		if element.hasAttribute!(key):
+			element.removeAttribute!(key)
+	}
+	else {
+		var oval #used = element.getAttribute!(key)
+		if lang "js" as bool {{{ oval != value }}}:
+			element.setAttribute!(key, value)
+	}
+}
+
+func getAttribute(key as string) override as dynamic?:
+	return element.getAttribute!(key)
+
+func getAllAttributes as StringSet
+{
+	var v = new StringSet()
+	var ele = element
+	lang "js" (ele) {{{
+		for (const attr of ele.attributes) {
+			v.add(attr.name);
+		}
+	}}}
+	return v
+}
+
+func updateAttributes(values as map<string,string>) override
+{
+	var all = getAllAttributes()
+	foreach okey in Map.getKeys(values) {
+		var key = String.toLowerCase(okey)
+		setAttribute(key, values[okey])
+		all.remove(key)
+	}
+	foreach key in all.getAll():
+		setAttribute(key, null)
+}
+
+func setEventFilter(event as string, handler as function<(dynamic) as bool>?) override
+{
+	var element = this.element
+	var oldHandler = element._jcoEventFilters?[event]
+	if oldHandler:
+		element.removeEventListener!(event, oldHandler, true)
+	lang "js" {{{
+		if(!element._jcoEventFilters) {
+			element._jcoEventFilters = {};
+		}
+	}}}
+	if handler {
+		var realHandler = func(event as dynamic) {
+			if handler(event) == true {
+				event.stopPropagation!()
+				event.preventDefault!()
+			}
+		}
+		element.addEventListener!(event, realHandler, true)
+		element._jcoEventFilters![event] = realHandler
+	}
+	else {
+		lang "js" {{{
+			delete element._jcoEventFilters[event];
+		}}}
+	}
+}
+
+func setEventCapturer(event as string, handler as function<(dynamic)>?) override
+{
+	if handler == null {
+		setEventFilter(event, null)
+	}
+	else {
+		setEventFilter(event, func(event as dynamic) as bool {
+			handler(event)
+			return true
+		})
+	}
+}
+
+func setEventObserver(event as string, handler as function<(dynamic)>?) override
+{
+	var element = this.element
+	var oldHandler = element._jcoEventObservers?[event]
+	if oldHandler:
+		element.removeEventListener!(event, oldHandler, false)
+	lang "js" {{{
+		if(!element._jcoEventObservers) {
+			element._jcoEventObservers = {};
+		}
+	}}}
+	if handler {
+		element.addEventListener!(event, handler, false)
+		element._jcoEventObservers![event] = handler
+	}
+	else {
+		lang "js" {{{
+			delete element._jcoEventObservers[event];
+		}}}
+	}
+}

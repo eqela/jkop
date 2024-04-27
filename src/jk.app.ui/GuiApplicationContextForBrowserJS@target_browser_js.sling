@@ -30,7 +30,7 @@ class MyTimerObject is GuiApplicationContext.TimerObject
 {
 	pvar timerID as int
 
-	func cancel:
+	func cancel implement:
 		lang "js" {{{
 			 clearTimeout(this.timerID); 
 		}}}
@@ -72,10 +72,6 @@ func prepareResources(resources as array<string>, callback as function<void>?)
 		logDebug("Resource loaded")
 		onResourceLoadingComplete()
 	}
-	var onError = func {
-		logError("Failed to load resource")
-		onResourceLoadingComplete()
-	}
 	var onFontLoad = func {
 		for(var i = 0 ; i < numberOfFonts ; i++) {
 			logDebug("Resource loaded")
@@ -105,16 +101,16 @@ func prepareResources(resources as array<string>, callback as function<void>?)
 		pp = String.getSubString(pp, 0, dot)
 		if String.equalsIgnoreCase(ext, "png") || String.equalsIgnoreCase(ext, "jpg") || String.equalsIgnoreCase(ext, "gif") {
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
-			var imgo = new ImageForBrowserJS()
-			var image as object?
-			lang "js" {{{
-				image = new Image();
-				image.onload = onLoad;
-				image.onerror = onError;
-				image.src = path;
-			}}}
-			imgo.image = image
-			imageCache[pp] = imgo
+			nowait (func async {
+				try {
+					var imgo = await ImageForBrowserJS.forUrl(path)
+					imageCache[pp] = imgo
+					onLoad()
+				}
+				catch e as Exception {
+					logError(e.toString())
+				}
+			})()
 		}
 		else if String.equalsIgnoreCase(ext, "otf") || String.equalsIgnoreCase(ext, "ttf") || String.equalsIgnoreCase(ext, "woff") {
 			logDebug("Start loading resource: `" .. pp .. ": `" .. path .. "'")
@@ -129,7 +125,7 @@ func prepareResources(resources as array<string>, callback as function<void>?)
 				onResourceLoadingComplete()
 			}
 			else if HTMLDOM.doesBrowserSupportFontLoading() {
-				lang "js" {{{
+				lang "js" (onFontLoad, onFontError) {{{
 					numberOfFonts++;
 					document.fonts.load("12px " + pp).then(onFontLoad, onFontError);
 				}}}
@@ -146,56 +142,12 @@ func prepareResources(resources as array<string>, callback as function<void>?)
 	}
 }
 
-func getResourceImage(id as string) override as Image
+func getResourceImage(id as string) override throws Exception as Image
 {
 	var v = Map.getValue(imageCache, id)
 	if not v:
 		Error.throw("resourceImageNotFound", id)
 	return v
-}
-
-func getImageForBufferSync(buffer as buffer, mimeType as string) override as Image
-{
-	if not validateBufferAndMimeType(buffer, mimeType):
-		Error.throw("invalidBufferOrMimeType", mimeType)
-	var b64str = Base64Encoder.encode(buffer)
-	var imgo = new ImageForBrowserJS()
-	var image as object?
-	lang "js" {{{
-		image = new Image();
-		image.src = "data:" + mimeType + ";base64," + b64str;
-	}}}
-	imgo.image = image
-	return imgo
-}
-
-func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void,Image?>?) override
-{
-	assert callback
-	assert validateBufferAndMimeType(buffer, mimeType):
-		callback(null)
-	var b64str = Base64Encoder.encode(buffer)
-	lang "js" {{{
-		var image = new Image();
-		image.onload = function() {
-			var imgo = JkAppUiImageForBrowserJS.NEW();
-			imgo.image = image;
-			callback(imgo);
-		};
-		image.onerror = function() {
-			callback(null);
-		};
-		image.src = "data:" + mimeType + ";base64," + b64str;
-	}}}
-}
-
-func validateBufferAndMimeType(buffer as buffer, mimeType as string) private as bool
-{
-	if Buffer.getSize(buffer) < 1:
-		return false
-	if not String.contains(mimeType, "image"):
-		return false
-	return true
 }
 
 func showConfirmDialog(title as string, message as string, okcallback as function<void>?, cancelcallback as function<void>?) override
@@ -275,8 +227,11 @@ func getScreenDensity override as int
 			if String.startsWith(q, "jkopDpi=") == false:
 				continue
 			var val = String.getEndOfString(q, 8)
-			if String.isEmpty(val) == false:
-				ppi = Integer.forStringOrThrowError(val)
+			if String.isEmpty(val) == false {
+				var nppi = Integer.forStringOrNull(val)
+				if nppi != null:
+					ppi = nppi
+			}
 			break
 		}
 		screenDensity = ppi
@@ -285,10 +240,10 @@ func getScreenDensity override as int
 }
 
 func getHeightValue(spec as string) override as int:
-	return Length.asPoints(spec, getScreenDensity())
+	return Length.asPixels(spec, getScreenDensity())
 
 func getWidthValue(spec as string) override as int:
-	return Length.asPoints(spec, getScreenDensity())
+	return Length.asPixels(spec, getScreenDensity())
 
 func startTimer(timeout as long, callback as function<void>) override as GuiApplicationContext.TimerObject
 {
@@ -299,6 +254,6 @@ func startTimer(timeout as long, callback as function<void>) override as GuiAppl
 	return timer
 }
 
-func getApplicationDataDirectory override stub as File?
+func getApplicationDataDirectory override stub throws Exception as File?
 func enableKeepAwakeMode override stub
 func disableKeepAwakeMode override stub

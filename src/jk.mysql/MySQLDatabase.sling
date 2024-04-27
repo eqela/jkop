@@ -62,7 +62,7 @@ func instance(ctx as LoggingContext) private static as this
 	}
 }
 
-func forConnectionString(ctx as LoggingContext, connectionString as string) static as this
+func forConnectionString(ctx as LoggingContext, connectionString as string) static throws Exception as this
 {
 	if String.isEmpty(connectionString):
 		Error.throw("emptyConnectionString", null, StackTrace.generate())
@@ -108,7 +108,7 @@ func forConnectionString(ctx as LoggingContext, connectionString as string) stat
 	return forConnectionDetails(ctx, address, username, password, database, sslMode, protocol, enableUTF8)
 }
 
-func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
+func forConfig(ctx as LoggingContext, config as DynamicMap) static throws Exception as this
 {
 	var serverAddress = config.getString("serverAddress")
 	var username = config.getString("username")
@@ -132,7 +132,7 @@ func forConfig(ctx as LoggingContext, config as DynamicMap) static as this
 	return forConnectionDetails(ctx, serverAddress, username, password, database, sslMode, protocol, enableUTF8)
 }
 
-func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) static as this
+func forConnectionDetails(ctx as LoggingContext, serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) static throws Exception as this
 {
 	if String.isEmpty(serverAddress) || String.isEmpty(username) || String.isEmpty(database) || String.isEmpty(sslMode) || String.isEmpty(protocol):
 		Error.throw("invalidConnectionDetails", null, StackTrace.generate())
@@ -146,9 +146,9 @@ func forConnectionDetails(ctx as LoggingContext, serverAddress as string, userna
 func getDatabaseTypeId override as string:
 	return "mysql"
 
-func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) abstract
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) abstract throws Exception
 
-func checkIfTableExists(table as string) override async as bool
+func checkIfTableExists(table as string) override async throws Exception as bool
 {
 	var stmt = await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ? AND table_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
@@ -159,7 +159,7 @@ func checkIfTableExists(table as string) override async as bool
 	return String.equalsIgnoreCase(table, sr.getString("TABLE_NAME"))
 }
 
-func getAllTableNames override async as vector<string>
+func getAllTableNames override async throws Exception as vector<string>
 {
 	var v = new vector<string>
 	var stmt = await prepareStatement("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = ?;")
@@ -226,7 +226,7 @@ func prepareTypeAsString(tt as int, columnName as string, forDataTypeChecking as
 	return "UNKNOWN"
 }
 
-func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override as SQLStatement
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async override throws Exception as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.appendString("CREATE TABLE ")
@@ -244,7 +244,7 @@ func prepareCreateTableStatement(table as string, columns as vector<SQLTableColu
 	return await prepareStatement(sb.toString())
 }
 
-func prepareDeleteTableStatement(table as string) async override as SQLStatement
+func prepareDeleteTableStatement(table as string) async override throws Exception as SQLStatement
 {
 	var sb = new StringBuilder()
 	sb.appendString("DROP TABLE ")
@@ -253,26 +253,26 @@ func prepareDeleteTableStatement(table as string) async override as SQLStatement
 	return await prepareStatement(sb.toString())
 }
 
-func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async override throws Exception as SQLStatement
 {
 	var sql = "ALTER TABLE " .. table .. " ADD COLUMN " .. column.name .. " " .. prepareTypeAsString(column.type, column.name) .. ";"
 	return await prepareStatement(sql)
 }
 
-func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async override throws Exception as SQLStatement
 {
 	var sql = "ALTER TABLE " .. table .. " CHANGE " .. column.name .. " " .. column.name .. " " .. prepareTypeAsString(column.type, column.name, true) .. ";"
 	return await prepareStatement(sql)
 }
 
-func getLastInsertId(table as string) override async as long
+func getLastInsertId(table as string) override async throws Exception as long
 {
 	// FIXME: Parameter table is ignored.
 	var v = await getSingleRowOrThrowError(await prepareStatement("SELECT LAST_INSERT_ID() AS id;"))
 	return v.getLongInteger("id")
 }
 
-func getPrimaryKeyColumnName(table as string) override async as string?
+func getPrimaryKeyColumnName(table as string) override async throws Exception as string?
 {
 	var v = await getSingleRowOrNull(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE CONSTRAINT_NAME LIKE 'PRIMARY%' AND TABLE_NAME='" .. table .. "';"))
 	if not v:
@@ -280,7 +280,7 @@ func getPrimaryKeyColumnName(table as string) override async as string?
 	return v.getString("COLUMN_NAME")
 }
 
-func getIdentityColumnName(table as string) override async as string?
+func getIdentityColumnName(table as string) override async throws Exception as string?
 {
 	var v = await getSingleRowOrNull(await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE TABLE_NAME='" .. table .. "' AND IS_NULLABLE='NO' AND EXTRA LIKE '%auto_increment%';"))
 	if not v:
@@ -288,7 +288,7 @@ func getIdentityColumnName(table as string) override async as string?
 	return v.getString("COLUMN_NAME")
 }
 
-func checkIfColumnExists(table as string, column as string) override async as bool
+func checkIfColumnExists(table as string, column as string) override async throws Exception as bool
 {
 	var stmt = await prepareStatement("SELECT COLUMN_NAME FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)
@@ -300,7 +300,7 @@ func checkIfColumnExists(table as string, column as string) override async as bo
 	return String.equalsIgnoreCase(column, sr.getString("COLUMN_NAME"))
 }
 
-func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async as bool
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) override async throws Exception as bool
 {
 	var stmt = await prepareStatement("SELECT COLUMN_TYPE FROM information_schema.columns WHERE table_schema = ? AND table_name = ? AND column_name = ? LIMIT 1;")
 	stmt.addParamString(databaseName)

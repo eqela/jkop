@@ -1,0 +1,77 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.posix
+import jk.thread
+import jk.process
+
+class:
+
+func createProcessLauncherWithInterpreter(executable as File) static throws Exception as ProcessLauncher
+{
+	var pl as ProcessLauncher?
+	if executable.hasExtension("js") {
+		IFDEF "target_node_js" {
+			pl = ProcessLauncher.forFile(CurrentProcess.getInterpreterFileOrThrowError())
+		}
+		ELSE {
+			pl = ProcessLauncher.forCommand("node")
+		}
+		pl.addToParams(executable.getPath())
+	}
+	else {
+		pl = ProcessLauncher.forFile(executable)
+	}
+	return pl
+}
+
+func waitForProcesses(ctx as LoggingContext, processes as vector<Process>) static async
+{
+	var exitflag = false
+	var handler = func => exitflag = true
+	PosixSignal.setSignalHandler(PosixSignal.SIGINT, handler)
+	PosixSignal.setSignalHandler(PosixSignal.SIGTERM, handler)
+	loop {
+		var isRunning = false
+		foreach process in processes {
+			if process.isRunning() {
+				isRunning = true
+				break
+			}
+		}
+		if not isRunning:
+			break
+		if exitflag {
+			Log.info(ctx, "Aborted by signal, terminating child processes.")
+			foreach process in processes:
+				process.kill(5)
+			exitflag = false
+		}
+		await CurrentThread.sleepSecondsAsync(1)
+	}
+	PosixSignal.setSignalHandler(PosixSignal.SIGINT, null)
+	PosixSignal.setSignalHandler(PosixSignal.SIGTERM, null)
+}

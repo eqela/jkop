@@ -39,9 +39,6 @@ func getSharedInstance static as this
 var htMime = new map<string,string>
 var htExt = new map<string,string>
 
-ctor:
-	addBuiltinTypes()
-
 func addBuiltinTypes virtual
 {
 	add("*.cpp", "text/x-c++src")
@@ -845,36 +842,6 @@ func addBuiltinTypes virtual
 	add("*.sbt", "application/x-scala-sbt")
 }
 
-func getTypeForExtension(ext as string) as string
-{
-	var v = Map.getValue(htMime, String.toLowerCase(ext))
-	if String.isEmpty(v):
-		v = "application/unknown"
-	return v
-}
-
-func getTypeForFile(f as File) as string:
-	return getMimeType(f.getBasename())
-
-func getMimeType(str as string) as string
-{
-	var v as string? = null
-	var mime as string? = null
-	var ld = String.getLastIndexOfCharacter(str, '.')
-	if ld >= 0:
-		mime = String.getEndOfString(str, ld + 1)
-	if mime:
-		v = Map.getValue(htMime, String.toLowerCase(mime))
-	if String.isEmpty(v):
-		v = Map.getValue(htMime, String.toLowerCase(str))
-	if String.isEmpty(v):
-		v = "application/unknown"
-	return v
-}
-
-func getExtension(mimeType as string) as string?:
-	return Map.getValue(htExt, mimeType)
-
 func add(pattern as string, mimeType as string) as bool
 {
 	var v = false
@@ -903,23 +870,68 @@ func add(pattern as string, mimeType as string) as bool
 
 func read(file as File) as bool
 {
-	var buf = PrintReader.forReader(file.read())
-	var n = 0
-	loop {
-		var line = buf.readLine()
-		if not line:
-			break
-		var va = String.split(line, ':')
-		var front = Vector.getValue(va, 0)
-		var back = Vector.getValue(va, 1)
-		if not front:
-			continue
-		if not back:
-			continue
-		front = String.strip(front)
-		back = String.strip(back)
-		if add(front, back):
-			n++
+	try {
+		var buf = PrintReader.forReader(file.read())
+		var n = 0
+		loop {
+			var line = buf.readLine()
+			if not line:
+				break
+			var va = String.split(line, ':')
+			var front = Vector.getValue(va, 0)
+			var back = Vector.getValue(va, 1)
+			if not front:
+				continue
+			if not back:
+				continue
+			front = String.strip(front)
+			back = String.strip(back)
+			if add(front, back):
+				n++
+		}
+		return true
 	}
-	return true
+	return false
+}
+
+func initialize private
+{
+	if Map.count(htMime) > 0:
+		return
+	addBuiltinTypes()
+}
+
+func getTypeForExtension(ext as string) as string
+{
+	initialize()
+	var v = Map.getValue(htMime, String.toLowerCase(ext))
+	if String.isEmpty(v):
+		v = "application/unknown"
+	return v
+}
+
+func getTypeForFile(f as File) as string:
+	return getMimeType(f.getBasename())
+
+func getMimeType(str as string) as string
+{
+	initialize()
+	var v as string? = null
+	var mime as string? = null
+	var ld = String.getLastIndexOfCharacter(str, '.')
+	if ld >= 0:
+		mime = String.getEndOfString(str, ld + 1)
+	if mime:
+		v = Map.getValue(htMime, String.toLowerCase(mime))
+	if String.isEmpty(v):
+		v = Map.getValue(htMime, String.toLowerCase(str))
+	if String.isEmpty(v):
+		v = "application/unknown"
+	return v
+}
+
+func getExtension(mimeType as string) as string?
+{
+	initialize()
+	return Map.getValue(htExt, mimeType)
 }

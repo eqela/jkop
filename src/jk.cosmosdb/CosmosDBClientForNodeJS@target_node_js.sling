@@ -23,9 +23,8 @@
  */
 
 import jk.log
-import jk.lang
 import jk.json
-import jk.nodejs
+import jk.lang.js
 
 class is CosmosDBClient:
 
@@ -33,19 +32,19 @@ depend "npm:@azure/cosmos:3.17.1"
 
 var cosmosClient as dynamic?
 
-func initialize(endpoint as string, key as string) override
+func initialize(endpoint as string, key as string) override throws Exception
 {
-	var api = NodeModule.require("@azure/cosmos")
+	var api = JsCommonModule.require("@azure/cosmos")
 	var client = api.CosmosClient
-	lang "js" {{{
+	lang "js" (client) {{{
 		this.cosmosClient = new client({
 			endpoint: endpoint,
 			key: key
-		})
+		});
 	}}}
 }
 
-func getCosmosClient private as dynamic
+func getCosmosClient private throws Exception as dynamic
 {
 	var v = cosmosClient
 	if not v:
@@ -53,7 +52,7 @@ func getCosmosClient private as dynamic
 	return v
 }
 
-func convertResponse(response as dynamic) private as DynamicMap
+func convertResponse(response as dynamic) private throws Exception as DynamicMap
 {
 	var responseBody as string?
 	lang "js" {{{
@@ -69,16 +68,18 @@ func convertResponse(response as dynamic) private as DynamicMap
 				return value;
 			};
 		};
-		responseBody = JSON.stringify(response, getCircularReplacer())
+		responseBody = JSON.stringify(response, getCircularReplacer());
 	}}}
 	if not responseBody:
 		Error.throw("invalidCosmosDbResponse", response)
 	return JSONParser.parseStringAsMap(responseBody)
 }
 
-func executeQuery(id as string, call as function<promise<dynamic?>>) private async as DynamicMap
+func executeQuery(id as string, call as function<() async throws Exception as dynamic?>) private async throws Exception as DynamicMap
 {
 	var v as dynamic?
+	if ctx.isInDebugMode():
+		Log.debug(ctx, "Executing CosmosDB query: `" .. id .. "'")
 	try {
 		v = await call()
 	}
@@ -90,8 +91,10 @@ func executeQuery(id as string, call as function<promise<dynamic?>>) private asy
 	return convertResponse(v)
 }
 
-func executeOperation(id as string, call as function<promise<void>>) private async
+func executeOperation(id as string, call as function<() async throws Exception>) private async throws Exception
 {
+	if ctx.isInDebugMode():
+		Log.debug(ctx, "Executing CosmosDB operation: `" .. id .. "'")
 	try {
 		await call()
 	}
@@ -100,85 +103,85 @@ func executeOperation(id as string, call as function<promise<void>>) private asy
 	}
 }
 
-func createDatabase(databaseName as string) override async:
-	await executeOperation("createDatabase:" .. databaseName, func async => await getCosmosClient().databases!.createIfNotExists!({
+func createDatabase(databaseName as string) override async throws Exception:
+	await executeOperation("createDatabase:" .. databaseName, func async throws Exception => await getCosmosClient().databases!.createIfNotExists!({
 		id databaseName
 	}))
 
-func getAllDatabases override async as ResponseList
+func getAllDatabases override async throws Exception as ResponseList
 {
-	var response = await executeQuery("getAllDatabases", func async as dynamic? => await getCosmosClient().databases!.readAll!()!.fetchAll!())
+	var response = await executeQuery("getAllDatabases", func async throws Exception as dynamic? => await getCosmosClient().databases!.readAll!()!.fetchAll!())
 	return ResponseList.forData(response)
 }
 
-func getDatabaseById(databaseId as string) override async as Response
+func getDatabaseById(databaseId as string) override async throws Exception as Response
 {
-	var response = await executeQuery("getDatabaseById:" .. databaseId, func async as dynamic? => await getCosmosClient().database!(databaseId)!.read!())
+	var response = await executeQuery("getDatabaseById:" .. databaseId, func async throws Exception as dynamic? => await getCosmosClient().database!(databaseId)!.read!())
 	return Response.forData(response)
 }
 
-func deleteDatabaseById(databaseId as string) override async:
-	await executeOperation("deleteDatabaseById:" .. databaseId, func async => await getCosmosClient().database!(databaseId)!.delete!())
+func deleteDatabaseById(databaseId as string) override async throws Exception:
+	await executeOperation("deleteDatabaseById:" .. databaseId, func async throws Exception => await getCosmosClient().database!(databaseId)!.delete!())
 
-func createContainer(databaseId as string, containerId as string) override async:
-	await executeOperation("createContainer:" .. databaseId .. ":" .. containerId, func async => await getCosmosClient().database!(databaseId)!.containers!.createIfNotExists!({
+func createContainer(databaseId as string, containerId as string) override async throws Exception:
+	await executeOperation("createContainer:" .. databaseId .. ":" .. containerId, func async throws Exception => await getCosmosClient().database!(databaseId)!.containers!.createIfNotExists!({
 		id containerId
 	}))
 
-func getAllContainers(databaseId as string) override async as ResponseList
+func getAllContainers(databaseId as string) override async throws Exception as ResponseList
 {
-	var response = await executeQuery("getAllContainers:" .. databaseId, func async as dynamic? => await getCosmosClient().database!(databaseId)!.containers!.readAll!()!.fetchAll!())
+	var response = await executeQuery("getAllContainers:" .. databaseId, func async throws Exception as dynamic? => await getCosmosClient().database!(databaseId)!.containers!.readAll!()!.fetchAll!())
 	return ResponseList.forData(response)
 }
 
-func getContainerById(databaseId as string, containerId as string) override async as Response
+func getContainerById(databaseId as string, containerId as string) override async throws Exception as Response
 {
-	var response = await executeQuery("getContainerById:" .. databaseId .. ":" .. containerId, func async as dynamic? => await getCosmosClient().database!(databaseId)!.container!(containerId)!.read!())
+	var response = await executeQuery("getContainerById:" .. databaseId .. ":" .. containerId, func async throws Exception as dynamic? => await getCosmosClient().database!(databaseId)!.container!(containerId)!.read!())
 	return Response.forData(response)
 }
 
-func deleteContainer(databaseId as string, containerId as string) override async:
-	await executeOperation("deleteContainer:" .. databaseId .. ":" .. containerId, func async => await getCosmosClient().database!(databaseId)!.container!(containerId)!.delete!())
+func deleteContainer(databaseId as string, containerId as string) override async throws Exception:
+	await executeOperation("deleteContainer:" .. databaseId .. ":" .. containerId, func async throws Exception => await getCosmosClient().database!(databaseId)!.container!(containerId)!.delete!())
 
-func addItem(databaseId as string, containerId as string, item as DynamicMap) override async
+func addItem(databaseId as string, containerId as string, item as DynamicMap) override async throws Exception
 {
 	var item = JSONEncoder.toString(item)
 	var json as dynamic?
-	lang "js" {{{
-		json = JSON.parse(item)
+	lang "js" (json, item) {{{
+		json = JSON.parse(item);
 	}}}
-	await executeOperation("addItem:" .. databaseId .. ":" .. containerId, func async => await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.create!(json))
+	await executeOperation("addItem:" .. databaseId .. ":" .. containerId, func async throws Exception => await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.create!(json))
 }
 
-func getAllItems(databaseId as string, containerId as string) override async as ItemList
+func getAllItems(databaseId as string, containerId as string) override async throws Exception as ItemList
 {
-	var response = await executeQuery("getAllItems:" .. databaseId .. ":" .. containerId, func async as dynamic? => await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.readAll!()!.fetchAll!())
+	var response = await executeQuery("getAllItems:" .. databaseId .. ":" .. containerId, func async throws Exception as dynamic? => await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.readAll!()!.fetchAll!())
 	return ItemList.forData(response)
 }
 
-func getItemById(databaseId as string, containerId as string, itemId as string) override async as Item
+func getItemById(databaseId as string, containerId as string, itemId as string) override async throws Exception as Item
 {
-	var response = await executeQuery("getItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async as dynamic? {
+	var response = await executeQuery("getItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async throws Exception as dynamic? {
 		var partitionKey = itemId
 		return await getCosmosClient().database!(databaseId)!.container!(containerId)!.item!(itemId, partitionKey)!.read!()
 	})
 	return Item.forData(response)
 }
 
-func updateItem(databaseId as string, containerId as string, newItem as DynamicMap) override async
+func updateItem(databaseId as string, containerId as string, newItem as DynamicMap) override async throws Exception
 {
 	var item = JSONEncoder.toString(newItem)
-	await executeOperation("updateItem:" .. databaseId .. ":" .. containerId, func async {
+	await executeOperation("updateItem:" .. databaseId .. ":" .. containerId, func async throws Exception {
 		var json as dynamic?
-		lang "js" {{{
-			json = JSON.parse(item)
+		lang "js" (json, item) {{{
+			json = JSON.parse(item);
 		}}}
 		await getCosmosClient().database!(databaseId)!.container!(containerId)!.items!.upsert!(json)
 	})
 }
 
-func deleteItemById(databaseId as string, containerId as string, itemId as string) override async:
-	await executeOperation("deleteItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async {
+func deleteItemById(databaseId as string, containerId as string, itemId as string) override async throws Exception:
+	await executeOperation("deleteItemById:" .. databaseId .. ":" .. containerId .. ":" .. itemId, func async throws Exception {
 		var partitionKey = itemId
 		await getCosmosClient().database!(databaseId)!.container!(containerId)!.item!(itemId, partitionKey)!.delete!()
 	})

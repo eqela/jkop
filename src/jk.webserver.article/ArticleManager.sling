@@ -38,8 +38,8 @@ prop templateFile as File?
 prop htmlPageCache as KeyValueCache?
 prop articleMetadataCacheTtl as int = 300
 prop htmlPageCacheTtlSeconds as int = 3600
-prop bannerPathResolver as function<string,string> = func(bannerName as string) as string => "/" .. bannerName .. ".jpg"
-prop articlePathResolver as function<string,string> = func(articleName as string) as string => "/" .. articleName .. "/"
+prop bannerPathResolver as function<(string) as string> = func(bannerName as string) as string => "/" .. bannerName .. ".jpg"
+prop articlePathResolver as function<(string) as string> = func(articleName as string) as string => "/" .. articleName .. "/"
 
 var articleCacheUpdated as long = 0L
 var articleCacheById as map<string,ArticleMetadata>?
@@ -52,17 +52,14 @@ model HtmlPageCacheEntry
 	content as string!
 }
 
-ctor(ctx as LoggingContext):
-	this.ctx = ctx
-
-func getArticleById(articleId as string) async as ArticleMetadata?
+func getArticleById(articleId as string) async throws Exception as ArticleMetadata?
 {
 	await updateArticleMetadataCache()
 	assert articleCacheById
 	return Map.getValue(articleCacheById, articleId)
 }
 
-func getAllArticles async as vector<ArticleMetadata>
+func getAllArticles async throws Exception as vector<ArticleMetadata>
 {
 	await updateArticleMetadataCache()
 	if not articleCache:
@@ -70,7 +67,7 @@ func getAllArticles async as vector<ArticleMetadata>
 	return articleCache
 }
 
-func updateArticleMetadataCache async
+func updateArticleMetadataCache async throws Exception
 {
 	var now = SystemClock.asUTCSeconds()
 	if articleCacheUpdated + articleMetadataCacheTtl > now:
@@ -90,13 +87,13 @@ func updateArticleMetadataCache async
 	articleCacheUpdated = now
 }
 
-func formatDate(date as string?) private as string?
+func formatDate(date as string?) private throws Exception as string?
 {
 	assert date
 	return VerboseDateTimeString.getDateStringForDateTime(DateTime.forString(date))
 }
 
-func sortArticleCategoriesByDate(articleCategories as vector<ArticleMetadata>) private as DynamicVector?
+func sortArticleCategoriesByDate(articleCategories as vector<ArticleMetadata>) private throws Exception as DynamicVector?
 {
 	if Vector.getSize(articleCategories) > 0 {
 		Vector.sort(articleCategories, func(a as ArticleMetadata, b as ArticleMetadata) as int {
@@ -161,12 +158,12 @@ func getBannerUrl(banner as string) as string
 	return bannerName
 }
 
-func generateArticleHtml(articleId as string, includeAttachments as bool) private async as ArticleHtmlWithAttachments?
+func generateArticleHtml(articleId as string, includeAttachments as bool) private async throws Exception as ArticleHtmlWithAttachments?
 {
 	var article = assert await getArticleById(articleId)
 	var settings = new ArticleStorageProvider.ArticleHtmlSettings() {
 		pageLinkResolver func(backendId as string) async as ArticleStorageProvider.PageLinkInfo? {
-			await updateArticleMetadataCache()
+			try await updateArticleMetadataCache()
 			var url as string?
 			var text as string?
 			var article as ArticleMetadata?
@@ -235,7 +232,7 @@ func generateArticleHtml(articleId as string, includeAttachments as bool) privat
 	return result
 }
 
-func getArticleHtmlPage(articleId as string) async as string?
+func getArticleHtmlPage(articleId as string) async throws Exception as string?
 {
 	var cacheId = "article-" .. articleId
 	var cachedPage as HtmlPageCacheEntry?
@@ -278,7 +275,7 @@ func getArticleHtmlPage(articleId as string) async as string?
 		}
 		return html
 	}
-	catch e {
+	catch e as Exception {
 		Log.error(ctx, "Failed to generate article HTML: `" .. articleId .. "' (" .. String.asValueOrEmptyString(e) .. ")")
 		if not cachedPage:
 			throw e
@@ -290,11 +287,11 @@ func getArticleHtmlPage(articleId as string) async as string?
 	return null
 }
 
-func getArticleAttachment(articleId as string, attachmentId as string) async as ArticleAttachment?
+func getArticleAttachment(articleId as string, attachmentId as string) async throws Exception as ArticleAttachment?
 {
 	var article = assert await getArticleById(articleId)
 	return await storage.getArticleAttachment(article, attachmentId)
 }
 
-func getArticleHtmlWithAttachments(articleId as string) async as ArticleHtmlWithAttachments?:
+func getArticleHtmlWithAttachments(articleId as string) async throws Exception as ArticleHtmlWithAttachments?:
 	return await generateArticleHtml(articleId, true)

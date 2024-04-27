@@ -29,55 +29,40 @@ class:
 class MyRunningProcess is Process
 {
 	var cp as dynamic?
+	var running = true
+	var exitCode = -1
 
-	ctor(cp as dynamic):
-		this.cp = cp
-
-	func getId as string
+	ctor(cp as dynamic)
 	{
-		var pid as int
-		lang "js" {{{
-			pid = this.cp.pid;
-		}}}
+		this.cp = cp
+		cp.on!("exit", func(code as int) {
+			this.running = false
+			this.exitCode = code
+		})
+	}
+
+	func getId implement as string
+	{
+		var pid = cp!.pid as! int
 		return String.forInteger(pid)
 	}
 
-	func isRunning as bool
-	{
-		var running = false
-		lang "js" {{{
-			running = this.cp.exitCode == null;
-		}}}
+	func isRunning implement as bool:
 		return running
-	}
 
-	func getExitStatus as int
-	{
-		var ec = -1
-		if isRunning():
-			return ec
-		lang "js" {{{
-			ec = this.cp.exitCode;
-		}}}
-		return ec
-	}
+	func getExitStatus implement as int:
+		return exitCode
 
-	func sendInterrupt:
-		lang "js" {{{
-			cp.kill('SIGINT');
-		}}}
+	func sendInterrupt implement:
+		cp!.kill!("SIGINT")
 
-	func killRequest:
-		lang "js" {{{
-			this.cp.kill('SIGTERM');
-		}}}
+	func killRequest implement:
+		cp!.kill!("SIGTERM")
 
-	func killForce:
-		lang "js" {{{
-			this.cp.kill('SIGKILL');
-		}}}
+	func killForce implement:
+		cp!.kill!("SIGKILL")
 
-	func kill(timeout as int)
+	func kill(timeout as int) implement
 	{
 		killRequest()
 		if (isRunning()) {
@@ -89,8 +74,8 @@ class MyRunningProcess is Process
 		}
 	}
 
-	func waitForExit as int:
-		ERROR "notImplemented"
+	func waitForExit implement as int:
+		ERROR NOT_IMPLEMENTED
 }
 
 class MyCompletedProcess is Process
@@ -100,48 +85,48 @@ class MyCompletedProcess is Process
 	ctor(process as dynamic):
 		this.process = process
 
-	func getId as string
+	func getId implement as string
 	{
 		if not process:
 			return ""
 		return String.forInteger(process.pid as! int)
 	}
 
-	func isRunning as bool:
+	func isRunning implement as bool:
 		return false
 
-	func getExitStatus as int
+	func getExitStatus implement as int
 	{
 		if not process:
 			return -1
 		return process.status as! int
 	}
 
-	func sendInterrupt:
+	func sendInterrupt implement:
 		nop
 
-	func killRequest:
+	func killRequest implement:
 		nop
 
-	func killForce:
+	func killForce implement:
 		nop
 
-	func kill(timeout as int):
+	func kill(timeout as int) implement:
 		nop
 
-	func waitForExit as int:
+	func waitForExit implement as int:
 		return getExitStatus()
 }
 
 func mergeStringMap(from as map<string,string>, to as dynamic) static private
 {
 	foreach key in Map.getKeys(from):
-		lang "js" {{{
-			to[key] = from.get(key)
+		lang "js" (to, from, key) {{{
+			to[key] = from.get(key);
 		}}}
 }
 
-func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver?) static as Process
+func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver?) static throws Exception as Process
 {
 	var ff = launcher.file
 	var params = launcher.params
@@ -154,7 +139,7 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 		mergeStringMap(EnvironmentVariable.getAll(), env)
 	mergeStringMap(launcher.env, env)
 	var cp = lang "js" as dynamic {{{ require('child_process') }}}
-	var options = lang "js" as dynamic {{{
+	var options = lang "js" (cwdp, env) as dynamic {{{
 		{
 			cwd: cwdp,
 			env: env,
@@ -166,13 +151,13 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 	}}}
 	if wait {
 		lang "js" {{{
-			let ignoreSignal = () => {}
+			let ignoreSignal = () => {};
 		}}}
 		if launcher.trapSigint:
 			lang "js" {{{
 				process.on("SIGINT", ignoreSignal);
 			}}}
-		var r = lang "js" as dynamic {{{ cp.spawnSync(ff.getPath(), params, options); }}}
+		var r = lang "js" (cp, ff, params, options) as dynamic {{{ cp.spawnSync(ff.getPath(), params, options); }}}
 		if pipeHandler {
 			var stdout = r.stdout
 			if stdout:
@@ -185,17 +170,21 @@ func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as Buff
 			lang "js" {{{
 				process.removeListener("SIGINT", ignoreSignal);
 			}}}
+		if r.error:
+			Error.throw("failedToStartChildProcess", r.error)
 		return new MyCompletedProcess(r)
 	}
-	var r = lang "js" as dynamic {{{ cp.spawn(ff.getPath(), params, options) }}}
+	var r = lang "js" (cp, ff, params, options) as dynamic {{{ cp.spawn(ff.getPath(), params, options) }}}
+	if r.error:
+		Error.throw("failedToStartChildProcess", r.error)
 	var v = new MyRunningProcess(r)
 	if pipeHandler {
-		lang "js" {{{
+		lang "js" (pipeHandler) {{{
 			r.stdout.on('data', (data) => {
-				pipeHandler.onBufferData(data, data.byteLength)
+				pipeHandler.onBufferData(data, data.byteLength);
 			});
 			r.stderr.on('data', (data) => {
-				pipeHandler.onBufferData(data, data.byteLength)
+				pipeHandler.onBufferData(data, data.byteLength);
 			});
 		}}}
 	}

@@ -47,7 +47,7 @@ func setInitializationVector(str as string)
 func getBlockSize override as int:
 	return 16
 
-func doCipher(src as buffer, dest as buffer, mode as int)
+func doCipher(src as buffer, dest as buffer, mode as int) throws Exception
 {
 	assert key
 	assert iv
@@ -65,10 +65,10 @@ func doCipher(src as buffer, dest as buffer, mode as int)
 	}
 }
 
-func encryptBlock(src as buffer, dest as buffer) override:
+func encryptBlock(src as buffer, dest as buffer) override throws Exception:
 	doCipher(src, dest, ENCRYPT_MODE)
 
-func decryptBlock(src as buffer, dest as buffer) override:
+func decryptBlock(src as buffer, dest as buffer) override throws Exception:
 	doCipher(src, dest, DECRYPT_MODE)
 
 class AES128
@@ -905,19 +905,19 @@ class AES128
 		0x9FBE805D, 0x91B58D54, 0x83A89A4F, 0x8DA39746
 	]
 
-	func encrypt(src as buffer, key as buffer, iv as buffer) static as buffer
+	func encrypt(src as buffer, key as buffer, iv as buffer) static throws Exception as buffer
 	{
 		var aes = new this()
 		return aes.encryptBlock(src, key, iv)
 	}
 
-	func decrypt(src as buffer, key as buffer, iv as buffer) static as buffer
+	func decrypt(src as buffer, key as buffer, iv as buffer) static throws Exception as buffer
 	{
 		var aes = new this()
 		return aes.decryptBlock(src, key, iv)
 	}
 
-	func encryptBlock(block as buffer, keyData as buffer, ivData as buffer) as buffer
+	func encryptBlock(block as buffer, keyData as buffer, ivData as buffer) throws Exception as buffer
 	{
 		var buf = xor(ivData, block)
 		return encryptCipherOperation(buf, keyData)
@@ -932,7 +932,7 @@ class AES128
 		return buf
 	}
 
-	func encryptCipherOperation(block as buffer, keyData as buffer) as buffer
+	func encryptCipherOperation(block as buffer, keyData as buffer) throws Exception as buffer
 	{
 		var rounds = nr
 		var exkey = expandKey(keyData)
@@ -985,13 +985,13 @@ class AES128
 		return output
 	}
 
-	func decryptBlock(block as buffer, keyData as buffer, ivData as buffer) as buffer
+	func decryptBlock(block as buffer, keyData as buffer, ivData as buffer) throws Exception as buffer
 	{
 		var decrypted = decryptCipherOperation(block, keyData)
 		return xor(ivData, decrypted)
 	}
 
-	func decryptCipherOperation(block as buffer, keyData as buffer) as buffer
+	func decryptCipherOperation(block as buffer, keyData as buffer) throws Exception as buffer
 	{
 		if not sboxINV:
 			Error.throw("decryptCipherOperation", "sboxINV")
@@ -1061,7 +1061,7 @@ class AES128
 		return output
 	}
 
-	func expandKey(key as buffer) as vector<array<uint32>>
+	func expandKey(key as buffer) throws Exception as vector<array<uint32>>
 	{
 		calculateBox()
 		var g = nb * (nr + 1) * 4
@@ -1081,7 +1081,7 @@ class AES128
 				newTmp[2] = tmp[3]
 				newTmp[3] = tmp[0]
 				tmp = subWord(newTmp)
-				tmp[0] = ((tmp[0]) ^ (rcon[i / nk])) as! uint8
+				tmp[0] = ((tmp[0] as! int) ^ (rcon[i / nk])) as! uint8
 			}
 			else if (nk > 6) && (i % nk) == 4 {
 				tmp = subWord(tmp)
@@ -1092,7 +1092,7 @@ class AES128
 		return convertExpandedKey(w)
 	}
 
-	func expandKeyInv(key as buffer) as vector<array<uint32>>
+	func expandKeyInv(key as buffer) throws Exception as vector<array<uint32>>
 	{
 		calculateBox()
 		var rounds = nr
@@ -1137,7 +1137,7 @@ class AES128
 		return result
 	}
 
-	func subWord(word as array<uint8>) as array<uint8>
+	func subWord(word as array<uint8>) throws Exception as array<uint8>
 	{
 		if not sbox:
 			Error.throw("subWord", "sbox")
@@ -1181,12 +1181,14 @@ class AES128
 		box[0] = 0x63
 		var p = 1 as! uint8
 		var q = 1 as! uint8
+		var one = 1 as! uint8
 		loop {
-			var c = 0
+			var c = 0x00
 			if (p & 0x80) == 0x80:
 				c = 0x1B
-			p = ((p ^ (((p << (1 as! uint8)) as! uint8) + (0 as! uint8)) ^ c) & 0xFF) as! uint8
-			q = ((q ^ (q << (1 as! uint8))) & 0xFF) as! uint8
+			var pq = (p << one) as! uint8
+			p = ((p ^ pq ^ c) & 0xFF) as! uint8
+			q = ((q ^ (q << one)) & 0xFF) as! uint8
 			q = ((q ^ (q << (2 as! uint8))) & 0xFF) as! uint8
 			q = ((q ^ (q << (4 as! uint8))) & 0xFF) as! uint8
 			var a = 0 as! uint8
@@ -1194,7 +1196,7 @@ class AES128
 				a = 0x09 as! uint8
 			q = (q ^ a) as! uint8
 			var x = (0x63 ^ q) as! uint8
-			var y = ((rotateLeft(q, (1 as! uint8)) ^ rotateLeft(q, (2 as! uint8)) ^ rotateLeft(q, (3 as! uint8))) & 0xFF) as! uint8
+			var y = ((rotateLeft(q, one) ^ rotateLeft(q, (2 as! uint8)) ^ rotateLeft(q, (3 as! uint8))) & 0xFF) as! uint8
 			var s = ((x ^ y ^ rotateLeft(q, (4 as! uint8))) & 0xFF) as! uint8
 			box[p as! int] = s as! uint32
 			nbox[s as! int] = p as! uint32

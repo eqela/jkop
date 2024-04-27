@@ -24,8 +24,8 @@
 
 import jk.sql
 import jk.log
-import jk.nodejs
 import jk.json
+import jk.lang.js
 
 class is MySQLDatabase:
 
@@ -37,7 +37,7 @@ var connectionLimit as int = 10
 class Statement is SQLStatement
 {
 	var pcounter = 0
-	var params as vector<dynamic>?
+	var params public as vector<dynamic>?
 	var columns as vector<string>?
 	var sqlString public as string?
 
@@ -110,7 +110,7 @@ class Statement is SQLStatement
 		addToParams(val)
 	}
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		columns = null
 		params = null
@@ -122,8 +122,8 @@ class Statement is SQLStatement
 class ResultSet is SQLResultSetIterator
 {
 	var current as DynamicMap?
-	var rows as vector<dynamic>?
-	var fields as vector<dynamic>?
+	var rows public as vector<dynamic>?
+	var fields public as vector<dynamic>?
 	var index = 0
 	var increment = 1
 
@@ -135,10 +135,10 @@ class ResultSet is SQLResultSetIterator
 		return true
 	}
 
-	func step override:
+	func step override throws Exception:
 		next()
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		if rows == null:
 			Error.throw("noRows", this)
@@ -146,65 +146,70 @@ class ResultSet is SQLResultSetIterator
 			Error.throw("noMoreRecords", this)
 		var map = new DynamicMap()
 		lang "js" {{{
-			var v = this.rows[this.index]
+			var v = this.rows[this.index];
 			Object.keys(v).forEach(key => {
-				map.setObject(key, v[key])
-			})
+				map.setObject(key, v[key]);
+			});
 		}}}
 		index += increment
 		current = map
 		return map
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		step()
 		Vector.clear(values)
-		if current: foreach value as object in current.getValues():
+		if current: foreach value in current.getValues():
 			values += value
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		if not current:
 			return 0
 		return current.getCount()
 	}
 
-	func getCurrent private as DynamicMap
+	func getCurrent private throws Exception as DynamicMap
 	{
 		if not current:
 			Error.throw("noCurrentRecord", null)
 		return current
 	}
 
-	func getColumnNames override as vector<string>:
+	func getColumnNames override throws Exception as vector<string>:
 		return getCurrent().getKeys()
 
-	func getColumnName(n as int) override as string:
-		return getCurrent().getKeys()[n]
-
-	func getColumnObject(n as int) override as object
+	func getColumnName(n as int) override throws Exception as string
 	{
-		var v = getCurrent().getValues()[n] as object
-		if not v:
-			Error.throw("noColumnObject", String.forInteger(n))
-		return v
+		var names = getColumnNames()
+		if n < 0 || n >= Vector.getSize(names):
+			Error.throw("invalidColumnIndex", String.forInteger(n))
+		return names[n]
 	}
 
-	func getColumnInt(n as int) override as int:
-		return Integer.asValueOrThrowError(getCurrent().getValues()[n])
+	func getColumnValue(n as int) override throws Exception as dynamic?
+	{
+		var values = getCurrent().getValues()
+		if n < 0 || n >= Vector.getSize(values):
+			Error.throw("invalidColumnIndex", String.forInteger(n))
+		return values[n]
+	}
 
-	func getColumnLong(n as int) override as long:
-		return LongInteger.asValueOrThrowError(getCurrent().getValues()[n])
+	func getColumnInt(n as int) override throws Exception as int:
+		return Integer.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnDouble(n as int) override as double:
-		return Double.asValueOrThrowError(getCurrent().getValues()[n])
+	func getColumnLong(n as int) override throws Exception as long:
+		return LongInteger.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnBuffer(n as int) override as buffer:
-		return Buffer.asValueOrThrowError(getCurrent().getValues()[n])
+	func getColumnDouble(n as int) override throws Exception as double:
+		return Double.asValueOrThrowError(getColumnValue(n))
 
-	func close override
+	func getColumnBuffer(n as int) override throws Exception as buffer:
+		return Buffer.asValueOrThrowError(getColumnValue(n))
+
+	func close override throws Exception
 	{
 		current = null
 		rows = null
@@ -218,13 +223,13 @@ func getConnectionLimit as int:
 func setConnectionLimit(limit as int):
 	this.connectionLimit = limit
 
-func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override throws Exception
 {
-	var mysql = NodeModule.require("mysql")
+	var mysql = JsCommonModule.require("mysql")
 	var enableSSL as bool
 	if sslMode != MySQLDatabase.SSL_MODE_NONE:
 		enableSSL = true
-	lang "js" {{{
+	lang "js" (mysql, serverAddress, username, password, database, enableSSL) {{{
 		this.pool = mysql.createPool({
 			host: serverAddress,
 			user: username,
@@ -232,27 +237,27 @@ func setConnectionDetails(serverAddress as string, username as string, password 
 			database: database,
 			ssl: enableSSL,
 			connectionLimit: this.connectionLimit
-		})
+		});
 	}}}
 	databaseName = database
 }
 
-func getPool as dynamic
+func getPool throws Exception as dynamic
 {
 	if pool == null:
 		Error.throw("noConnectionPool", this)
 	return pool
 }
 
-func closeConnection async override:
+func closeConnection async override throws Exception:
 	getPool().end!()
 
-func execute(sqlString as string, params as vector<dynamic>?) private async as [magical:MySQL.Response]
+func execute(sqlString as string, params as vector<dynamic>?) private async throws Exception as [magical:MySQL.Response]
 {
 	var sql = sqlString
 	var parameters = params
 	var pool = getPool()
-	return lang "js" as promise<[magical:MySQL.Response]> {{{
+	return await lang "js" (sql, parameters, pool) as task<[magical:MySQL.Response]> {{{
 		new Promise((resolve, reject) => {
 			pool.getConnection((err, conn) => {
 				if (err) {
@@ -280,10 +285,10 @@ func execute(sqlString as string, params as vector<dynamic>?) private async as [
 	}}}
 }
 
-func prepareStatement(sql as string) async override as SQLStatement:
+func prepareStatement(sql as string) async override throws Exception as SQLStatement:
 	return Statement.forSql(sql)
 
-func executeStatement(stmt as SQLStatement) override async
+func executeStatement(stmt as SQLStatement) override async throws Exception
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -296,7 +301,7 @@ func executeStatement(stmt as SQLStatement) override async
 		Error.throw("failedMySqlQuery", v)
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -313,7 +318,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	return Integer.asValueOrDefaultValue(rows.affectedRows, 0)
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss:

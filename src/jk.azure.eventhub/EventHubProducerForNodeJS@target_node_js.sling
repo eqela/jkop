@@ -23,9 +23,8 @@
  */
 
 import jk.log
-import jk.lang
 import jk.json
-import jk.nodejs
+import jk.lang.js
 
 class is EventHubProducer:
 
@@ -33,7 +32,7 @@ depend "npm:@azure/event-hubs:5.2"
 
 var producer as dynamic?
 
-func instance(ctx as LoggingContext, eventHubName as string, connectionString as string) static as this
+func instance(ctx as LoggingContext, eventHubName as string, connectionString as string) static throws Exception as this
 {
 	var v = new this() {
 		ctx ctx
@@ -42,27 +41,27 @@ func instance(ctx as LoggingContext, eventHubName as string, connectionString as
 	return v
 }
 
-func initialize(eventHubName as string, connectionString as string) private
+func initialize(eventHubName as string, connectionString as string) private throws Exception
 {
-	var api = NodeModule.require("@azure/event-hubs")
+	var api = JsCommonModule.require("@azure/event-hubs")
 	var producer = api.EventHubProducerClient
-	lang "js" {{{
-		this.producer = new producer(connectionString, eventHubName)
+	lang "js" (producer, connectionString, eventHubName) {{{
+		this.producer = new producer(connectionString, eventHubName);
 	}}}
 }
 
-func sendEvents(events as vector<EventHubEvent>) async override
+func sendEvents(events as vector<EventHubEvent>) async override throws Exception
 {
 	if not producer:
 		Error.throw("eventHubProducerNotInitialized", null)
 	var batch = await (producer.createBatch)!()
 	foreach e in events {
 		var ee = JSONEncoder.toString(e)
-		lang "js" {{{
-			var parse = JSON.parse(ee)
-			var buff = Buffer.from(parse.body, 'base64')
-			parse.body = buff
-			batch.tryAdd(parse)
+		lang "js" (ee) {{{
+			var parse = JSON.parse(ee);
+			var buff = Buffer.from(parse.body, 'base64');
+			parse.body = buff;
+			batch.tryAdd(parse);
 		}}}
 	}
 	await (producer.sendBatch)!(batch)

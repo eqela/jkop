@@ -65,9 +65,6 @@ var fieldsValue as vector<DynamicModelField>?
 ctor:
 	this.dataValue = null
 
-ctor(data as map):
-	setDataMap(DynamicMap.forMap(data))
-
 func getDataMap as DynamicMap
 {
 	if not dataValue:
@@ -81,10 +78,10 @@ func setDataMap(value as DynamicMap)
 	validate()
 }
 
-func toString as string:
+func toString implement as string:
 	return JSONEncoder.toString(toDynamicMap())
 
-func toDynamicMap as DynamicMap:
+func toDynamicMap implement as DynamicMap:
 	return getDataMap()
 
 func fromMap(data as map) as this:
@@ -227,7 +224,7 @@ func addToVectorField(field as string, value as dynamic?)
 		addObjectToVectorField(field, value as! object)
 	}
 	else {
-		Error.throw("unsupportedValueInVector", value)
+		addDynamicToVectorField(field, value)
 	}
 }
 
@@ -304,14 +301,19 @@ func filterMapToModel(data as DynamicMap) as DynamicMap
 				var dmap as DynamicMap?
 				var val = data.get(key)
 				if val is string {
-					dmap = JSONParser.parse(val as! string) as DynamicMap
+					var vstring = val as! string
+					try {
+						dmap = JSONParser.parse(vstring) as DynamicMap
+					}
+					catch e #used {
+					}
 				}
 				else if val is DynamicMap {
 					dmap = val as! DynamicMap
 				}
 				var iti = inf.@typeinfo
 				if dmap && dmap.getCount() > 0 && iti {
-					var dmo = Reflection.createClassInstanceByTypeinfo(iti) as DynamicModel
+					var dmo = try? Reflection.createClassInstanceByTypeinfo(iti) as DynamicModel
 					if dmo:
 						finalMap.setObject(key, dmo.filterMapToModel(dmap))
 				}
@@ -320,7 +322,12 @@ func filterMapToModel(data as DynamicMap) as DynamicMap
 				var dvec as DynamicVector?
 				var val = data.get(key)
 				if val is string {
-					dvec = JSONParser.parse(val as! string) as DynamicVector
+					var vstring = val as! string
+					try {
+						dvec = JSONParser.parse(vstring) as DynamicVector
+					}
+					catch e #used {
+					}
 				}
 				else if val is DynamicVector {
 					dvec = val as! DynamicVector
@@ -340,7 +347,12 @@ func filterMapToModel(data as DynamicMap) as DynamicMap
 				var dmap as DynamicMap?
 				var val = data.get(key)
 				if val is string {
-					dmap = JSONParser.parse(val as! string) as DynamicMap
+					var vstring = val as! string
+					try {
+						dmap = JSONParser.parse(vstring) as DynamicMap
+					}
+					catch e #used {
+					}
 				}
 				else if val is DynamicMap {
 					dmap = val as! DynamicMap
@@ -360,7 +372,7 @@ func filterVectorToModels(data as DynamicVector, typeinfo as typeinfo) as Dynami
 {
 	var finalVector = new DynamicVector()
 	foreach map in data.toVectorOfDynamicMaps() {
-		var dmo = Reflection.createClassInstanceByTypeinfo(@typeinfo) as DynamicModel
+		var dmo = try? Reflection.createClassInstanceByTypeinfo(@typeinfo) as DynamicModel
 		if dmo:
 			finalVector.appendObject(dmo.filterMapToModel(map))
 	}
@@ -386,7 +398,7 @@ func toFlatDynamicMap as DynamicMap
 		else if inf.type == DynamicModelField.TYPE_OBJECT || inf.type == DynamicModelField.TYPE_MAP {
 			var val = data.getDynamicMap(key)
 			if val {
-				finalMap.setObject(key, JSONEncoder.toString(val))
+				finalMap.setString(key, JSONEncoder.toString(val))
 			}
 			else {
 				finalMap.setObject(key, null)
@@ -395,7 +407,7 @@ func toFlatDynamicMap as DynamicMap
 		else if inf.type == DynamicModelField.TYPE_VECTOR {
 			var vec = data.getDynamicVector(key)
 			if vec {
-				finalMap.setObject(key, JSONEncoder.toString(vec))
+				finalMap.setString(key, JSONEncoder.toString(vec))
 			}
 			else {
 				finalMap.setObject(key, null)

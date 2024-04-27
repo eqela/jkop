@@ -54,7 +54,7 @@ class MyStatement is SQLStatement
 
 	pvar id as long = -1L
 	pvar db as parent?
-	pvar params as vector<object>?
+	pvar params as vector<dynamic>?
 	pvar columns as vector<ColumnDefinition>?
 
 	IFDEF "target_supports_destructor"
@@ -63,11 +63,11 @@ class MyStatement is SQLStatement
 			close()
 	}
 
-	func addToParams(param as object?)
+	func addToParams(param as dynamic?)
 	{
 		assert param
 		if not params:
-			params = new vector<object>
+			params = new vector<dynamic>
 		params += param
 	}
 
@@ -101,14 +101,14 @@ class MyStatement is SQLStatement
 	func setParamBlob(name as string, val as buffer) override:
 		addToParams(val)
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		if db:
 			db.resetStatement(this)
 		params = null
 	}
 
-	func close
+	func close throws Exception
 	{
 		if db:
 			db.closeStatementSync(this)
@@ -227,7 +227,7 @@ var database as string?
 var sslMode as string?
 var protocol as string?
 var enableUTF8 = true
-var serverCapabilityFlags = 0
+var serverCapabilityFlags = 0 as! uint32
 var sslEnabled = false
 var overflowBuffer as buffer?
 
@@ -242,13 +242,13 @@ func isSecureConnection as bool:
 
 func getMyCapabilityFlags as int
 {
-	var v = 0
+	var v = 0 as! uint32
 	if serverSupportsSSL():
 		v |= CapabilityFlags.CLIENT_SSL
 	v |= CapabilityFlags.CLIENT_PROTOCOL_41
 	v |= CapabilityFlags.CLIENT_SECURE_CONNECTION
 	v |= CapabilityFlags.CLIENT_PLUGIN_AUTH
-	return v
+	return v as! int
 }
 
 func createPacket as MyPacketBuilder
@@ -258,17 +258,17 @@ func createPacket as MyPacketBuilder
 	return v
 }
 
-func finalizePacket(packet as MyPacketBuilder, seqnum as int) as buffer
+func finalizePacket(packet as MyPacketBuilder, seqnum as int) throws Exception as buffer
 {
 	var v = packet.finalize()
 	if not v:
 		Error.throw("nullFinalizedPacket", null)
 	Buffer.copyFrom(v, Buffer.forInt32LE((sizeof v - 4) as! uint32), 0, 0, 4)
-	v[3] = (seqnum & 0xFF) as! uint8
+	v[3] = (seqnum & (0xFF as! int)) as! uint8
 	return v
 }
 
-func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override throws Exception
 {
 	if protocol != MySQLDatabase.PROTOCOL_SOCKET:
 		Error.throw("unsupportedMySqlProtocol", protocol)
@@ -291,7 +291,7 @@ func serverSupportsSSL as bool
 	return false
 }
 
-func openSocketForAddress(address as string) as TCPSocket
+func openSocketForAddress(address as string) throws Exception as TCPSocket
 {
 	var host = address
 	var port = 3306
@@ -358,7 +358,7 @@ func parseOkPacket(packet as buffer) private as OkPacket
 {
 	var v = new OkPacket()
 	var walker = MyPacketParser.forBuffer(packet)
-	var header = walker.getInt8()
+	walker.getInt8() // header
 	v.setAffectedRows(walker.getLengthEncodedInteger())
 	v.setLastInsertId(walker.getLengthEncodedInteger())
 	v.setStatusFlags(walker.getInt16())
@@ -382,15 +382,15 @@ func handleAsErrorPacket(packet as buffer?) private as bool
 func logErrorPacket(packet as buffer) private
 {
 	var walker = MyPacketParser.forBuffer(packet)
-	var header = walker.getInt8()
+	walker.getInt8() // header
 	var errorCode = walker.getInt16()
-	var sqlStateMarker = walker.getStaticLengthString(1)
-	var sqlState = walker.getStaticLengthString(5)
+	walker.getStaticLengthString(1) // sqlStateMarker
+	walker.getStaticLengthString(5) // sqlState
 	var errorMessage = walker.getEofTerminatedString()
 	Log.error(ctx, "MySQL server sent error: errorCode=" .. String.forInteger(errorCode) .. ", errorMessage=`" .. errorMessage .. "'")
 }
 
-func reconnectSync private as bool
+func reconnectSync private throws Exception as bool
 {
 	closeSocket()
 	var now = SystemClock.asSeconds()
@@ -416,7 +416,7 @@ func reconnectSync private as bool
 	Log.debug(ctx, "statusFlags: " .. String.forInteger(hs.getStatusFlags()))
 	Log.debug(ctx, "capabilityFlagsLower: " .. String.forInteger(hs.getCapabilityFlagsLower()))
 	Log.debug(ctx, "capabilityFlagsUpper: " .. String.forInteger(hs.getCapabilityFlagsUpper()))
-	serverCapabilityFlags = hs.getCapabilityFlagsUpper() << 16 | hs.getCapabilityFlagsLower()
+	serverCapabilityFlags = (hs.getCapabilityFlagsUpper() << 16 | hs.getCapabilityFlagsLower()) as! uint32
 	if sslMode != MySQLDatabase.SSL_MODE_NONE {
 		if not serverSupportsSSL() {
 			Log.warning(ctx, "Server does not support SSL. Trying to initialize it anyway...")
@@ -453,7 +453,7 @@ func getNextSequence as int8
 {
 	if connectionState == ConnectionState.COMMAND:
 		return 0 as! int8
-	var v = (sequence & 0xFF) as! int8
+	var v = (sequence & (0xFF as! int)) as! int8
 	sequence++
 	if sequence > 0xFF:
 		sequence = 0
@@ -467,7 +467,7 @@ func onSequenceReceived(number as int)
 		sequence = 0
 }
 
-func createSSLRequest as buffer
+func createSSLRequest throws Exception as buffer
 {
 	var pm = createPacket()
 	pm.appendInt32(getMyCapabilityFlags() as! uint32)
@@ -477,14 +477,14 @@ func createSSLRequest as buffer
 	return finalizePacket(pm, getNextSequence())
 }
 
-func createComQuit as buffer
+func createComQuit throws Exception as buffer
 {
 	var pm = createPacket()
 	pm.appendByte(0x01)
 	return finalizePacket(pm, getNextSequence())
 }
 
-func createComInitDb(dbname as string) as buffer
+func createComInitDb(dbname as string) throws Exception as buffer
 {
 	var pm = createPacket()
 	pm.appendByte(0x02)
@@ -492,7 +492,7 @@ func createComInitDb(dbname as string) as buffer
 	return finalizePacket(pm, getNextSequence())
 }
 
-func createComQuery(query as string) as buffer
+func createComQuery(query as string) throws Exception as buffer
 {
 	var pm = createPacket()
 	pm.appendByte(0x03)
@@ -500,7 +500,7 @@ func createComQuery(query as string) as buffer
 	return finalizePacket(pm, getNextSequence())
 }
 
-func createAuthenticationPacket(authPlugin as string, authData as string, forAuthSwitch as bool = false) private as buffer
+func createAuthenticationPacket(authPlugin as string, authData as string, forAuthSwitch as bool = false) private throws Exception as buffer
 {
 	var password = this.password ?? ""
 	var pm = createPacket()
@@ -571,7 +571,7 @@ func createAuthenticationPacket(authPlugin as string, authData as string, forAut
 	return finalizePacket(pm, getNextSequence())
 }
 
-func handleAuthenticationSync(authPlugin as string, authData as string, forAuthSwitch as bool = false) as bool
+func handleAuthenticationSync(authPlugin as string, authData as string, forAuthSwitch as bool = false) throws Exception as bool
 {
 	var response = sendAndReceive(createAuthenticationPacket(authPlugin, authData, forAuthSwitch))
 	if not response:
@@ -655,7 +655,7 @@ func asCompletePacket(buffer as buffer?) private as buffer?
 	return null
 }
 
-func receivePacketSync as buffer?
+func receivePacketSync throws Exception as buffer?
 {
 	assert socket
 	var v = asCompletePacket(overflowBuffer)
@@ -682,7 +682,7 @@ func receivePacketSync as buffer?
 	return v
 }
 
-func receivePacketsSync as vector<buffer>?
+func receivePacketsSync throws Exception as vector<buffer>?
 {
 	var v as vector<buffer>?
 	loop {
@@ -701,7 +701,7 @@ func receivePacketsSync as vector<buffer>?
 	return v
 }
 
-func receivePacketDataSync as buffer?
+func receivePacketDataSync throws Exception as buffer?
 {
 	var packets = assert receivePacketsSync()
 	if sizeof packets == 1 {
@@ -718,7 +718,7 @@ func receivePacketDataSync as buffer?
 	return v
 }
 
-func sendSync(packet as buffer) as bool
+func sendSync(packet as buffer) throws Exception as bool
 {
 	assert socket
 	assert socket.write(packet, -1) > 0 {
@@ -731,13 +731,13 @@ func sendSync(packet as buffer) as bool
 	return true
 }
 
-func sendAndReceive(packet as buffer) as buffer?
+func sendAndReceive(packet as buffer) throws Exception as buffer?
 {
 	assert sendSync(packet)
 	return receivePacketDataSync()
 }
 
-func executePacketSync(packet as buffer) as bool
+func executePacketSync(packet as buffer) throws Exception as bool
 {
 	var result = assert sendAndReceive(packet)
 	if isOkPacket(result) {
@@ -762,14 +762,14 @@ func closeSocket private
 	}
 }
 
-func closeConnection async override
+func closeConnection async override throws Exception
 {
 	connectionState = ConnectionState.DISCONNECTING
 	sendAndReceive(createComQuit())
 	closeSocket()
 }
 
-func receiveColumnsSync(numColumns as long) private as vector<ColumnDefinition>?
+func receiveColumnsSync(numColumns as long) private throws Exception as vector<ColumnDefinition>?
 {
 	var columns as vector<ColumnDefinition>?
 	if numColumns > 0 {
@@ -784,7 +784,7 @@ func receiveColumnsSync(numColumns as long) private as vector<ColumnDefinition>?
 			if isEofPacket(packet):
 				break
 			var column = parseColumnDefinition(packet)
-			Log.debug(ctx, "Column: `" .. column.name .. "'")
+			Log.debug(ctx, "Column: `" .. column.getName() .. "'")
 			columns += column
 			n++
 		}
@@ -793,7 +793,7 @@ func receiveColumnsSync(numColumns as long) private as vector<ColumnDefinition>?
 	return columns
 }
 
-func prepareStatement(sql as string) async override as SQLStatement
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
 {
 	var prep = createPacket()
 	prep.appendByte(0x16)
@@ -810,7 +810,7 @@ func prepareStatement(sql as string) async override as SQLStatement
 	var numColumns = walker.getInt16()
 	var numParams = walker.getInt16()
 	walker.skipBytes(1)
-	var warningCount = walker.getInt16()
+	walker.getInt16() // warningCount
 	Log.debug(ctx, "Query prepared as statement id " .. String.forInteger(statementId))
 	if numParams > 0 {
 		var n = 0
@@ -876,50 +876,50 @@ func parseColumnDefinition(packet as buffer) private as ColumnDefinition
 class MyResultSet is SQLResultSetIterator abstract private
 {
 	pvar columns as vector<ColumnDefinition>?
-	pvar rowData as vector<object>?
+	pvar rowData as vector<dynamic?>?
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		step()
 		var v = new DynamicMap()
 		var cc = getColumnCount()
 		for(var n = 0 ; n < cc ; n++) {
 			var kk = getColumnName(n)
-			v.setObject(kk, getColumnObject(n))
+			v.setDynamic(kk, getColumnValue(n))
 		}
 		return v
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		Vector.clear(values)
 		step()
 		var cc = getColumnCount()
 		for(var n = 0 ; n < cc ; n++):
-			values += getColumnObject(n)
+			values += getColumnValue(n)
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		if not columns:
 			return 0
 		return Vector.getSize(columns)
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
 		if not columns:
 			Error.throw("noColumns", this)
 		var v = Vector.getValue(columns, n)
 		if not v:
 			Error.throw("invalidColumnIndex", String.forInteger(n))
-		var vv = v.name
+		var vv = v.getName()
 		if not vv:
 			Error.throw("columnHasNoName", v)
 		return vv
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		var v = new vector<string>
 		var cc = getColumnCount()
@@ -928,52 +928,26 @@ class MyResultSet is SQLResultSetIterator abstract private
 		return v
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
 		if not rowData:
 			Error.throw("noRowData", this)
-		var v = Vector.getValue(rowData, n)
-		if not v:
+		if n < 0 || n > Vector.getSize(rowData):
 			Error.throw("invalidColumnIndex", String.forInteger(n))
-		return v
+		return rowData[n]
 	}
 
-	func getColumnInt(n as int) override as int:
-		return Integer.asValueOrThrowError(getColumnObject(n))
+	func getColumnInt(n as int) override throws Exception as int:
+		return Integer.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnLong(n as int) override as long:
-		return LongInteger.asValueOrThrowError(getColumnObject(n))
+	func getColumnLong(n as int) override throws Exception as long:
+		return LongInteger.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnDouble(n as int) override as double:
-		return Double.asValueOrThrowError(getColumnObject(n))
+	func getColumnDouble(n as int) override throws Exception as double:
+		return Double.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnBuffer(n as int) override as buffer:
-		return Buffer.asValueOrThrowError(getColumnObject(n))
-}
-
-class StaticResultSet is MyResultSet
-{
-	pvar data as vector<vector<object>>?
-	pvar current as long
-
-	func hasNext override as bool
-	{
-		if not data:
-			return false
-		return current + 1 < Vector.getSize(data)
-	}
-
-	func step override
-	{
-		if not hasNext():
-			Error.throw("noMoreRecords", this)
-		if not data:
-			Error.throw("noData", this)
-		setRowData(Vector.getValue(data, current++ as! int))
-	}
-
-	func close override:
-		nop
+	func getColumnBuffer(n as int) override throws Exception as buffer:
+		return Buffer.asValueOrThrowError(getColumnValue(n))
 }
 
 class SyncFetchResultSet is MyResultSet private
@@ -981,7 +955,7 @@ class SyncFetchResultSet is MyResultSet private
 	pvar statement as MyStatement?
 	pvar db as parent?
 
-	var nextStored as vector<object>?
+	var nextStored as vector<dynamic?>?
 
 	IFDEF "target_supports_destructor"
 	{
@@ -989,7 +963,7 @@ class SyncFetchResultSet is MyResultSet private
 			close()
 	}
 
-	func getNext private as vector<object>?
+	func getNext private throws Exception as vector<dynamic?>?
 	{
 		var v = nextStored
 		if v {
@@ -1010,13 +984,13 @@ class SyncFetchResultSet is MyResultSet private
 	{
 		if nextStored:
 			return true
-		nextStored = getNext()
+		nextStored = try? getNext()
 		if nextStored:
 			return true
 		return false
 	}
 
-	func step override
+	func step override throws Exception
 	{
 		var v = getNext()
 		if not v:
@@ -1024,7 +998,7 @@ class SyncFetchResultSet is MyResultSet private
 		setRowData(v)
 	}
 
-	func close override
+	func close override throws Exception
 	{
 		if statement:
 			statement.resetStatement()
@@ -1075,7 +1049,7 @@ class ExecuteStatementSyncResponse private
 	pvar affectedRows as int
 	pvar results as MyResultSet?
 
-	func closeResults
+	func closeResults throws Exception
 	{
 		if results {
 			results.close()
@@ -1084,20 +1058,20 @@ class ExecuteStatementSyncResponse private
 	}
 }
 
-func executeStatement(stmt as SQLStatement) override async
+func executeStatement(stmt as SQLStatement) override async throws Exception
 {
 	var v = executeStatementSync(stmt, false)
 	v.closeResults()
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var v = executeStatementSync(stmt, false)
 	v.closeResults()
 	return v.getAffectedRows()
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var v = executeStatementSync(stmt, true)
 	var vv = v.getResults()
@@ -1106,7 +1080,7 @@ func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetI
 	return vv
 }
 
-func closeStatementSync(statement as MyStatement) private
+func closeStatementSync(statement as MyStatement) private throws Exception
 {
 	var id = statement.getId()
 	Log.debug(ctx, "Closing statement " .. String.forLongInteger(id))
@@ -1116,7 +1090,7 @@ func closeStatementSync(statement as MyStatement) private
 	sendSync(finalizePacket(close, getNextSequence()))
 }
 
-func resetStatement(statement as MyStatement) private as bool
+func resetStatement(statement as MyStatement) private throws Exception as bool
 {
 	var id = statement.getId()
 	Log.debug(ctx, "Resetting statement " .. String.forLongInteger(id))
@@ -1144,25 +1118,26 @@ func isNullInBitmap(bitmap as buffer?, index as int) private as bool
 	assert byte < sizeof bitmap
 	var n = 1
 	n = n << bit
-	if bitmap[byte] & n:
+	if bitmap[byte] & n as! uint8:
 		return true
 	return false
 }
 
-func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private as vector<object>?
+func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private throws Exception as vector<dynamic?>
 {
 	var walker = MyPacketParser.forBuffer(packet)
-	assert walker.getInt8() == 0x00:
-		Log.warning(ctx, "Record buffer has invalid header")
+	var hdr = walker.getInt8()
+	if hdr != 0x00:
+		Error.throw("recordBufferHasInvalidHeader", String.forIntegerHex(hdr))
 	var columnCount = Vector.getSize(columns)
 	var nullBytes = (columnCount + 9) / 8
 	var nullBitmap = walker.getBuffer(nullBytes)
-	var v = new vector<object>
+	var v = new vector<dynamic?>
 	Vector.setSize(v, columnCount, Integer.wrapValue(0))
 	var n = 0
 	foreach column in columns {
 		var type = column.getType()
-		var o as object?
+		var o as dynamic?
 		if isNullInBitmap(nullBitmap, n) {
 			o = null
 		}
@@ -1192,10 +1167,8 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 		}
 		else if type == FieldType.MYSQL_TYPE_DATE {
 			var length = walker.getInt8()
-			if length != 4 {
-				Log.error(ctx, "Unsupported length for date field: " .. String.forInteger(length))
-				return null
-			}
+			if length != 4:
+				Error.throw("unsupportedLengthForDateField", String.forInteger(length))
 			var year = walker.getInt16()
 			var month = walker.getInt8()
 			var day = walker.getInt8()
@@ -1221,8 +1194,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 				nop
 			}
 			else {
-				Log.error(ctx, "Unsupported length for datetime field: " .. String.forInteger(length))
-				return null
+				Error.throw("unsupportedLengthForDatetimeField", String.forInteger(length))
 			}
 			var dt = new DateTime()
 			dt.setYear(year)
@@ -1236,8 +1208,8 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 		}
 		else if type == FieldType.MYSQL_TYPE_TIME {
 			var length = walker.getInt8()
-			var isNegative = walker.getInt8()
-			var date = walker.getInt32()
+			walker.getInt8() // isNegative
+			walker.getInt32()
 			var hours = walker.getInt8()
 			var minutes = walker.getInt8()
 			var seconds = walker.getInt8()
@@ -1249,8 +1221,7 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 				microseconds = walker.getInt32()
 			}
 			else {
-				Log.error(ctx, "Unsupported length for time field: " .. String.forInteger(length))
-				return null
+				Error.throw("unsupportedLengthForTimeField", String.forInteger(length))
 			}
 			var dt = new DateTime()
 			dt.setHours(hours)
@@ -1300,19 +1271,17 @@ func parseRecord(packet as buffer, columns as vector<ColumnDefinition>) private 
 			o = walker.getLengthEncodedString()
 		}
 		else {
-			Log.error(ctx, "Unsupported field type " .. String.forInteger(type) .. " encountered in response.")
-			return null
+			Error.throw("unsupportedFieldTypeInResponse", String.forInteger(type))
 		}
-		Log.debug(ctx, "Field " .. String.forInteger(n) .. " or `" .. column.name .. "' type=" .. String.forInteger(type) .. ", value=`" .. String.asValueOrEmptyString(o) .. "'")
-		if not o:
-			Error.throw("failedToFindFieldObject", String.forInteger(n))
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Field " .. String.forInteger(n) .. " or `" .. column.getName() .. "' type=" .. String.forInteger(type) .. ", value=`" .. String.asValueOrEmptyString(o) .. "'")
 		v[n] = o
 		n++
 	}
 	return v
 }
 
-func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) private as vector<object>?
+func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) private throws Exception as vector<dynamic?>?
 {
 	var statementId = statement.getId()
 	Log.debug(ctx, "Fetching next record for statement " .. String.forLongInteger(statementId))
@@ -1321,7 +1290,7 @@ func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) pr
 	req.appendInt32(statementId as! uint32)
 	req.appendInt32(1 as! uint32)
 	sendSync(finalizePacket(req, getNextSequence()))
-	var v as vector<object>?
+	var v as vector<dynamic?>?
 	loop {
 		var resp = receivePacketDataSync()
 		if handleAsErrorPacket(resp):
@@ -1329,16 +1298,14 @@ func fetchNext(statement as MyStatement, columns as vector<ColumnDefinition>) pr
 		if not resp || isEofPacket(resp):
 			break
 		var rr = parseRecord(resp, columns)
-		if rr {
-			if v:
-				Log.warning(ctx, "Multiple records received in response to a single fetch statement")
-			v = rr
-		}
+		if v:
+			Log.warning(ctx, "Multiple records received in response to a single fetch statement")
+		v = rr
 	}
 	return v
 }
 
-func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as ExecuteStatementSyncResponse
+func executeStatementSync(stmt as SQLStatement, withCursor as bool) private throws Exception as ExecuteStatementSyncResponse
 {
 	var ms = stmt as MyStatement
 	if not ms:
@@ -1357,7 +1324,7 @@ func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as E
 	xx.appendInt32(1 as! uint32)
 	var params = ms.getParams()
 	if not params:
-		params = new vector<object>
+		params = new vector<dynamic>
 	var pc = Vector.getSize(params)
 	if pc > 0 {
 		var nullbytes = (pc + 7) / 8
@@ -1371,7 +1338,7 @@ func executeStatementSync(stmt as SQLStatement, withCursor as bool) private as E
 				var x = 1
 				if bi > 0:
 					x << bi
-				bb[by] |= x
+				bb[by] |= x as! uint8
 			}
 		}
 		xx.appendBuffer(bb)

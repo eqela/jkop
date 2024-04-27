@@ -24,15 +24,15 @@
 
 class:
 
-class MyMapObject<K,V> is MapObject<K,V> private
+class MyMapObject<K #hashable,V> is MapObject<K,V> private
 {
 	prop value as map<K,V>
 
-	func toMap as map<K,V>:
+	func toMap implement as map<K,V>:
 		return value
 }
 
-func wrapValue <K,V> (value as map<K,V>) static as MapObject<K,V>:
+func wrapValue <K #hashable,V> (value as map<K,V>) static as MapObject<K,V>:
 	return new MyMapObject<K,V>() {
 		value value
 	}
@@ -44,7 +44,7 @@ func asValueOrNull(obj as dynamic?) static as map?
 	IFDEF "target_js" {
 		var v as map?
 		lang "js" {{{
-			v = new Map()
+			v = new Map();
 			for(var k in obj) {
 				if(obj.hasOwnProperty(k)) {
 					v.set(k, obj[k]);
@@ -54,11 +54,13 @@ func asValueOrNull(obj as dynamic?) static as map?
 		return v
 	}
 	ELSE {
+		if obj is map:
+			return obj as! map
 		return null
 	}
 }
 
-func asValueOrThrowError(obj as dynamic?) static as map
+func asValueOrThrowError(obj as dynamic?) static throws Exception as map
 {
 	var v = asValueOrNull(obj)
 	if not v:
@@ -70,25 +72,25 @@ func getValue <K,V> (map as map<K,V>, key as K) static as V?
 {
 	IFDEF "target_dotnet_cs" {
 		assert containsKey(map, key)
-		return lang "cs" as V {{{ map[key] }}}
+		return lang "cs" (map, key) as V {{{ map[key] }}}
 	}
 	ELSE IFDEF "target_java" {
 		assert containsKey(map, key)
-		return lang "java" as V {{{ map.get(key) }}}
+		return lang "java" (map, key) as V {{{ map.get(key) }}}
 	}
 	ELSE IFDEF "target_js" {
-		var rv = lang "js" as V {{{ map.get(key) }}}
-		if lang "js" as bool {{{ rv === undefined || rv === null }}}:
+		var rv = lang "js" (map, key) as V {{{ map.get(key) }}}
+		if lang "js" (rv) as bool {{{ rv === undefined || rv === null }}}:
 			return null
 		return rv
 	}
 	ELSE IFDEF "target_kotlin" {
 		assert containsKey(map, key)
-		return lang "kotlin" as V {{{ map.get(key) }}}
+		return lang "kotlin" (map, key) as V {{{ map.get(key) }}}
 	}
 	ELSE IFDEF "target_swift" {
 		assert containsKey(map, key)
-		return lang "swift" as V {{{ map![key!] }}}
+		return lang "swift" (map, key) as V {{{ map[key] }}}
 	}
 	ELSE {
 		assert containsKey(map, key)
@@ -99,33 +101,33 @@ func getValue <K,V> (map as map<K,V>, key as K) static as V?
 func set <K,V> (data as map<K,V>, key as K, val as V) static as bool
 {
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (data, key, val) {{{
 			data[key] = val;
 		}}}
 		return true
 	}
 	ELSE IFDEF "target_java" {
-		lang "java" {{{
+		lang "java" (data, key, val) {{{
 			data.put(key, val);
 		}}}
 		return true
 	}
 	ELSE IFDEF "target_js" {
-		lang "js" {{{
+		lang "js" (data, key, val) {{{
 			data.set(key, val);
 		}}}
 		return true
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = val
-		lang "kotlin" {{{
+		lang "kotlin" (data, key, val) {{{
 			data.put(key, v)
 		}}}
 		return true
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			data!.setObject(val!, forKey: key as! NSCopying)
+		lang "swift" (data, key, val) {{{
+			data[key] = val
 		}}}
 		return true
 	}
@@ -141,64 +143,66 @@ func setValue <K,V> (data as map<K,V>, key as K, val as V) static as bool:
 func remove <K,V> (data as map<K,V>, key as K) static
 {
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (data, key) {{{
 			data.Remove(key);
 		}}}
 	}
 	ELSE IFDEF "target_java" {
-		lang "java" {{{
+		lang "java" (data, key) {{{
 			data.remove(key);
 		}}}
 	}
 	ELSE IFDEF "target_js" {
-		lang "js" {{{
+		lang "js" (data, key) {{{
 			data.delete(key);
 		}}}
 	}
 	ELSE IFDEF "target_objc" {
-		lang "objc" {{{
+		lang "objc" (data, key) {{{
 			[data removeObjectForKey:key];
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
+		lang "kotlin" (data, key) {{{
 			data.remove(key)
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			data.removeObject(forKey: key!)
+		lang "swift" (data, key) {{{
+			data.removeByKey(key)
 		}}}
 	}
 	ELSE IFDEF "target_lua" {
-		lang "lua" {{{
+		lang "lua" (data, key) {{{
 			data[key] = nil
 		}}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		nop key
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func count <K,V> (data as map<K,V>) static as int
 {
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ data.Count }}}
+		return lang "cs" (data) as int {{{ data.Count }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ data.size() }}}
+		return lang "java" (data) as int {{{ data.size() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ data.size }}}
+		return lang "js" (data) as int {{{ data.size }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [data count] }}}
+		return lang "objc" (data) as int {{{ [data count] }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ data.count() }}}
+		return lang "kotlin" (data) as int {{{ data.count() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ data.count }}}
+		return lang "swift" (data) as int {{{ data.getSize() }}}
 	}
 	ELSE {
 		return Vector.getSize(getKeys(data))
@@ -208,28 +212,22 @@ func count <K,V> (data as map<K,V>) static as int
 func containsKey <K,V> (data as map<K,V>, key as K) static as bool
 {
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as bool {{{ data.ContainsKey(key) }}}
+		return lang "cs" (data, key) as bool {{{ data.ContainsKey(key) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ data.containsKey(key) }}}
+		return lang "java" (data, key) as bool {{{ data.containsKey(key) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as bool {{{ data.has(key) }}}
+		return lang "js" (data, key) as bool {{{ data.has(key) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as bool {{{ [data objectForKey:key] == nil ? NO : YES }}}
+		return lang "objc" (data, key) as bool {{{ [data objectForKey:key] == nil ? NO : YES }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as bool {{{ data.containsKey(key) }}}
+		return lang "kotlin" (data, key) as bool {{{ data.containsKey(key) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v = false
-		lang "swift" {{{
-			if(data![key!] != nil) {
-				v = true
-			}
-		}}}
-		return v
+		return lang "swift" (data, key) as bool {{{ data.containsKey(key ) }}}
 	}
 	ELSE {
 		foreach kk in getKeys(data) {
@@ -243,18 +241,18 @@ func containsKey <K,V> (data as map<K,V>, key as K) static as bool
 func containsValue <K,V> (data as map<K,V>, val as V) static as bool
 {
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as bool {{{ data.ContainsValue(val) }}}
+		return lang "cs" (data, val) as bool {{{ data.ContainsValue(val) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ data.containsValue(val) }}}
+		return lang "java" (data, val) as bool {{{ data.containsValue(val) }}}
 	}
 	ELSE IFDEF "target_js" {
 		var vals = getValues(data)
-		return lang "js" as bool {{{ vals.includes(val) }}}
+		return lang "js" (vals, val) as bool {{{ vals.includes(val) }}}
 	}
 	ELSE IFDEF "target_objc" {
 		var v = false
-		lang "objc" {{{
+		lang "objc" (data, val) {{{
 			NSArray* a = [data allKeysForObject:val];
 			v = (a != nil && [a count] > 0);
 		}}}
@@ -262,17 +260,10 @@ func containsValue <K,V> (data as map<K,V>, val as V) static as bool
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = val
-		return lang "kotlin" as bool {{{ data.containsValue(v) }}}
+		return lang "kotlin" (data, v) as bool {{{ data.containsValue(v) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v = false
-		lang "swift" {{{
-			let keys = data.allKeys(for: val!)
-			if(keys != nil && keys.count > 0) {
-				v = true
-			}
-		}}}
-		return v
+		return lang "swift" (data, val) as bool {{{ data.containsValue(val) }}}
 	}
 	ELSE {
 		foreach vv in getValues(data) {
@@ -286,69 +277,66 @@ func containsValue <K,V> (data as map<K,V>, val as V) static as bool
 func clear <K,V> (data as map<K,V>) static
 {
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (data) {{{
 			data.Clear();
 		}}}
 	}
 	ELSE IFDEF "target_java" {
-		lang "java" {{{
+		lang "java" (data) {{{
 			data.clear();
 		}}}
 	}
 	ELSE IFDEF "target_js" {
-		lang "js" {{{
+		lang "js" (data) {{{
 			data.clear();
 		}}}
 	}
 	ELSE IFDEF "target_objc" {
-		lang "objc" {{{
+		lang "objc" (data) {{{
 			[data removeAllObjects];
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
+		lang "kotlin" (data) {{{
 			data.clear()
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			data.removeAllObjects()
+		lang "swift" (data) {{{
+			data.clear()
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		lang "lua" {{{
+		lang "lua" (data) {{{
 			_vm:clear_table(data)
 		}}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func dup <K,V> (data as map<K,V>) static as map<K,V>
 {
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as map<K,V> {{{ new System.Collections.Generic.Dictionary<K, V>(data) }}}
+		return lang "cs" (data) as map<K,V> {{{ new System.Collections.Generic.Dictionary<K, V>(data) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as [magical:java.lang.Object] {{{ data.clone() }}} as! map<K,V>
+		return lang "java" (data) as [magical:java.lang.Object] {{{ data.clone() }}} as! map<K,V>
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as map<K,V> {{{ new Map(data) }}}
+		return lang "js" (data) as map<K,V> {{{ new Map(data) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as map<K,V> {{{ kotlin.collections.HashMap(data) }}}
+		return lang "kotlin" (data) as map<K,V> {{{ kotlin.collections.HashMap(data) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var map as map<K,V>?
-		lang "swift" {{{
-			let m = (NSDictionary.init(dictionary: data as! [AnyHashable : Any]))
-			map = m.mutableCopy() as? NSMutableDictionary
-		}}}
-		return map
+		return lang "swift" (data) as map<K,V> {{{ data.duplicate() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -356,7 +344,7 @@ func getKeys <K,V> (data as map<K,V>) static as vector<K>
 {
 	IFDEF "target_dotnet_cs" {
 		var v = new vector<K>
-		lang "cs" {{{
+		lang "cs" (data) {{{
 			foreach(K key in data.Keys) {
 				v.Add(key);
 			}
@@ -365,7 +353,7 @@ func getKeys <K,V> (data as map<K,V>) static as vector<K>
 	}
 	ELSE IFDEF "target_java" {
 		var v = new vector<K>
-		lang "java" {{{
+		lang "java" (data) {{{
 			for(K key : data.keySet()) {
 				v.add(key);
 			}
@@ -373,20 +361,20 @@ func getKeys <K,V> (data as map<K,V>) static as vector<K>
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as vector<K> {{{ [[data allKeys] mutableCopy] }}}
+		return lang "objc" (data) as vector<K> {{{ [[data allKeys] mutableCopy] }}}
 	}
 	ELSE IFDEF "target_js" {
 		var v = new vector<K>
-		lang "js" {{{
+		lang "js" (data) {{{
 			data.forEach(function(value, key) {
-				this.push(key)
+				this.push(key);
 			}, v);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = new vector<K>
-		lang "kotlin" {{{
+		lang "kotlin" (data) {{{
 			for((k, vv) in data) {
 				v!!.add(k)
 			}
@@ -394,18 +382,14 @@ func getKeys <K,V> (data as map<K,V>) static as vector<K>
 		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as vector<K> {{{ _vm:get_table_keys(data) }}}
+		return lang "lua" (data) as vector<K> {{{ _vm:get_table_keys(data) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v as vector<K>?
-		lang "swift" {{{
-			let arr = NSArray(array: data.allKeys)
-			v = arr.mutableCopy() as? NSMutableArray
-		}}}
-		return v
+		return lang "swift" (data) as vector<K> {{{ data.getKeys() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -413,7 +397,7 @@ func getValues <K,V> (data as map<K,V>) static as vector<V>
 {
 	IFDEF "target_dotnet_cs" {
 		var v = new vector<V>
-		lang "cs" {{{
+		lang "cs" (data) {{{
 			foreach(V value in data.Values) {
 				v.Add(value);
 			}
@@ -422,7 +406,7 @@ func getValues <K,V> (data as map<K,V>) static as vector<V>
 	}
 	ELSE IFDEF "target_java" {
 		var v = new vector<V>
-		lang "java" {{{
+		lang "java" (data) {{{
 			for(V value : data.values()) {
 				v.add(value);
 			}
@@ -430,20 +414,20 @@ func getValues <K,V> (data as map<K,V>) static as vector<V>
 		return v
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as vector<V> {{{ [[data allValues] mutableCopy] }}}
+		return lang "objc" (data) as vector<V> {{{ [[data allValues] mutableCopy] }}}
 	}
 	ELSE IFDEF "target_js" {
 		var v = new vector<V>
-		lang "js" {{{
+		lang "js" (data) {{{
 			data.forEach(function(value, keys) {
-				this.push(value)
+				this.push(value);
 			}, v);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = new vector<V>
-		lang "kotlin" {{{
+		lang "kotlin" (data) {{{
 			for((k, vv) in data) {
 				v!!.add(vv)
 			}
@@ -452,21 +436,17 @@ func getValues <K,V> (data as map<K,V>) static as vector<V>
 	}
 	ELSE IFDEF "target_sushi" {
 		var v as vector<K>?
-		lang "lua" {{{
+		lang "lua" (data) {{{
 			v = _vm:get_table_values(data)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as vector<V>?
-		lang "swift" {{{
-			let arr = NSArray(array: data.allValues)
-			v = arr.mutableCopy() as? NSMutableArray
-		}}}
-		return v
+		return lang "swift" (data) as vector<V> {{{ data.getValues() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -496,7 +476,7 @@ IFDEF "target_dotnet_cs"
 			return v
 		}
 
-		func next as K
+		func next implement as K
 		{
 			if current {
 				var vv = current
@@ -509,7 +489,7 @@ IFDEF "target_dotnet_cs"
 			return v
 		}
 
-		func hasNext as bool
+		func hasNext implement as bool
 		{
 			if current:
 				return true
@@ -527,7 +507,7 @@ func iterateKeys <K,V> (data as map<K,V>) static as Iterator<K>
 {
 	IFDEF "target_dotnet_cs" {
 		var v = new MyKeyIterator<K>()
-		lang "cs" {{{
+		lang "cs" (data) {{{
 			var keys = data.Keys;
 			if(keys != null) {
 				v.enumerator = keys.GetEnumerator();

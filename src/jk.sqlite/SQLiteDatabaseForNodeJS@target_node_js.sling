@@ -22,10 +22,10 @@
  * SOFTWARE.
  */
 
-import jk.sql
-import jk.nodejs
 import jk.fs
+import jk.sql
 import jk.log
+import jk.lang.js
 
 class is SQLiteDatabase:
 
@@ -35,7 +35,7 @@ var sqldatabase as [magical:sqlite.Database]?
 
 class Statement is SQLStatement
 {
-	func create(db as [magical:sqlite.Database], statement as string) static as this
+	func create(db as [magical:sqlite.Database], statement as string) static throws Exception as this
 	{
 		var sqlPreparedStmt = db.prepare!(statement)
 		if sqlPreparedStmt == null:
@@ -81,10 +81,10 @@ class Statement is SQLStatement
 	func setParamBlob(name as string, val as buffer) override:
 		addParamBlob(val)
 
-	func resetStatement override:
+	func resetStatement override throws Exception:
 		Vector.clear(params)
 
-	func executeUpdateDelete as int
+	func executeUpdateDelete throws Exception as int
 	{
 		var result = sqlPreparedStmt.run!(params)
 		if result == null:
@@ -95,7 +95,7 @@ class Statement is SQLStatement
 	func execute:
 		sqlPreparedStmt.run!(params)
 
-	func getIteratorStmt as dynamic
+	func getIteratorStmt throws Exception as dynamic
 	{
 		var v = sqlPreparedStmt.bind!(params)
 		if v == null:
@@ -106,19 +106,17 @@ class Statement is SQLStatement
 
 class ResultSet is SQLResultSetIterator
 {
-	var nextRowValue as vector<dynamic>?
-	var currentRowValue as vector<dynamic>?
-	var rawColumnData as vector<dynamic>?
+	var nextRowValue as vector<dynamic?>?
+	var currentRowValue as vector<dynamic?>?
+	var rawColumnData as vector<dynamic?>?
 	var columnNames = new vector<string>
 	var iterator as [magical:sqlite.Iterator]?
 
-	ctor(stmt as Statement):
-		initialize(stmt.getIteratorStmt())
-
-	func initialize(stmt as dynamic)
+	ctor(stmt as Statement) throws Exception
 	{
-		rawColumnData = stmt.columns!() as vector<dynamic>
-		iterator = stmt.raw!()!.iterate!() as! [magical:sqlite.Iterator]
+		var istmt = stmt.getIteratorStmt()
+		rawColumnData = istmt.columns!() as vector<dynamic?>
+		iterator = istmt.raw!()!.iterate!() as! [magical:sqlite.Iterator]?
 	}
 
 	func hasNext override as bool
@@ -130,13 +128,13 @@ class ResultSet is SQLResultSetIterator
 		var itr = iterator.next!()
 		if itr == null:
 			return false
-		if itr.done == true:
+		if Boolean.asValueOrDefaultValue(itr.done) == true:
 			return false
-		nextRowValue = itr.value as vector<dynamic>
+		nextRowValue = itr.value as vector<dynamic?>
 		return true
 	}
 
-	func step override
+	func step override throws Exception
 	{
 		if not hasNext():
 			Error.throw("noNextRecord", this)
@@ -144,26 +142,26 @@ class ResultSet is SQLResultSetIterator
 		nextRowValue = null
 	}
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		step()
 		var columns = getColumnNames()
 		var data = new DynamicMap()
 		for(var i = 0 ; i < Vector.getSize(columns) ; i++):
-			data.setObject(columns[i], getColumnObject(i))
+			data.setDynamic(columns[i], getColumnValue(i))
 		return data
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		step()
 		Vector.clear(values)
 		var columns = getColumnCount()
 		for(var i = 0 ; i < columns ; i++):
-			values += getColumnObject(i)
+			values += getColumnValue(i)
 	}
 
-	func getColumnInfo(n as int) private as dynamic
+	func getColumnInfo(n as int) private throws Exception as dynamic
 	{
 		if not rawColumnData:
 			Error.throw("dataNotInitialized", "rawColumnData")
@@ -173,28 +171,32 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnName(n as int) override as string:
+	func getColumnName(n as int) override throws Exception as string:
 		return String.asValueOrThrowError(getColumnInfo(n).name)
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		if rawColumnData == null:
 			return 0
 		return Vector.getSize(rawColumnData)
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		if Vector.getSize(columnNames) > 0:
 			return columnNames
 		if rawColumnData == null:
 			return columnNames
-		foreach next in Vector.iterate(rawColumnData):
+		foreach next in Vector.iterate(rawColumnData) {
+			if next == null:
+				Error.throw("nullEntryInRawColumnData")
 			columnNames += String.asValueOrThrowError(next.name)
+		}
 		return columnNames
 	}
 
-	func getColumnType(n as int) as string
+	/*[
+	func getColumnType(n as int) private throws Exception as string
 	{
 		var info = getColumnInfo(n)
 		var type = String.asValueOrNull(info.type)
@@ -204,49 +206,34 @@ class ResultSet is SQLResultSetIterator
 			Error.throw("unableToDetermineColumnType", info)
 		return type
 	}
+	]*/
 
-	func getCurrentRowValue(n as int) private as dynamic
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
-		if not currentRowValue:
-			Error.throw("dataNotInitialized", "currentRowValue")
-		var v = Vector.getValue(currentRowValue, n)
-		if not v:
+		var values = currentRowValue
+		if not values:
+			Error.throw("noCurrentRow")
+		if n < 0 || n >= Vector.getSize(values):
 			Error.throw("invalidColumnIndex", String.forInteger(n))
-		return v
+		return values[n]
 	}
 
-	func getColumnObject(n as int) override as object
-	{
-		var type = getColumnType(n)
-		if type == "INTEGER":
-			return Integer.wrapValue(getColumnInt(n))
-		if type == "BIGINT":
-			return LongInteger.wrapValue(getColumnLong(n))
-		if type == "BLOB":
-			return Buffer.wrapValue(getColumnBuffer(n))
-		if type == "DOUBLE" || type == "REAL":
-			return Double.wrapValue(getColumnDouble(n))
-		if type == "TEXT" || type == "VARCHAR(255)":
-			return getColumnString(n)
-		Error.throw("unsupportedColumnType", type)
-	}
+	func getColumnInt(n as int) override throws Exception as int:
+		return Integer.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnInt(n as int) override as int:
-		return Integer.asValueOrThrowError(getCurrentRowValue(n))
+	func getColumnDouble(n as int) override throws Exception as double:
+		return Double.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnDouble(n as int) override as double:
-		return Double.asValueOrThrowError(getCurrentRowValue(n))
+	func getColumnBuffer(n as int) override throws Exception as buffer:
+		return Buffer.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnBuffer(n as int) override as buffer:
-		return Buffer.asValueOrThrowError(getCurrentRowValue(n))
+	func getColumnString(n as int) throws Exception as string:
+		return String.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnString(n as int) as string:
-		return String.asValueOrThrowError(getCurrentRowValue(n))
+	func getColumnLong(n as int) override throws Exception as long:
+		return LongInteger.asValueOrThrowError(getColumnValue(n))
 
-	func getColumnLong(n as int) override as long:
-		return LongInteger.asValueOrThrowError(getCurrentRowValue(n))
-
-	func close override
+	func close override throws Exception
 	{
 		rawColumnData = null
 		columnNames = new vector<string>
@@ -256,9 +243,9 @@ class ResultSet is SQLResultSetIterator
 	}
 }
 
-func initialize(file as File, openCreate as bool) override
+func initialize(file as File, openCreate as bool) override throws Exception
 {
-	var sqlite = NodeModule.require("better-sqlite3")
+	var sqlite = JsCommonModule.require("better-sqlite3")
 	var ctx as LoggingContext?
 	if openCreate == false && file.isFile() == false:
 		Error.throw("databaseDoesNotExist", file)
@@ -266,24 +253,24 @@ func initialize(file as File, openCreate as bool) override
 	Log.debug(ctx, "Opened Sqlite database: '" .. file.getPath() .. "'")
 }
 
-func closeConnection async override
+func closeConnection async override throws Exception
 {
 	lang "js" {{{
 		if (this.sqldatabase !== null) {
-			this.sqldatabase.close()
-			this.sqldatabase = null
+			this.sqldatabase.close();
+			this.sqldatabase = null;
 		}
 	}}}
 }
 
-func prepareStatement(sql as string) async override as SQLStatement
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
 {
 	if not sqldatabase:
 		Error.throw("databaseNotInitialized", sqldatabase)
 	return Statement.create(sqldatabase, sql)
 }
 
-func executeStatement(stmt as SQLStatement) async override
+func executeStatement(stmt as SQLStatement) async override throws Exception
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -291,7 +278,7 @@ func executeStatement(stmt as SQLStatement) async override
 	ss.execute()
 }
 
-func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) async override throws Exception as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -299,7 +286,7 @@ func executeQueryStatement(stmt as SQLStatement) async override as SQLResultSetI
 	return new ResultSet(ss)
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) async override as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) async override throws Exception as int
 {
 	var ss = stmt as Statement
 	if not ss:

@@ -57,7 +57,7 @@ model TokenResponse
 	id_token as string
 }
 
-func getOpenidConfigurationForSettings(settings as Settings) async static private as OidcConfiguration
+func getOpenidConfigurationForSettings(ctx as LoggingContext, settings as Settings) async static private throws Exception as OidcConfiguration
 {
 	if String.isEmpty(settings.issuerBaseUrl):
 		Error.throw("valueMissing", "issuerBaseUrl")
@@ -76,9 +76,9 @@ func getOpenidConfigurationForSettings(settings as Settings) async static privat
 	return OidcConfiguration.forData(data)
 }
 
-func createAndInitialize(ctx as LoggingContext, settings as Settings) async static as this
+func createAndInitialize(ctx as LoggingContext, settings as Settings) async static throws Exception as this
 {
-	var oidcConfiguration = await getOpenidConfigurationForSettings(settings)
+	var oidcConfiguration = await getOpenidConfigurationForSettings(ctx, settings)
 	var jwtValidator = JWTValidator.forIssuerBaseUrl(ctx, settings.issuerBaseUrl)
 	Log.debug(ctx, "OIDC configuration: `" .. SLONEncoder.toString(oidcConfiguration.toDynamicMap()) .. "'")
 	return new this() {
@@ -136,7 +136,7 @@ func getSessionTimeoutSeconds as int
 	return v
 }
 
-func handleCallbackRequest(req as WebServerRequest) async private
+func handleCallbackRequest(req as WebServerRequest) async private throws Exception
 {
 	var code = req.getQueryParameter("code")
 	if String.isEmpty(code):
@@ -172,25 +172,25 @@ func handleCallbackRequest(req as WebServerRequest) async private
 	cookie.setSameSite("lax")
 	req.setResponseRedirect(getLoginSuccessfulUrl())
 	req.setResponseHeader("Set-Cookie", cookie.toString())
-	req.endResponse()
+	await req.endResponse()
 }
 
-func handleLogoutRequest(req as WebServerRequest) async private
+func handleLogoutRequest(req as WebServerRequest) async private throws Exception
 {
 	var url = settings.logoutSuccessfulUrl
 	if String.isEmpty(url):
 		url = settings.applicationBaseUrl
 	req.setResponseRedirect(url)
 	req.setResponseHeader("Set-Cookie", WebServerCookie.forDeleteKey(getCookieName()).toString())
-	req.endResponse()
+	await req.endResponse()
 }
 
-func handleRequest(req as WebServerRequest, next as function<promise<void>>) async override
+func handleRequest(req as WebServerRequest, next as function<() async throws Exception>) async override throws Exception
 {
 	if req.isForResource("/.oidc/failed") {
 		req.setResponseStatus(500)
-		req.writeResponseData(String.toUTF8Buffer("Login failed"))
-		req.endResponse()
+		await req.writeResponseData(String.toUTF8Buffer("Login failed"))
+		await req.endResponse()
 		return
 	}
 	if req.isForResource("/.oidc/logout") {
@@ -204,7 +204,7 @@ func handleRequest(req as WebServerRequest, next as function<promise<void>>) asy
 		catch e {
 			Log.error(ctx, "Callback request handling failed: `" .. String.asValueOrEmptyString(e) .. "'")
 			req.setResponseRedirect(getLoginFailedUrl())
-			req.endResponse()
+			await req.endResponse()
 		}
 		return
 	}
@@ -230,7 +230,7 @@ func handleRequest(req as WebServerRequest, next as function<promise<void>>) asy
 		url.addQueryParameter("client_id", settings.clientId)
 		url.addQueryParameter("redirect_uri", getRedirectUri())
 		req.setResponseRedirect(url.toString())
-		req.endResponse()
+		await req.endResponse()
 		return
 	}
 	// This will renew the cookie expiration.

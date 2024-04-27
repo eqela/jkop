@@ -24,7 +24,7 @@
 
 class:
 
-func createClassInstanceByName(qualifiedName as string) static as dynamic
+func createClassInstanceByName(qualifiedName as string) static throws Exception as dynamic
 {
 	IFDEF "target_sushi" {
 		var code = " return _g." .. qualifiedName .. "._construct0(_g." .. qualifiedName .. "._create())"
@@ -37,7 +37,7 @@ func createClassInstanceByName(qualifiedName as string) static as dynamic
 		var className = String.getSubString(qualifiedName, lin, length - lin)
 		var module = String.getSubString(qualifiedName, 0, lin)
 		var ff as dynamic?
-		lang "js" {{{
+		lang "js" (className, module) {{{
 			const ev = "require(\'./" + module + "\')" + className + ".NEW()";
 			ff = eval(ev);
 		}}}
@@ -45,37 +45,43 @@ func createClassInstanceByName(qualifiedName as string) static as dynamic
 			Error.throw("failedToCreateClassInstance", qualifiedName)
 		return ff
 	}
+	ELSE IFDEF "target_browser_js" {
+		nop qualifiedName
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop qualifiedName
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func createClassInstanceByTypeinfo(type as typeinfo) static as dynamic
+func createClassInstanceByTypeinfo(typeinfo as typeinfo) static throws Exception as dynamic
 {
 	IFDEF "target_sushi" {
-		var typename = lang "lua" as string {{{ type }}}
+		var typename = lang "lua" (@typeinfo) as string {{{ typeinfo }}}
 		assert String.startsWith(typename, "class:")
 		typename = String.getEndOfString(typename, 6)
 		return createClassInstanceByName(typename)
 	}
 	ELSE IFDEF "target_node_js" {
 		var ff as dynamic?
-		lang "js" {{{
-			ff = _type.NEW();
+		lang "js" (@typeinfo) {{{
+			ff = typeinfo.NEW();
 		}}}
 		if not ff:
-			Error.throw("failedToCreateClassInstance", type)
+			Error.throw("failedToCreateClassInstance", @typeinfo)
 		return ff
 	}
 	ELSE IFDEF "target_browser_js" {
-		return lang "js" as dynamic {{{ _type.NEW() }}}
+		return lang "js" (@typeinfo) as dynamic {{{ typeinfo.NEW() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop @typeinfo
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func callMethod(objectInstance as object, methodName as string, arguments as array<dynamic>) static as dynamic
+func callMethod(objectInstance as dynamic, methodName as string, arguments as array<dynamic>) static as dynamic?
 {
 	IFDEF "target_sushi" {
 		var sb = new StringBuilder()
@@ -92,19 +98,25 @@ func callMethod(objectInstance as object, methodName as string, arguments as arr
 		}
 		sb.appendString(") end")
 		var code = sb.toString()
-		var ff = assert lang "lua" as function<function<dynamic,object,array<dynamic>>> {{{ _vm:parse_to_function(code) }}}
+		var ff = assert lang "lua" as function<function<(dynamic,array<dynamic>) as dynamic?>> {{{ _vm:parse_to_function(code) }}}
 		var ffx = assert ff()
 		return ffx(objectInstance, arguments)
 	}
+	ELSE IFDEF "target_js" {
+		return lang "js" (objectInstance, methodName, arguments) as dynamic? {{{ objectInstance[methodName](arguments) }}}
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop objectInstance
+		nop methodName
+		nop arguments
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func getDataTypeInfo(variable as dynamic) static as typeinfo:
 	return typeof variable
 
-func isSameType(primary as object?, other as object?) static as bool
+func isSameType(primary as dynamic?, other as dynamic?) static as bool
 {
 	if primary == null && other == null:
 		return true
@@ -112,37 +124,66 @@ func isSameType(primary as object?, other as object?) static as bool
 		return false
 	var ta = typeof primary
 	var tb = typeof other
-	if ta == tb:
+	if ta as! object == tb as! object:
 		return true
 	return false
 }
 
-func isInstanceOf(objectInstance as object, type as typeinfo) static as bool
+func isInstanceOf(objectInstance as dynamic, typeinfo as typeinfo) static as bool
 {
 	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
-			if(type == null) {
+			if(typeinfo == null) {
 				return false;
 			}
 		}}}
-		return lang "cs" as bool {{{ type.IsAssignableFrom(objectInstance.GetType()) }}}
+		return lang "cs" (objectInstance, @typeinfo) as bool {{{ typeinfo.IsAssignableFrom(objectInstance.GetType()) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as bool {{{ _vm:is_instance_of(objectInstance, type) }}}
+		return lang "lua" (objectInstance, @typeinfo) as bool {{{ _vm:is_instance_of(objectInstance, typeinfo) }}}
 	}
 	ELSE IFDEF "target_js" {
-		var tt = type
-		lang "js" {{{
+		var tt = @typeinfo
+		lang "js" (objectInstance, tt) {{{
 			if(typeof tt.IS_INSTANCE === 'function') {
-				return tt.IS_INSTANCE(objectInstance)
+				return tt.IS_INSTANCE(objectInstance);
 			}
 			if(typeof tt === 'function') {
-				return objectInstance instanceof tt
+				return objectInstance instanceof tt;
 			}
 		}}}
 		return false
 	}
+	ELSE IFDEF "target_swift" {
+		var oo = objectInstance as object
+		if not oo:
+			return false
+		return lang "swift" (objectInstance, @typeinfo) as bool {{{ type(of: oo) == typeinfo }}}
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop objectInstance
+		nop @typeinfo
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
+func getCodeFilePathForObjectOrNull(oo as object) static as string?
+{
+	IFDEF "target_dotnet_cs" {
+		var path as string?
+		lang "cs" (oo) {{{
+			var type = oo.GetType();
+			if(type != null) {
+				var assembly = type.Assembly;
+				if(assembly != null) {
+					path = assembly.Location;
+				}
+			}
+		}}}
+		return path
+	}
+	ELSE {
+		nop oo
+		return null
 	}
 }

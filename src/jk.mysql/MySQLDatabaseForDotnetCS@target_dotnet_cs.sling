@@ -89,7 +89,7 @@ class Statement is SQLStatement
 		if String.isEmpty(n):
 			n = getNextParamName()
 		var vv = val
-		lang "cs" {{{
+		lang "cs" (vv, n) {{{
 			var param = new MySql.Data.MySqlClient.MySqlParameter(n, MySql.Data.MySqlClient.MySqlDbType.String);
 			param.Value = vv;
 			addToParams(param);
@@ -144,7 +144,7 @@ class Statement is SQLStatement
 		}}}
 	}
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		params = null
 		pcounter = 0
@@ -160,7 +160,7 @@ class ResultSet is SQLResultSetIterator
 	dtor:
 		close()
 
-	func close override
+	func close override throws Exception
 	{
 		if reader {
 			reader.Close!()
@@ -168,32 +168,30 @@ class ResultSet is SQLResultSetIterator
 		}
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		step()
 		Vector.clear(values)
 		var cols = getColumnCount()
 		var n as int
-		for(n = 0 ; n < cols ; n++) {
-			var o = getColumnObject(n)
-			values += o
-		}
+		for(n = 0 ; n < cols ; n++):
+			values += getColumnValue(n)
 	}
 
-	func step override
+	func step override throws Exception
 	{
 		if not reader:
-			ERROR "noReader"
+			Error.throw("noReader")
 		if hasNextRecord {
 			hasNextRecord = false
 			return
 		}
 		var v = lang "cs" as bool {{{ reader.Read() }}}
 		if not v:
-			ERROR "failedToReadNextRecord"
+			Error.throw("failedToReadNextRecord")
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		var v = 0
 		lang "cs" {{{
@@ -204,7 +202,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		var v = new vector<string>
 		var n as int
@@ -216,7 +214,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
 		var v as string? = null
 		lang "cs" {{{
@@ -229,10 +227,10 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
 		if not reader:
-			ERROR "noReader"
+			Error.throw("noReader")
 		var v as string? = null
 		lang "cs" {{{
 			if(reader.IsDBNull(n)) {
@@ -248,12 +246,10 @@ class ResultSet is SQLResultSetIterator
 			}
 			v = o.ToString();
 		}}}
-		if not v:
-			v = ""
 		return v
 	}
 
-	func getColumnInt(n as int) override as int
+	func getColumnInt(n as int) override throws Exception as int
 	{
 		var v = 0
 		lang "cs" {{{
@@ -264,7 +260,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnLong(n as int) override as long
+	func getColumnLong(n as int) override throws Exception as long
 	{
 		var v as long = 0
 		lang "cs" {{{
@@ -275,7 +271,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnDouble(n as int) override as double
+	func getColumnDouble(n as int) override throws Exception as double
 	{
 		var v as double = 0
 		lang "cs" {{{
@@ -286,7 +282,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnBuffer(n as int) override as buffer
+	func getColumnBuffer(n as int) override throws Exception as buffer
 	{
 		var v as buffer? = null
 		lang "cs" {{{
@@ -299,16 +295,16 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		step()
 		var names = getColumnNames()
 		if Vector.getSize(names) < 1:
-			ERROR "noColumnNames"
+			Error.throw("noColumnNames")
 		var v = new DynamicMap()
 		var n as int
 		for(n = 0 ; n < Vector.getSize(names) ; n++):
-			v.setObject(names[n], getColumnObject(n))
+			v.setDynamic(names[n], getColumnValue(n))
 		return v
 	}
 
@@ -329,7 +325,7 @@ class ResultSet is SQLResultSetIterator
 
 var connectionString as string?
 
-func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string, sslMode as string, protocol as string, enableUTF8 as bool) override throws Exception
 {
 	connectionString = "Database=" .. database .. ";Data Source=" .. serverAddress .. ";User Id=" .. username .. ";Allow User Variables=True;Protocol=" .. protocol .. ";Password=" .. password .. ";SslMode=" .. sslMode .. ";"
 	if enableUTF8:
@@ -337,13 +333,13 @@ func setConnectionDetails(serverAddress as string, username as string, password 
 	Log.debug(ctx, "MySQL connection string: `" .. connectionString .. "'")
 }
 
-func closeConnection async override:
+func closeConnection async override throws Exception:
 	connectionString = null
 
-func prepareStatement(sql as string) async override as SQLStatement:
+func prepareStatement(sql as string) async override throws Exception as SQLStatement:
 	return Statement.forSql(sql)
 
-func executeStatement(stmt as SQLStatement) override async
+func executeStatement(stmt as SQLStatement) override async throws Exception
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -353,7 +349,7 @@ func executeStatement(stmt as SQLStatement) override async
 	}}}
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -361,7 +357,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	return lang "cs" as int {{{ MySql.Data.MySqlClient.MySqlHelper.ExecuteNonQuery(connectionString, ss.sql, ss.getParamArray()) }}}
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss:

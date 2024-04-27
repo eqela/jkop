@@ -57,7 +57,7 @@ class Statement is SQLStatement
 	func addParamString(val as string) override
 	{
 		var vv = val
-		lang "cs" {{{
+		lang "cs" (vv) {{{
 			if(vv == null) {
 				vv = "";
 			}
@@ -139,7 +139,7 @@ class Statement is SQLStatement
 	func setParamBlob(name as string, val as buffer) override:
 		addParamBlob(val)
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		lang "cs" {{{
 			if(command != null) {
@@ -154,19 +154,19 @@ lang "cs" {{{
 	Microsoft.Data.Sqlite.SqliteConnection db;
 }}}
 
-func initialize(file as File, openCreate as bool) override
+func initialize(file as File, openCreate as bool) override throws Exception
 {
 	if openCreate == false && file.isFile() == false:
 		Error.throw("databaseDoesNotExist", file)
 	var nativepath = file.getPath()
-	lang "cs" {{{
+	lang "cs" (nativepath) {{{
 		var db = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + nativepath);
 		db.Open();
 		this.db = db;
 	}}}
 }
 
-func closeConnection async override
+func closeConnection async override throws Exception
 {
 	lang "cs" {{{
 		if(db != null) {
@@ -176,11 +176,11 @@ func closeConnection async override
 	}}}
 }
 
-func prepareStatement(sql as string) async override as SQLStatement
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
 {
 	var v = new Statement()
 	var ss = sql
-	lang "cs" {{{
+	lang "cs" (ss) {{{
 		if(v.create(db, ss) == false) {
 			return(null);
 		}
@@ -188,7 +188,7 @@ func prepareStatement(sql as string) async override as SQLStatement
 	return v
 }
 
-func executeStatement(stmt as SQLStatement) override async
+func executeStatement(stmt as SQLStatement) override async throws Exception
 {
 	lang "cs" {{{
 		var cmd = ((Statement)stmt).command;
@@ -198,7 +198,7 @@ func executeStatement(stmt as SQLStatement) override async
 	}}}
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var v = 0
 	lang "cs" {{{
@@ -219,7 +219,7 @@ class ResultSet is SQLResultSetIterator
 	dtor:
 		close()
 
-	func close override
+	func close override throws Exception
 	{
 		if reader {
 			reader.Close!()
@@ -227,19 +227,17 @@ class ResultSet is SQLResultSetIterator
 		}
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		step()
 		Vector.clear(values)
 		var cols = getColumnCount()
 		var n as int
-		for(n = 0 ; n < cols ; n++) {
-			var o = getColumnObject(n)
-			values += o
-		}
+		for(n = 0 ; n < cols ; n++):
+			values += getColumnValue(n)
 	}
 
-	func step override
+	func step override throws Exception
 	{
 		assert reader
 		if hasNextRecord:
@@ -252,7 +250,7 @@ class ResultSet is SQLResultSetIterator
 		}}}
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		var v = 0
 		lang "cs" {{{
@@ -263,7 +261,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		var v = new vector<string>
 		var n as int
@@ -275,7 +273,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
 		var v as string? = null
 		lang "cs" {{{
@@ -288,7 +286,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
 		var v as string? = null
 		lang "cs" {{{
@@ -308,12 +306,10 @@ class ResultSet is SQLResultSetIterator
 				return(null);
 			}
 		}}}
-		if not v:
-			v = ""
 		return v
 	}
 
-	func getColumnInt(n as int) override as int
+	func getColumnInt(n as int) override throws Exception as int
 	{
 		var v = 0
 		lang "cs" {{{
@@ -324,7 +320,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnLong(n as int) override as long
+	func getColumnLong(n as int) override throws Exception as long
 	{
 		var v as long = 0
 		lang "cs" {{{
@@ -335,7 +331,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnDouble(n as int) override as double
+	func getColumnDouble(n as int) override throws Exception as double
 	{
 		var v as double = 0
 		lang "cs" {{{
@@ -346,7 +342,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnBuffer(n as int) override as buffer
+	func getColumnBuffer(n as int) override throws Exception as buffer
 	{
 		var v as buffer?
 		lang "cs" {{{
@@ -359,7 +355,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		step()
 		var names = getColumnNames()
@@ -368,7 +364,7 @@ class ResultSet is SQLResultSetIterator
 		var v = new DynamicMap()
 		var n as int
 		for(n = 0 ; n < Vector.getSize(names) ; n++):
-			v.setObject(names[n], getColumnObject(n))
+			v.setDynamic(names[n], getColumnValue(n))
 		return v
 	}
 
@@ -376,13 +372,13 @@ class ResultSet is SQLResultSetIterator
 	{
 		if hasNextRecord:
 			return true
-		var v = step()
+		step()
 		hasNextRecord = true
 		return true
 	}
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var v as ResultSet? = null
 	lang "cs" {{{
@@ -405,7 +401,7 @@ func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetI
 	return v
 }
 
-func getPrimaryKeyColumnName(table as string) override async as string?
+func getPrimaryKeyColumnName(table as string) override async throws Exception as string?
 {
 	var itr = await executeQueryStatement(await prepareStatement("PRAGMA TABLE_INFO(" .. table .. ");"))
 	foreach v in itr {

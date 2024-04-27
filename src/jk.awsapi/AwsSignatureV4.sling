@@ -30,16 +30,16 @@ import jk.json
 
 class:
 
-func sha256(data as buffer) static private as buffer:
+func sha256(data as buffer) static private throws Exception as buffer:
 	return SHAEncoder.forSha256().encodeBuffer(data)
 
-func hashBuffer(body as buffer) static private as string:
+func hashBuffer(body as buffer) static private throws Exception as string:
 	return String.toLowerCase(String.forBufferHex(sha256(body)))
 
-func hashString(data as string) static private as string:
+func hashString(data as string) static private throws Exception as string:
 	return hashBuffer(String.toUTF8Buffer(data))
 
-func hmacSha256(key as buffer, data as string) private static as buffer
+func hmacSha256(key as buffer, data as string) private static throws Exception as buffer
 {
 	var blockSize = 64
 	var okey = Buffer.allocate(blockSize)
@@ -159,7 +159,7 @@ func createSignedHeaders(headers as KeyValueList<string,string>) static private 
 	return sb.toString()
 }
 
-func createCanonicalRequest(method as string, url as URL, headers as KeyValueList<string,string>, signedHeaders as string, body as buffer?) static private as string
+func createCanonicalRequest(method as string, url as URL, headers as KeyValueList<string,string>, signedHeaders as string, body as buffer?) static private throws Exception as string
 {
 	var sb = new StringBuilder()
 	sb.appendString(method)
@@ -208,7 +208,7 @@ func createCredentialString(timestamp as string, region as string, service as st
 	return sb.toString()
 }
 
-func createStringToSign(algorithm as string, timestamp as string, credential as string, canonicalRequest as string) private static as string
+func createStringToSign(algorithm as string, timestamp as string, credential as string, canonicalRequest as string) private static throws Exception as string
 {
 	var sb = new StringBuilder()
 	sb.appendString(algorithm)
@@ -221,7 +221,7 @@ func createStringToSign(algorithm as string, timestamp as string, credential as 
 	return sb.toString()
 }
 
-func getSigningKey(context as AwsApiContext, secret as string, timestamp as string, region as string, service as string) static private as buffer
+func getSigningKey(context as AwsApiContext, secret as string, timestamp as string, region as string, service as string) static private throws Exception as buffer
 {
 	var kSecret = String.toUTF8Buffer("AWS4" .. secret)
 	Log.debug(context.ctx, "kSecret: " .. String.toLowerCase(String.forBufferHex(kSecret)))
@@ -263,7 +263,7 @@ class HttpRequestInfo public
 	pvar preAuthUrl as string?
 }
 
-func signRequest(context as AwsApiContext, request as HttpRequestInfo, service as string, region as string) static
+func signRequest(context as AwsApiContext, request as HttpRequestInfo, service as string, region as string) static throws Exception
 {
 	var url = URL.forString(request.url, true)
 	var host = url.getHost() ?? ""
@@ -272,29 +272,22 @@ func signRequest(context as AwsApiContext, request as HttpRequestInfo, service a
 	request.headers.add("Host", host)
 	var algorithm = "AWS4-HMAC-SHA256"
 	var signedHeaders = createSignedHeaders(request.headers)
-	Log.debug(context.ctx, "Signed headers: `" .. signedHeaders .. "'")
 	var canonicalRequest = createCanonicalRequest(request.method, url, request.headers, signedHeaders, request.body)
-	Log.debug(context.ctx, "CANONICAL REQUEST:\n---\n" .. canonicalRequest .. "\n---\n")
 	var credential = createCredentialString(timestamp, region, service)
-	Log.debug(context.ctx, "Credential: `" .. credential .. "'")
 	var stringToSign = createStringToSign(algorithm, timestamp, credential, canonicalRequest)
-	Log.debug(context.ctx, "STRING TO SIGN:\n---\n" .. stringToSign .. "\n---\n")
 	var signingKey = getSigningKey(context, context.accessKeySecret, String.getSubString(timestamp, 0, 8), region, service)
-	Log.debug(context.ctx, "SIGNING KEY: " .. String.toLowerCase(String.forBufferHex(signingKey)))
 	var signature = hmacSha256(signingKey, stringToSign)
 	var signatureHex = String.toLowerCase(String.forBufferHex(signature))
-	Log.debug(context.ctx, "SIGNATURE: " .. signatureHex)
 	generatePreAuthenticatedUrl(context, request, headers, signingKey, algorithm, credential)
 	request.headers.add("X-Amz-Date", timestamp)
 	var authorization = createAuthorizationString(algorithm, context.accessKeyId, credential, signedHeaders, signatureHex)
-	Log.debug(context.ctx, "Authorization: `" .. authorization .. "'")
 	request.headers.add("Authorization", authorization)
 	if var sectok = context.securityToken:
 		request.headers.add("X-Amz-Security-Token", sectok)
 	request.url = url.toString()
 }
 
-func generatePreAuthenticatedUrl(context as AwsApiContext, request as HttpRequestInfo, hdrs as KeyValueList<string,string>, signingKey as buffer, algorithm as string, credential as string) static
+func generatePreAuthenticatedUrl(context as AwsApiContext, request as HttpRequestInfo, hdrs as KeyValueList<string,string>, signingKey as buffer, algorithm as string, credential as string) static throws Exception
 {
 	var timestamp = createIsoTimestamp()
 	var signedHeaders = createSignedHeaders(hdrs)

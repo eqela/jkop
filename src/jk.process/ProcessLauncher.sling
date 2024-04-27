@@ -38,12 +38,13 @@ class MyStringPipeHandler is BufferDataReceiver
 	prop builder as StringBuilder
 	prop encoding = "UTF-8"
 
-	func onBufferData(data as buffer, size as int) as bool
+	func onBufferData(data as buffer, size as int) implement as bool
 	{
 		if size < 1:
 			return false
-		var str = String.forBuffer(Buffer.getSubBuffer(data, 0, size), encoding)
-		builder.appendString(str)
+		var str = try? String.forBuffer(Buffer.getSubBuffer(data, 0, size), encoding)
+		if str:
+			builder.appendString(str)
 		return true
 	}
 }
@@ -52,7 +53,7 @@ class MyBufferPipeHandler is BufferDataReceiver
 {
 	prop data as buffer?
 
-	func onBufferData(newData as buffer, size as int) as bool
+	func onBufferData(newData as buffer, size as int) implement as bool
 	{
 		if size > 0:
 			data = Buffer.append(data, newData, size)
@@ -62,19 +63,19 @@ class MyBufferPipeHandler is BufferDataReceiver
 
 class QuietPipeHandler is BufferDataReceiver
 {
-	func onBufferData(data as buffer, size as int) as bool:
+	func onBufferData(data as buffer, size as int) implement as bool:
 		return true
 }
 
-func forSelf static as this
+func forSelf static throws Exception as this
 {
-	var exe = CurrentProcess.requireExecutableFile()
+	var exe = CurrentProcess.getExecutableFileOrThrowError()
 	return new this() {
 		file exe
 	}
 }
 
-func forFile(file as File, parameters as vector<string>? = null) static as this
+func forFile(file as File, parameters as vector<string>? = null) static throws Exception as this
 {
 	description [[
 		Creates a launcher for the given executable file. If the file does not exist,
@@ -90,7 +91,7 @@ func forFile(file as File, parameters as vector<string>? = null) static as this
 	return v
 }
 
-func forCommand(command as string, parameters as vector<string>? = null) static as this
+func forCommand(command as string, parameters as vector<string>? = null) static throws Exception as this
 {
 	description [[
 		Creates a process launcher for the given command. The command can either be a
@@ -116,7 +117,7 @@ func forCommand(command as string, parameters as vector<string>? = null) static 
 	return forFile(file, parameters)
 }
 
-func forString(str as string) static as this
+func forString(str as string) static throws Exception as this
 {
 	description [[
 		Creates a new process launcher object for the given string, which includes a
@@ -199,7 +200,7 @@ func getFullCommandString(includeEnv as bool) as string
 	return sb.toString()
 }
 
-func toString as string:
+func toString implement as string:
 	return getFullCommandString(true)
 
 func addToParams(arg as string) as this
@@ -224,53 +225,54 @@ func addStringsToParams(parameters as vector<string>) as this
 func setEnvVariable(key as string, val as string):
 	env[key] = val
 
-func startProcess(wait as bool, pipeHandler as BufferDataReceiver?, withIO as bool = false) private as Process
+func startProcess(wait as bool, pipeHandler as BufferDataReceiver?) private throws Exception as Process
 {
 	IFDEF "target_uwp" {
 		return null
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		return ProcessLauncherForDotnetCS.startProcess(this, wait, pipeHandler, withIO)
+		return ProcessLauncherForDotnetCS.startProcess(this, wait, pipeHandler)
 	}
 	ELSE IFDEF "target_java" {
 		return ProcessLauncherForJava.startProcess(this, wait, pipeHandler)
 	}
 	ELSE IFDEF "target_sushi" {
-		return ProcessLauncherForSushi.startProcess(this, wait, pipeHandler, withIO)
+		return ProcessLauncherForSushi.startProcess(this, wait, pipeHandler)
 	}
 	ELSE IFDEF "target_node_js" {
 		return ProcessLauncherForNodeJS.startProcess(this, wait, pipeHandler)
 	}
+	ELSE IFDEF "target_swift" {
+		return ProcessLauncherForSwift.startProcess(this, wait, pipeHandler)
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop wait
+		nop pipeHandler
+		IFDEF "target_browser" {
+			ERROR NOT_SUPPORTED
+		}
+		ELSE {
+			ERROR NOT_IMPLEMENTED
+		}
 	}
 }
 
-func start as Process:
+func start throws Exception as Process:
 	return startProcess(false, null)
 
-func startWithIO as ProcessWithIO
-{
-	var process = startProcess(false, null, true)
-	var v = process as ProcessWithIO
-	if not v:
-		Error.throw("processIsNotProcessWithIo", process)
-	return v
-}
-
-func execute as int
+func execute throws Exception as int
 {
 	var cp = startProcess(true, null)
 	return cp.getExitStatus()
 }
 
-func executeSilent as int
+func executeSilent throws Exception as int
 {
 	var cp = startProcess(true, new QuietPipeHandler())
 	return cp.getExitStatus()
 }
 
-func executeToStringBuilder(output as StringBuilder) as int
+func executeToStringBuilder(output as StringBuilder) throws Exception as int
 {
 	var msp = new MyStringPipeHandler() {
 		builder output
@@ -279,24 +281,24 @@ func executeToStringBuilder(output as StringBuilder) as int
 	return cp.getExitStatus()
 }
 
-func executeToString as string
+func executeToString throws Exception as string
 {
 	var sb = new StringBuilder()
 	executeToStringBuilder(sb)
 	return sb.toString()
 }
 
-func executeToBuffer as buffer
+func executeToBuffer throws Exception as buffer
 {
 	var ph = new MyBufferPipeHandler()
-	var cp = startProcess(true, ph)
+	startProcess(true, ph)
 	var v = ph.data
 	if not v:
 		v = Buffer.allocate(0)
 	return v
 }
 
-func executeToPipe(pipeHandler as BufferDataReceiver) as int
+func executeToPipe(pipeHandler as BufferDataReceiver) throws Exception as int
 {
 	var cp = startProcess(true, pipeHandler)
 	return cp.getExitStatus()

@@ -49,7 +49,7 @@ class MyPdfMakerPage is PdfMakerPage private
 	func setPage(page as [magical:PdfSharp.Pdf.PdfPage])
 	{
 		this.page = page
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			gfx = PdfSharp.Drawing.XGraphics.FromPdfPage(page);
 		}}}
 	}
@@ -59,7 +59,7 @@ class MyPdfMakerPage is PdfMakerPage private
 
 	func toXFont(font as FontDescription) as [magical:PdfSharp.Drawing.XFont]
 	{
-		lang "cs" {{{
+		lang "cs" (font) {{{
 			PdfSharp.Drawing.XFontStyle style;
 			if(font.getBold()) {
 				if(font.getItalic()) {
@@ -100,13 +100,13 @@ class MyPdfMakerPage is PdfMakerPage private
 		return lang "cs" as double {{{ page.Height }}}
 	}
 
-	func setFillStyle(style as object?) override
+	func setFillStyle(style as dynamic?) override
 	{
 		DEBUG("Set fill style to `" .. String.asValueOrEmptyString(style) .. "'")
 		fillColor = Color.asColor(style)
 	}
 
-	func setStrokeStyle(style as object?) override
+	func setStrokeStyle(style as dynamic?) override
 	{
 		DEBUG("Set stroke style to `" .. String.asValueOrEmptyString(style) .. "'")
 		strokeColor = Color.asColor(style)
@@ -161,19 +161,19 @@ class MyPdfMakerPage is PdfMakerPage private
 	}
 
 	func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object:
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 
 	func createPattern(image as Image, repeat as int) override as object:
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 
 	func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object:
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 
 	func addColorStop(gradient as object, index as double, color as Color?) override:
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 
 	func rect(x as double, y as double, width as double, height as double) override:
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 
 	func toXColor(color as Color?) as [magical:PdfSharp.Drawing.XColor]
 	{
@@ -187,7 +187,7 @@ class MyPdfMakerPage is PdfMakerPage private
 	{
 		assert fillColor
 		DEBUG("Fill rectangle " .. String.forDouble(x) .. "," .. String.forDouble(y) .. "," .. String.forDouble(width) .. "," .. String.forDouble(height))
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			var brush = new PdfSharp.Drawing.XSolidBrush(toXColor(fillColor));
 			gfx.DrawRectangle(brush, x, y, width, height);
 		}}}
@@ -197,7 +197,7 @@ class MyPdfMakerPage is PdfMakerPage private
 	{
 		assert strokeColor
 		DEBUG("Stroke rectangle " .. String.forDouble(x) .. "," .. String.forDouble(y) .. "," .. String.forDouble(width) .. "," .. String.forDouble(height))
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			var pen = new PdfSharp.Drawing.XPen(toXColor(strokeColor));
 			pen.Width = lineWidth;
 			gfx.DrawRectangle(pen, x, y, width, height);
@@ -313,7 +313,7 @@ class MyPdfMakerPage is PdfMakerPage private
 	func strokeText(text as string, x as double, y as double, maxWidth as double) override
 	{
 		DEBUG("Stroke text `" .. text .. "' at " .. String.forDouble(x) .. "," .. String.forDouble(y))
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			var myfont = toXFont(getFont());
 			var point = new PdfSharp.Drawing.XPoint(x, y);
 			var brush = new PdfSharp.Drawing.XSolidBrush(toXColor(strokeColor));
@@ -321,32 +321,41 @@ class MyPdfMakerPage is PdfMakerPage private
 		}}}
 	}
 
+	func measureText(text as string) override as Size
+	{
+		var v = new Size()
+		lang "cs" (gfx) {{{
+			var xsize = gfx.MeasureString(text, toXFont(getFont()));
+			v.width = xsize.Width;
+			v.height = xsize.Height;
+		}}}
+		return v
+	}
+
 	func measureTextWidth(text as string) override as double
 	{
 		var v = 0.0
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			var xsize = gfx.MeasureString(text, toXFont(getFont()));
 			v = xsize.Width;
 		}}}
-		DEBUG("Measure text width `" .. text .. "': " .. String.forDouble(v))
 		return v
 	}
 
 	func measureTextHeight(text as string) override as double
 	{
 		var v = 0.0
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			var xsize = gfx.MeasureString(text, toXFont(getFont()));
 			v = xsize.Height;
 		}}}
-		DEBUG("Measure text height `" .. text .. "': " .. String.forDouble(v))
 		return v
 	}
 
 	func drawImage(img as Image, x as double, y as double) override
 	{
 		var ii = assert img as MyImage
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			gfx.DrawImage(ii.getImage(), x, y);
 		}}}
 	}
@@ -354,7 +363,7 @@ class MyPdfMakerPage is PdfMakerPage private
 	func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
 	{
 		var ii = assert img as MyImage
-		lang "cs" {{{
+		lang "cs" (gfx) {{{
 			gfx.DrawImage(ii.getImage(), x, y, width, height);
 		}}}
 	}
@@ -472,72 +481,20 @@ class MyImage is Image
 	func getPixelHeight override as int:
 		return lang "cs" as int {{{ (int)image.PixelHeight }}}
 
-	func scaleToSizeSync(w as int, h as int) override as Image
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func scaleToSize(w as int, h as int) override throws Exception as Image:
+		ERROR NOT_IMPLEMENTED
 
-	func scaleToSize(w as int, h as int, callback as function<void,Image?>) override
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func crop(x as int, y as int, w as int, h as int) override throws Exception as Image:
+		ERROR NOT_IMPLEMENTED
 
-	func scaleToWidthSync(w as int) override as Image
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func toJPGData override throws Exception as buffer:
+		ERROR NOT_IMPLEMENTED
 
-	func scaleToWidth(w as int, callback as function<void,Image?>) override
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func toPNGData override throws Exception as buffer:
+		ERROR NOT_IMPLEMENTED
 
-	func scaleToHeightSync(h as int) override as Image
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
-
-	func scaleToHeight(h as int, callback as function<void,Image?>) override
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
-
-	func cropSync(x as int, y as int, w as int, h as int) override as Image
-	{
-		// FIXME
-		return this
-		ERROR "notImplemented"
-	}
-
-	func crop(x as int, y as int, w as int, h as int, callback as function<void,Image?>) override
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
-
-	func toJPGData override as buffer
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
-
-	func toPNGData override as buffer
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
-
-	func toRGBAData override as buffer
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func toRGBAData override throws Exception as buffer:
+		ERROR NOT_IMPLEMENTED
 
 	func releaseImage override:
 		image = null
@@ -546,7 +503,7 @@ class MyImage is Image
 func prepareImageForFile(file as File) override as Image
 {
 	var path = file.getPath()
-	var img = lang "cs" as [magical:PdfSharp.Drawing.XImage]? {{{ PdfSharp.Drawing.XImage.FromFile(path) }}}
+	var img = lang "cs" (path) as [magical:PdfSharp.Drawing.XImage]? {{{ PdfSharp.Drawing.XImage.FromFile(path) }}}
 	if not img:
 		Error.throw("failedToCreatePdfSharpImage", null)
 	var v = new MyImage()

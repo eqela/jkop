@@ -35,7 +35,7 @@ class:
 
 prop ctx as LoggingContext
 
-func connect(server as string, port as int) private as TCPSocket?
+func connect(server as string, port as int) private throws Exception as TCPSocket?
 {
 	if String.isEmpty(server) || port < 1:
 		return null
@@ -55,10 +55,13 @@ func connect(server as string, port as int) private as TCPSocket?
 
 func writeLine(ops as PrintWriter, str as string?) private as bool
 {
-	var v = ops.print(String.asValueOrEmptyString(str) .. "\r\n")
-	if v == false:
-		Log.error(ctx, "SMTPClient: Failed to write to server: `" .. str .. "'")
-	return v
+	try {
+		ops.print(String.asValueOrEmptyString(str) .. "\r\n")
+	}
+	catch {
+		return false
+	}
+	return true
 }
 
 func communicate(ins as PrintReader, expectCode as string) private as string?
@@ -126,7 +129,7 @@ func resolveMXServerForDomain(domain as string) private as string?
 	return v
 }
 
-func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVector?, senderDomain as string, acceptInvalidCertificate as bool) private as SMTPClientTransactionResult
+func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVector?, senderDomain as string, acceptInvalidCertificate as bool) private throws Exception as SMTPClientTransactionResult
 {
 	var url = server
 	var socket as ConnectedSocket? = null
@@ -160,7 +163,6 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 		return SMTPClientTransactionResult.forError("Unable to connect to SMTP server `" .. host .. ":" .. String.forInteger(port) .. "'")
 	var ops = PrintWriterWrapper.forWriter(socket)
 	var ins = PrintReader.forReader(socket)
-	var err as string?
 	if var err = communicate(ins, "220"):
 		return SMTPClientTransactionResult.forError(err)
 	var sd = senderDomain
@@ -217,10 +219,18 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 		msg.generateMessageID(sd)
 	var bod = msg.getMessageBody()
 	Log.debug(ctx, "Sending message body: `" .. bod .. "'")
-	if ops.print(bod) == false:
+	try {
+		ops.print(bod)
+	}
+	catch {
 		return SMTPClientTransactionResult.forNetworkError()
-	if ops.print("\r\n.\r\n") == false:
+	}
+	try {
+		ops.print("\r\n.\r\n")
+	}
+	catch {
 		return SMTPClientTransactionResult.forNetworkError()
+	}
 	if var err = communicate(ins, "250"):
 		return SMTPClientTransactionResult.forError(err)
 	if writeLine(ops, "QUIT") == false:
@@ -228,7 +238,7 @@ func executeTransaction(msg as SMTPMessage, server as URL, rcpts as DynamicVecto
 	return SMTPClientTransactionResult.forSuccess()
 }
 
-func sendMessage(msg as SMTPMessage, senderDomain as string, server as URL?, acceptInvalidCertificate as bool = false) as SMTPClientResult
+func sendMessage(msg as SMTPMessage, senderDomain as string, server as URL?, acceptInvalidCertificate as bool = false) throws Exception as SMTPClientResult
 {
 	var rcpts = msg.getAllRcpts()
 	if server {
@@ -261,7 +271,7 @@ func sendMessage(msg as SMTPMessage, senderDomain as string, server as URL?, acc
 			ss = new DynamicVector()
 			servers.setObject(sa, ss)
 		}
-		ss.appendObject(rcpt)
+		ss.appendString(rcpt)
 	}
 	foreach domain in servers.iterateKeys() {
 		var ds = resolveMXServerForDomain(domain)

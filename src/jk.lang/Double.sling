@@ -24,11 +24,16 @@
 
 class:
 
+IFDEF "target_swift"
+{
+	import [magical:CoreFoundation]
+}
+
 class MyDoubleObject is DoubleObject private
 {
 	prop value as double
 
-	func toDouble as double:
+	func toDouble implement as double:
 		return value
 }
 
@@ -45,11 +50,19 @@ func asValueOrDefaultValue(obj as dynamic?, defaultValue as double = 0.0) static
 	return v.toDouble()
 }
 
-func asValueOrThrowError(obj as dynamic?) static as double
+func asValueOrThrowError(obj as dynamic?) static throws Exception as double
 {
 	var v = asObject(obj)
 	if not v:
 		Error.throw("valueCannotBeConvertedToDouble", obj)
+	return v.toDouble()
+}
+
+func asValueOrNull(obj as dynamic?) static as double?
+{
+	var v = asObject(obj)
+	if not v:
+		return null
 	return v.toDouble()
 }
 
@@ -106,43 +119,59 @@ func asObject(obj as dynamic?) static as DoubleObject?
 
 func longBitsToDouble(vv as long) static as double
 {
+	description [[
+		Incoming vv contains 8 bytes of little endian double data. This function returns
+		the double representation of those bits and bytes.
+	]]
 	IFDEF "target_java" {
-		return lang "java" as double {{{ Double.longBitsToDouble(vv) }}}
+		return lang "java" (vv) as double {{{ Double.longBitsToDouble(vv) }}}
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		return lang "cs" as double {{{ System.BitConverter.Int64BitsToDouble(vv) }}}
+		return lang "cs" (vv) as double {{{ System.BitConverter.Int64BitsToDouble(vv) }}}
 	}
 	ELSE IFDEF "target_js" {
-		lang "js" {{{
+		lang "js" (vv) {{{
 			const buffer = new ArrayBuffer(16);
 			const view = new DataView(buffer);
 			view.setBigInt64(0, BigInt(vv));
 		}}}
 		return lang "js" as double {{{ view.getFloat64(0) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" (vv) as double {{{ CFConvertDoubleSwappedToHost(CFSwappedFloat64(v: CFSwapInt64(UInt64(vv)))) }}}
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func doubleToLongBits(vv as double) static as long
 {
+	description [[
+		Converts the double-precision floating point value to 8 bytes of little endian
+		-format bits.
+	]]
 	IFDEF "target_java" {
-		return lang "java" as long {{{ Double.doubleToLongBits(vv) }}}
+		return lang "java" (vv) as long {{{ Double.doubleToLongBits(vv) }}}
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		return lang "cs" as long {{{ System.BitConverter.ToInt64(System.BitConverter.GetBytes(vv), 0) }}}
+		return lang "cs" (vv) as long {{{ System.BitConverter.ToInt64(System.BitConverter.GetBytes(vv), 0) }}}
 	}
 	ELSE IFDEF "target_js" {
-		lang "js" {{{
+		lang "js" (vv) {{{
 			const buffer = new ArrayBuffer(16);
 			const view = new DataView(buffer);
 			view.setFloat64(0, vv);
 		}}}
 		return lang "js" as long {{{ view.getBigInt64(0) }}}
 	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" (vv) as long {{{ Int64(CFSwapInt64(CFConvertDoubleHostToSwapped(vv).v)) }}}
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -154,11 +183,11 @@ func forString(str as string) static as double
 		value "0.0" is returned.
 	]]
 	IFDEF "target_objc" {
-		return lang "objc" as double {{{ [str doubleValue] }}}
+		return lang "objc" (str) as double {{{ [str doubleValue] }}}
 	}
 	ELSE IFDEF "target_dotnet_cs" {
 		var v = 0.0
-		lang "cs" {{{
+		lang "cs" (str) {{{
 			try {
 				v = System.Double.Parse(str);
 			}
@@ -170,7 +199,7 @@ func forString(str as string) static as double
 	}
 	ELSE IFDEF "target_java" {
 		var v = 0.0
-		lang "java" {{{
+		lang "java" (str) {{{
 			try {
 				if(str != null) {
 					v = java.lang.Double.parseDouble(str);
@@ -184,7 +213,7 @@ func forString(str as string) static as double
 	}
 	ELSE IFDEF "target_js" {
 		var v as double
-		lang "js" {{{
+		lang "js" (str) {{{
 			v = parseFloat(str);
 			if (isNaN(v)) {
 				v =  0.0;
@@ -194,7 +223,7 @@ func forString(str as string) static as double
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v = 0.0
-		lang "kotlin" {{{
+		lang "kotlin" (str) {{{
 			try {
 				v = str.toDouble()
 			}
@@ -205,9 +234,9 @@ func forString(str as string) static as double
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as double
-		lang "swift" {{{
-			var d = Swift.Double(str)
+		var v as double #mutated
+		lang "swift" (str) {{{
+			let d = Swift.Double(str)
 			v = d != nil ? d! : 0.0
 		}}}
 		return v
@@ -216,6 +245,7 @@ func forString(str as string) static as double
 		return lang "lua" as double {{{ _util:to_number(str) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		ERROR NOT_IMPLEMENTED
 	}
 }

@@ -180,7 +180,7 @@ func rawEntry(name as string) override as File
 	return forRawPath(pp)
 }
 
-func move(dest as File, replace as bool) override as bool
+func move(dest as File, replace as bool) override throws Exception
 {
 	var dthis = assert dest as this
 	var opath = path
@@ -191,24 +191,22 @@ func move(dest as File, replace as bool) override as bool
 		dthis.removeRecursive()
 	}
 	else if dthis.exists() {
-		return false
+		Error.throw("targetFileExists", dest)
 	}
 	var r = lang "lua" as int {{{ _io:rename_path(opath, npath) }}}
 	if r != 1:
-		return false
-	return true
+		Error.throw("failedToRenameFile", opath)
 }
 
-func touch override as bool
+func touch override throws Exception
 {
 	var path = this.path
 	var r = lang "lua" as int {{{ _io:touch_file(path) }}}
-	if r == 1:
-		return true
-	return false
+	if r != 1:
+		Error.throw("failedToTouchFile", path)
 }
 
-func read override as FileReader
+func read override throws Exception as FileReader
 {
 	var handle as int
 	var path = this.path
@@ -223,7 +221,7 @@ func read override as FileReader
 	return v
 }
 
-func write override as FileWriter
+func write override throws Exception as FileWriter
 {
 	var handle as int
 	var path = this.path
@@ -238,7 +236,7 @@ func write override as FileWriter
 	return v
 }
 
-func append override as FileWriter
+func append override throws Exception as FileWriter
 {
 	var handle as int
 	var path = this.path
@@ -274,57 +272,58 @@ func stat override as FileInfo
 	}
 	if not valid {
 		v.type = FileInfo.FILE_TYPE_UNKNOWN
-		return v
-	}
-	v.size = size
-	v.createTime = ctim
-	v.accessTime = ctim
-	v.modifyTime = mtim
-	v.ownerUser = uid
-	v.ownerGroup = gid
-	v.mode = mode & 0x1FF
-	if mode & 0x8000 {
-		v.type = FileInfo.FILE_TYPE_FILE
-	}
-	else if mode & 0x4000 {
-		v.type = FileInfo.FILE_TYPE_DIR
+		v.exists = false
 	}
 	else {
-		v.type = FileInfo.FILE_TYPE_UNKNOWN
+		v.exists = true
+		v.size = size
+		v.createTime = ctim
+		v.accessTime = ctim
+		v.modifyTime = mtim
+		v.ownerUser = uid
+		v.ownerGroup = gid
+		v.mode = mode & 0x1FF
+		if mode & 0x8000 {
+			v.type = FileInfo.FILE_TYPE_FILE
+		}
+		else if mode & 0x4000 {
+			v.type = FileInfo.FILE_TYPE_DIR
+		}
+		else {
+			v.type = FileInfo.FILE_TYPE_UNKNOWN
+		}
+		if mode & 0xA000:
+			v.link = true
+		if mode & 0x40 || mode & 0x8 || mode & 0x1:
+			v.executable = true
 	}
-	if mode & 0xA000:
-		v.link = true
-	if mode & 0x40 || mode & 0x8 || mode & 0x1:
-		v.executable = true
 	return v
 }
 
-func createDirectory override as bool
+func createDirectory override throws Exception
 {
 	var path = this.path
 	var r = lang "lua" as int {{{ _io:create_directory(path) }}}
-	if r == 1:
-		return true
-	return false
+	if r != 1:
+		Error.throw("failedToCreateDirectory", path)
 }
 
-func createDirectoryRecursive override as bool
+func createDirectoryRecursive override throws Exception
 {
 	if isDirectory():
-		return true
+		Error.throw("directoryAlreadyExists", getPath())
 	var parent = getParent()
 	if parent:
 		assert parent.createDirectoryRecursive()
 	return createDirectory()
 }
 
-func removeDirectory override as bool
+func removeDirectory override throws Exception
 {
 	var path = this.path
 	var r = lang "lua" as int {{{ _io:remove_directory(path) }}}
-	if r == 1:
-		return true
-	return false
+	if r != 1:
+		Error.throw("failedToRemoveDirectory", path)
 }
 
 func normalizePath(apath as string) private as string
@@ -407,29 +406,31 @@ func setPath(v as string, useRealPath as bool) private
 func getPath override as string
 {
 	if not path:
-		Error.throw("noPathForFile", this)
+		return ""
 	return path
 }
 
-func remove override as bool
+func remove override throws Exception
 {
 	var path = this.path
-	if lang "lua" as int {{{ _io:remove_file(path) }}} == 1:
-		return true
-	return false
+	if lang "lua" as int {{{ _io:remove_file(path) }}} != 1:
+		Error.throw("failedToRemoveFile", path)
 }
 
-func makeExecutable override as bool
+func makeExecutable override throws Exception
 {
 	var path = this.path
 	var mode = 1 | 4 | 8 | 32 | 64 | 128 | 256
-	return lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}
+	var v = lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}
+	if not v:
+		Error.throw("failedToMakeExecutable", path)
 }
 
-func setMode(mode as int) override as bool
+func setMode(mode as int) override throws Exception
 {
 	var path = this.path
-	return lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}
+	if not lang "lua" as bool {{{ _io:set_file_mode(path, mode ) }}}:
+		Error.throw("failedToSetMode", path)
 }
 
 class MyDirectoryIterator is Iterator<File> is Closable
@@ -487,7 +488,7 @@ class MyDirectoryIterator is Iterator<File> is Closable
 	}
 }
 
-func entries override as Iterator<File>
+func entries override throws Exception as Iterator<File>
 {
 	var pp = this.path
 	if not pp:

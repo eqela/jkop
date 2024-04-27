@@ -23,6 +23,7 @@
  */
 
 import jk.log
+import jk.task
 
 class:
 
@@ -62,11 +63,11 @@ class Producer is KafkaProducer public
 		var password = settings.password
 		var producer as dynamic?
 		onStartConnect(clientId)
-		lang "js" {{{
-			var kafkajs = require("kafkajs")
+		lang "js" (brokers, enableSsl, username, password, producer) {{{
+			var kafkajs = require("kafkajs");
 			const myLogCreator = logLevel => ({ namespace, level, label, log }) => {
-				this.onKafkaLogEvent(label, log.message)
-			}
+				this.onKafkaLogEvent(label, log.message);
+			};
 			var kafka = new kafkajs.Kafka({
 				clientId: clientId,
 				brokers: brokers,
@@ -77,11 +78,11 @@ class Producer is KafkaProducer public
 					password: password
 				},
 				logCreator: myLogCreator
-			})
+			});
 			producer = kafka.producer({
 				createPartitioner: kafkajs.Partitioners.DefaultPartitioner
-			})
-			await producer.connect()
+			});
+			await producer.connect();
 		}}}
 		this.kafka = producer
 		this.clientId = clientId
@@ -99,7 +100,7 @@ class Producer is KafkaProducer public
 		}
 	}
 
-	func sendMessage(topic as string, message as KafkaProducerMessage) override async
+	func sendMessage(topic as string, message as KafkaProducerMessage) override async throws Exception
 	{
 		var producer = kafka
 		if not producer:
@@ -107,7 +108,7 @@ class Producer is KafkaProducer public
 		var value = message.value
 		var jsmsg = {
 			key message.key
-			value lang "js" as dynamic {{{ Buffer.from(value.buffer) }}}
+			value lang "js" (value) as dynamic {{{ Buffer.from(value.buffer) }}}
 		}
 		if message.partition >= 0:
 			jsmsg.partition = message.partition
@@ -163,11 +164,11 @@ class Consumer is KafkaConsumer public
 		var password = settings.password
 		var consumer as dynamic?
 		onStartConnect(clientId)
-		lang "js" {{{
-			var kafkajs = require("kafkajs")
+		lang "js" (brokers, enableSsl, username, password, consumer) {{{
+			var kafkajs = require("kafkajs");
 			const myLogCreator = logLevel => ({ namespace, level, label, log }) => {
-				this.onKafkaLogEvent(label, log.message)
-			}
+				this.onKafkaLogEvent(label, log.message);
+			};
 			var kafka = new kafkajs.Kafka({
 				clientId: clientId,
 				brokers: brokers,
@@ -178,11 +179,11 @@ class Consumer is KafkaConsumer public
 					password: password
 				},
 				logCreator: myLogCreator
-			})
+			});
 			consumer = kafka.consumer({
 				groupId: consumerGroupId
-			})
-			await consumer.connect()
+			});
+			await consumer.connect();
 		}}}
 		this.kafka = consumer
 		this.clientId = clientId
@@ -253,14 +254,14 @@ class Consumer is KafkaConsumer public
 			var mm = message as MyMessage
 			if mm {
 				var event = mm.event
-				lang "js" {{{
-					console.log(event)
+				lang "js" (event) {{{
+					console.log(event);
 				}}}
 			}
 		}
 	}
 
-	func consumeTopic(topic as string, messageHandler as function<promise<void>,KafkaConsumerMessage>) override async
+	func consumeTopic(topic as string, messageHandler as function<(KafkaConsumerMessage) async>) override async throws Exception
 	{
 		var consumer = kafka
 		if not consumer:
@@ -272,7 +273,7 @@ class Consumer is KafkaConsumer public
 			topics [ topic ]
 		})
 		await consumer.run!({
-			eachMessage func(event as dynamic) as promise<void> {
+			eachMessage func(event as dynamic) async {
 				var msg = new MyMessage() {
 					event event
 				}
@@ -281,11 +282,9 @@ class Consumer is KafkaConsumer public
 			}
 		})
 		onTopicSubscribed(topic)
-		await new promise<void> {
-			consumer.on!(consumer.events!.DISCONNECT, func(event as dynamic) {
-				this.onKafkajsDisconnectedEvent()
-				resolve
-			})
-		}
+		await AsyncTask.runPromise<dynamic?>(func(resolve as function<(dynamic?)>, reject as function<(Exception)>) => consumer.on!(consumer.events!.DISCONNECT, func(event as dynamic) {
+			this.onKafkajsDisconnectedEvent()
+			resolve(null)
+		}))
 	}
 }

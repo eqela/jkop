@@ -23,39 +23,32 @@
  */
 
 import jk.log
+import jk.wsprotocol
 import jk.webserver
 
 class abstract:
 
 prop ctx as LoggingContext
-prop eventHandler as WebSocketServerEventHandler
+prop factory as function<WebSocketProtocol>
 
-func instance(ctx as LoggingContext, eventHandler as WebSocketServerEventHandler) static as this
+func forConnectionFactory(ctx as LoggingContext, factory as function<WebSocketProtocol>) static as this
 {
 	IFDEF "target_node_js" {
 		return new WebSocketServerForNodeJS() {
 			ctx ctx
-			eventHandler eventHandler
+			factory factory
 		}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		nop factory
+		IFDEF "target_gui" {
+			ERROR NOT_SUPPORTED
+		}
+		ELSE {
+			ERROR NOT_IMPLEMENTED
+		}
 	}
 }
 
-func createWSServer(server as WebServer) abstract
-
-func onNewConnection(connection as WebSocketServerConnection):
-	eventHandler.onNewConnection(connection)
-
-func onReceiveMessage(message as buffer, connection as WebSocketServerConnection):
-	eventHandler.onReceiveMessage(message, connection)
-
-func onWSServerConnectionClosed:
-	eventHandler.onWSServerConnectionClosed()
-
-func onWSServerConnectionError(code as string, message as string):
-	eventHandler.onWSServerConnectionError(code, message)
-
-func onWSServerListening:
-	eventHandler.onWSServerListening()
+func attachToWebServer(server as WebServer) async abstract throws Exception

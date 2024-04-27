@@ -197,23 +197,22 @@ func forPath(path as string) static as File
 
 func stat override as FileInfo
 {
+	var f = lang "java" as [magical:java.io.File] {{{ new java.io.File(path) }}}
+	var exists as bool = f.exists()
 	var v = new FileInfo() {
 		file this
+		exists exists
 	}
-	lang "java" {{{
-		java.io.File f = new java.io.File(path);
-		if(f.exists() == false) {
-			return(v);
+	if exists {
+		v.size = f.length() as! int
+		v.modifyTime = f.lastModifier() as! long
+		if f.isDirectory() as! bool {
+			v.type = FileInfo.FILE_TYPE_DIR
 		}
-		v.setSize((int)f.length());
-		v.setModifyTime((long)f.lastModified());
-		if(f.isDirectory()) {
-			v.setType(FileInfo.FILE_TYPE_DIR);
+		else if f.isFile() as! bool {
+			v.type = FileInfo.FILE_TYPE_FILE
 		}
-		else if(f.isFile()) {
-			v.setType(FileInfo.FILE_TYPE_FILE);
-		}
-	}}}
+	}
 	return v
 }
 
@@ -224,18 +223,18 @@ func getPath override as string
 			return(path);
 		}
 	}}}
-	Error.throw("noPathForFile", this)
 	return ""
 }
 
-func createDirectoryRecursive override as bool
+func createDirectoryRecursive override throws Exception
 {
 	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		v = f.mkdirs();
 	}}}
-	return v
+	if not v:
+		Error.throw("failedToCreateDirectory", path)
 }
 
 func entry(name as string) override as File
@@ -249,18 +248,14 @@ func entry(name as string) override as File
 	return v
 }
 
-func move(dest as File, replace as bool) override as bool
+func move(dest as File, replace as bool) override throws Exception
 {
 	if dest.exists() {
-		if replace == false:
-			return false
+		if not replace:
+			Error.throw("targetFileExists", dest)
 		dest.remove()
 	}
-	var destpath as string?
-	var dp = dest.getPath()
-	if dp == null:
-		return false
-	destpath = dp
+	var destpath = dest.getPath()
 	var v as bool
 	lang "java" {{{
 		java.io.File src = new java.io.File(path);
@@ -270,22 +265,24 @@ func move(dest as File, replace as bool) override as bool
 	return v
 }
 
-func touch override as bool
+func touch override throws Exception
 {
-	var v as bool
+	var v = false
+	var path = getPath()
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		try {
 			v = f.createNewFile();
 		}
 		catch(java.io.IOException e) {
-			e.printStackTrace();
+			v = false
 		}
 	}}}
-	return v
+	if not v:
+		Error.throw("failedToTouchFile", path)
 }
 
-func read override as FileReader
+func read override throws Exception as FileReader
 {
 	var v = new MyFileReader()
 	lang "java" {{{
@@ -295,7 +292,7 @@ func read override as FileReader
 	return v
 }
 
-func write override as FileWriter
+func write override throws Exception as FileWriter
 {
 	var v = new MyFileWriter()
 	lang "java" {{{
@@ -305,7 +302,7 @@ func write override as FileWriter
 	return v
 }
 
-func append override as FileWriter
+func append override throws Exception as FileWriter
 {
 	var v = new MyFileWriter().setAppend(true)
 	lang "java" {{{
@@ -315,14 +312,16 @@ func append override as FileWriter
 	return v
 }
 
-func createDirectory override as bool
+func createDirectory override throws Exception
 {
-	var v as bool
+	var path = getPath()
+	var v = false
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
 		v = f.mkdir();
 	}}}
-	return v
+	if not v:
+		Error.throw("failedToCreateDirectory", path)
 }
 
 func isExecutable override as bool
@@ -335,7 +334,7 @@ func isExecutable override as bool
 	return v
 }
 
-func entries override as Iterator<File>
+func entries override throws Exception as Iterator<File>
 {
 	var v = new vector<File>
 	var files as array<string>?
@@ -353,15 +352,13 @@ func entries override as Iterator<File>
 	return Vector.iterate(v)
 }
 
-func remove override as bool
+func remove override throws Exception
 {
-	var v as bool
 	lang "java" {{{
 		java.io.File f = new java.io.File(path);
-		v = f.delete();
+		f.delete();
 	}}}
-	return v
 }
 
-func removeDirectory override stub as bool
-func makeExecutable override stub as bool
+func removeDirectory override stub throws Exception
+func makeExecutable override stub throws Exception

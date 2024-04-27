@@ -33,45 +33,45 @@ description [[
 
 prop ctx as LoggingContext
 
-func closeConnection async abstract
+func closeConnection async abstract throws Exception
 func getDatabaseTypeId abstract as string
-func getLastInsertId(table as string) abstract async as long
-func getIdentityColumnName(table as string) abstract async as string?
-func getPrimaryKeyColumnName(table as string) abstract async as string?
-func prepareStatement(sql as string) async abstract as SQLStatement
-func executeStatement(stmt as SQLStatement) abstract async
-func executeUpdateDeleteStatement(stmt as SQLStatement) abstract async as int
-func executeQueryStatement(stmt as SQLStatement) abstract async as SQLResultSetIterator
-func checkIfTableExists(table as string) abstract async as bool
-func checkIfColumnExists(table as string, name as string) abstract async as bool
-func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) abstract async as bool
-func getAllTableNames abstract async as vector<string>
-func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async abstract as SQLStatement
-func prepareDeleteTableStatement(table as string) async abstract as SQLStatement
-func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
-func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async abstract as SQLStatement
+func getLastInsertId(table as string) abstract async throws Exception as long
+func getIdentityColumnName(table as string) abstract async throws Exception as string?
+func getPrimaryKeyColumnName(table as string) abstract async throws Exception as string?
+func prepareStatement(sql as string) async abstract throws Exception as SQLStatement
+func executeStatement(stmt as SQLStatement) abstract async throws Exception
+func executeUpdateDeleteStatement(stmt as SQLStatement) abstract async throws Exception as int
+func executeQueryStatement(stmt as SQLStatement) abstract async throws Exception as SQLResultSetIterator
+func checkIfTableExists(table as string) abstract async throws Exception as bool
+func checkIfColumnExists(table as string, name as string) abstract async throws Exception as bool
+func checkIfColumnTypeMatches(table as string, column as SQLTableColumnInfo) abstract async throws Exception as bool
+func getAllTableNames abstract async throws Exception as vector<string>
+func prepareCreateTableStatement(table as string, columns as vector<SQLTableColumnInfo>) async abstract throws Exception as SQLStatement
+func prepareDeleteTableStatement(table as string) async abstract throws Exception as SQLStatement
+func prepareCreateColumnStatement(table as string, column as SQLTableColumnInfo) async abstract throws Exception as SQLStatement
+func prepareUpdateColumnTypeStatement(table as string, column as SQLTableColumnInfo) async abstract throws Exception as SQLStatement
 
-func getSingleRowOrNull(stmt as SQLStatement) virtual async as DynamicMap?
+func getSingleRowOrNull(stmt as SQLStatement) virtual async throws Exception as DynamicMap?
 {
 	var it = await executeQueryStatement(stmt)
 	if not it.hasNext():
 		return null
-	var v = it.next()
-	it.close()
+	var v = try! it.next()
+	try it.close()
 	return v
 }
 
-func getSingleRowOrThrowError(stmt as SQLStatement) virtual async as DynamicMap
+func getSingleRowOrThrowError(stmt as SQLStatement) virtual async throws Exception as DynamicMap
 {
 	var it = await executeQueryStatement(stmt)
 	if not it.hasNext():
-		ERROR "notFound"
-	var v = it.next()
-	it.close()
+		Error.throw("notFound")
+	var v = try! it.next()
+	try it.close()
 	return v
 }
 
-func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async
+func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableColumnInfo>) async throws Exception
 {
 	description [[
 		Checks if the database table exists and creates it if it does not exist. Returns
@@ -88,7 +88,7 @@ func ensureColumnsExistInTable(tableName as string, columns as vector<SQLTableCo
 	}
 }
 
-func ensureTableExists(table as SQLTableInfo) virtual async
+func ensureTableExists(table as SQLTableInfo) virtual async throws Exception
 {
 	description [[
 		Checks if the database table exists and creates it if it does not exist. Throws
@@ -101,14 +101,14 @@ func ensureTableExists(table as SQLTableInfo) virtual async
 		await ensureColumnsExistInTable(name, table.columns)
 		return
 	}
-	await executeInTransaction(func async {
+	await executeInTransaction(func async throws Exception {
 		await executeStatement(await prepareCreateTableStatement(name, table.columns))
 		foreach cii in table.indexes:
 			await executeStatement(await prepareCreateIndexStatement(name, cii.columns, cii.unique))
 	})
 }
 
-func prepareCreateIndexStatement(table as string, columns as vector<string>, unique as bool) async virtual as SQLStatement
+func prepareCreateIndexStatement(table as string, columns as vector<string>, unique as bool) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Prepares a CREATE INDEX statement as a string for the supplied table name,
@@ -168,7 +168,7 @@ func createColumnSelectionString(columns as vector<string>?) private as string
 	return sb.toString()
 }
 
-func createOrderByString(order as vector<SQLOrderingRule>) private as string
+func createOrderByString(order as vector<SQLOrderingRule>) private throws Exception as string
 {
 	description [[
 		Creates the order by part of an SQL select statement in string from the supplied
@@ -195,7 +195,7 @@ func createOrderByString(order as vector<SQLOrderingRule>) private as string
 	return sb.toString()
 }
 
-func prepareSelectAllStatement(table as string, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null) async virtual as SQLStatement
+func prepareSelectAllStatement(table as string, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for select statement with the specified
@@ -213,7 +213,7 @@ func prepareSelectAllStatement(table as string, columns as vector<string>? = nul
 	return await prepareStatement(sb.toString())
 }
 
-func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?, limit as int = 0, offset as int = 0, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null, likeOperator as bool = false) async virtual as SQLStatement
+func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?, limit as int = 0, offset as int = 0, columns as vector<string>? = null, order as vector<SQLOrderingRule>? = null, likeOperator as bool = false) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for select statement with the specified
@@ -278,7 +278,7 @@ func prepareSelectWithCriteriaStatement(table as string, criteria as DynamicMap?
 	return stmt
 }
 
-func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, likeOperator as bool = false) async virtual as SQLStatement
+func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, likeOperator as bool = false) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for select count statement with the
@@ -328,7 +328,7 @@ func prepareCountRecordsStatement(table as string, criteria as DynamicMap?, like
 	return stmt
 }
 
-func prepareSelectDistinctValuesStatement(table as string, column as string) async virtual as SQLStatement
+func prepareSelectDistinctValuesStatement(table as string, column as string) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for query distinct values with the specified
@@ -343,7 +343,7 @@ func prepareSelectDistinctValuesStatement(table as string, column as string) asy
 	return await prepareStatement(sb.toString())
 }
 
-func prepareInsertStatement(table as string, data as DynamicMap) async virtual as SQLStatement
+func prepareInsertStatement(table as string, data as DynamicMap) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for insert statement with the specified
@@ -414,7 +414,7 @@ func prepareInsertStatement(table as string, data as DynamicMap) async virtual a
 	return stmt
 }
 
-func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as DynamicMap) async virtual as SQLStatement
+func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as DynamicMap) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for update statement with the specified
@@ -481,7 +481,7 @@ func prepareUpdateStatement(table as string, criteria as DynamicMap?, data as Dy
 	return stmt
 }
 
-func prepareDeleteStatement(table as string, criteria as DynamicMap?) async virtual as SQLStatement
+func prepareDeleteStatement(table as string, criteria as DynamicMap?) async virtual throws Exception as SQLStatement
 {
 	description [[
 		Creates an instance of SQLStatement for delete statement with the specified
@@ -538,23 +538,23 @@ func prepareTableName(tableName as string) virtual as string:
 func prepareColumnName(columnName as string) virtual as string:
 	return columnName
 
-func rollbackTransaction virtual async:
+func rollbackTransaction virtual async throws Exception:
 	await executeStatement(await prepareStatement("ROLLBACK;"))
 
-func beginTransaction virtual async:
+func beginTransaction virtual async throws Exception:
 	await executeStatement(await prepareStatement("BEGIN;"))
 
-func commitTransaction virtual async:
+func commitTransaction virtual async throws Exception:
 	await executeStatement(await prepareStatement("COMMIT;"))
 
-func executeInTransaction(function as function<promise<void>>) virtual async
+func executeInTransaction(function as function<() async throws Exception>) virtual async throws Exception
 {
 	await beginTransaction()
 	try {
 		await function()
 		await commitTransaction()
 	}
-	catch e {
+	catch e as Exception {
 		await rollbackTransaction()
 		throw e
 	}

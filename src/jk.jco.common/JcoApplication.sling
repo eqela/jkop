@@ -1,0 +1,184 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.jco.common
+
+class is JcoComponent is LoggingContext abstract #jco #component:
+
+class Listener
+{
+	prop target as object
+	prop handler as function<void>
+}
+
+var navigationPath as string?
+var navigationListeners as vector<Listener>?
+
+func logError(message as string) implement:
+	println "[ERROR] " .. message
+
+func logWarning(message as string) implement:
+	println "[WARNING] " .. message
+
+func logInfo(message as string) implement:
+	println "[INFO] " .. message
+
+func logDebug(message as string) implement:
+	println "[DEBUG] " .. message
+
+func logStatus(message as string?) implement:
+	println "[STATUS] " .. message
+
+func isInDebugMode implement as bool:
+	return false
+
+func onNavigation virtual
+{
+	if navigationListeners: foreach listener in navigationListeners {
+		var hh = listener.handler
+		hh()
+	}
+}
+
+func navigateTo(components as vector<string>)
+{
+	var sb = new StringBuilder()
+	foreach component in components {
+		sb.appendCharacter('/')
+		if String.isNotEmpty(component):
+			sb.appendString(component)
+	}
+	var v = sb.toString()
+	if String.isEmpty(v):
+		v = "/"
+	navigateToPath(v)
+}
+
+// func navigateToSibling
+// func naviateToParent
+
+func navigateToPath(path as string)
+{
+	IFDEF "target_browser_js" {
+		[magical:window]!.location!.hash = path
+	}
+	ELSE IFDEF "target_headless" {
+		nop path
+		ERROR NOT_SUPPORTED
+	}
+	ELSE {
+		nop path
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
+func getNavigationPath as string
+{
+	var v = navigationPath
+	if String.isEmpty(v):
+		v = "/"
+	return v
+}
+
+func getNavigationPathComponents as vector<string>
+{
+	var path = getNavigationPath()
+	if String.startsWith(path, "/"):
+		path = String.getEndOfString(path, 1)
+	return String.split(path, '/')
+}
+
+func addNavigationListener(target as object, handler as function<void>)
+{
+	if not navigationListeners:
+		navigationListeners = new vector<Listener>
+	navigationListeners += new Listener() {
+		target target
+		handler handler
+	}
+}
+
+func removeNavigationListener(target as object)
+{
+	assert navigationListeners
+	var n = 0
+	while n < Vector.getSize(navigationListeners) {
+		var c = navigationListeners[n]
+		if c.target == target {
+			Vector.removeIndex(navigationListeners, n)
+		}
+		else {
+			n++
+		}
+	}
+}
+
+IFDEF "target_browser_js"
+{
+	import jk.url
+
+	func onFragmentChanged
+	{
+		var href = String.asValueOrEmptyString([magical:window]?.location?.href)
+		var urlObject = URL.forString(href)
+		navigationPath = urlObject.getFragment()
+		onNavigation()
+	}
+
+	func onMounted override throws Exception
+	{
+		base.onMounted()
+		var parent = (this as! dynamic).parentNode
+		if parent {
+			if String.equalsIgnoreCase(String.asValueOrEmptyString(parent.tagName), "body") {
+				parent.style!.height = "100%"
+				parent.style!.width = "100%"
+				parent.style!.overflow = "hidden"
+			}
+		}
+		[magical:window]!.addEventListener!("hashchange", onFragmentChanged)
+		onFragmentChanged()
+	}
+
+	func onUnmounted override throws Exception
+	{
+		base.onUnmounted()
+		[magical:window]!.removeEventListener!("hashchange", onFragmentChanged)
+	}
+
+	func addCssRules(sheet as CSSBuilder) override throws Exception
+	{
+		base.addCssRules(sheet)
+		sheet.define(":host", new map<string,string> {
+			height "100%"
+			width "100%"
+			display "block"
+		})
+		sheet.define(":host > :not(style)", new map<string,string> {
+			height "100%"
+			width "100%"
+		})
+	}
+}

@@ -1,0 +1,99 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.gfx
+import jk.jco.common
+
+class is JcoComponent abstract #jco #component:
+
+func getWidth virtual as string?:
+	return null
+
+func getHeight virtual as string?:
+	return null
+
+func getImage virtual throws Exception as Image?:
+	return null
+
+func getUrl virtual as string?:
+	return getSource()
+
+func getSource virtual as string?:
+	return null
+
+IFDEF "target_browser_js"
+{
+	func getAspectRatioValue virtual as string?:
+		return null
+
+	func addCssRules(sheet as CSSBuilder) override throws Exception
+	{
+		base.addCssRules(sheet)
+		var theme = new JcoThemeProcessor() {
+			component this
+		}
+		var img = sheet.define("img", new map<string,string> {
+			margin "0"
+			display "block"
+			"object-fit" "contain"
+		})
+		if var asratio = getAspectRatioValue():
+			img.set("aspect-ratio", asratio)
+		if var width = getWidth():
+			img.set("width", lengthToHtml(theme.getValue(width)))
+		if var height = getHeight():
+			img.set("height", lengthToHtml(theme.getValue(height)))
+	}
+
+	compose
+	{
+		{
+			if var source = getSource() {
+				var theme = JcoThemeProcessor.forComponent(this)
+				var src = theme.getValue(source)
+				if String.isNotEmpty(src) {
+					compose {
+						<img src=@{src} />
+					}
+					return
+				}
+			}
+			if var jsimg = getImage() as ImageForBrowserJS {
+				compose {
+					<img src=@{jsimg.toPNGDataUrl()} />
+				}
+				return
+			}
+			if var url = getUrl() {
+				compose {
+					<img src=@{url} />
+				}
+				return
+			}
+			compose {
+				<img src="#" />
+			}
+		}
+	}
+}

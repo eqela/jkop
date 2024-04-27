@@ -33,43 +33,66 @@ func forDefault static as this:
 func forFile(file as File, size as Length? = null) static as this
 {
 	var v = new this()
-	v.setFile(file)
+	v.file = file
 	if size:
-		v.setSize(size)
+		v.size = size
 	return v
 }
 
-func forName(name as string, size as Length? = null) static as this
+func forFamily(family as string, size as Length? = null) static as this
 {
 	var v = new this()
-	v.setName(name)
+	v.family = family
 	if size:
-		v.setSize(size)
+		v.size = size
 	return v
 }
 
-pvar file as File?
-pvar name as string?
-pvar bold as bool
-pvar italic as bool
-pvar underline as bool
-pvar size as Length?
-
-ctor
+func parse(value as string) static as this
 {
-	file = null
-	name = "Sans"
-	size = Length.forMicroMeters(2500)
-	bold = false
-	italic = false
-	underline = false
+	var v = new this()
+	foreach comp in String.split(value, ' ') {
+		if comp == "bold" {
+			v.bold = true
+		}
+		else if comp == "italic" {
+			v.italic = true
+		}
+		else if comp == "underline" {
+			v.underline = true
+		}
+		else if Character.isDigit(String.getChar(comp, 0)) {
+			v.size = Length.forString(comp)
+		}
+		else if String.startsWith(comp, "file:") {
+			v.file = File.forPath(String.getEndOfString(comp, 5))
+		}
+		else {
+			var nn = v.family
+			if String.isEmpty(nn) {
+				nn = comp
+			}
+			else {
+				nn = nn .. " " .. comp
+			}
+			v.family = nn
+		}
+	}
+	return v
 }
+
+prop file as File? = null
+prop family as string? = null
+prop bold as bool = false
+prop italic as bool = false
+prop underline as bool = false
+prop size as Length?
 
 func dup as this
 {
 	var v = new this()
 	v.file = file
-	v.name = name
+	v.family = family
 	v.bold = bold
 	v.italic = italic
 	v.underline = underline
@@ -77,14 +100,40 @@ func dup as this
 	return v
 }
 
-func toString as string
+func toString implement as string
 {
 	var v = new DynamicMap()
 	v.setObject("file", file)
-	v.setString("name", name)
+	v.setString("family", family)
 	v.setBoolean("bold", bold)
 	v.setBoolean("italic", italic)
 	v.setBoolean("underline", underline)
 	v.setObject("size", size)
 	return JSONEncoder.toString(v)
+}
+
+func toCssCompatibleString(ppi as double) as string
+{
+	var sb = new StringBuilder()
+	if this.italic:
+		sb.appendString("italic")
+	if this.bold {
+		if sb.count() > 0:
+			sb.appendCharacter(' ')
+		sb.appendString("bold")
+	}
+	var size = this.size
+	if size {
+		if sb.count() > 0:
+			sb.appendCharacter(' ')
+		sb.appendString(String.forInteger(size.getValueAsPixels(ppi)))
+		sb.appendString("px")
+	}
+	var family = this.family
+	if String.isNotEmpty(family) {
+		if sb.count() > 0:
+			sb.appendCharacter(' ')
+		sb.appendString(family)
+	}
+	return sb.toString()
 }

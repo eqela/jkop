@@ -35,6 +35,7 @@ prop dynamicTokenKey as string?
 prop staticToken as string?
 prop staticApiKey as string?
 prop staticAuthorization as string?
+prop forwardAuthorization as bool = false
 
 func getRedirectedPath(request as WebServerRequest) private as string?
 {
@@ -49,7 +50,7 @@ func getRedirectedPath(request as WebServerRequest) private as string?
 	return String.getEndOfString(path, String.getLength(pp) - 1)
 }
 
-func handleRequest(request as WebServerRequest, next as function<promise<void>>) async override
+func handleRequest(request as WebServerRequest, next as function<() async throws Exception>) async override throws Exception
 {
 	var redirectPath = getRedirectedPath(request)
 	if not redirectPath {
@@ -65,12 +66,15 @@ func handleRequest(request as WebServerRequest, next as function<promise<void>>)
 			token = dynamicToken
 	}
 	var apikey = staticApiKey
+	var authorization = staticAuthorization
+	if not authorization && forwardAuthorization:
+		authorization = request.getHeader("authorization")
 	var client = new ApiClient() {
 		ctx ctx
 		baseUrl originUrl
 		bearerToken token
 		apiKey apikey
-		authorization staticAuthorization
+		authorization authorization
 	}
 	try {
 		var requestBody = await request.getBodyAsBuffer()

@@ -24,16 +24,32 @@
 
 class is StringObject is StringObjectWithDebug:
 
-func throw(code as string, detail as dynamic? = null, stackTrace as string? = null) static #throws:
+macro throw(code):
 	throw ExceptionWithError.forError(new this() {
 		code code
-		detail detail
-		stackTrace stackTrace
+		detail null
+		stackTrace StackTrace.generate()
 	})
 
-func forCode(code as string, detail as dynamic? = null, stackTrace as string? = null) static as this:
+macro throw(code, subject):
+	throw ExceptionWithError.forError(new this() {
+		code code
+		subject subject
+		stackTrace StackTrace.generate()
+	})
+
+macro throw(code, subject, detail):
+	throw ExceptionWithError.forError(new this() {
+		code code
+		subject subject
+		detail detail
+		stackTrace StackTrace.generate()
+	})
+
+func forCode(code as string, subject as dynamic? = null, detail as dynamic? = null, stackTrace as string? = null) static as this:
 	return new this() {
 		code code
+		subject subject
 		detail detail
 		stackTrace stackTrace
 	}
@@ -47,6 +63,7 @@ func isError(o as object?) static as bool
 }
 
 prop code as string
+prop subject as dynamic?
 prop detail as dynamic?
 prop stackTrace as string?
 
@@ -58,21 +75,26 @@ func clear as this
 	return this
 }
 
+func dynamicToString(detail as dynamic?, debug as bool) as string?
+{
+	if not detail:
+		return null
+	var v as string?
+	if detail is StringObjectWithDebug {
+		v = (detail as! StringObjectWithDebug).toStringWithDebug(debug)
+	}
+	else {
+		var vv = String.asValueOrNull(detail)
+		if vv:
+			v = vv
+	}
+	if String.isEmpty(v) && detail is object:
+		v = String.forObjectInformation(detail as! object)
+	return v
+}
+
 func toStringWithDefault(debug as bool, defaultError as string) as string
 {
-	var details = ""
-	if detail {
-		if detail is StringObjectWithDebug {
-			details = (detail as! StringObjectWithDebug).toStringWithDebug(debug)
-		}
-		else {
-			var vv = String.asValueOrNull(detail)
-			if vv:
-				details = vv
-		}
-		if String.isEmpty(details) && detail is object:
-			details = String.forObjectInformation(detail as! object)
-	}
 	var sb = new StringBuilder()
 	if String.isNotEmpty(code) {
 		sb.appendString(code)
@@ -80,21 +102,23 @@ func toStringWithDefault(debug as bool, defaultError as string) as string
 	else {
 		sb.appendString(defaultError)
 	}
+	sb.appendCharacter(':')
+	var subject = dynamicToString(this.subject, debug)
+	if String.isNotEmpty(subject):
+		sb.appendString(subject)
+	sb.appendCharacter(':')
+	var detail = dynamicToString(this.detail, debug)
+	if String.isNotEmpty(detail):
+		sb.appendString(detail)
+	sb.appendCharacter(':')
 	var stackTrace = this.stackTrace
-	if String.isNotEmpty(details) || String.isNotEmpty(stackTrace) {
-		sb.appendCharacter(':')
-		if String.isNotEmpty(details):
-			sb.appendString(details)
-		if String.isNotEmpty(stackTrace) {
-			sb.appendCharacter(':')
-			sb.appendString(stackTrace)
-		}
-	}
+	if String.isNotEmpty(stackTrace):
+		sb.appendString(stackTrace)
 	return sb.toString()
 }
 
-func toStringWithDebug(debug as bool) as string:
+func toStringWithDebug(debug as bool) implement as string:
 	return toStringWithDefault(debug, "unknownError")
 
-func toString as string:
+func toString implement as string:
 	return toStringWithDebug(false)

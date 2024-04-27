@@ -1,0 +1,169 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.jco.common
+
+class is JcoComponent #jco #component:
+
+prop onOk as function<(DynamicMap)>? #content
+prop onCancel as function<void>? #content
+prop onReadData as function<() async as DynamicMap>?
+prop onWriteData as function<(DynamicMap) async>?
+prop initialData as DynamicMap?
+prop okButtonText as string #content = "{formOkButtonText|OK}"
+prop cancelButtonText as string #content = "{formCancelButtonText|Cancel}"
+prop okButtonColor as string #content = "{formOkButtonColor|#AAFFAA}"
+prop cancelButtonColor as string #content = "{formCancelButtonColor|#FFAAAA}"
+
+var reading = false
+var writing = false
+
+compose
+{
+	<VerticalBoxWidget spacing="2mm">
+		{
+			if reading {
+				compose {
+					<HorizontalBoxWidget spacing="{formReadingSpinnerSpacing|2mm}" padding="{formReadingSpinnerPadding|4mm}" alignment="center">
+						<SpinnerWidget image="{formReadingSpinnerImage|}" size="{formReadingSpinnerImageSize|5mm}" />
+						<LabelWidget text="{formReadingSpinnerText|Reading data, please wait..}" font="{formReadingSpinnerFont|Arial 4mm}" wrapping="true" />
+					</HorizontalBoxWidget>
+				}
+			}
+			else {
+				composeChildren(context)
+				if writing {
+					compose {
+						<HorizontalBoxWidget spacing="{formWritingSpinnerSpacing|2mm}" padding="{formWritingSpinnerPadding|4mm}" alignment="center">
+							<SpinnerWidget image="{formWritingSpinnerImage|}" size="{formWritingSpinnerImageSize|5mm}" />
+							<LabelWidget text="{formWritingSpinnerText|Writing data, please wait..}" font="{formWritingSpinnerFont|Arial 4mm}" wrapping="true" />
+						</HorizontalBoxWidget>
+					}
+				}
+				else if onOk || onCancel || onWriteData {
+					compose {
+						<HorizontalBoxWidget spacing="2mm" padding="0" alignment="center">
+							{
+								if onCancel:
+									compose {
+										<WeightWidget weight="1">
+											<ButtonWidget text=@{cancelButtonText} backgroundColor=@{cancelButtonColor} clickHandler=@{onCancelButtonClick} />
+										</WeightWidget>
+									}
+								if onOk || onWriteData:
+									compose {
+										<WeightWidget weight="1">
+											<ButtonWidget text=@{okButtonText} backgroundColor=@{okButtonColor} clickHandler=@{func throws Exception => nowait onOkButtonClick()} />
+										</WeightWidget>
+									}
+							}
+						</HorizontalBoxWidget>
+					}
+				}
+			}
+		}
+	</VerticalBoxWidget>
+}
+
+func onMounted override throws Exception
+{
+	base.onMounted()
+	initializeFormData()
+	nowait readFormData()
+}
+
+func onUnmounted override throws Exception:
+	base.onUnmounted()
+
+func onOkButtonClick async
+{
+	var data as DynamicMap?
+	var owd = onWriteData
+	if owd {
+		writing = true
+		update()
+		try {
+			data = getDataFromWidgets()
+			await owd(data)
+		}
+		catch e {
+			Log.error(getLoggingContext(), "Error while writing data: `" .. String.asValueOrEmptyString(e) .. "'")
+			MessagePopup.show(this, "{failedToWriteDataText|Failed to write data}")
+		}
+		writing = false
+		update()
+	}
+	var ok = onOk
+	if ok {
+		if not data:
+			data = getDataFromWidgets()
+		ok(data)
+	}
+}
+
+func onCancelButtonClick throws Exception
+{
+	var cc = onCancel
+	if cc:
+		cc()
+}
+
+func initializeFormData
+{
+	if initialData:
+		updateDataToWidgets(initialData)
+}
+
+func readFormData async
+{
+	var ord = onReadData
+	if ord {
+		reading = true
+		update()
+		try {
+			updateDataToWidgets(await ord())
+		}
+		catch e {
+			Log.error(getLoggingContext(), "Error while reading data: `" .. String.asValueOrEmptyString(e) .. "'")
+			MessagePopup.show(this, "{failedToReadDataText|Failed to read data}")
+		}
+		reading = false
+		update()
+	}
+}
+
+func updateDataToWidgets(data as DynamicMap)
+{
+	foreach key in data.iterateKeys() {
+		// FIXME
+	}
+}
+
+func getDataFromWidgets as DynamicMap
+{
+	var v = new DynamicMap()
+	// FIXME
+	return v
+}

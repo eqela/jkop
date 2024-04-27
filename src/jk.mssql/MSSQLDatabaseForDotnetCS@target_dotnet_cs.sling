@@ -92,7 +92,7 @@ class Statement is SQLStatement
 		if String.isEmpty(n):
 			n = getNextParamName()
 		var vv = val
-		lang "cs" {{{
+		lang "cs" (n, vv) {{{
 			var param = new System.Data.SqlClient.SqlParameter(n, System.Data.SqlDbType.VarChar);
 			param.Value = vv;
 			addToParams(param);
@@ -147,7 +147,7 @@ class Statement is SQLStatement
 		}}}
 	}
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		params = null
 		pcounter = 0
@@ -163,7 +163,7 @@ class ResultSet is SQLResultSetIterator
 	var columnNames as vector<string>?
 	var hasNextRecord as bool
 
-	func close override
+	func close override throws Exception
 	{
 		if reader {
 			reader.Close!()
@@ -179,34 +179,32 @@ class ResultSet is SQLResultSetIterator
 	{
 		var v = reader
 		if not v:
-			ERROR "noReader"
+			Error.throw("noReader")
 		return v
 	}
 
-	func nextValues(values as vector<object>) override
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
 		step()
 		Vector.clear(values)
 		var cols = getColumnCount()
-		for(var n = 0 ; n < cols ; n++) {
-			var o = getColumnObject(n)
-			values += o
-		}
+		for(var n = 0 ; n < cols ; n++):
+			values += getColumnValue(n)
 	}
 
-	func step override
+	func step override throws Exception
 	{
 		var reader = getReader()
 		if hasNextRecord {
 			hasNextRecord = false
 			return
 		}
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			reader.Read();
 		}}}
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		if columnCount >= 0:
 			return columnCount
@@ -220,7 +218,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		if columnNames == null {
 			columnNames = new vector<string>
@@ -233,7 +231,7 @@ class ResultSet is SQLResultSetIterator
 		return columnNames
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
 		var v as string? = null
 		lang "cs" {{{
@@ -246,11 +244,11 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
 		var reader = getReader()
 		var v as string? = null
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			if(reader.IsDBNull(n)) {
 				return(null);
 			}
@@ -267,46 +265,44 @@ class ResultSet is SQLResultSetIterator
 			}
 			v = o.ToString();
 		}}}
-		if not v:
-			v = ""
 		return v
 	}
 
-	func getColumnInt(n as int) override as int
+	func getColumnInt(n as int) override throws Exception as int
 	{
 		var v = 0
 		var reader = getReader()
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			v = reader.GetInt32(n);
 		}}}
 		return v
 	}
 
-	func getColumnLong(n as int) override as long
+	func getColumnLong(n as int) override throws Exception as long
 	{
 		var v as long = 0
 		var reader = getReader()
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			v = reader.GetInt64(n);
 		}}}
 		return v
 	}
 
-	func getColumnDouble(n as int) override as double
+	func getColumnDouble(n as int) override throws Exception as double
 	{
 		var v as double = 0
 		var reader = getReader()
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			v = reader.GetDouble(n);
 		}}}
 		return v
 	}
 
-	func getColumnBuffer(n as int) override as buffer
+	func getColumnBuffer(n as int) override throws Exception as buffer
 	{
 		var v as buffer? = null
 		var reader = getReader()
-		lang "cs" {{{
+		lang "cs" (reader) {{{
 			v = (byte[])reader.GetValue(n);
 		}}}
 		if not v:
@@ -314,16 +310,16 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		step()
 		var names = getColumnNames()
 		if sizeof names < 1:
-			ERROR "noColumnNames"
+			Error.throw("noColumnNames")
 		var v = new DynamicMap()
 		var sz = sizeof names
 		for(var n = 0 ; n < sz ; n++):
-			v.setObject(names[n], getColumnObject(n))
+			v.setDynamic(names[n], getColumnValue(n))
 		return v
 	}
 
@@ -339,23 +335,23 @@ class ResultSet is SQLResultSetIterator
 
 var connectionString as string?
 
-func setConnectionDetails(serverAddress as string, username as string, password as string, database as string) override
+func setConnectionDetails(serverAddress as string, username as string, password as string, database as string) override throws Exception
 {
 	connectionString = "Asynchronous Processing=true;Data Source=tcp:" .. serverAddress .. ";Initial Catalog=" .. database .. ";User Id=" .. username .. ";Password=" .. password
 	Log.debug(ctx, "MS SQL connection string: '" .. connectionString .. "'")
 }
 
-func closeConnection async override:
+func closeConnection async override throws Exception:
 	connectionString = null
 
-func prepareStatement(sql as string) async override as SQLStatement:
+func prepareStatement(sql as string) async override throws Exception as SQLStatement:
 	return Statement.forSql(sql)
 
-func executeStatement(stmt as SQLStatement) override async
+func executeStatement(stmt as SQLStatement) override async throws Exception
 {
 	var ss = assert stmt as Statement
 	var isStoredProcedureCall = ss.isStoredProcedureCall
-	lang "cs" {{{
+	lang "cs" (isStoredProcedureCall) {{{
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
 			cmd.CommandTimeout = 0;
@@ -372,14 +368,14 @@ func executeStatement(stmt as SQLStatement) override async
 	}}}
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var ss = stmt as Statement
 	if not ss:
 		return 0
 	var isStoredProcedureCall = ss.isStoredProcedureCall
 	var v = 0
-	lang "cs" {{{
+	lang "cs" (isStoredProcedureCall) {{{
 		using(System.Data.SqlClient.SqlConnection conn = new System.Data.SqlClient.SqlConnection(connectionString)) {
 			System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, conn);
 			cmd.CommandTimeout = 0;
@@ -397,7 +393,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	return v
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss:
@@ -405,7 +401,7 @@ func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetI
 	var isStoredProcedureCall = ss.isStoredProcedureCall
 	var reader as [magical:System.Data.SqlClient.SqlDataReader]?
 	var connection as [magical:System.Data.SqlClient.SqlConnection]?
-	lang "cs" {{{
+	lang "cs" (isStoredProcedureCall) {{{
 		connection = new System.Data.SqlClient.SqlConnection(connectionString);
 		System.Data.SqlClient.SqlCommand cmd = new System.Data.SqlClient.SqlCommand(ss.sql, connection);
 		cmd.CommandTimeout = 0;
@@ -420,7 +416,7 @@ func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetI
 		reader = cmd.ExecuteReader();
 	}}}
 	if not reader:
-		ERROR "failedToExecuteQueryStatement"
+		Error.throw("failedToExecuteQueryStatement")
 	var v = new ResultSet()
 	v.reader = reader
 	v.ctx = ctx

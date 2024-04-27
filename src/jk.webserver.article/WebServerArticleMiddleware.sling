@@ -40,7 +40,7 @@ prop articleCacheTtl as int = 0
 prop articleFileCacheTtl as int = 0
 prop contentCacheStaleTtl as int = 0
 
-func applyCacheControlHeader(request as WebServerRequest, contentCacheTtl as int)
+func applyCacheControlHeader(request as WebServerRequest, contentCacheTtl as int) throws Exception
 {
 	if contentCacheTtl < 1 && contentCacheStaleTtl < 1:
 		return
@@ -57,7 +57,7 @@ func applyCacheControlHeader(request as WebServerRequest, contentCacheTtl as int
 	request.setResponseHeader("Cache-Control", sb.toString())
 }
 
-func handleArticleRequest(request as WebServerRequest, articleId as string) async
+func handleArticleRequest(request as WebServerRequest, articleId as string) async throws Exception
 {
 	var article = await articleManager.getArticleById(articleId)
 	if not article:
@@ -88,8 +88,8 @@ func handleArticleRequest(request as WebServerRequest, articleId as string) asyn
 	request.setResponseHeader("Content-Type", "text/html")
 	applyCacheControlHeader(request, articleCacheTtl)
 	if html:
-		request.writeResponseData(String.toUTF8Buffer(html))
-	request.endResponse()
+		await request.writeResponseData(String.toUTF8Buffer(html))
+	await request.endResponse()
 }
 
 func stripExtension(value as string) private as string
@@ -102,12 +102,12 @@ func stripExtension(value as string) private as string
 
 func initializeRoutes override
 {
-	addRoute("GET", "/", func(request as WebServerRequest, params as DynamicMap) async => await handleArticleRequest(request, "index"))
-	addRoute("GET", "/:articleId", func(request as WebServerRequest, params as DynamicMap) async {
+	addRoute("GET", "/", func(request as WebServerRequest, params as DynamicMap) async throws Exception => await handleArticleRequest(request, "index"))
+	addRoute("GET", "/:articleId", func(request as WebServerRequest, params as DynamicMap) async throws Exception {
 		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId") ?? "")
 		await handleArticleRequest(request, articleId)
 	})
-	addRoute("GET", "/:articleId/:attachmentId", func(request as WebServerRequest, params as DynamicMap) async {
+	addRoute("GET", "/:articleId/:attachmentId", func(request as WebServerRequest, params as DynamicMap) async throws Exception {
 		var articleId = StringUtil.sanitizeResourceName(params.getString("articleId") ?? "")
 		var rawAttachmentId = StringUtil.sanitizeResourceName(params.getString("attachmentId") ?? "")
 		var attachmentId = stripExtension(rawAttachmentId)
@@ -119,7 +119,7 @@ func initializeRoutes override
 			request.setResponseHeader("Content-Type", mimetype)
 		applyCacheControlHeader(request, articleFileCacheTtl)
 		if var dd = data.data:
-			request.writeResponseData(dd)
-		request.endResponse()
+			await request.writeResponseData(dd)
+		await request.endResponse()
 	})
 }

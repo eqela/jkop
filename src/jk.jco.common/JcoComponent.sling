@@ -22,15 +22,367 @@
  * SOFTWARE.
  */
 
-class abstract:
+import jk.gfx
+import jk.log
+
+class #jco:
+
+prop children:childrenValue as vector<dynamic>
+{
+	get {
+		if not childrenValue:
+			childrenValue = new vector<dynamic>
+		return childrenValue
+	}
+}
+
+prop width as string? #content
+prop minWidth as string? #content
+prop maxWidth as string? #content
+prop widthRequest as string? #content
+prop height as string? #content
+prop minHeight as string? #content
+prop maxHeight as string? #content
+prop heightRequest as string? #content
+prop customData as DynamicMap?
+
+var application as JcoApplication?
+
+ctor
+{
+}
+
+func getApplicationOrNull as JcoApplication?:
+	return application
+
+func getApplication throws Exception as JcoApplication
+{
+	var v = getApplicationOrNull()
+	if not v:
+		Error.throw("notPartOfJcoApplication", this)
+	return v
+}
+
+func getLoggingContext as LoggingContext
+{
+	var ctx = findAncestorOfType(typeinfo LoggingContext) as LoggingContext
+	if not ctx:
+		ctx = new SimpleLoggingContext()
+	return ctx
+}
+
+func executeAndHandleExceptions(operation as function<() throws Exception>)
+{
+	try {
+		operation()
+	}
+	catch e as Exception {
+		Log.error(getLoggingContext(), e.toString())
+	}
+}
+
+func update
+{
+	IFDEF "target_browser_js" {
+		if not isMounted:
+			return
+		if not updateScheduled {
+			updateScheduled = true
+			var handler #used = func {
+				try {
+					executeUpdate()
+				}
+				catch e as Exception {
+					Log.error(getLoggingContext(), e.toString())
+				}
+			}
+			lang "js" {{{
+				setTimeout(handler, 0);
+			}}}
+		}
+	}
+}
+
+func composeComponent(context as JcoComposeContext) virtual throws Exception:
+	nop
+
+func onCreated
+{
+	try {
+		IFDEF "target_browser_js" {
+			shadow = lang "js" as dynamic {{{ this.attachShadow({ mode: 'open' }) }}}
+		}
+	}
+	catch e {
+		println e
+	}
+}
+
+func onComposed virtual throws Exception:
+	nop
+
+func onConnectedToApplication(application as JcoApplication) virtual:
+	nop
+
+func onDisconnectedFromApplication(application as JcoApplication) virtual:
+	nop
+
+func onMounted virtual throws Exception
+{
+	application = findAncestorOfType(typeinfo JcoApplication) as JcoApplication
+	if application:
+		onConnectedToApplication(application)
+	update()
+}
+
+func onUnmounted virtual throws Exception
+{
+	if application {
+		onDisconnectedFromApplication(application)
+		application = null
+	}
+}
+
+func getPpi as double:
+	return 96.0
+
+func composeChildren(context as JcoComposeContext) throws Exception
+{
+	foreach child in children:
+		context.addObject(child)
+}
+
+func getParentComponents as vector<this>
+{
+	IFDEF "target_browser_js" {
+		var v = new vector<this>
+		var n = 0
+		var pp = getParentElement(this)
+		while pp {
+			if pp is this:
+				v += pp as! this
+			pp = getParentElement(pp)
+			n++
+			if n > 1000 {
+				println "tooManyParentElements"
+				break
+			}
+		}
+		return v
+	}
+	ELSE IFDEF "target_headless" {
+		ERROR NOT_SUPPORTED
+	}
+	ELSE {
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
+func iterateParentComponents as Iterator<this>:
+	return Vector.iterate(getParentComponents())
+
+func findAncestorOfType(type as typeinfo) as dynamic?
+{
+	foreach v in iterateParentComponents() {
+		if Reflection.isInstanceOf(v, type):
+			return v
+	}
+	return null
+}
 
 IFDEF "target_browser_js"
 {
-	is JcoComponentForBrowserJS
-}
-ELSE {
-	is JcoComponentHeadless
+	extend [magical:HTMLElement]
+
+	var shadow as dynamic?
+	var updateScheduled = false
+	var mutationObserver as [magical:MutationObserver]?
+	var isMounted = false
+
+	func asElement as JcoElement:
+		return new JcoElementForBrowserJS() {
+			element this
+		}
+
+	func lengthToHtml(value as string) as string
+	{
+		if String.isEmpty(value):
+			return "0px"
+		if String.endsWith(value, "%"):
+			return value
+		return Length.forString(value).toPixelString(getPpi())
+	}
+
+	func colorToHtml(value as string) as string
+	{
+		if String.isEmpty(value):
+			return "black"
+		return Color.forString(value).toHtmlCompatibleString()
+	}
+
+	func fontToHtml(font as string) as string
+	{
+		if String.isEmpty(font):
+			return "Arial 14px"
+		return FontDescription.parse(font).toCssCompatibleString(getPpi())
+	}
+
+	func getParentElement(element as dynamic) as dynamic?
+	{
+		var shadow = element.getRootNode!()
+		if not shadow:
+			return null
+		if lang "js" as bool {{{ !shadow }}}:
+			return null
+		var host = shadow.host
+		if not host:
+			return null
+		if lang "js" as bool {{{ !host }}}:
+			return null
+		return host
+	}
+
+	func onAttributeValueChanged(name as string, oldValue as string?, newValue as string?) virtual:
+		nop
+
+	func initializeMutationObserver private
+	{
+		var callback = func(mutations as vector<dynamic>, observer as dynamic) {
+			foreach mutation in mutations {
+				if String.asValueOrNull(mutation.type) == "attributes" {
+					var name = String.asValueOrEmptyString(mutation.attributeName)
+					var newValue = String.asValueOrNull(mutation.target?.attributes?[name]?.value)
+					var oldValue = String.asValueOrNull(mutation.oldValue)
+					onAttributeValueChanged(name, oldValue, newValue)
+				}
+			}
+		}
+		var mob = new ([magical:MutationObserver])(callback)
+		mob.observe!(this, {
+			attributes true
+			attributeOldValue true
+		})
+	}
+
+	func shutdownMutationObserver private
+	{
+		var mob = mutationObserver
+		mutationObserver = null
+		if mob:
+			mob.disconnect!()
+	}
+
+	func connectedCallback private #used
+	{
+		// This is a standard Javascript callback, called by the web component framework
+		isMounted = true
+		initializeMutationObserver()
+		try {
+			onMounted()
+		}
+		catch e as Exception {
+			Log.error(getLoggingContext(), e.toString())
+		}
+	}
+
+	func disconnectedCallback private #used
+	{
+		// This is a standard Javascript callback, called by the web component framework.
+		isMounted = false
+		try {
+			onUnmounted()
+		}
+		catch e as Exception {
+			Log.error(getLoggingContext(), e.toString())
+		}
+		shutdownMutationObserver()
+	}
+
+	func addCssRules(sheet as CSSBuilder) virtual throws Exception
+	{
+		var host = sheet.define(":host", new map<string,string> {
+			overflow "hidden"
+		})
+		if width || widthRequest || minWidth || maxWidth || height || heightRequest || minHeight || maxHeight {
+			var theme = JcoThemeProcessor.forComponent(this)
+			if var w = width {
+				host.set("width", lengthToHtml(theme.getValue(w)))
+			}
+			else if var wr = widthRequest {
+				host.set("width", "min(" .. lengthToHtml(theme.getValue(wr)) .. ", 100%)")
+			}
+			if var mw = minWidth:
+				host.set("min-width", lengthToHtml(theme.getValue(mw)))
+			if var mw = maxWidth:
+				host.set("max-width", lengthToHtml(theme.getValue(mw)))
+			if var h = height {
+				host.set("height", lengthToHtml(theme.getValue(h)))
+			}
+			else if var hr = heightRequest {
+				host.set("height", "min(" .. lengthToHtml(theme.getValue(hr)) .. ", 100%)")
+			}
+			if var mh = minHeight:
+				host.set("min-height", lengthToHtml(theme.getValue(mh)))
+			if var mh = maxHeight:
+				host.set("max-height", lengthToHtml(theme.getValue(mh)))
+		}
+	}
+
+	func getCssString virtual as string?
+	{
+		try {
+			var sheet = new CSSBuilder()
+			addCssRules(sheet)
+			return sheet.toString()
+		}
+		catch e as Exception {
+			Log.error(getLoggingContext(), e.toString())
+		}
+		return null
+	}
+
+	func executeUpdate private throws Exception #used
+	{
+		updateScheduled = false
+		var shadowRoot = this.shadow
+		if not shadowRoot:
+			Error.throw("noShadowRoot")
+		var context = JcoComposeContextForBrowserJS.forRoot(shadowRoot)
+		var css = getCssString()
+		if String.isNotEmpty(css):
+			compose to context {
+				<style>@{css}</style>
+			}
+		try {
+			composeComponent(context)
+		}
+		catch e as Exception {
+			Log.error(getLoggingContext(), e.toString())
+		}
+		context.finalize()
+		onComposed()
+	}
+
+	/*[
+	func getParentElementObject as JcoElement
+	{
+		var ee = getParentElement(this)
+		if not ee:
+			Error.throw("cannotFindParentElement", this)
+		return new JcoElementForBrowserJS() {
+			element ee
+		}
+	}
+	]*/
 }
 
 init:
-	onCreated()
+	#post {
+		onCreated()
+	}
+
+func asPixels(length as string) as int:
+	return Length.asPixels(length, getPpi())
+
+func asPoints(length as string) as double:
+	return Length.asPoints(length, getPpi())

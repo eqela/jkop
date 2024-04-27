@@ -22,8 +22,7 @@
  * SOFTWARE.
  */
 
-import jk.nodejs
-import jk.lang
+import jk.lang.js
 
 class is AzureStorageQueueConsumer:
 
@@ -33,7 +32,7 @@ prop account as string
 prop accountKey as string
 
 func getStorageQueueApi private static as dynamic:
-	return NodeModule.require("@azure/storage-queue")
+	return JsCommonModule.require("@azure/storage-queue")
 
 func getQueueServiceClient private as [magical:QueueServiceClient]
 {
@@ -41,11 +40,11 @@ func getQueueServiceClient private as [magical:QueueServiceClient]
 	var accountName = account
 	var storageSharedKey = accountKey
 	var endpoint = "https://" .. account .. ".queue.core.windows.net"
-	var storageSharedKeyCredential = lang "js" as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
-	return lang "js" as [magical:QueueServiceClient] {{{ new api.QueueServiceClient(endpoint, storageSharedKeyCredential) }}}
+	var storageSharedKeyCredential = lang "js" (api, accountName, storageSharedKey) as dynamic {{{ new api.StorageSharedKeyCredential(accountName, storageSharedKey) }}}
+	return lang "js" (api, endpoint, storageSharedKeyCredential) as [magical:QueueServiceClient] {{{ new api.QueueServiceClient(endpoint, storageSharedKeyCredential) }}}
 }
 
-func getQueueClient(queueName as string) private as [magical:QueueClient]
+func getQueueClient(queueName as string) private throws Exception as [magical:QueueClient]
 {
 	var queueServiceClient = getQueueServiceClient()
 	var v = queueServiceClient.getQueueClient!(queueName)
@@ -54,7 +53,7 @@ func getQueueClient(queueName as string) private as [magical:QueueClient]
 	return v as! [magical:QueueClient]
 }
 
-func peekMessages(queueName as string, numberOfMessages as int = 1) override async as QueuePeekMessagesList
+func peekMessages(queueName as string, numberOfMessages as int = 1) override async throws Exception as QueuePeekMessagesList
 {
 	var list = new QueuePeekMessagesList()
 	var queueClient = getQueueClient(queueName)
@@ -75,14 +74,14 @@ func peekMessages(queueName as string, numberOfMessages as int = 1) override asy
 				v.expiresOn = String.asValueOrNull(message.expiresOn)
 				v.dequeueCount = Integer.asValueOrDefaultValue(message.dequeueCount, 0)
 				v.messageText = String.asValueOrNull(message.messageText)
-				list.addObjectToVectorField("list", v)
+				list.addToList(v)
 			}
 		}
 	}
 	return list
 }
 
-func receiveMessage(queueName as string) override async as ReceivedMessageModel?
+func receiveMessage(queueName as string) override async throws Exception as ReceivedMessageModel?
 {
 	var queueClient = getQueueClient(queueName)
 	var messages = await queueClient.receiveMessages!()
@@ -107,7 +106,7 @@ func receiveMessage(queueName as string) override async as ReceivedMessageModel?
 	return v
 }
 
-func acknowledgeMessage(queueName as string, messageId as string, popReceipt as string) override async
+func acknowledgeMessage(queueName as string, messageId as string, popReceipt as string) override async throws Exception
 {
 	if String.isEmpty(messageId):
 		Error.throw("emptyMessageId", null)

@@ -29,39 +29,44 @@ description [[
 	arrays and vectors.
 ]]
 
-func forStringVector(args as vector<string>) static as this
-{
-	var v = new this()
-	v.setArgs(args)
-	return v
-}
+func forStringVector(args as vector<string>) static as this:
+	return new this() {
+		args args
+	}
 
 func forArray(args as array<string>) static as this
 {
-	var v = new this()
 	var vv = new vector<string>
 	foreach arg in args:
 		vv += arg
-	v.setArgs(vv)
-	return v
+	return new this() {
+		args vv
+	}
 }
 
-pvar args as vector<string>?
-pvar position = 0
-pvar optionValue as string?
+prop args as vector<string>
+prop deterministic = false
 
-func getCurrent as string?
+var position = 0
+var optionValue as string?
+
+func setValues(values as vector<string>)
 {
-	assert args
-	return Vector.getValue(args, position)
+	args = values
+	position = 0
 }
+
+func getOptionValue as string?:
+	return optionValue
+
+func getCurrent as string?:
+	return Vector.getValue(args, position)
 
 func moveToNext:
 	position++
 
 func hasMore as bool
 {
-	assert args
 	if position < Vector.getSize(args):
 		return true
 	return false
@@ -97,18 +102,27 @@ func acceptOption(str as string) as bool
 		optionValue = String.getEndOfString(cc, String.getLength(f2) + 1)
 		return true
 	}
-	if cc == f1 || cc == f2 {
-		moveToNext()
-		optionValue = getCurrent()
-		if not optionValue {
-			position--
-		}
-		else {
+	if not deterministic {
+		if cc == f1 || cc == f2 {
 			moveToNext()
-			return true
+			optionValue = getCurrent()
+			if not optionValue {
+				position--
+			}
+			else {
+				moveToNext()
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func acceptOptionValue(str as string) as string?
+{
+	if acceptOption(str):
+		return getOptionValue()
+	return null
 }
 
 func acceptValue(value as string) as bool
@@ -137,7 +151,7 @@ func acceptParameter as string?
 	return cc
 }
 
-func requireParameter(name as string) as string
+func requireParameter(name as string) throws Exception as string
 {
 	var v = acceptParameter()
 	if not v:

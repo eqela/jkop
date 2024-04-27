@@ -28,226 +28,199 @@ class is File:
 
 class MyReader is FileReader is Reader is SizedReader is Closable is SeekableReader
 {
-	pvar handle as [magical:FileHandle]?
-	pvar size as int
+	prop filename as string
+	prop handle as [magical:FileHandle]
+	prop size as long
 
-	func close
-	{
-		if not handle:
-			return
+	func getSize implement as long:
+		return size
+
+	func close implement:
 		lang "swift" {{{
-			handle?.closeFile()
+			handle.closeFile()
 		}}}
-		handle = null
+
+	func setCurrentPosition(n as int64) implement as bool
+	{
+		lang "swift" (n) {{{
+			handle.seek(toFileOffset: UInt64(n))
+		}}}
+		return true
 	}
 
-	func setCurrentPosition(n as int64) as bool
-	{
-		if handle:
-			return false
-		var v = true
-		lang "swift" {{{
-			do {
-				handle?.seek(toFileOffset: UInt64(n))
-			} catch let e {
-				v = false
-			}
-		}}}
-		return v
-	}
+	func getCurrentPosition implement as int64:
+		return lang "swift" as int64 {{{ Int64(bitPattern: handle.offsetInFile) }}}
 
-	func getCurrentPosition as int64
+	func read(buf as buffer) implement throws Exception as int
 	{
-		if not handle:
+		var mx = lang "swift" (buf) as int {{{ buf.getSize() }}}
+		var fdata as [magical:Foundation.Data]?
+		try {
+			fdata = lang "swift" (handle, mx) as [magical:Foundation.Data]? {{{ try handle.read(upToCount: mx) }}}
+		}
+		catch e {
+			Error.throw("failedToReadFromFile", filename, e)
+		}
+		if fdata == null:
 			return 0
-		var v as int64 = 0
-		lang "swift" {{{
-			do {
-				v = Int64(bitPattern: handle.offsetInFile)
-			} catch let e {
-				v = 0
-			}
-		}}}
-		return v
-	}
-
-	func read(buf as buffer) as int
-	{
-		if not buf || not handle:
-			return 0
-		var data as buffer?
-		var mx = lang "swift" as int {{{ buf.length }}}
-		lang "swift" {{{
-			data = NSMutableData(data: (handle?.readData(ofLength: mx))!)
-		}}}
-		if not data:
-			return 0
-		var dlen = lang "swift" as int {{{ data.length }}}
+		var data = lang "swift" (fdata) as buffer {{{ JkLang.BufferValue.forData(fdata!) }}}
+		var dlen = lang "swift" (data) as int {{{ data.getSize() }}}
 		if dlen < 1:
 			return 0
+		Buffer.copyFrom(buf, data, 0, 0, dlen)
 		return dlen
 	}
 
-	func readAll as buffer:
-		return lang "swift" as buffer {{{ NSMutableData(data: (handle?.readDataToEndOfFile())!) }}}
+	func readAll throws Exception as buffer
+	{
+		var fdata as [magical:Foundation.Data]?
+		try {
+			fdata = lang "swift" (handle) as [magical:Foundation.Data]? {{{ try handle.readToEnd() }}}
+		}
+		catch e {
+			Error.throw("failedToReadFromFile", filename, e)
+		}
+		if fdata == null:
+			return Buffer.allocate(0)
+		return lang "swift" (fdata) as buffer {{{ JkLang.BufferValue.forData(fdata!) }}}
+	}
 }
 
 class MyWriter is FileWriter is Writer is Closable is SeekableWriter
 {
-	pvar handle as [magical:FileHandle]?
+	prop filename as string
+	prop handle as [magical:FileHandle]
 
-	func write(buffer as buffer, size as int) as int
+	func write(buffer as buffer, size as int) implement throws Exception as int
 	{
-		if not buffer:
-			return 0
 		var ptr = buffer
-		if size >= 0 && size != Buffer.getSize(ptr):
+		if size >= 0 && size < Buffer.getSize(ptr):
 			ptr = Buffer.getSubBuffer(ptr, 0, size)
 		var v = Buffer.getSize(ptr)
-		lang "swift" {{{
-			do {
-				if let ptr = ptr {
-					handle?.write(ptr as Data)
-				}
-			} catch let e {
-				v = -1
-			}
-		}}}
+		try {
+			lang "swift" {{{
+				try handle.write(contentsOf: ptr.data)
+			}}}
+		}
+		catch e {
+			Error.throw("failedToWriteToFile", filename, e)
+		}
 		return v
 	}
 
-	func setCurrentPosition(n as int64) as bool
+	func setCurrentPosition(n as int64) implement as bool
 	{
-		if not handle:
-			return false
-		var v = true
-		lang "swift" {{{
-			handle?.seek(toFileOffset: UInt64(n))
+		lang "swift" (n) {{{
+			handle.seek(toFileOffset: UInt64(n))
 		}}}
-		return v
+		return true
 	}
 
-	func getCurrentPosition as int64
-	{
-		if not handle:
-			return 0
-		var v as int64 = 0
-		lang "swift" {{{
-			v = Int64(bitPattern: handle.offsetInFile)
-		}}}
-		return v
-	}
+	func getCurrentPosition implement as int64:
+		return lang "swift" as int64 {{{ Int64(bitPattern: handle.offsetInFile) }}}
 
-	func close
-	{
-		if not handle:
-			return
+	func close implement:
 		lang "swift" {{{
-			handle?.closeFile()
+			handle.closeFile()
 		}}}
-		handle = null
-	}
 }
 
 func forPath(path as string) static as File:
 	return new this(path)
 
-var path as string?
-var manager as [magical:FileManager]?
+var path as string
+var manager as [magical:FileManager]
 
 ctor(path as string)
 {
-	this.path = lang "swift" as string {{{ (path as NSString?)?.standardizingPath }}}
-	lang "swift" {{{
-		manager = FileManager.default
-	}}}
+	this.path = lang "swift" (path) as string {{{ path.standardizingPath }}}
+	this.manager = lang "swift" as [magical:FileManager] {{{ FileManager.default }}}
 }
 
 func entry(name as string) override as File:
 	return new this(path .. "/" .. name)
 
-func write override as FileWriter:
+func write override throws Exception as FileWriter:
 	return getMyWriter(true)
 
-func append override as FileWriter:
+func append override throws Exception as FileWriter:
 	return getMyWriter(false)
 
-func getMyReader private as MyReader
+func getMyReader private throws Exception as MyReader
 {
-	var handle as [magical:FileHandle]?
-	lang "swift" {{{
-		handle = FileHandle(forReadingAtPath: path!)
-	}}}
+	var handle = lang "swift" as [magical:FileHandle]? {{{ FileHandle(forReadingAtPath: path) }}}
 	if not handle:
 		Error.throw("failedToOpenFileForReading", path)
-	var v = new MyReader()
-	v.setSize(getSize())
-	v.setHandle(handle)
-	return v
+	return new MyReader() {
+		filename path
+		size getSize()
+		handle handle
+	}
 }
 
-func getMyWriter(truncate as bool) private as MyWriter:
-	ERROR "notImplemented"
+func getMyWriter(truncate as bool) private throws Exception as MyWriter
+{
+	if truncate && exists():
+		remove()
+	if lang "swift" (path) as bool {{{ manager.createFile(atPath: path, contents: nil) }}} == false:
+		Error.throw("failedToCreateFile", path)
+	var handle = lang "swift" as [magical:FileHandle]? {{{ FileHandle(forWritingAtPath: path) }}}
+	if not handle:
+		Error.throw("failedToOpenFileForWriting", path)
+	return new MyWriter() {
+		filename path
+		handle handle
+	}
+}
 
-func read override as FileReader:
+func read override throws Exception as FileReader:
 	return getMyReader()
 
-func getPath override as string
-{
-	if not path:
-		Error.throw("noPathForFile", this)
+func getPath override as string:
 	return path
-}
 
-func getBasename override as string:
-	return String.safeString(lang "swift" as string {{{ manager?.displayName(atPath: path!) }}})
-
-func getContentsBuffer override as buffer
-{
-	var rr = getMyReader()
-	return rr.readAll()
-}
-
-func getContentsString(encoding as string) override as string
-{
-	var b = getContentsBuffer()
-	if not b:
-		return null
-	return String.forBuffer(b, encoding)
-}
+func getContentsBuffer override throws Exception as buffer:
+	return getMyReader().readAll()
 
 func exists override as bool:
-	return lang "swift" as bool {{{ manager?.fileExists(atPath: path!) ?? false }}}
+	return lang "swift" as bool {{{ manager.fileExists(atPath: path) }}}
 
 func isExecutable override as bool:
-	return lang "swift" as bool {{{ manager?.isExecutableFile(atPath: path!) ?? false }}}
+	return lang "swift" as bool {{{ manager.isExecutableFile(atPath: path) }}}
 
-func remove override as bool
+func remove override throws Exception
 {
-	lang "swift" {{{
-		try? manager?.removeItem(atPath: path!)
-	}}}
-	if exists():
-		return false
-	return true
+	if isDirectory():
+		Error.throw("cannotRemoveDirectory", path)
+	try {
+		lang "swift" {{{
+			try manager.removeItem(atPath: path)
+		}}}
+	}
+	catch e {
+		Error.throw("failedToRemoveFile", path, e)
+	}
 }
 
-func createDirectory override as bool
+func createDirectory override throws Exception
 {
-	var v as bool
-	lang "swift" {{{
-		try? manager?.createDirectory(atPath: path!, withIntermediateDirectories: false, attributes: nil)
-	}}}
-	return exists()
+	try {
+		lang "swift" {{{
+			try manager.createDirectory(atPath: path, withIntermediateDirectories: false, attributes: nil)
+		}}}
+	}
+	catch e {
+		Error.throw("failedToCreateDirectory", path, e)
+	}
 }
 
 func isDirectory override as bool
 {
-	var v as bool
-	var dir as bool
+	var v as bool #mutated
+	var dir as bool #mutated
 	lang "swift" {{{
-		var isDir : ObjCBool = false
-		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
+		var isDir: ObjCBool = false
+		v = manager.fileExists(atPath:path, isDirectory:&isDir)
 		dir = isDir.boolValue
 	}}}
 	if not v:
@@ -257,55 +230,178 @@ func isDirectory override as bool
 
 func isFile override as bool
 {
-	var v as bool
-	var dir as bool
+	var v as bool #mutated
+	var dir as bool #mutated
 	lang "swift" {{{
-		var isDir : ObjCBool = false
-		v = manager?.fileExists(atPath:path!, isDirectory:&isDir) ?? false
-		dir = !isDir.boolValue
+		var isDir: ObjCBool = false
+		v = manager.fileExists(atPath:path, isDirectory:&isDir)
+		dir = isDir.boolValue
 	}}}
 	if not v:
 		return false
-	return dir
+	if dir:
+		return false
+	return true
 }
 
 func stat override as FileInfo
 {
+	var exists as bool #mutated
+	var isdir as bool #mutated
+	lang "swift" {{{
+		var isDirBool: ObjCBool = false
+		exists = manager.fileExists(atPath:path, isDirectory:&isDirBool)
+		isdir = isDirBool.boolValue
+	}}}
 	var v = new FileInfo() {
 		file this
+		exists exists
 	}
-	lang "swift" {{{
-		do {
-			var dict: NSDictionary
-			dict = try (manager?.attributesOfItem(atPath: path!) as NSDictionary?)!
-			v?.setSize(dict[FileAttributeKey.size] as! Int)
-			v?.setCreateTime(Long((dict[FileAttributeKey.creationDate] as! NSDate).timeIntervalSince1970))
-			v?.setAccessTime(0)
-			v?.setModifyTime(Long((dict[FileAttributeKey.modificationDate] as! NSDate).timeIntervalSince1970))
-			v?.setOwnerUser(dict[FileAttributeKey.ownerAccountID] as! Int);
-			v?.setOwnerGroup((dict[FileAttributeKey.groupOwnerAccountID] as! Int))
-			var mode = 0
-			var executable = manager?.isExecutableFile(atPath: path!)
-			var link = FileAttributeType.typeSymbolicLink.rawValue == dict[FileAttributeKey.type] as! String?
-		} catch {
+	if exists {
+		if isdir {
+			v.type = FileInfo.FILE_TYPE_DIR
 		}
-	}}}
-	if isFile() {
-		v.type = FileInfo.FILE_TYPE_FILE
-	}
-	else if isDirectory() {
-		v.type = FileInfo.FILE_TYPE_DIR
+		else {
+			v.type = FileInfo.FILE_TYPE_FILE
+		}
+		lang "swift" {{{
+			let adict = try? manager.attributesOfItem(atPath: path)
+			if (adict != nil) {
+				let dict = adict!
+				let size = dict[FileAttributeKey.size] as? Int64
+				if (size != nil) {
+					v.size = size!
+				}
+				let creationDate = dict[FileAttributeKey.creationDate] as? Date
+				if (creationDate != nil) {
+					v.createTime = Swift.Int64(creationDate!.timeIntervalSince1970)
+				}
+				v.accessTime = 0
+				let modificationDate = dict[FileAttributeKey.modificationDate] as? Date
+				if (modificationDate != nil) {
+					v.modifyTime = Swift.Int64(modificationDate!.timeIntervalSince1970)
+				}
+				let ownerAccountID = dict[FileAttributeKey.ownerAccountID] as? Int
+				if (ownerAccountID != nil) {
+					v.ownerUser = ownerAccountID!
+				}
+				let groupOwnerAccountID = dict[FileAttributeKey.groupOwnerAccountID] as? Int
+				if (groupOwnerAccountID != nil) {
+					v.ownerGroup = groupOwnerAccountID!
+				}
+				let posixPermissions = dict[FileAttributeKey.posixPermissions] as? NSNumber
+				if (posixPermissions != nil) {
+					v.mode = Int(posixPermissions!.int16Value)
+				}
+				v.executable = manager.isExecutableFile(atPath: path)
+				let type = dict[FileAttributeKey.type] as? Swift.String
+				if (type != nil && type! == FileAttributeType.typeSymbolicLink.rawValue) {
+					v.link = true
+				}
+				else {
+					v.link = false
+				}
+			}
+		}}}
 	}
 	return v
 }
 
-func entries override stub as Iterator<File>
-func isLink override stub as bool
-func createDirectoryRecursive override stub as bool
-func removeDirectory override stub as bool
-func move(dest as File, replace as bool) override stub as bool
-func touch override stub as bool
-func setMode(mode as int) override stub as bool
-func setOwnerUser(uid as int) override stub as bool
-func setOwnerGroup(gid as int) override stub as bool
-func makeExecutable override stub as bool
+func entries override throws Exception as Iterator<File>
+{
+	var v = new vector<File>
+	try {
+		lang "swift" {{{
+			for ee in try manager.contentsOfDirectory(atPath: path) {
+				v.append(entry(ee))
+			}
+		}}}
+	}
+	catch e {
+		Error.throw("failedToReadDirectoryEntries", path, e)
+	}
+	return Vector.iterate(v)
+}
+
+func createDirectoryRecursive override throws Exception
+{
+	try {
+		lang "swift" {{{
+			try manager.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: nil)
+		}}}
+	}
+	catch e {
+		Error.throw("failedToCreateDirectory", path, e)
+	}
+}
+
+func removeDirectory override throws Exception
+{
+	if not isDirectory():
+		Error.throw("notDirectory", path)
+	var ee = entries()
+	if ee.hasNext():
+		Error.throw("directoryIsNotEmpty", path)
+	removeRecursive()
+}
+
+func removeRecursive override throws Exception
+{
+	try {
+		lang "swift" {{{
+			try manager.removeItem(atPath: path)
+		}}}
+	}
+	catch e {
+		Error.throw("failedToRemoveRecursive", path, e)
+	}
+}
+
+func move(dest as File, replace as bool) override throws Exception
+{
+	if dest.exists() {
+		if replace == false:
+			Error.throw("fileAlreadyExists", dest)
+		dest.remove()
+	}
+	try {
+		lang "swift" (path, dest) {{{
+			try manager.moveItem(atPath: path, toPath: dest.getPath())
+		}}}
+	}
+	catch e {
+		Error.throw("failedToMoveFile", path, e)
+	}
+}
+
+func touch override throws Exception
+{
+	if not exists() {
+		setContentsUTF8("")
+	}
+	else {
+		try {
+			lang "swift" {{{
+				try manager.setAttributes([FileAttributeKey.modificationDate: NSDate()], ofItemAtPath: path)
+			}}}
+		}
+		catch e {
+			Error.throw("failedToUpdateModificationTimeStamp", path, e)
+		}
+	}
+}
+
+func setMode(mode as int) override throws Exception:
+	ERROR NOT_IMPLEMENTED
+
+func setOwnerUser(uid as int) override throws Exception:
+	ERROR NOT_IMPLEMENTED
+
+func setOwnerGroup(gid as int) override throws Exception:
+	ERROR NOT_IMPLEMENTED
+
+func makeExecutable override throws Exception:
+	ERROR NOT_IMPLEMENTED
+
+func createFifo override throws Exception:
+	ERROR NOT_IMPLEMENTED

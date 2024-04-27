@@ -51,7 +51,7 @@ pvar currentPosition = 0
 pvar autoSkipTextAndComments = true
 pvar skipCommentsInText = true
 
-func initializeForFile(file as File, fileName as string?) as bool
+func initializeForFile(file as File, fileName as string?) throws Exception as bool
 {
 	var fn = fileName
 	if fn == null:
@@ -70,7 +70,7 @@ func initializeForString(text as string, fileName as string?) as bool
 	return true
 }
 
-func executeForFile(ctx as LoggingContext, file as File, fileName as string? = null) as bool
+func executeForFile(ctx as LoggingContext, file as File, fileName as string? = null) throws Exception as bool
 {
 	assert initializeForFile(file, fileName):
 		Log.error(ctx, "Failed to process XML file: `" .. file.getPath() .. "'")
@@ -123,20 +123,17 @@ func initialize(parser as XMLParser) private
 	currentPosition = 0
 }
 
-func expect(text as string) #throws:
-	error("Expecting: " .. text)
+func createExpectError(text as string) as ExceptionWithString:
+	return createError("Expecting: " .. text)
 
-func unsupported(element as MarkupLanguageParser.StartElement?)
+func createUnsupportedError(element as MarkupLanguageParser.StartElement?) as ExceptionWithString
 {
-	if element {
-		error("Unsupported element inside `" .. element.getName() .. "'")
-	}
-	else {
-		error("Unsupported element")
-	}
+	if element:
+		return createError("Unsupported element inside `" .. element.getName() .. "'")
+	return createError("Unsupported element")
 }
 
-func error(message as string?) #throws
+func createError(message as string?) as ExceptionWithString
 {
 	var sb = new StringBuilder()
 	var value = parserPeek()
@@ -209,7 +206,7 @@ func error(message as string?) #throws
 	else if message {
 		sb.appendString(message)
 	}
-	throw ExceptionWithString.forString(sb.toString())
+	return ExceptionWithString.forString(sb.toString())
 }
 
 func isEmptyString(string as string?) private as bool
@@ -280,16 +277,13 @@ func acceptStartElement(name as string? = null) as MarkupLanguageParser.StartEle
 	return null
 }
 
-func parseStartElement(name as string? = null) as MarkupLanguageParser.StartElement?
+func parseStartElement(name as string? = null) throws ExceptionWithString as MarkupLanguageParser.StartElement?
 {
 	var v = acceptStartElement(name)
 	if not v {
-		if name {
-			expect("Start element `" .. name .. "'")
-		}
-		else {
-			expect("Start element")
-		}
+		if name:
+			throw createExpectError("Start element `" .. name .. "'")
+		throw createExpectError("Start element")
 	}
 	return v
 }
@@ -318,24 +312,21 @@ func acceptEndElement(element as MarkupLanguageParser.StartElement?) as MarkupLa
 	return acceptEndElementWithName(element.getName())
 }
 
-func parseAnyEndElement as MarkupLanguageParser.EndElement?:
+func parseAnyEndElement throws ExceptionWithString as MarkupLanguageParser.EndElement?:
 	return parseEndElementWithName(null)
 
-func parseEndElementWithName(name as string?) as MarkupLanguageParser.EndElement?
+func parseEndElementWithName(name as string?) throws ExceptionWithString as MarkupLanguageParser.EndElement?
 {
 	var v = acceptEndElementWithName(name)
 	if not v {
-		if name {
-			expect("End element `" .. name .. "'")
-		}
-		else {
-			expect("End element")
-		}
+		if name:
+			throw createExpectError("End element `" .. name .. "'")
+		throw createExpectError("End element")
 	}
 	return v
 }
 
-func parseEndElement(element as MarkupLanguageParser.StartElement?) as MarkupLanguageParser.EndElement?
+func parseEndElement(element as MarkupLanguageParser.StartElement?) throws ExceptionWithString as MarkupLanguageParser.EndElement?
 {
 	if not element:
 		return parseEndElementWithName(null)
@@ -351,16 +342,13 @@ func acceptSingleElement(name as string? = null) as MarkupLanguageParser.StartEl
 	return element
 }
 
-func parseSingleElement(name as string? = null) as MarkupLanguageParser.StartElement?
+func parseSingleElement(name as string? = null) throws ExceptionWithString as MarkupLanguageParser.StartElement?
 {
 	var v = acceptSingleElement(name)
 	if not v {
-		if name {
-			expect("Single element: `" .. name .. "'")
-		}
-		else {
-			expect("Single element")
-		}
+		if name:
+			throw createExpectError("Single element: `" .. name .. "'")
+		throw createExpectError("Single element")
 	}
 	return v
 }
@@ -381,10 +369,11 @@ func acceptStringElement(tagName as string? = null) as StringElement?
 	return v
 }
 
-func parseStringElement(tagName as string? = null) as StringElement?
+func parseStringElement(tagName as string? = null) throws ExceptionWithString as StringElement?
 {
-	var v = assert acceptStringElement(tagName):
-		expect("String element")
+	var v = acceptStringElement(tagName)
+	if not v:
+		throw createExpectError("String element")
 	return v
 }
 
@@ -394,14 +383,15 @@ func acceptStringElementData(tagName as string? = null) as string?
 	return v.getContent()
 }
 
-func parseStringElementData(tagName as string? = null) as string?
+func parseStringElementData(tagName as string? = null) throws ExceptionWithString as string?
 {
-	var v = assert acceptStringElementData(tagName):
-		expect("String element")
+	var v = acceptStringElementData(tagName)
+	if not v:
+		throw createExpectError("String element")
 	return v
 }
 
-func acceptElementTree(name as string?, startHandler as function<void,MarkupLanguageParser.StartElement>?, childHandler as function<bool>?) as bool
+func acceptElementTree(name as string?, startHandler as function<(MarkupLanguageParser.StartElement)>?, childHandler as function<bool>?) throws ExceptionWithString as bool
 {
 	var element = assert acceptStartElement(name)
 	if startHandler:
@@ -411,7 +401,7 @@ func acceptElementTree(name as string?, startHandler as function<void,MarkupLang
 			continue
 		if acceptEndElement(element):
 			break
-		unsupported(element)
+		throw createUnsupportedError(element)
 	}
 	return true
 }
@@ -493,11 +483,11 @@ func acceptKeyValuePair as KeyValuePair<string,string>?
 	}
 }
 
-func parseKeyValuePair as KeyValuePair<string,string>
+func parseKeyValuePair throws ExceptionWithString as KeyValuePair<string,string>
 {
 	var v = acceptKeyValuePair()
 	if not v:
-		expect("Key/value pair")
+		throw createExpectError("Key/value pair")
 	return v
 }
 

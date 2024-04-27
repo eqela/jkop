@@ -22,11 +22,12 @@
  * SOFTWARE.
  */
 
-import jk.app
 import jk.fs
+import jk.log
+import jk.app
 import jk.thread
 
-class is ApplicationContext is EventLoop abstract:
+class is LoggingContext is ApplicationContext is EventLoop abstract:
 
 interface TimerObject public
 {
@@ -34,10 +35,6 @@ interface TimerObject public
 }
 
 var styles as map<string,map<string,dynamic>>?
-var errorCounter = 0
-var warningCounter = 0
-var infoCounter = 0
-var debugCounter = 0
 
 func setStyle(id as string, style as map<string,dynamic>)
 {
@@ -75,7 +72,7 @@ func getStyleColor(id as string, style as string, defval as string? = null) as C
 	return v
 }
 
-func getStylePixels(id as string, style as string, defval as string? = null) as int
+func getStylePixels(id as string, style as string, defval as string? = null) throws Exception as int
 {
 	var ss = getStyleString(id, style)
 	if String.isEmpty(ss):
@@ -85,9 +82,7 @@ func getStylePixels(id as string, style as string, defval as string? = null) as 
 	return getHeightValue(ss)
 }
 
-func getResourceImage(id as string) abstract as Image
-func getImageForBufferSync(buffer as buffer, mimeType as string) abstract as Image
-func getImageForBuffer(buffer as buffer, mimeType as string, callback as function<void,Image?>?) abstract
+func getResourceImage(id as string) abstract throws Exception as Image
 func showMessageDialog(title as string, message as string, callback as function<void>? = null) abstract
 func showConfirmDialog(title as string, message as string, okcallback as function<void>?, cancelcallback as function<void>?) abstract
 func showErrorDialog(message as string, callback as function<void>? = null) abstract
@@ -100,66 +95,35 @@ func getWidthValue(spec as string) abstract as int
 func startTimer(timeout as long, callback as function<void>) abstract as TimerObject
 func enableKeepAwakeMode abstract
 func disableKeepAwakeMode abstract
+func getApplicationDataDirectory implement abstract throws Exception as File?
 
 func px(spec as string) as int:
 	return getHeightValue(spec)
 
-func logError(message as string) override
-{
+func logError(message as string) implement:
 	println "[ERROR] " .. message
-	errorCounter++
-}
 
-func logWarning(message as string) override
-{
+func logWarning(message as string) implement:
 	println "[WARNING] " .. message
-	warningCounter++
-}
 
-func logInfo(message as string) override
-{
+func logInfo(message as string) implement:
 	println "[INFO] " .. message
-	infoCounter++
-}
 
-func logDebug(message as string) override
-{
+func logDebug(message as string) implement:
 	println "[DEBUG] " .. message
-	debugCounter++
-}
 
-func logStatus(message as string?) override:
+func logStatus(message as string?) implement:
 	println "[STATUS] " .. message
 
-func isInDebugMode override as bool:
+func isInDebugMode implement as bool:
 	return false
 
-func getErrorCount override as int:
-	return errorCounter
-
-func getWarningCount override as int:
-	return warningCounter
-
-func getInfoCount override as int:
-	return infoCounter
-
-func getDebugCount override as int:
-	return debugCounter
-
-func resetCounters override
-{
-	errorCounter = 0
-	warningCounter = 0
-	infoCounter = 0
-	debugCounter = 0
-}
-
-func runScheduled(timeout as long, runnable as Runnable)
+func runScheduled(timeout as long, runnable as Runnable) implement
 {
 	assert timeout >= 0
 	var rr = runnable
-	startTimer(timeout, func => rr.run())
+	startTimer(timeout, func => try rr.run())
 }
 
-func runInBackground(runnable as Runnable):
+func runInBackground(runnable as Runnable) implement:
 	Thread.start(runnable)

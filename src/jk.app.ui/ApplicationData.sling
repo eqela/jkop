@@ -27,43 +27,38 @@ import jk.log
 
 class:
 
-func getApplicationData(ctx as GuiApplicationContext) static as File
+func getApplicationData(ctx as GuiApplicationContext) static throws Exception as File
 {
 	IFDEF "target_android" {
 		return ctx.getApplicationDataDirectory()
 	}
-	ELSE IFDEF "target_ios_objc" {
-		var documentDirectory as string?
-		lang "objc" {{{
-			documentDirectory = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-		}}}
-		assert documentDirectory:
-			Log.error(ctx, "No document directory received from iOS API")
+	ELSE IFDEF "target_objc" {
+		var documentDirectory = lang "objc" as string {{{ NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0]; }}}
 		var dd = File.forPath(documentDirectory)
 		if not dd.isDirectory():
 			dd.createDirectoryRecursive()
-		Log.debug(ctx, "iOS document directory: `" .. dd.getPath() .. "'")
+		Log.debug(ctx, "Document directory: `" .. dd.getPath() .. "'")
 		return dd
 	}
 	ELSE IFDEF "target_swift" {
-		var documentDirectory as string?
-		lang "swift" {{{
-			documentDirectory = NSSearchPathForDirectoriesInDomains(FileManager.SearchPathDirectory.documentDirectory, FileManager.SearchPathDomainMask.userDomainMask, true)[0]
-		}}}
-		assert documentDirectory:
-			Log.error(ctx, "No document directory received from iOS API")
+		var documentDirectory = lang "swift" as string {{{ NSSearchPathForDirectoriesInDomains(FileManager.SearchPathDirectory.documentDirectory, FileManager.SearchPathDomainMask.userDomainMask, true)[0] }}}
 		var dd = File.forPath(documentDirectory)
 		if not dd.isDirectory():
 			dd.createDirectoryRecursive()
-		Log.debug(ctx, "iOS document directory: `" .. dd.getPath() .. "'")
+		Log.debug(ctx, "Document directory: `" .. dd.getPath() .. "'")
 		return dd
 	}
+	ELSE IFDEF "target_headless" {
+		nop ctx
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func retrieveFile(ctx as GuiApplicationContext?, filename as string) static as File
+func retrieveFile(ctx as GuiApplicationContext, filename as string) static throws Exception as File
 {
 	IFDEF "target_android" {
 		var ff = getApplicationData(ctx).entry(filename)
@@ -73,15 +68,22 @@ func retrieveFile(ctx as GuiApplicationContext?, filename as string) static as F
 		}
 		return ff
 	}
-	ELSE IFDEF "target_ios_objc" {
-		var dir = assert getApplicationData(ctx)
+	ELSE IFDEF "target_objc" {
+		var dir = getApplicationData(ctx)
 		return dir.entry(filename)
 	}
 	ELSE IFDEF "target_swift" {
-		var dir = assert getApplicationData(ctx)
+		var dir = getApplicationData(ctx)
 		return dir.entry(filename)
 	}
+	ELSE IFDEF "target_headless" {
+		nop ctx
+		nop filename
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		nop filename
+		ERROR NOT_IMPLEMENTED
 	}
 }

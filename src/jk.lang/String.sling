@@ -35,7 +35,7 @@ class MyStringObject is StringObject private
 {
 	prop value as string
 
-	func toString as string:
+	func toString implement as string:
 		return value
 }
 
@@ -100,7 +100,7 @@ func asValueOrNull(obj as dynamic?) static as string?
 			}
 		}}}
 		var vjs = lang "js" as dynamic {{{ obj.toString() }}}
-		lang "js" {{{
+		lang "js" (vjs) {{{
 			if(vjs && vjs != "[object Object]") {
 				return vjs;
 			}
@@ -112,7 +112,7 @@ func asValueOrNull(obj as dynamic?) static as string?
 	}
 }
 
-func asValueOrThrowError(obj as dynamic?) static as string
+func asValueOrThrowError(obj as dynamic?) static throws Exception as string
 {
 	description [[
 		Converts an arbitrary object to a string, if possible. Throws an error if not
@@ -151,7 +151,10 @@ func forObjectInformation(obj as object) static as string
 		the given object.
 	]]
 	IFDEF "target_node_js" {
-		return lang "js" as string {{{ require("node:util").format("%O", obj) }}}
+		return lang "js" (obj) as string {{{ require("node:util").format("%O", obj) }}}
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" (obj) as string {{{ Swift.String(describing: obj) }}}
 	}
 	ELSE {
 		var v = asValueOrNull(obj)
@@ -200,7 +203,7 @@ func isNotEmpty(str as string?) static as bool #notnullcheck
 	return not isEmpty(str)
 }
 
-func forBuffer(data as buffer, encoding as string) static as string
+func forBuffer(data as buffer, encoding as string) static throws Exception as string
 {
 	description [[
 		Constructs a new string, given a buffer of bytes and the name of the encoding.
@@ -217,10 +220,10 @@ func forBuffer(data as buffer, encoding as string) static as string
 
 IFDEF "target_dotnet_cs"
 {
-	func getDataLength(data as buffer) private static as int
+	func getDataLength(data as buffer) private static as int #used
 	{
 		var v as int
-		lang "cs" {{{
+		lang "cs" (v, data) {{{
 			v = data.Length;
 			while(v > 0) {
 				if(data[v-1] == 0) {
@@ -242,14 +245,14 @@ func forASCIIBuffer(data as buffer) static as string
 		set.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string? {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}})
+		return safeString(lang "cs" (data) as string {{{ System.Text.Encoding.ASCII.GetString(data, 0, getDataLength(data)) }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string? {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}})
+		return safeString(lang "objc" (data) as string? {{{ [[NSString alloc] initWithData:data encoding:NSASCIIStringEncoding] }}})
 	}
 	ELSE IFDEF "target_java" {
 		var v as string?
-		lang "java" {{{
+		lang "java" (data) {{{
 			try {
 				v = new java.lang.String(data, "US-ASCII");
 			}
@@ -261,7 +264,7 @@ func forASCIIBuffer(data as buffer) static as string
 	}
 	ELSE IFDEF "target_js" {
 		var sb = new StringBuilder()
-		var uintArray = lang "js" as array<uint8> {{{ new Uint8Array(data) }}}
+		var uintArray = lang "js" (data) as array<uint8> {{{ new Uint8Array(data) }}}
 		for(var i = 0 ; i < sizeof uintArray ; i++) {
 			var str = lang "js" as string? {{{ String.fromCharCode(uintArray[i]) }}}
 			if str:
@@ -270,13 +273,13 @@ func forASCIIBuffer(data as buffer) static as string
 		return sb.toString()
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ data!!.toByteArray()?.toString(kotlin.text.Charsets.US_ASCII) }}})
+		return safeString(lang "kotlin" (data) as string? {{{ data!!.toByteArray()?.toString(kotlin.text.Charsets.US_ASCII) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string? {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.ascii) }}})
+		return safeString(lang "swift" (data) as string? {{{ Swift.String(data: data.data, encoding: Swift.String.Encoding.ascii) }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string? {{{ _util:convert_buffer_ascii_to_string(data) }}})
+		return safeString(lang "lua" (data) as string? {{{ _util:convert_buffer_ascii_to_string(data) }}})
 	}
 	ELSE {
 		var sb = new StringBuilder()
@@ -294,14 +297,14 @@ func forUTF8Buffer(data as buffer) static as string
 		encoding.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}})
+		return safeString(lang "cs" (data) as string {{{ System.Text.Encoding.UTF8.GetString(data, 0, getDataLength(data)) }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}})
+		return safeString(lang "objc" (data) as string {{{ [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] }}})
 	}
 	ELSE IFDEF "target_java" {
 		var v as string?
-		lang "java" {{{
+		lang "java" (data) {{{
 			try {
 				v = new java.lang.String(data, "UTF-8");
 			}
@@ -312,16 +315,16 @@ func forUTF8Buffer(data as buffer) static as string
 		return safeString(v)
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ kotlin.text.String(data!!.toByteArray(), kotlin.text.Charsets.UTF_8) }}})
+		return safeString(lang "kotlin" (data) as string? {{{ kotlin.text.String(data!!.toByteArray(), kotlin.text.Charsets.UTF_8) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.utf8) }}})
+		return safeString(lang "swift" (data) as string? {{{ Swift.String(data: data.data, encoding: Swift.String.Encoding.utf8) }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:convert_buffer_to_string(data) }}})
+		return safeString(lang "lua" (data) as string {{{ _util:convert_buffer_to_string(data) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string {{{ new TextDecoder().decode(data) }}})
+		return safeString(lang "js" (data) as string {{{ new TextDecoder().decode(data) }}})
 	}
 	ELSE {
 		var sb = new StringBuilder()
@@ -346,7 +349,7 @@ func forUCS2Buffer(data as buffer) static as string
 	]]
 	IFDEF "target_java" {
 		var v as string?
-		lang "java" {{{
+		lang "java" (data) {{{
 			try {
 				v = new java.lang.String(data, "UCS-2");
 			}
@@ -357,16 +360,17 @@ func forUCS2Buffer(data as buffer) static as string
 		return safeString(v)
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [[NSString alloc] initWithData:data encoding:NSUnicodeStringEncoding] }}})
+		return safeString(lang "objc" (data) as string {{{ [[NSString alloc] initWithData:data encoding:NSUnicodeStringEncoding] }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ data.toString("ucs2") }}})
+		return safeString(lang "js" (data) as string? {{{ data.toString("ucs2") }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ Swift.String(data: data! as Foundation.Data, encoding: Swift.String.Encoding.unicode) }}})
+		return safeString(lang "swift" (data) as string? {{{ Swift.String(data: data.data, encoding: Swift.String.Encoding.unicode) }}})
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop data
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -376,14 +380,14 @@ func forCharArray(chars as array<char>, offset as int, count as int) static as s
 		Constructs a new string for an array or characters.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ new string(chars, offset, count) }}})
+		return safeString(lang "cs" (chars, offset, count) as string {{{ new string(chars, offset, count) }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ new java.lang.String(chars, offset, count) }}})
+		return safeString(lang "java" (chars, offset, count) as string {{{ new java.lang.String(chars, offset, count) }}})
 	}
 	ELSE IFDEF "target_node_js" {
 		var str = ""
-		lang "js" {{{
+		lang "js" (chars, offset, count) {{{
 			let index = 0;
 			for(const cc of chars) { 
 				if (index > count) {
@@ -399,7 +403,7 @@ func forCharArray(chars as array<char>, offset as int, count as int) static as s
 	}
 	ELSE IFDEF "target_js" {
 		var str as string?
-		lang "js" {{{
+		lang "js" (chars, offset, count) {{{
 			if(offset < chars.length && count <= chars.length && offset < count) {
 				str = "";
 				for(var ind = offset; ind < count; ind++) {
@@ -410,7 +414,7 @@ func forCharArray(chars as array<char>, offset as int, count as int) static as s
 		return safeString(str)
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ kotlin.text.String(chars, offset, count) }}})
+		return safeString(lang "kotlin" (chars, offset, count) as string? {{{ kotlin.text.String(chars, offset, count) }}})
 	}
 	ELSE {
 		var sb = new StringBuilder()
@@ -439,31 +443,32 @@ func forInteger(vv as int) static as string
 		representation of the value of the integer using the "base-10" decimal notation.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ vv.ToString() }}})
+		return safeString(lang "cs" (vv) as string {{{ vv.ToString() }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:@"%d", vv] }}})
+		return safeString(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%d", vv] }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ java.lang.String.valueOf(vv) }}})
+		return safeString(lang "java" (vv) as string {{{ java.lang.String.valueOf(vv) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ (~~vv).toString() }}})
+		return safeString(lang "js" (vv) as string? {{{ (~~vv).toString() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString() }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_decimal_string_for_integer(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ _util:create_decimal_string_for_integer(vv) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		return safeString(lang "lua" as string {{{ tostring(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ tostring(vv) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ vv.description }}})
+		return lang "swift" (vv) as string {{{ Swift.String(vv) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -474,31 +479,32 @@ func forLongInteger(vv as long) static as string
 		representation of the value of the integer using the "base-10" decimal notation.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ vv.ToString() }}})
+		return safeString(lang "cs" (vv) as string {{{ vv.ToString() }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:@"%d", vv] }}})
+		return safeString(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%d", vv] }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ java.lang.String.valueOf(vv) }}})
+		return safeString(lang "java" (vv) as string {{{ java.lang.String.valueOf(vv) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ parseInt(vv).toString() }}})
+		return safeString(lang "js" (vv) as string? {{{ parseInt(vv).toString() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString() }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_decimal_string_for_integer(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ _util:create_decimal_string_for_integer(vv) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		return safeString(lang "lua" as string {{{ tostring(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ tostring(vv) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ vv.description }}})
+		return lang "swift" (vv) as string {{{ Swift.String(vv) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -528,84 +534,82 @@ func forIntegerWithPadding(vv as int, length as int, paddingString as string? = 
 	return sb.toString()
 }
 
+func padWithZero(value as string, length as int) private static as string #used
+{
+	if length < 1:
+		return value
+	var v = value
+	while getLength(v) < length:
+		v = "0" .. v
+	return v
+}
+
 func forIntegerHex(vv as int, minlength as int = 0) static as string
 {
 	description [[
 		Converts an integer value to a string using the "base-16" or hexadecimal
 		notation.
 	]]
-	var v as string?
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ vv.ToString("x") }}}
+		return padWithZero(lang "cs" (vv) as string {{{ vv.ToString("x") }}}, minlength)
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [NSString stringWithFormat:@"%X", vv] }}}
+		return padWithZero(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%X", vv] }}}, minlength)
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ java.lang.Integer.toHexString(vv) }}}
+		return padWithZero(lang "java" (vv) as string {{{ java.lang.Integer.toHexString(vv) }}}, minlength)
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ (~~vv).toString(16) }}}
+		return padWithZero(lang "js" (vv) as string {{{ (~~vv).toString(16) }}}, minlength)
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ vv.toString(16) }}}
+		return padWithZero(lang "kotlin" (vv) as string {{{ vv.toString(16) }}}, minlength)
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" as string? {{{ Swift.String(format:"%x", vv) }}}
+		return padWithZero(lang "swift" (vv) as string {{{ Swift.String(format:"%x", vv) }}}, minlength)
 	}
 	ELSE IFDEF "target_sushi" {
-		v = lang "lua" as string? {{{ _util:create_hex_string_for_integer(vv) }}}
+		return padWithZero(lang "lua" (vv) as string {{{ _util:create_hex_string_for_integer(vv) }}}, minlength)
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		nop minlength
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		Error.throw("String.forIntegerHex", null)
-	if minlength > 0 {
-		while getLength(v) < minlength:
-			v = "0" .. v
-	}
-	return v
 }
 
-func forLongIntegerHex(vv as long, minlength as int = 0) static as string
+func forUnsignedInteger64Hex(vv as uint64, minlength as int = 0) static as string
 {
 	description [[
 		Converts an long integer value to a string using the "base-16" or hexadecimal
 		notation.
 	]]
-	var v as string?
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ vv.ToString("x") }}}
+		return padWithZero(lang "cs" (vv) as string {{{ vv.ToString("x") }}}, minlength)
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [NSString stringWithFormat:@"%X", vv] }}}
+		return padWithZero(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%X", vv] }}}, minlength)
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ java.lang.Long.toHexString(vv) }}}
+		return padWithZero(lang "java" (vv) as string {{{ java.lang.Long.toHexString(vv) }}}, minlength)
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ vv.toString(16) }}}
+		return padWithZero(lang "js" (vv) as string {{{ vv.toString(16) }}}, minlength)
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ vv.toString(16) }}}
+		return padWithZero(lang "kotlin" (vv) as string {{{ vv.toString(16) }}}, minlength)
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" as string? {{{ Swift.String(format:"%x", vv) }}}
+		return padWithZero(lang "swift" (vv) as string {{{ Swift.String(format:"%lx", vv) }}}, minlength)
 	}
 	ELSE IFDEF "target_sushi" {
-		v = lang "lua" as string? {{{ _util:create_hex_string_for_integer(vv) }}}
+		return padWithZero(lang "lua" (vv) as string {{{ _util:create_hex_string_for_integer(vv) }}}, minlength)
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		nop minlength
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		Error.throw("String.forLongIntegerHex", null)
-	if minlength > 0 {
-		while getLength(v) < minlength:
-			v = "0" .. v
-	}
-	return v
 }
 
 func forIntegerOctal(vv as int) static as string
@@ -614,28 +618,29 @@ func forIntegerOctal(vv as int) static as string
 		Converts an integer value to a string using the octal notation.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ System.Convert.ToString(vv, 8) }}})
+		return safeString(lang "cs" (vv) as string {{{ System.Convert.ToString(vv, 8) }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:@"%o", vv] }}})
+		return safeString(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%o", vv] }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ java.lang.Integer.toOctalString(vv) }}})
+		return safeString(lang "java" (vv) as string {{{ java.lang.Integer.toOctalString(vv) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ (~~vv).toString(8) }}})
+		return safeString(lang "js" (vv) as string? {{{ (~~vv).toString(8) }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString(8) }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString(8) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ Swift.String(format:"%o", vv) }}})
+		return lang "swift" (vv) as string {{{ Swift.String(format:"%o", vv) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_octal_string_for_integer(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ _util:create_octal_string_for_integer(vv) }}})
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -645,19 +650,23 @@ func forIntegerBinary(vv as int) static as string
 		Converts an integer value to a string using the binary notation.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ System.Convert.ToString(vv, 2) }}})
+		return safeString(lang "cs" (vv) as string {{{ System.Convert.ToString(vv, 2) }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ java.lang.Integer.toBinaryString(vv) }}})
+		return safeString(lang "java" (vv) as string {{{ java.lang.Integer.toBinaryString(vv) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ (~~vv).toString(2) }}})
+		return safeString(lang "js" (vv) as string? {{{ (~~vv).toString(2) }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString(2) }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString(2) }}})
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" (vv) as string {{{ Swift.String(vv, radix: 2) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -686,25 +695,25 @@ func forCharacter(vv as char) static as string
 		Converts a character to a string. The result will be a single-character string.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as string {{{ new string(vv, 1) }}}
+		return lang "cs" (vv) as string {{{ new string(vv, 1) }}}
 	}
 	ELSE IFDEF "target_objc" {
 		var v as string?
-		lang "objc" {{{
+		lang "objc" (vv) {{{
 			UInt32 h = (UInt32)vv;
 			v = [[NSString alloc] initWithBytes:&h length:sizeof(h) encoding:NSUTF32LittleEndianStringEncoding];
 		}}}
 		return safeString(v)
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as string {{{ java.lang.String.valueOf(vv) }}}
+		return lang "java" (vv) as string {{{ java.lang.String.valueOf(vv) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as string {{{ String.fromCharCode(vv) }}}
+		return lang "js" (vv) as string {{{ String.fromCharCode(vv) }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		if vv < 0x80 {
-			return lang "lua" as string {{{ _util:create_string_for_byte(vv) }}}
+			return lang "lua" (vv) as string {{{ _util:create_string_for_byte(vv) }}}
 		}
 		else if vv < 0x800 {
 			var v1 = 0xC0 | (vv >> 6)
@@ -727,7 +736,7 @@ func forCharacter(vv as char) static as string
 	}
 	ELSE IFDEF "target_stdlua" {
 		if vv < 0x80 {
-			return lang "lua" as string {{{ string.char(vv) }}}
+			return lang "lua" (vv) as string {{{ string.char(vv) }}}
 		}
 		else if vv < 0x800 {
 			var v1 = 0xC0 | (vv >> 6)
@@ -749,13 +758,14 @@ func forCharacter(vv as char) static as string
 		}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString() }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ vv.description }}})
+		return lang "swift" (vv) as string {{{ Swift.String(Unicode.Scalar(vv) ?? Unicode.Scalar(0)) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -765,31 +775,32 @@ func forFloat(vv as float) static as string
 		Converts a floating point value to a string.
 	]]
 	IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:@"%f", vv] }}})
+		return safeString(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%f", vv] }}})
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as string {{{ java.lang.String.valueOf(vv) }}}
+		return lang "java" (vv) as string {{{ java.lang.String.valueOf(vv) }}}
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		return lang "cs" as string {{{ vv.ToString() }}}
+		return lang "cs" (vv) as string {{{ vv.ToString() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ vv.toString() }}})
+		return safeString(lang "js" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ vv.toString() }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_string_for_float(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ _util:create_string_for_float(vv) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		return safeString(lang "lua" as string {{{ tostring(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ tostring(vv) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ vv.description }}})
+		return lang "swift" (vv) as string {{{ vv.description }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -799,73 +810,73 @@ func forDouble(vv as double) static as string
 		Converts a double-precision floating point value to a string.
 	]]
 	IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:@"%f", vv] }}})
+		return safeString(lang "objc" (vv) as string {{{ [NSString stringWithFormat:@"%f", vv] }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ new java.math.BigDecimal(java.lang.Double.toString(vv)).toPlainString() }}})
+		return safeString(lang "java" (vv) as string {{{ new java.math.BigDecimal(java.lang.Double.toString(vv)).toPlainString() }}})
 	}
 	ELSE IFDEF "target_dotnet_cs" {
-		var str = lang "cs" as string? {{{ vv.ToString("0." + new string('#', 339)) }}}
-		if not str:
-			str = ""
+		var str = lang "cs" (vv) as string {{{ vv.ToString("0." + new string('#', 339)) }}}
 		if getIndexOfCharacter(str, '.') < 0:
 			str = str .. ".0"
 		return str
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ vv.toString() }}})
+		return safeString(lang "js" (vv) as string? {{{ vv.toString() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ java.math.BigDecimal(vv.toString()).toPlainString() }}})
+		return safeString(lang "kotlin" (vv) as string? {{{ java.math.BigDecimal(vv.toString()).toPlainString() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_string_for_float(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ _util:create_string_for_float(vv) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		return safeString(lang "lua" as string {{{ tostring(vv) }}})
+		return safeString(lang "lua" (vv) as string {{{ tostring(vv) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ NSDecimalNumber(string: vv.description) }}})
+		return lang "swift" (vv) as string {{{ vv.description }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func forDoubleWithDecimals(vv as double, decimals as int) static as string
 {
-	var v as string?
 	IFDEF "target_objc" {
 		var format = "%." .. forInteger(decimals) .. "f"
-		return safeString(lang "objc" as string {{{ [NSString stringWithFormat:format, vv] }}})
+		return safeString(lang "objc" (format, vv) as string {{{ [NSString stringWithFormat:format, vv] }}})
 	}
 	ELSE IFDEF "target_java" {
 		var format = "%." .. forInteger(decimals) .. "f"
-		return safeString(lang "java" as string {{{ String.format(format, vv) }}})
+		return safeString(lang "java" (format, vv) as string {{{ String.format(format, vv) }}})
 	}
 	ELSE IFDEF "target_dotnet_cs" {
 		var format = StringBuilder.forString("{0:0.")
 		for(var i = 0 ; i < decimals ; i++):
 			format.appendString("0")
 		format.appendString("}")
-		return safeString(lang "cs" as string {{{ String.Format(format, vv) }}})
+		return safeString(lang "cs" (format, vv) as string {{{ String.Format(format, vv) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ vv.toFixed(decimals) }}})
+		return safeString(lang "js" (vv, decimals) as string? {{{ vv.toFixed(decimals) }}})
 	}
 	ELSE IFDEF "target_kotlin" {
 		var format = "%." .. forInteger(decimals) .. "f"
-		return safeString(lang "kotlin" as string? {{{ String.format(format, vv) }}})
+		return safeString(lang "kotlin" (format, vv) as string? {{{ String.format(format, vv) }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		return safeString(lang "lua" as string {{{ _util:create_string_for_double_with_decimals(vv, decimals) }}})
+		return safeString(lang "lua" (vv, decimals) as string {{{ _util:create_string_for_double_with_decimals(vv, decimals) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		var format = "%." .. decimals .. "f"
-		return safeString(lang "swift" as string {{{ String(format: format, vv) }}})
+		var format = "%." .. forInteger(decimals) .. "f"
+		return lang "swift" (format, vv) as string {{{ Swift.String(format: format, vv) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop vv
+		nop decimals
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -874,210 +885,77 @@ func toUTF8Buffer(str as string) static as buffer
 	description [[
 		Converts a string to a buffer of bytes, encoded using the UTF8 encoding.
 	]]
-	IFDEF "target_objc" {
-		var v = lang "objc" as buffer? {{{ [[str dataUsingEncoding:NSUTF8StringEncoding] mutableCopy] }}}
+	IFDEF "target_dotnet_cs" {
+		return lang "cs" (str) as buffer {{{ System.Text.Encoding.UTF8.GetBytes(str) }}}
+	}
+	ELSE IFDEF "target_java" {
+		return lang "java" (str) as buffer {{{ str.getBytes(java.nio.charset.StandardCharsets.UTF_8) }}}
+	}
+	ELSE IFDEF "target_objc" {
+		var v = lang "objc" (str) as buffer? {{{ [[str dataUsingEncoding:NSUTF8StringEncoding] mutableCopy] }}}
 		if not v:
-			Error.throw("String.toUTF8Buffer", str)
+			Error.throw("failedToConvertStringToUTF8Buffer", str)
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		var v = lang "kotlin" as buffer? {{{ str.toByteArray(kotlin.text.Charsets.UTF_8)?.toUByteArray() }}}
+		var v = lang "kotlin" (str) as buffer? {{{ str.toByteArray(kotlin.text.charset(kotlin.text.Charsets.UTF_8))?.toUByteArray() }}}
 		if not v:
-			Error.throw("String.toUTF8Buffer", str)
+			Error.throw("failedToConvertStringToUTF8Buffer", str)
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v = lang "swift" as buffer? {{{ NSMutableData(data: (Data(str.utf8))) }}}
-		if not v:
-			Error.throw("String.toUTF8Buffer", str)
-		return v
+		return lang "swift" (str) as buffer {{{ BufferValue.forData(Foundation.Data(str.utf8)) }}}
 	}
 	ELSE IFDEF "target_stdlua" {
-		var v as buffer?
-		lang "lua" {{{
-			v = {}
+		var v = lang "lua" as buffer {{{ {} }}}
+		lang "lua" (str) {{{
 			for i=1, #str do
 				v[#v + 1] = string.byte(str, i)
 			end
 		}}}
-		return v as! buffer
-	}
-	ELSE IFDEF "target_sushi" {
-		return lang "lua" as buffer {{{ _util:convert_string_to_buffer(str) }}}
-	}
-	ELSE {
-		var bytes = getBytesUnsigned(str, "UTF-8")
-		var c = sizeof bytes
-		var bb = Buffer.allocate(c)
-		var n as int
-		for(n = 0 ; n < c ; n++):
-			Buffer.setByte(bb, n, bytes[n])
-		return bb
-	}
-}
-
-func toBuffer(str as string, charset as string) static as buffer
-{
-	description [[
-		Converts a string to a buffer of bytes, encoded using the specified "charset" as
-		the character set or encoding. Valid options for "charset" are platform
-		dependent, and would include values such as UTF8, UTF16, UCS2 and ASCII. UTF8
-		encoding, however, is implemented for all platforms, and is therefore the
-		recommended character set to use.
-	]]
-	IFDEF "target_kotlin" {
-		var v = lang "kotlin" as buffer? {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray() }}}
-		if not v:
-			Error.throw("String.toBuffer", charset)
 		return v
 	}
-	ELSE {
-		if equalsIgnoreCase("UTF8", charset) || equalsIgnoreCase("UTF-8", charset):
-			return toUTF8Buffer(str)
-		var bytes = getBytesUnsigned(str, charset)
-		var c = sizeof bytes
-		var bb = Buffer.allocate(c)
+	ELSE IFDEF "target_sushi" {
+		return lang "lua" (str) as buffer {{{ _util:convert_string_to_buffer(str) }}}
+	}
+	ELSE IFDEF "target_js" {
+		var bytes = lang "js" as array<uint8> {{{ [] }}}
+		lang "js" (str) {{{
+			for(var i = 0; i < str.length; i++) {
+				var cc = str.charCodeAt(i);
+				if(cc < 0x80) {
+					bytes.push(cc);
+				}
+				else if(cc < 0x800) {
+					bytes.push(0xc0 | (cc >> 6));
+					bytes.push(0x80 | (cc & 0x3f));
+				}
+				else if(cc < 0xd800 || cc >= 0xe000) {
+					bytes.push(0xe0 | (cc >> 12));
+					bytes.push(0x80 | ((cc >> 6) & 0x3f));
+					bytes.push(0x80 | (cc & 0x3f));
+				}
+				else {
+					i++;
+					cc = (((cc & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff)) + 0x10000;
+					bytes.push(0xf0 | (cc >> 18));
+					bytes.push(0x80 | ((cc >> 12) & 0x3f));
+					bytes.push(0x80 | ((cc >> 6) & 0x3f));
+					bytes.push(0x80 | (cc & 0x3f));
+				}
+			}
+		}}}
+		var bsz = sizeof bytes
+		var bb = Buffer.allocate(bsz)
 		var n as int
-		for(n = 0 ; n < c ; n++):
+		for(n = 0 ; n < bsz ; n++):
 			Buffer.setByte(bb, n, bytes[n])
 		return bb
 	}
-}
-
-func getBytesUnsignedUTF8(str as string) private static as array<uint8>:
-	return getBytesUnsigned(str, "UTF-8")
-
-func getBytesUnsigned(str as string, charset as string) private static as array<uint8>
-{
-	var v as array<uint8>?
-	IFDEF "target_dotnet_cs" {
-		var bytes as array<uint8>?
-		lang "cs" {{{
-			System.Text.Encoding encoding;
-			if("UTF-8".Equals(charset) || "UTF8".Equals(charset)) {
-				encoding = System.Text.Encoding.UTF8;
-			}
-			else if("UTF-16".Equals(charset) || "UTF16".Equals(charset)) {
-				encoding = System.Text.Encoding.Unicode;
-			}
-			else {
-				return(null);
-			}
-			bytes = encoding.GetBytes(str);
-		}}}
-		v = bytes
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				v = str.getBytes(charset);
-			}
-			catch(java.lang.Exception e) {
-				System.err.println(e.toString());
-			}
-		}}}
-	}
-	ELSE IFDEF "target_js" {
-		var uintArray as array<uint8>?
-		if equalsIgnoreCase(charset, "UTF-8") || equalsIgnoreCase(charset, "UTF8") {
-			lang "js" {{{
-				uintArray = [];
-				for(var i = 0; i < str.length; i++) {
-					var cc = str.charCodeAt(i);
-					if(cc < 0x80) {
-						uintArray.push(cc);
-					}
-					else if(cc < 0x800) {
-						uintArray.push(0xc0 | (cc >> 6));
-						uintArray.push(0x80 | (cc & 0x3f));
-					}
-					else if(cc < 0xd800 || cc >= 0xe000) {
-						uintArray.push(0xe0 | (cc >> 12));
-						uintArray.push(0x80 | ((cc >> 6) & 0x3f));
-						uintArray.push(0x80 | (cc & 0x3f));
-					}
-					else {
-						i++;
-						cc = (((cc & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff)) + 0x10000;
-						uintArray.push(0xf0 | (cc >> 18));
-						uintArray.push(0x80 | ((cc >> 12) & 0x3f));
-						uintArray.push(0x80 | ((cc >> 6) & 0x3f));
-						uintArray.push(0x80 | (cc & 0x3f));
-					}
-				}
-			}}}
-		}
-		else if equalsIgnoreCase(charset, "UTF-16") || equalsIgnoreCase(charset, "UTF16") {
-			lang "js" {{{
-				uintArray = new Uint8Array(str.length);
-				for(var c = 0; c < str.length; c++) {
-					uintArray[c] = str.charCodeAt(c);
-				}
-			}}}
-		}
-		v = uintArray
-	}
-	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as array<uint8>? {{{ str.toByteArray(kotlin.text.charset(charset))?.toUByteArray()?.toTypedArray() }}}
-	}
-	ELSE IFDEF "target_swift" {
-		v = lang "swift" as array<uint8>? {{{ NSMutableArray(array: [UInt8](str.utf8)) }}}
-	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		Error.throw("unableToConvertStringToBytes", str)
-	return v
-}
-
-func getBytesSignedUTF8(str as string) static as array<int8>:
-	return getBytesSigned(str, "UTF-8")
-
-func getBytesSigned(str as string, charset as string) static as array<int8>
-{
-	var v as array<int8>?
-	IFDEF "target_dotnet_cs" {
-		var bytes as array<int8>?
-		lang "cs" {{{
-			var enc = getBytesUnsigned(str, charset);
-			if(enc == null) {
-				return(null);
-			};
-			bytes = new sbyte[enc.Length];
-			System.Buffer.BlockCopy(enc, 0, bytes, 0, bytes.Length);
-		}}}
-		v = bytes
-	}
-	ELSE IFDEF "target_java" {
-		lang "java" {{{
-			try {
-				v = str.getBytes(charset);
-			}
-			catch(java.lang.Exception e) {
-				System.err.println(e.toString());
-			}
-		}}}
-	}
-	ELSE IFDEF "target_js" {
-		var intArray as array<int8>?
-		lang "js" {{{
-			intArray = new Int8Array(str.length);
-			for(var c = 0; c < str.length; c++) {
-				intArray[c] = str.charCodeAt(c);
-			}
-		}}}
-		v = intArray
-	}
-	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as array<int8>? {{{ str.toByteArray(kotlin.text.charset(charset)) }}}
-	}
-	ELSE {
-		ERROR "notImplemented"
-	}
-	if not v:
-		Error.throw("unableToConvertStringToSignedBytes", str)
-	return v
 }
 
 func getLength(str as string) static as int
@@ -1088,29 +966,29 @@ func getLength(str as string) static as int
 		memory for the string).
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ str.Length }}}
+		return lang "cs" (str) as int {{{ str.Length }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [str length] }}}
+		return lang "objc" (str) as int {{{ [str length] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ str.length() }}}
+		return lang "java" (str) as int {{{ str.length() }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ str.length }}}
+		return lang "js" (str) as int {{{ str.length }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ str.length }}}
+		return lang "kotlin" (str) as int {{{ str.length }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ str.count }}}
+		return lang "swift" (str) as int {{{ str.count }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as int {{{ _util:get_utf8_character_count(str) }}}
+		return lang "lua" (str) as int {{{ _util:get_utf8_character_count(str) }}}
 	}
 	ELSE {
 		var v = 0
-		foreach c in iterate(str):
+		foreach c #used in iterate(str):
 			v++
 		return v
 	}
@@ -1130,34 +1008,47 @@ func appendString(str1 as string?, str2 as string?) static as string
 	}
 	if str2 == null:
 		return str1
-	var v as string?
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ System.String.Concat(str1, str2) }}}
+		return lang "cs" as string {{{ System.String.Concat(str1, str2) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [str1 stringByAppendingString:str2] }}}
+		var v = lang "objc" as string? {{{ [str1 stringByAppendingString:str2] }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ str1.concat(str2 != null ? str2 : "") }}}
+		var v = lang "java" as string? {{{ str1.concat(str2 != null ? str2 : "") }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ str1.concat(str2) }}}
+		var v = lang "js" as string? {{{ str1.concat(str2) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ str1.plus(str2) }}}
+		var v = lang "kotlin" as string? {{{ str1.plus(str2) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" as string? {{{ str1! + str2! }}}
+		return lang "swift" as string {{{ str1! + str2! }}}
 	}
 	ELSE IFDEF "target_lua" {
-		v = lang "lua" as string? {{{ str1 .. str2 }}}
+		var v = lang "lua" as string? {{{ str1 .. str2 }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str1
+		nop str2
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		v = ""
-	return v
 }
 
 func appendInteger(str as string?, intvalue as int) static as string
@@ -1215,37 +1106,34 @@ func toLowerCase(str as string) static as string
 	description [[
 		Converts all characters of a string to lowercase.
 	]]
-	var v as string?
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ str.ToLower() }}}
+		return lang "cs" (str) as string {{{ str.ToLower() }}}
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [str lowercaseString] }}}
+		return safeString(lang "objc" (str) as string? {{{ [str lowercaseString] }}})
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ str.toLowerCase() }}}
+		return safeString(lang "java" (str) as string? {{{ str.toLowerCase() }}})
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ str.toLowerCase() }}}
+		return safeString(lang "js" (str) as string? {{{ str.toLowerCase() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ str.toLowerCase() }}}
+		return safeString(lang "kotlin" (str) as string? {{{ str.toLowerCase() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		v = lang "lua" as string? {{{ _util:change_string_to_lowercase(str) }}}
+		return safeString(lang "lua" (str) as string? {{{ _util:change_string_to_lowercase(str) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		v = lang "lua" as string? {{{ string.lower(str) }}}
+		return safeString(lang "lua" (str) as string? {{{ string.lower(str) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" as string? {{{ str.lowercased() }}}
+		return lang "swift" (str) as string {{{ str.lowercased() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		v = ""
-	return v
 }
 
 func toUpperCase(str as string) static as string
@@ -1253,37 +1141,34 @@ func toUpperCase(str as string) static as string
 	description [[
 		Converts all characters of a string to uppercase.
 	]]
-	var v as string?
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ str.ToUpper() }}}
+		return lang "cs" (str) as string {{{ str.ToUpper() }}}
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [str uppercaseString] }}}
+		return safeString(lang "objc" (str) as string? {{{ [str uppercaseString] }}})
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ str.toUpperCase() }}}
+		return safeString(lang "java" (str) as string? {{{ str.toUpperCase() }}})
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ str.toUpperCase() }}}
+		return safeString(lang "js" (str) as string? {{{ str.toUpperCase() }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ str.toUpperCase() }}}
+		return safeString(lang "kotlin" (str) as string? {{{ str.toUpperCase() }}})
 	}
 	ELSE IFDEF "target_sushi" {
-		v = lang "lua" as string? {{{ _util:change_string_to_uppercase(str) }}}
+		return safeString(lang "lua" (str) as string? {{{ _util:change_string_to_uppercase(str) }}})
 	}
 	ELSE IFDEF "target_stdlua" {
-		v = lang "lua" as string? {{{ string.upper(str) }}}
+		return safeString(lang "lua" (str) as string? {{{ string.upper(str) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		v = lang "swift" as string? {{{ str.uppercased() }}}
+		return lang "swift" (str) as string {{{ str.uppercased() }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		v = ""
-	return v
 }
 
 func capitalize(str as string) static as string
@@ -1303,24 +1188,27 @@ func getChar(str as string, index as int) static as char
 		Gets a character with the specified index "index" from the given string.
 	]]
 	if index < 0:
-		Error.throw("invalidCharacterIndex", forInteger(index))
+		return 0 as! char
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as char {{{ str == null || index < 0 || index >= str.Length ? (char)0 : str[index] }}}
+		return lang "cs" (str, index) as char {{{ str == null || index < 0 || index >= str.Length ? (char)0 : str[index] }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as char {{{ str == nil || index < 0 || index >= [str length] ? 0 : [str characterAtIndex:index] }}}
+		return lang "objc" (str, index) as char {{{ str == nil || index < 0 || index >= [str length] ? 0 : [str characterAtIndex:index] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as char {{{ str == null || index < 0 || index >= str.length() ? (char)0 : str.charAt(index) }}}
+		return lang "java" (str, index) as char {{{ str == null || index < 0 || index >= str.length() ? (char)0 : str.charAt(index) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as char {{{ str == null || index < 0 || index >= str.length ? 0 : str.charCodeAt(index) }}}
+		return lang "js" (str, index) as char {{{ str == null || index < 0 || index >= str.length ? 0 : str.charCodeAt(index) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as char {{{ if (str == null || index < 0 || index >= str.length) 0.toChar() else str.get(index) }}}
+		return lang "kotlin" (str, index) as char {{{ if (str == null || index < 0 || index >= str.length) 0.toChar() else str.get(index) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as char {{{ str == nil || index < 0 || index >= str.count ? Swift.Character(UnicodeScalar(0)) : str![str.index(str.startIndex, offsetBy: index)] }}}
+		lang "swift" (str, index) {{{
+			let scalar = str[str.index(str.startIndex, offsetBy: index)].unicodeScalars.first
+		}}}
+		return lang "swift" (str, index) as char {{{ scalar != nil ? scalar!.value : UInt32(0) }}}
 	}
 	ELSE {
 		var n = 0
@@ -1329,7 +1217,7 @@ func getChar(str as string, index as int) static as char
 				return c
 			n++
 		}
-		Error.throw("invalidCharacterIndex", forInteger(index))
+		return 0 as! char
 	}
 }
 
@@ -1368,7 +1256,9 @@ func equals(str1 as string?, str2 as string?) static as bool
 		return lang "swift" as bool {{{ str1 == str2 }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str1
+		nop str2
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -1411,7 +1301,7 @@ func equalsIgnoreCase(str1 as string?, str2 as string?) static as bool
 		return lang "kotlin" as bool {{{ str1.equals(str2, true) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as bool {{{ str1.range(of: str2, options: .caseInsensitive) != nil }}}
+		return lang "swift" as bool {{{ str1!.caseInsensitiveCompare(str2!) == .orderedSame }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		return 0 == lang "lua" as int {{{ _util:compare_string_ignore_case(str1, str2) }}}
@@ -1452,7 +1342,20 @@ func compare(str1 as string?, str2 as string?) static as int
 		return lang "kotlin" as int {{{ str1.compareTo(str2) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ (str1! as NSString).compare(str2!).rawValue }}}
+		var v #mutated = 0
+		lang "swift" {{{
+			let r = str1!.compare(str2!)
+			if(r == .orderedAscending) {
+				v = -1
+			}
+			else if(r == .orderedSame) {
+				v = 0
+			}
+			else if(r == .orderedDescending) {
+				v = 1
+			}
+		}}}
+		return v
 	}
 	ELSE {
 		var it1 = iterateAsCharacterIterator(str1)
@@ -1503,12 +1406,20 @@ func compareIgnoreCase(str1 as string?, str2 as string?) static as int
 		return lang "kotlin" as int {{{ str1.compareTo(str2, true) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var n as int
+		var v #mutated = 0
 		lang "swift" {{{
-			let r = (str1! as NSString).caseInsensitiveCompare(str2!)
-			n = r == ComparisonResult.orderedAscending ? -1 : r == ComparisonResult.orderedSame ? 0 : 1
+			let r = str1!.caseInsensitiveCompare(str2!)
+			if(r == .orderedAscending) {
+				v = -1
+			}
+			else if(r == .orderedSame) {
+				v = 0
+			}
+			else if(r == .orderedDescending) {
+				v = 1
+			}
 		}}}
-		return n
+		return v
 	}
 	ELSE {
 		var it1 = iterateAsCharacterIterator(str1)
@@ -1537,19 +1448,19 @@ func getHashCode(str as string) static as int
 		Gets a hash code version of the string as an integer.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ str.GetHashCode() }}}
+		return lang "cs" (str) as int {{{ str.GetHashCode() }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [str hash] }}}
+		return lang "objc" (str) as int {{{ [str hash] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ str.hashCode() }}}
+		return lang "java" (str) as int {{{ str.hashCode() }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ str.hashCode() }}}
+		return lang "kotlin" (str) as int {{{ str.hashCode() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ (str! as NSString).hash }}}
+		return lang "swift" (str) as int {{{ str.hash }}}
 	}
 	ELSE {
 		var hash = 0
@@ -1570,14 +1481,14 @@ func getIndexOfCharacter(str as string, c as char, start as int = 0) static as i
 	if c == 0:
 		return -1
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ str.IndexOf(c, start) }}}
+		return lang "cs" (str, start) as int {{{ str.IndexOf(c, start) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ str.indexOf((int)c, start) }}}
+		return lang "java" (str, c, start) as int {{{ str.indexOf((int)c, start) }}}
 	}
 	ELSE IFDEF "target_objc" {
 		var v as int
-		lang "objc" {{{
+		lang "objc" (str, start) {{{
 			NSRange r = [str rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"%c", c]] options:0 range:NSMakeRange(start, [str length]-start)];
 			if(r.location == NSNotFound) {
 				v = -1;
@@ -1589,25 +1500,32 @@ func getIndexOfCharacter(str as string, c as char, start as int = 0) static as i
 		return v
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ str.indexOf(String.fromCharCode(c), start) }}}
+		return lang "js" (str, c, start) as int {{{ str.indexOf(String.fromCharCode(c), start) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ str.indexOf(c, start) }}}
+		return lang "kotlin" (str, c, start) as int {{{ str.indexOf(c, start) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as int {{{ _util:get_index_of_character(str, c, start) }}}
+		return lang "lua" (str, c, start) as int {{{ _util:get_index_of_character(str, c, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v = -1
-		lang "swift" {{{
-			if let range = str.range(of: Swift.String(c)) {
-				v = str.distance(from: str.startIndex, to: range.lowerBound)
+		lang "swift" (str, c, start) {{{
+			for (index, character) in str.enumerated() {
+				if (index >= start) {
+					let scalar = character.unicodeScalars.first
+					if (scalar != nil && c == scalar!.value) {
+						return index
+					}
+				}
 			}
 		}}}
-		return v
+		return -1
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		nop c
+		nop start
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -1618,34 +1536,43 @@ func getIndexOfString(str as string, s as string, start as int = 0) static as in
 		index "start".
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ str.IndexOf(s, start) }}}
+		return lang "cs" (str, s, start) as int {{{ str.IndexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ str.indexOf(s, start) }}}
+		return lang "java" (str, s, start) as int {{{ str.indexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [str rangeOfString:s options:0 range:NSMakeRange(start, [str length]-start)].location }}}
+		return lang "objc" (str, s, start) as int {{{ [str rangeOfString:s options:0 range:NSMakeRange(start, [str length]-start)].location }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ str.indexOf(s, start) }}}
+		return lang "js" (str, s, start) as int {{{ str.indexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ str.indexOf(s, start) }}}
+		return lang "kotlin" (str, s, start) as int {{{ str.indexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as int {{{ _util:get_index_of_substring(str, s, start) }}}
+		return lang "lua" (str, s, start) as int {{{ _util:get_index_of_substring(str, s, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var v = -1
-		lang "swift" {{{
-			if let range = str.range(of: s) {
-				v = str.distance(from: str.startIndex, to: range.lowerBound)
+		if s == "":
+			return 0
+		var v #mutated = -1
+		lang "swift" (str, s, start) {{{
+			var ss = str
+			if (start > 0) {
+				ss = Swift.String(str[str.index(str.startIndex, offsetBy: start)...])
+			}
+			if let range = ss.range(of: s) {
+				v = ss.distance(from: ss.startIndex, to: range.lowerBound) + start
 			}
 		}}}
 		return v
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		nop s
+		nop start
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -1657,33 +1584,41 @@ func getLastIndexOfCharacter(str as string, c as char, start as int = -1) static
 	]]
 	IFDEF "target_dotnet_cs" {
 		if start < 0:
-			return lang "cs" as int {{{ str.LastIndexOf(c) }}}
-		return lang "cs" as int {{{ str.LastIndexOf(c, start) }}}
+			return lang "cs" (str, c) as int {{{ str.LastIndexOf(c) }}}
+		return lang "cs" (str, c, start) as int {{{ str.LastIndexOf(c, start) }}}
 	}
 	ELSE IFDEF "target_java" {
 		if start < 0:
-			return lang "java" as int {{{ str.lastIndexOf((int)c) }}}
-		return lang "java" as int {{{ str.lastIndexOf((int)c, start) }}}
+			return lang "java" (str, c) as int {{{ str.lastIndexOf((int)c) }}}
+		return lang "java" (str, c, start) as int {{{ str.lastIndexOf((int)c, start) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [str rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"%c", c]] options:NSBackwardsSearch range:NSMakeRange(0, start < 0 ? [str length] : start)].location }}}
+		return lang "objc" (str, c, start) as int {{{ [str rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:[NSString stringWithFormat:@"%c", c]] options:NSBackwardsSearch range:NSMakeRange(0, start < 0 ? [str length] : start)].location }}}
 	}
 	ELSE IFDEF "target_js" {
 		if start <= 0:
-			return lang "js" as int {{{ str.lastIndexOf(String.fromCharCode(c)) }}}
-		return lang "js" as int {{{ str.lastIndexOf(String.fromCharCode(c), start) }}}
+			return lang "js" (str, c) as int {{{ str.lastIndexOf(String.fromCharCode(c)) }}}
+		return lang "js" (str, c, start) as int {{{ str.lastIndexOf(String.fromCharCode(c), start) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		if start <= 0:
-			return lang "kotlin" as int {{{ str.lastIndexOf(c) }}}
-		return lang "kotlin" as int {{{ str.lastIndexOf(c, start) }}}
+			return lang "kotlin" (str, c) as int {{{ str.lastIndexOf(c) }}}
+		return lang "kotlin" (str, c, start) as int {{{ str.lastIndexOf(c, start) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		var n as int
-		lang "swift" {{{
-			let range: Range<String.Index> = str.range(of: Swift.String(c), options: .backwards)!
-			n = str.distance(from: str.startIndex, to: range.lowerBound)
+		var n as int #mutated
+		var cs = forCharacter(c)
+		lang "swift" (str, cs) {{{
+			let range = str.range(of: cs, options: .backwards)
+			if(range == nil) {
+				n = -1
+			}
+			else {
+				n = str.distance(from: str.startIndex, to: range!.lowerBound)
+			}
 		}}}
+		if n < start:
+			n = -1
 		return n
 	}
 	ELSE {
@@ -1711,34 +1646,26 @@ func getLastIndexOfString(str as string, s as string, start as int = -1) static 
 	]]
 	IFDEF "target_dotnet_cs" {
 		if start < 0:
-			return lang "cs" as int {{{ str.LastIndexOf(s) }}}
-		return lang "cs" as int {{{ str.LastIndexOf(s, start) }}}
+			return lang "cs" (str, s) as int {{{ str.LastIndexOf(s) }}}
+		return lang "cs" (str, s, start) as int {{{ str.LastIndexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_java" {
 		if start < 0:
-			return lang "java" as int {{{ str.lastIndexOf(s) }}}
-		return lang "java" as int {{{ str.lastIndexOf(s, start) }}}
+			return lang "java" (str, s) as int {{{ str.lastIndexOf(s) }}}
+		return lang "java" (str, s, start) as int {{{ str.lastIndexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ [str rangeOfString:s options:NSBackwardsSearch range:NSMakeRange(0, start < 0 ? [str length] : start)].location }}}
+		return lang "objc" (str, s, start) as int {{{ [str rangeOfString:s options:NSBackwardsSearch range:NSMakeRange(0, start < 0 ? [str length] : start)].location }}}
 	}
 	ELSE IFDEF "target_js" {
 		if start <= 0:
-			return lang "js" as int {{{ str.lastIndexOf(s) }}}
-		return lang "js" as int {{{ str.lastIndexOf(s, start) }}}
+			return lang "js" (str, s) as int {{{ str.lastIndexOf(s) }}}
+		return lang "js" (str, s, start) as int {{{ str.lastIndexOf(s, start) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
 		if start <= 0:
-			return lang "kotlin" as int {{{ str.lastIndexOf(s) }}}
-		return lang "kotlin" as int {{{ str.lastIndexOf(s, start) }}}
-	}
-	ELSE IFDEF "target_swift" {
-		var n as int
-		lang "swift" {{{
-			let range: Range<String.Index> = str.range(of: s!, options: .backwards)!
-			n = str.distance(from: str.startIndex, to: range.lowerBound)
-		}}}
-		return n
+			return lang "kotlin" (str, s) as int {{{ str.lastIndexOf(s) }}}
+		return lang "kotlin" (str, s, start) as int {{{ str.lastIndexOf(s, start) }}}
 	}
 	ELSE {
 		var ss = start
@@ -1768,31 +1695,33 @@ func getEndOfString(str as string, start as int) static as string
 		ss = 0
 	if ss < getLength(str) {
 		IFDEF "target_dotnet_cs" {
-			v = lang "cs" as string? {{{ str.Substring(ss) }}}
+			v = lang "cs" (str, ss) as string {{{ str.Substring(ss) }}}
 		}
 		ELSE IFDEF "target_java" {
-			v = lang "java" as string? {{{ str.substring(ss) }}}
+			v = lang "java" (str, ss) as string? {{{ str.substring(ss) }}}
 		}
 		ELSE IFDEF "target_objc" {
-			v = lang "objc" as string? {{{ [str substringFromIndex:ss] }}}
+			v = lang "objc" (str, ss) as string? {{{ [str substringFromIndex:ss] }}}
 		}
 		ELSE IFDEF "target_js" {
-			v = lang "js" as string? {{{ str.substring(ss) }}}
+			v = lang "js" (str, ss) as string? {{{ str.substring(ss) }}}
 		}
 		ELSE IFDEF "target_kotlin" {
-			v = lang "kotlin" as string? {{{ str.substring(ss) }}}
+			v = lang "kotlin" (str, ss) as string? {{{ str.substring(ss) }}}
 		}
 		ELSE IFDEF "target_sushi" {
-			v = lang "lua" as string? {{{ _util:get_substring(str, ss, #str) }}}
+			v = lang "lua" (str, ss) as string? {{{ _util:get_substring(str, ss, #str) }}}
 		}
 		ELSE IFDEF "target_swift" {
-			lang "swift" {{{
+			lang "swift" (str, ss) {{{
 				let startIdx = str.index(str.startIndex, offsetBy: ss)
-				v = Swift.String(str![startIdx...])
+				v = Swift.String(str[startIdx...])
 			}}}
 		}
 		ELSE {
-			ERROR "notImplemented"
+			nop str
+			nop start
+			ERROR NOT_IMPLEMENTED
 		}
 	}
 	if not v:
@@ -1806,41 +1735,60 @@ func getSubString(str as string, start as int, length as int) static as string
 		Gets a substring of "str", starting from index "start" and with a maximum length
 		of "length".
 	]]
-	var v as string?
 	var ss = start
 	if ss < 0:
 		ss = 0
 	IFDEF "target_dotnet_cs" {
-		v = lang "cs" as string? {{{ str.Substring(ss, length) }}}
+		return lang "cs" (str, ss, length) as string {{{ str.Substring(ss, length) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		v = lang "objc" as string? {{{ [str substringWithRange:NSMakeRange(ss, length)] }}}
+		var v = lang "objc" (str, ss, length) as string? {{{ [str substringWithRange:NSMakeRange(ss, length)] }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_java" {
-		v = lang "java" as string? {{{ str.substring(ss, ss+length) }}}
+		var v = lang "java" (str, ss, length) as string? {{{ str.substring(ss, ss+length) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_js" {
-		v = lang "js" as string? {{{ str.substring(ss, ss+_length) }}}
+		var ll = length
+		var v = lang "js" (str, ss, ll) as string? {{{ str.substring(ss, ss+ll) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_kotlin" {
-		v = lang "kotlin" as string? {{{ str.substring(ss, ss+length) }}}
+		var v = lang "kotlin" (str, ss, length) as string? {{{ str.substring(ss, ss+length) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_sushi" {
-		v = lang "lua" as string? {{{ _util:get_substring(str, ss, ss+length) }}}
+		var v = lang "lua" (str, ss, length) as string? {{{ _util:get_substring(str, ss, ss+length) }}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
+		var v as string?
+		lang "swift" (str, ss, length) {{{
 			let fromIndex = str.index(str.startIndex, offsetBy: ss)
 			let toIndex = str.index(str.endIndex, offsetBy: (ss - str.count) + length)
-			v = str.substring(with: fromIndex..<toIndex)
+			v = Swift.String(str[fromIndex..<toIndex])
 		}}}
+		if not v:
+			v = ""
+		return v
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		nop start
+		nop length
+		ERROR NOT_IMPLEMENTED
 	}
-	if not v:
-		v = ""
-	return v
 }
 
 func contains(str1 as string, str2 as string) static as bool
@@ -1850,17 +1798,17 @@ func contains(str1 as string, str2 as string) static as bool
 		substring is found.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as bool {{{ str1.Contains(str2) }}}
+		return lang "cs" (str1, str2) as bool {{{ str1.Contains(str2) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as bool {{{ [str1 containsString:str2] }}}
+		return lang "objc" (str1, str2) as bool {{{ [str1 containsString:str2] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ str1.contains(str2) }}}
+		return lang "java" (str1, str2) as bool {{{ str1.contains(str2) }}}
 	}
 	ELSE IFDEF "target_js" {
 		var x as bool
-		lang "js" {{{
+		lang "js" (str1, str2) {{{
 			if(!str1.includes) {
 				x = str1.indexOf(str2) !== -1;
 			}
@@ -1871,10 +1819,10 @@ func contains(str1 as string, str2 as string) static as bool
 		return x
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as bool {{{ str1.contains(str2) }}}
+		return lang "kotlin" (str1, str2) as bool {{{ str1.contains(str2) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as bool {{{ (str1! as NSString).contains(str2!) }}}
+		return lang "swift" (str1, str2) as bool {{{ str1.contains(str2) }}}
 	}
 	ELSE {
 		if getIndexOfString(str1, str2) >= 0:
@@ -1898,17 +1846,17 @@ func startsWith(str1 as string, str2 as string, offset as int = 0) static as boo
 		nstr = str1
 	}
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as bool {{{ nstr.StartsWith(str2) }}}
+		return lang "cs" (nstr, str2) as bool {{{ nstr.StartsWith(str2) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as bool {{{ [nstr hasPrefix:str2] }}}
+		return lang "objc" (nstr, str2) as bool {{{ [nstr hasPrefix:str2] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ nstr.startsWith(str2) }}}
+		return lang "java" (nstr, str2) as bool {{{ nstr.startsWith(str2) }}}
 	}
 	ELSE IFDEF "target_js" {
 		var x as bool
-		lang "js" {{{
+		lang "js" (nstr, str2) {{{
 			if(!nstr.startsWith) {
 				x = nstr.indexOf(str2) === 0;
 			}
@@ -1919,19 +1867,22 @@ func startsWith(str1 as string, str2 as string, offset as int = 0) static as boo
 		return x
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as bool {{{ nstr.startsWith(str2) }}}
+		return lang "kotlin" (nstr, str2) as bool {{{ nstr.startsWith(str2) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		return lang "lua" as bool {{{ _util:string_starts_with(str1, str2, offset) }}}
+		return lang "lua" (str1, str2, offset) as bool {{{ _util:string_starts_with(str1, str2, offset) }}}
 	}
 	ELSE IFDEF "target_stdlua" {
-		return lang "lua" as bool {{{ string.sub(str1, 1, string.len(str2)) == str2 }}}
+		return lang "lua" (str1, str2) as bool {{{ string.sub(str1, 1, string.len(str2)) == str2 }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as bool {{{ nstr.hasPrefix(str2!) }}}
+		return lang "swift" (nstr, str2) as bool {{{ nstr!.hasPrefix(str2) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str1
+		nop str2
+		nop offset
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -1981,17 +1932,17 @@ func endsWith(str1 as string, str2 as string) static as bool
 		Checks if the string "str1" ends with the complete contents of "str2".
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as bool {{{ str1.EndsWith(str2) }}}
+		return lang "cs" (str1, str2) as bool {{{ str1.EndsWith(str2) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as bool {{{ [str1 hasSuffix:str2] }}}
+		return lang "objc" (str1, str2) as bool {{{ [str1 hasSuffix:str2] }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ str1.endsWith(str2) }}}
+		return lang "java" (str1, str2) as bool {{{ str1.endsWith(str2) }}}
 	}
 	ELSE IFDEF "target_js" {
 		var x as bool
-		lang "js" {{{
+		lang "js" (str1, str2) {{{
 			if(!str1.endsWith) {
 				x = str1.indexOf(str2) === str1.length - str2.length;
 			}
@@ -2002,20 +1953,22 @@ func endsWith(str1 as string, str2 as string) static as bool
 		return x
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as bool {{{ str1.endsWith(str2) }}}
+		return lang "kotlin" (str1, str2) as bool {{{ str1.endsWith(str2) }}}
 	}
 	ELSE IFDEF "target_sushi" {
-		var s1 = lang "lua" as int {{{ _util:get_utf8_character_count(str1) }}}
-		return lang "lua" as bool {{{ _util:get_substring(str1, s1 -_util:get_utf8_character_count(str2), s1) == str2 }}}
+		var s1 = lang "lua" (str1) as int {{{ _util:get_utf8_character_count(str1) }}}
+		return lang "lua" (str1, s1, str2) as bool {{{ _util:get_substring(str1, s1 -_util:get_utf8_character_count(str2), s1) == str2 }}}
 	}
 	ELSE IFDEF "target_stdlua" {
-		return lang "lua" as bool {{{ string.sub(str1, string.len(str1)-string.len(str2), string.len(str1)) == str2 }}}
+		return lang "lua" (str1, str2) as bool {{{ string.sub(str1, string.len(str1)-string.len(str2), string.len(str1)) == str2 }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as bool {{{ str1.hasSuffix(str2!) }}}
+		return lang "swift" (str1, str2) as bool {{{ str1.hasSuffix(str2) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str1
+		nop str2
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -2063,22 +2016,22 @@ func strip(str as string) static as string
 		both ends (the beginning and the end) of the string.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string {{{ str.Trim() }}})
+		return safeString(lang "cs" (str) as string {{{ str.Trim() }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string {{{ str.trim() }}})
+		return safeString(lang "java" (str) as string {{{ str.trim() }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ str.trim() }}})
+		return safeString(lang "js" (str) as string? {{{ str.trim() }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string {{{ [str stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] }}})
+		return safeString(lang "objc" (str) as string {{{ [str stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ str.trim() }}})
+		return safeString(lang "kotlin" (str) as string? {{{ str.trim() }}})
 	}
 	ELSE IFDEF "target_swift" {
-		return safeString(lang "swift" as string {{{ (str! as NSString).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }}})
+		return safeString(lang "swift" (str) as string {{{ str.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines) }}})
 	}
 	ELSE {
 		return stripFromStart(stripFromEnd(str))
@@ -2092,7 +2045,7 @@ func stripFromEnd(str as string) static as string
 		the end of the string.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as string {{{ str.TrimEnd(null) }}}
+		return lang "cs" (str) as string {{{ str.TrimEnd(null) }}}
 	}
 	ELSE {
 		var ll = getLength(str)
@@ -2121,7 +2074,7 @@ func stripFromStart(str as string) static as string
 		the beginning of the string.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as string {{{ str.TrimStart(null) }}}
+		return lang "cs" (str) as string {{{ str.TrimStart(null) }}}
 	}
 	ELSE {
 		var n = 0
@@ -2148,14 +2101,14 @@ func replaceCharacter(str as string, oldChar as char, newChar as char) static as
 		effected. The original string remains unchanged.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as string {{{ str.Replace(oldChar, newChar) }}}
+		return lang "cs" (str, oldChar, newChar) as string {{{ str.Replace(oldChar, newChar) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as string {{{ str.replace(oldChar, newChar) }}}
+		return lang "java" (str, oldChar, newChar) as string {{{ str.replace(oldChar, newChar) }}}
 	}
 	ELSE IFDEF "target_node_js" {
 		var result = ""
-		lang "js" {{{
+		lang "js" (str, oldChar, newChar) {{{
 			const sa = Array.from(str);
 			sa.forEach(cc => {
 				if (cc.charCodeAt() == oldChar) {
@@ -2169,22 +2122,10 @@ func replaceCharacter(str as string, oldChar as char, newChar as char) static as
 		return result
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as string? {{{ str.replace(oldChar, newChar) }}} ?? ""
+		return lang "js" (str, oldChar, newChar) as string? {{{ str.replace(oldChar, newChar) }}} ?? ""
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as string {{{ str.replace(oldChar, newChar) }}}
-	}
-	ELSE IFDEF "target_swift" {
-		var v as string?
-		lang "swift" {{{
-			let oldCharRange: Range<String.Index> = str!.range(of: Swift.String(oldChar))!
-			let oldCharIdx: Int = str!.distance(from: str!.startIndex, to: oldCharRange.lowerBound)
-			let oldCharStart = str!.index(str!.startIndex, offsetBy: oldCharIdx)
-			let oldCharEnd = str!.index(str!.startIndex, offsetBy:  oldCharIdx + Swift.String(oldChar).count)
-			v = str
-			v!.replaceSubrange(oldCharStart..<oldCharEnd, with: Swift.String(newChar))
-		}}}
-		return v
+		return lang "kotlin" (str, oldChar, newChar) as string {{{ str.replace(oldChar, newChar) }}}
 	}
 	ELSE {
 		return replaceString(str, forCharacter(oldChar), forCharacter(newChar))
@@ -2202,31 +2143,22 @@ func replaceString(str as string, target as string, replacement as string) stati
 		return str
 	var rr = replacement
 	IFDEF "target_dotnet_cs" {
-		return safeString(lang "cs" as string? {{{ str.Replace(target, rr) }}})
+		return safeString(lang "cs" (str, target, rr) as string {{{ str.Replace(target, rr) }}})
 	}
 	ELSE IFDEF "target_java" {
-		return safeString(lang "java" as string? {{{ str.replace(target, rr) }}})
+		return safeString(lang "java" (str, target, rr) as string? {{{ str.replace(target, rr) }}})
 	}
 	ELSE IFDEF "target_js" {
-		return safeString(lang "js" as string? {{{ str.replaceAll(target, rr) }}})
+		return safeString(lang "js" (str, target, rr) as string? {{{ str.replaceAll(target, rr) }}})
 	}
 	ELSE IFDEF "target_objc" {
-		return safeString(lang "objc" as string? {{{ [str stringByReplacingOccurrencesOfString: target withString: rr] }}})
+		return safeString(lang "objc" (str, target, rr) as string? {{{ [str stringByReplacingOccurrencesOfString: target withString: rr] }}})
 	}
 	ELSE IFDEF "target_kotlin" {
-		return safeString(lang "kotlin" as string? {{{ str!!.replace(target!!, rr, false) }}})
+		return safeString(lang "kotlin" (str, target, rr) as string? {{{ str!!.replace(target!!, rr, false) }}})
 	}
 	ELSE IFDEF "target_swift" {
-		var v as string?
-		lang "swift" {{{
-			let oldStrRange: Range<String.Index> = str!.range(of: target!)!
-			let oldStrIdx: Int = str!.distance(from: str!.startIndex, to: oldStrRange.lowerBound)
-			let start = str!.index(str!.startIndex, offsetBy: oldStrIdx)
-			let end = str!.index(str!.startIndex, offsetBy:  oldStrIdx + target!.count)
-			v = str
-			v!.replaceSubrange(start..<end, with: rr!)
-		}}}
-		return safeString(v)
+		return lang "swift" (str, target, rr) as string {{{ str.replacingOccurrences(of: target, with: rr) }}}
 	}
 	ELSE {
 		var v = str
@@ -2250,14 +2182,14 @@ func toCharArray(str as string) static as array<char>
 		Converts the string "str" to an array of characters.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as array<char> {{{ str.ToCharArray() }}}
+		return lang "cs" (str) as array<char> {{{ str.ToCharArray() }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as array<char> {{{ str.toCharArray() }}}
+		return lang "java" (str) as array<char> {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_js" {
 		var v as array<char>?
-		lang "js" {{{
+		lang "js" (str) {{{
 			v = [];
 			for (var i = 0; i < str.length; i++) {
 				v[i] = str.charAt(i).charCodeAt();
@@ -2267,7 +2199,7 @@ func toCharArray(str as string) static as array<char>
 	}
 	ELSE IFDEF "target_objc" {
 		var ca as array<char>?
-		lang "objc" {{{
+		lang "objc" (str) {{{
 			ca = [[NSMutableArray alloc] init];
 			for(int i = 0; i < [str length]; i++) {
 				CFStringRef strcf = (__bridge CFStringRef)str;
@@ -2295,10 +2227,18 @@ func toCharArray(str as string) static as array<char>
 		return ca as! array<char>
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as array<char> {{{ str.toCharArray() }}}
+		return lang "kotlin" (str) as array<char> {{{ str.toCharArray() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as array<char> {{{ NSMutableArray(array: Array(str!)) }}}
+		var v = new char[getLength(str)]
+		lang "swift" (str) {{{
+			var n = 0
+			for cc in str.unicodeScalars {
+				v.setValue(n, Swift.UInt32(cc.value))
+				n += 1
+			}
+		}}}
+		return v
 	}
 	ELSE IFDEF "target_lua" {
 		var v as array<char>?
@@ -2311,7 +2251,7 @@ func toCharArray(str as string) static as array<char>
 			var c = it.getNextChar()
 			if Character.isEOF(c):
 				break
-			lang "lua" {{{
+			lang "lua" (v, n, c) {{{
 				v[n + 1] = c
 			}}}
 			n++
@@ -2319,7 +2259,8 @@ func toCharArray(str as string) static as array<char>
 		return v as! array<char>
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop str
+		ERROR NOT_IMPLEMENTED
 	}
 }
 

@@ -22,7 +22,6 @@
  * SOFTWARE.
  */
 
-import jk.lang
 import jk.json
 
 class is Iterator<DynamicMap> abstract:
@@ -31,19 +30,19 @@ description [[
 	A generic iterator for SQL result sets.
 ]]
 
-func hasNext abstract as bool
-func step abstract
-func next abstract as DynamicMap
-func nextValues(values as vector<object>) abstract
-func getColumnCount abstract as int
-func getColumnName(n as int) abstract as string
-func getColumnNames abstract as vector<string>
-func getColumnObject(n as int) abstract as object
-func getColumnInt(n as int) abstract as int
-func getColumnLong(n as int) abstract as long
-func getColumnDouble(n as int) abstract as double
-func getColumnBuffer(n as int) abstract as buffer
-func close abstract
+func hasNext implement abstract as bool
+func step abstract throws Exception
+func next implement abstract throws Exception as DynamicMap
+func nextValues(values as vector<dynamic?>) abstract throws Exception
+func getColumnCount abstract throws Exception as int
+func getColumnName(n as int) abstract throws Exception as string
+func getColumnNames abstract throws Exception as vector<string>
+func getColumnValue(n as int) abstract throws Exception as dynamic?
+func getColumnInt(n as int) abstract throws Exception as int
+func getColumnLong(n as int) abstract throws Exception as long
+func getColumnDouble(n as int) abstract throws Exception as double
+func getColumnBuffer(n as int) abstract throws Exception as buffer
+func close abstract throws Exception
 
 func toDynamicVectorOfDynamicMap as DynamicVector
 {
@@ -53,7 +52,7 @@ func toDynamicVectorOfDynamicMap as DynamicVector
 	]]
 	var v = new DynamicVector()
 	while hasNext():
-		v.appendObject(next())
+		v.appendObject(try! next())
 	return v
 }
 
@@ -65,35 +64,33 @@ func toVectorOfDynamicMap as vector<DynamicMap>
 	]]
 	var v = new vector<DynamicMap>
 	while hasNext():
-		v += next()
+		v += try! next()
 	return v
 }
 
-func toVectorList as vector<dynamic>
+func toVectorList throws Exception as vector<vector<dynamic?>>
 {
 	description [[
 		Converts the data into a vector of records. Each record is a vector of column
 		objects. The first record is a vector of column names.
 	]]
-	var data = new vector<dynamic>
+	var data = new vector<vector<dynamic?>>
 	var cc = getColumnCount()
-	var cols = new vector<dynamic>
-	Vector.setCapacity(cols, cc)
+	var cols = new vector<dynamic?>
 	for(var n = 0 ; n < cc ; n++):
 		cols += getColumnName(n)
 	data += cols
 	while hasNext() {
 		step()
-		var record = new vector<dynamic>
-		Vector.setCapacity(record, cc)
+		var record = new vector<dynamic?>
 		for(var n = 0 ; n < cc ; n++):
-			record += getColumnObject(n)
+			record += getColumnValue(n)
 		data += record
 	}
 	return data
 }
 
-func headerJSON(sb as StringBuilder)
+func headerJSON(sb as StringBuilder) throws Exception
 {
 	description [[
 		Encodes the column name(s) into a vector as a string and appends it to the
@@ -109,7 +106,7 @@ func headerJSON(sb as StringBuilder)
 	sb.appendCharacter(']')
 }
 
-func nextJSON(sb as StringBuilder)
+func nextJSON(sb as StringBuilder) throws Exception
 {
 	description [[
 		Encodes the next record into a vector of objects as a string and appends it to
@@ -122,12 +119,12 @@ func nextJSON(sb as StringBuilder)
 	for(var n = 0 ; n < cc ; n++) {
 		if n > 0:
 			sb.appendCharacter(',')
-		JSONEncoder.encodeToBuilder(getColumnObject(n), sb)
+		JSONEncoder.encodeToBuilder(getColumnValue(n), sb)
 	}
 	sb.appendCharacter(']')
 }
 
-func toVectorListJSON as string
+func toVectorListJSON throws Exception as string
 {
 	description [[
 		Encodes the data into a string with a vector list JSON format.

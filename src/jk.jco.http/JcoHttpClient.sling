@@ -26,7 +26,7 @@ import jk.json
 
 class:
 
-func get(url as string, handler as function<void,JcoHttpResponse>)
+func get(url as string, handler as function<(JcoHttpResponse)>)
 {
 	var req = new JcoHttpRequest() {
 		method "GET"
@@ -35,7 +35,7 @@ func get(url as string, handler as function<void,JcoHttpResponse>)
 	execute(req, handler)
 }
 
-func post(url as string, body as buffer, handler as function<void,JcoHttpResponse>)
+func post(url as string, body as buffer, handler as function<(JcoHttpResponse)>)
 {
 	var req = new JcoHttpRequest() {
 		method "POST"
@@ -45,7 +45,7 @@ func post(url as string, body as buffer, handler as function<void,JcoHttpRespons
 	execute(req, handler)
 }
 
-func put(url as string, body as buffer, handler as function<void,JcoHttpResponse>)
+func put(url as string, body as buffer, handler as function<(JcoHttpResponse)>)
 {
 	var req = new JcoHttpRequest() {
 		method "PUT"
@@ -55,7 +55,7 @@ func put(url as string, body as buffer, handler as function<void,JcoHttpResponse
 	execute(req, handler)
 }
 
-func putWithHeaders(url as string, body as buffer, headers as KeyValueListForStrings, handler as function<void,JcoHttpResponse>)
+func putWithHeaders(url as string, body as buffer, headers as KeyValueListForStrings, handler as function<(JcoHttpResponse)>)
 {
 	var req = new JcoHttpRequest() {
 		method "PUT"
@@ -66,7 +66,7 @@ func putWithHeaders(url as string, body as buffer, headers as KeyValueListForStr
 	execute(req, handler)
 }
 
-func getString(url as string, handler as function<void,string?>):
+func getString(url as string, handler as function<(string?)>):
 	get(url, func(resp as JcoHttpResponse) {
 		if JcoHttpResponse.isOK(resp) == false {
 			handler(null)
@@ -76,33 +76,40 @@ func getString(url as string, handler as function<void,string?>):
 		}
 	})
 
-func getMap(url as string, handler as function<void,DynamicMap?>):
+func getMap(url as string, handler as function<(DynamicMap?)>):
 	get(url, func(resp as JcoHttpResponse) {
 		if JcoHttpResponse.isOK(resp) == false {
 			handler(null)
 		}
 		else {
-			handler(JSONParser.parseString(resp.getBodyString()) as DynamicMap)
+			handler(try? JSONParser.parseString(resp.getBodyString()) as DynamicMap)
 		}
 	})
 
-func getVector(url as string, handler as function<void,DynamicVector?>):
+func getVector(url as string, handler as function<(DynamicVector?)>):
 	get(url, func(resp as JcoHttpResponse) {
 		if JcoHttpResponse.isOK(resp) == false {
 			handler(null)
 		}
 		else {
-			handler(JSONParser.parseString(resp.getBodyString()) as DynamicVector)
+			handler(try? JSONParser.parseString(resp.getBodyString()) as DynamicVector)
 		}
 	})
 
-func execute(request as JcoHttpRequest, handler as function<void,JcoHttpResponse>)
+func execute(request as JcoHttpRequest, handler as function<(JcoHttpResponse)>)
 {
 	IFDEF "target_browser_js" {
 		executeJs(request, handler)
 	}
+	ELSE IFDEF "target_headless" {
+		nop request
+		nop handler
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop request
+		nop handler
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -132,7 +139,7 @@ IFDEF "target_browser_js"
 		return lang "js" as [magical:XMLHttpRequest] {{{ new XMLHttpRequest() }}}
 	}
 
-	func onResponseReceived(status as string, responseHeaders as string?, body as buffer?, callback as function<void,JcoHttpResponse>)
+	func onResponseReceived(status as string, responseHeaders as string?, body as buffer?, callback as function<(JcoHttpResponse)>)
 	{
 		var nhdrs = new KeyValueListForStrings()
 		if responseHeaders {
@@ -163,14 +170,14 @@ IFDEF "target_browser_js"
 		})
 	}
 
-	func executeJs(request as JcoHttpRequest, handler as function<void,JcoHttpResponse>)
+	func executeJs(request as JcoHttpRequest, handler as function<(JcoHttpResponse)>)
 	{
 		var xhr = getXMLHttpRequestObject()
 		var method = request.method
 		var url = request.url
 		var requestHeaders = request.headers
 		var body = request.body
-		lang "js" {{{
+		lang "js" (xhr, method, url, requestHeaders, body, handler) {{{
 			xhr.open(method, url, true);
 			xhr.timeout = 30000;
 			xhr.responseType = "arraybuffer";
@@ -182,24 +189,24 @@ IFDEF "target_browser_js"
 		}}}
 		if requestHeaders {
 			var iter = requestHeaders.iterate()
-			loop {
-				var kv = iter.next() as KeyValuePair<string,string>
+			while iter.hasNext() {
+				var kv = try? iter.next()
 				if kv == null:
 					break
 				var k = kv.key
 				var v = kv.value
-				lang "js" {{{
+				lang "js" (xhr, k, v) {{{
 					xhr.setRequestHeader(k, v);
 				}}}
 			}
 		}
 		if body {
-			lang "js" {{{
+			lang "js" (xhr, body) {{{
 				xhr.send(new Uint8Array(body));
 			}}}
 		}
 		else {
-			lang "js" {{{
+			lang "js" (xhr) {{{
 				xhr.send();
 			}}}
 		}

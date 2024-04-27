@@ -95,7 +95,7 @@ func getResponseType(response as WebClient.Response) as string?
 	return null
 }
 
-func decodeXmlResponse(response as WebClient.Response, apispec as DynamicMap, resultType as typeinfo) as DynamicMap
+func decodeXmlResponse(response as WebClient.Response, apispec as DynamicMap, resultType as typeinfo) throws Exception as DynamicMap
 {
 	var resultWrapper = apispec.getString("resultWrapper")
 	var bodys = String.forUTF8Buffer(response.body)
@@ -107,10 +107,10 @@ func decodeXmlResponse(response as WebClient.Response, apispec as DynamicMap, re
 	return v
 }
 
-func decodeJsonResponse(response as WebClient.Response, apispec as DynamicMap) as DynamicMap:
+func decodeJsonResponse(response as WebClient.Response) throws Exception as DynamicMap:
 	return JSONParser.parseBufferAsMap(response.body)
 
-func encodeParameterToQueryStringMap(key as string, value as dynamic?, map as map<string,string>)
+func encodeParameterToQueryStringMap(key as string, value as dynamic?, map as map<string,string>) throws Exception
 {
 	if value {
 		var dm = value as DynamicMap
@@ -130,7 +130,7 @@ func encodeParameterToQueryStringMap(key as string, value as dynamic?, map as ma
 	Map.set(map, key, String.asValueOrThrowError(value))
 }
 
-func encodeParametersToQueryStringMap(parameters as DynamicMap, map as map<string,string>)
+func encodeParametersToQueryStringMap(parameters as DynamicMap, map as map<string,string>) throws Exception
 {
 	foreach key in parameters.getKeys():
 		encodeParameterToQueryStringMap(key, parameters.get(key), map)
@@ -142,7 +142,7 @@ model AwsError
 	Message as string
 }
 
-func handleXmlError(error as string)
+func handleXmlError(error as string) throws Exception
 {
 	var ee = new AwsXmlResponseParser() {
 		ctx context.ctx
@@ -151,13 +151,13 @@ func handleXmlError(error as string)
 		Error.throw("awsRequestError", JSONEncoder.toCompactString(ee))
 }
 
-func handleJsonError(error as string)
+func handleJsonError(error as string) throws Exception
 {
 	var eo = JSONParser.parseString(error)
 	Error.throw("awsRequestError", JSONEncoder.toCompactString(eo))
 }
 
-func handleAsError(response as WebClient.Response)
+func handleAsError(response as WebClient.Response) throws Exception
 {
 	var rt = getResponseType(response)
 	if rt == "xml":
@@ -233,10 +233,10 @@ func asBuffer(data as dynamic?) as buffer?
 	return Buffer.asValueOrNull(data)
 }
 
-func sha256(data as buffer) private as buffer:
+func sha256(data as buffer) private throws Exception as buffer:
 	return SHAEncoder.forSha256().encodeBuffer(data)
 
-func callAwsApi(specmap as map, result as DynamicModel?) async
+func callAwsApi(specmap as map, result as DynamicModel?) async throws Exception
 {
 	if result:
 		result.clear()
@@ -362,7 +362,7 @@ func callAwsApi(specmap as map, result as DynamicModel?) async
 			result.fromDynamicMap(decodeXmlResponse(response, apispec, typeof result))
 		}
 		else if rt == "json" {
-			result.fromDynamicMap(decodeJsonResponse(response, apispec))
+			result.fromDynamicMap(decodeJsonResponse(response))
 		}
 		else {
 			Error.throw("unsupportedResponseType", rt)

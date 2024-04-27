@@ -33,18 +33,18 @@ IFDEF "target_dotnet_cs"
 	depend "nuget:System.Runtime.Loader@4.3.*"
 }
 
-func forFile(ctx as LoggingContext, file as File) static as this
+func forFile(file as File) static throws Exception as this
 {
 	var v = new this()
-	v.loadFile(ctx, file)
+	v.loadFile(file)
 	return v
 }
 
-func forObject(ctx as LoggingContext, oo as object #preserve) static as this
+func forObject(oo as object) static as this
 {
 	IFDEF "target_dotnet_cs" {
-		var asm as [magical:System.Reflection.Assembly]? #preserve
-		lang "cs" {{{
+		var asm as [magical:System.Reflection.Assembly]?
+		lang "cs" (oo) {{{
 			var type = oo.GetType();
 			if(type != null) {
 				asm = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).Assembly;
@@ -53,15 +53,16 @@ func forObject(ctx as LoggingContext, oo as object #preserve) static as this
 		if not asm:
 			Error.throw("failedToGetAssemblyObject", null)
 		var v = new this()
-		v.setAssembly(asm)
+		v.assembly = asm
 		return v
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop oo
+		ERROR NOT_SUPPORTED
 	}
 }
 
-func isModuleFile(ctx as LoggingContext, file as File) static as bool
+func isModuleFile(file as File) static as bool
 {
 	IFDEF "target_dotnet_cs" {
 		if file.hasExtension("dll"):
@@ -71,17 +72,20 @@ func isModuleFile(ctx as LoggingContext, file as File) static as bool
 		if file.hasExtension("dylib") || file.hasExtension("tbd"):
 			return true
 	}
+	ELSE {
+		nop file
+	}
 	return false
 }
 
 IFDEF "target_dotnet_cs"
 {
-	pvar assembly as [magical:System.Reflection.Assembly]? #preserve
+	var assembly as [magical:System.Reflection.Assembly]?
 }
 
 IFDEF "target_swift"
 {
-	pvar handle as [magical:UnsafeMutableRawPointer]?
+	var handle as [magical:UnsafeMutableRawPointer]? #mutated
 }
 
 func getModuleDescription as string
@@ -93,135 +97,93 @@ func getModuleDescription as string
 	return "builtin"
 }
 
-func loadFile(ctx as LoggingContext, file as File #preserve)
+func loadFile(file as File) throws Exception
 {
 	if not file.isFile():
 		Error.throw("fileDoesNotExist", file)
-	ctx.logDebug("Loading dynamic module: `" .. file.getPath() .. "'")
-	IFDEF "target_uwp" {
-		ERROR "notImplemented"
-	}
-	ELSE IFDEF "target_dotnet_cs" {
-		var error as string? #preserve
+	IFDEF "target_dotnet_cs" {
 		lang "cs" {{{
-			try {
-				assembly = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(file.getPath());
-			}
-			catch(System.Exception e) {
-				error = e.ToString();
-			}
+			assembly = System.Runtime.Loader.AssemblyLoadContext.Default.LoadFromAssemblyPath(file.getPath());
 		}}}
-		if assembly == null {
-			if error:
-				ctx.logDebug(error)
-			Error.throw("failedToLoadAssembly", file)
-		}
-		ctx.logDebug("Assembly successfully loaded: `" .. file.getPath() .. "'")
-		return
 	}
 	ELSE IFDEF "target_swift" {
-		var path = file.getPath()
-		lang "swift" {{{
+		var path #used = file.getPath()
+		var errorString as string? #mutated
+		lang "swift" (handle, errorString) {{{
 			handle = dlopen(path, RTLD_NOW)
 			if (handle == nil) {
-				let errorString = String(validatingUTF8: dlerror())
-				ctx.logDebug("Failed to load library: `" + (errorString)! + "'")
-				return false
+				errorString = Swift.String(validatingUTF8: dlerror())
 			}
 		}}}
-		ctx.logDebug("Assembly successfully loaded: `" .. path .. "'")
-		return true
+		if errorString:
+			Error.throw("failedToLoadAssembly", errorString)
 	}
 	ELSE {
-		ERROR "notImplemented"
+		ERROR NOT_SUPPORTED
 	}
 }
 
-func executeStaticMethod(ctx as LoggingContext, entityName as string #preserve, methodName as string #preserve, parameters as array<object> #preserve) as bool
+func executeStaticMethod(entityName as string, methodName as string, parameters as array<object>) throws Exception
 {
-	IFDEF "target_uwp" {
-		ERROR "notSupported"
-	}
-	ELSE IFDEF "target_dotnet_cs" {
+	IFDEF "target_dotnet_cs" {
 		assert assembly:
-			ctx.logError("executeStaticMethod: No assembly has been loaded.")
-		var mainType as [magical:System.Type]? #preserve
+			Error.throw("noAssemblyHasBeenLoaded")
+		var mainType as [magical:System.Type]?
 		lang "cs" {{{
 			mainType = assembly.GetType(entityName);
 		}}}
 		assert mainType:
-			ctx.logError("Failed to find class `" .. entityName .. "' in dynamic module: `" .. getModuleDescription() .. "'")
-		var error as string? #preserve
-		var methodRef as [magical:System.Reflection.MethodInfo]? #preserve
+			Error.throw("noMainType", "Failed to find class `" .. entityName .. "' in dynamic module: `" .. getModuleDescription() .. "'")
+		var methodRef as [magical:System.Reflection.MethodInfo]?
 		lang "cs" {{{
-			try {
-				methodRef = System.Reflection.IntrospectionExtensions.GetTypeInfo(mainType).GetMethod(methodName);
-			}
-			catch(System.Exception e) {
-				error = e.ToString();
-			}
+			methodRef = System.Reflection.IntrospectionExtensions.GetTypeInfo(mainType).GetMethod(methodName);
 		}}}
-		if methodRef == null {
-			if error:
-				ctx.logDebug(error)
-			ctx.logError("Failed to find method `" .. methodName .. "' in entity `" .. entityName .. "' in module: `" .. getModuleDescription() .. "'")
-			return false
-		}
-		lang "cs" {{{
-			try {
-				methodRef.Invoke(null, parameters);
-			}
-			catch(System.Exception e) {
-				error = e.ToString();
-			}
+		if methodRef == null:
+			Error.throw("methodNotFound", "Failed to find method `" .. methodName .. "' in entity `" .. entityName .. "' in module: `" .. getModuleDescription() .. "'")
+		lang "cs" (parameters) {{{
+			methodRef.Invoke(null, parameters);
 		}}}
-		if error {
-			ctx.logDebug(error)
-			ctx.logError("Failed to call method `" .. methodName .. "' in entity `" .. entityName .. "' in module: `" .. getModuleDescription() .. "'")
-			return false
-		}
-		return true
 	}
 	ELSE IFDEF "target_swift" {
-		if parameters != null {
-			ctx.logError("Function with parameters is not available.")
-			return false
-		}
-		else {
-			lang "swift" {{{
-				let sym = dlsym(handle, methodName)
-				if (sym == nil) {
-					let errorString = String(validatingUTF8: dlerror())
-					ctx.logError("Failed to find method: `" + (errorString)! + "'")
-				}
-				typealias randomFunc = @convention(c) () -> AnyObject
-				let f = unsafeBitCast(sym, to: randomFunc.self)
-				f()
-				dlclose(handle)
-			}}}
-			return true
-		}
+		if Array.isEmpty(parameters) == false:
+			Error.throw("functionWithParametersIsNotSupported")
+		var combinedName #used = entityName .. methodName
+		var errorString as string? #mutated
+		lang "swift" (handle, combinedName, errorString) {{{
+			let sym = dlsym(handle, combinedName)
+			if (sym == nil) {
+				errorString = Swift.String(validatingUTF8: dlerror())
+			}
+		}}}
+		if errorString:
+			Error.throw("failedToExecuteMethod", errorString)
+		lang "swift" (handle) {{{
+			typealias randomFunc = @convention(c) () -> AnyObject
+			let f = unsafeBitCast(sym, to: randomFunc.self)
+			f()
+			dlclose(handle!)
+		}}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop entityName
+		nop methodName
+		nop parameters
+		ERROR NOT_SUPPORTED
 	}
 }
 
-func createObject(ctx as LoggingContext, className as string #preserve) as object
+func createObject(className as string) as object
 {
-	IFDEF "target_uwp" {
-		ERROR "notImplemented"
-	}
-	ELSE IFDEF "target_dotnet_cs" {
+	IFDEF "target_dotnet_cs" {
 		if not assembly:
-			ERROR "noAssemblyObjectLoaded"
-		var type as [magical:System.Type]? #preserve
+			Error.throw("noAssemblyObjectLoaded")
+		var type as [magical:System.Type]?
 		lang "cs" {{{
 			type = assembly.GetType(className);
 		}}}
 		if not type:
 			Error.throw("failedToFindClassInDynamicModule", className)
-		var constructor as [magical:System.Reflection.ConstructorInfo]? #preserve
+		var constructor as [magical:System.Reflection.ConstructorInfo]?
 		lang "cs" {{{
 			constructor = System.Reflection.IntrospectionExtensions.GetTypeInfo(type).GetConstructor(new System.Type[0]);
 		}}}
@@ -232,11 +194,8 @@ func createObject(ctx as LoggingContext, className as string #preserve) as objec
 			Error.throw("failedToCreateObject", className)
 		return v
 	}
-	ELSE IFDEF "target_swift" {
-		// FIXME: Need for appropriate API
-		ERROR "notImplemented"
-	}
 	ELSE {
-		ERROR "notImplemented"
+		nop className
+		ERROR NOT_SUPPORTED
 	}
 }

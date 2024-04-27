@@ -170,11 +170,11 @@ func setPath(newPath as string):
 func getPath override as string
 {
 	if not path:
-		Error.throw("noPathForFile", this)
+		return ""
 	return path
 }
 
-func createDirectoryRecursive override
+func createDirectoryRecursive override throws Exception
 {
 	var v as bool
 	lang "kotlin" {{{
@@ -185,7 +185,7 @@ func createDirectoryRecursive override
 		Error.throw("failedToCreateDirectoryRecursive", path)
 }
 
-func read override as FileReader
+func read override throws Exception as FileReader
 {
 	var v = new MyFileReader()
 	lang "kotlin" {{{
@@ -195,7 +195,7 @@ func read override as FileReader
 	return v
 }
 
-func write override as FileWriter
+func write override throws Exception as FileWriter
 {
 	var v = new MyFileWriter()
 	lang "kotlin" {{{
@@ -205,7 +205,7 @@ func write override as FileWriter
 	return v
 }
 
-func append override as FileWriter
+func append override throws Exception as FileWriter
 {
 	var v = new MyFileWriter().setAppend(true)
 	lang "kotlin" {{{
@@ -215,7 +215,7 @@ func append override as FileWriter
 	return v
 }
 
-func createDirectory override
+func createDirectory override throws Exception
 {
 	var v as bool
 	lang "kotlin" {{{
@@ -226,7 +226,7 @@ func createDirectory override
 		Error.throw("failedToCreateDirectory", path)
 }
 
-func remove override
+func remove override throws Exception
 {
 	var v as bool
 	lang "kotlin" {{{
@@ -247,7 +247,7 @@ func isExecutable override as bool
 	return v
 }
 
-func touch override
+func touch override throws Exception
 {
 	var v as bool
 	lang "kotlin" {{{
@@ -258,7 +258,7 @@ func touch override
 		Error.throw("failedToTouchFile", path)
 }
 
-func move(dest as File, replace as bool) override
+func move(dest as File, replace as bool) override throws Exception
 {
 	if dest.exists() {
 		if not replace:
@@ -278,23 +278,22 @@ func move(dest as File, replace as bool) override
 
 func stat override as FileInfo
 {
+	var f = lang "kotlin" as [magical:java.io.File] {{{ new java.io.File(path) }}}
+	var exists as bool = f.exists()
 	var v = new FileInfo() {
 		file this
+		exists exists
 	}
-	lang "kotlin" {{{
-		var f = java.io.File(path)
-		if(f.exists() == false) {
-			return(v)
+	if exists {
+		v.size = f.length() as! int
+		v.modifyTime = f.lastModifier() as! long
+		if f.isDirectory() as! bool {
+			v.type = FileInfo.FILE_TYPE_DIR
 		}
-		v!!.setSize(f.length().toInt())
-		v!!.setModifyTime(f.lastModified().toLong())
-		if(f.isDirectory()) {
-			v!!.setType(FileInfo.FILE_TYPE_DIR)
+		else if f.isFile() as! bool {
+			v.type = FileInfo.FILE_TYPE_FILE
 		}
-		else if(f.isFile()) {
-			v!!.setType(FileInfo.FILE_TYPE_FILE)
-		}
-	}}}
+	}
 	return v
 }
 
@@ -307,6 +306,6 @@ func entry(name as string) override as File
 	return v
 }
 
-func makeExecutable override stub
-func removeDirectory override stub
-func entries override stub as Iterator<File>
+func makeExecutable override stub throws Exception
+func removeDirectory override stub throws Exception
+func entries override stub throws Exception as Iterator<File>

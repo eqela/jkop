@@ -1,0 +1,55 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class:
+
+func encode(data as buffer, key as buffer) static throws Exception as buffer
+{
+	var encoder = SHAEncoder.forSha1()
+	var blockSize = 64
+	var okey = Buffer.allocate(blockSize)
+	var ikey = Buffer.allocate(blockSize)
+	Buffer.fill(okey, 0 as! uint8)
+	Buffer.fill(ikey, 0 as! uint8)
+	var ksiz = Buffer.getSize(key)
+	if ksiz > blockSize {
+		var hash = encoder.encodeBuffer(key)
+		var hsiz = Buffer.getSize(hash)
+		Buffer.copyFrom(okey, hash, 0, 0, hsiz)
+		Buffer.copyFrom(ikey, hash, 0, 0, hsiz)
+	}
+	else {
+		Buffer.copyFrom(okey, key, 0, 0, ksiz)
+		Buffer.copyFrom(ikey, key, 0, 0, ksiz)
+	}
+	for(var n = 0 ; n < blockSize ; n++) {
+		okey[n] = okey[n] ^ 0x5C
+		ikey[n] = ikey[n] ^ 0x36
+	}
+	var b1 = Buffer.append(ikey, data)
+	var h1 = encoder.encodeBuffer(b1)
+	var b2 = Buffer.append(okey, h1)
+	var h2 = encoder.encodeBuffer(b2)
+	return h2
+}

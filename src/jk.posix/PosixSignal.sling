@@ -37,6 +37,35 @@ const SIGPIPE = 13
 const SIGALRM = 14
 const SIGTERM = 15
 
+func signalNumberToString(signum as int) static as string
+{
+	if signum == SIGHUP:
+		return "SIGHUP"
+	if signum == SIGINT:
+		return "SIGINT"
+	if signum == SIGQUIT:
+		return "SIGQUIT"
+	if signum == SIGILL:
+		return "SIGILL"
+	if signum == SIGTRAP:
+		return "SIGTRAP"
+	if signum == SIGABRT:
+		return "SIGABRT"
+	if signum == SIGFPE:
+		return "SIGFPE"
+	if signum == SIGKILL:
+		return "SIGKILL"
+	if signum == SIGSEGV:
+		return "SIGSEGV"
+	if signum == SIGPIPE:
+		return "SIGPIPE"
+	if signum == SIGALRM:
+		return "SIGALRM"
+	if signum == SIGTERM:
+		return "SIGTERM"
+	return "SIGUNKNOWN"
+}
+
 func trapSignal(signum as int, enabled as bool) static as bool
 {
 	IFDEF "target_sushi" {
@@ -47,19 +76,30 @@ func trapSignal(signum as int, enabled as bool) static as bool
 		return false
 	}
 	ELSE {
-		return false
+		if enabled {
+			setSignalHandler(signum, func {
+			})
+		}
+		else {
+			setSignalHandler(signum, null)
+		}
+		return true
 	}
 }
 
-func checkSignalState(signum as int) static as bool
+func setSignalHandler(signum as int, handler as function<void>?) static
 {
-	IFDEF "target_sushi" {
-		var n = lang "lua" as int {{{ _os:check_signal_state(signum, n) }}}
-		if n == 1:
-			return true
-		return false
+	IFDEF "target_node_js" {
+		var str = signalNumberToString(signum)
+		var hh = handler
+		if not hh:
+			hh = func {
+			}
+		[magical:process]!.on!(str, hh)
 	}
 	ELSE {
-		return false
+		nop signum
+		nop handler
+		ERROR NOT_IMPLEMENTED
 	}
 }

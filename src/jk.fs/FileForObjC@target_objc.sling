@@ -180,13 +180,13 @@ ctor(path as string)
 func entry(name as string) override as File:
 	return new this(path .. "/" .. name)
 
-func write override as FileWriter:
+func write override throws Exception as FileWriter:
 	return getMyWriter(true)
 
-func append override as FileWriter:
+func append override throws Exception as FileWriter:
 	return getMyWriter(false)
 
-func entries override as Iterator<File>
+func entries override throws Exception as Iterator<File>
 {
 	var v = new vector<File>
 	var files as array<string>?
@@ -198,12 +198,12 @@ func entries override as Iterator<File>
 	return Vector.iterate(v)
 }
 
-func move(dest as File, replace as bool) override stub as bool
-func touch override stub as bool
-func setMode(mode as int) override stub as bool
-func setOwnerUser(uid as int) override stub as bool
-func setOwnerGroup(gid as int) override stub as bool
-func makeExecutable override stub as bool
+func move(dest as File, replace as bool) override stub throws Exception
+func touch override stub throws Exception
+func setMode(mode as int) override stub throws Exception
+func setOwnerUser(uid as int) override stub throws Exception
+func setOwnerGroup(gid as int) override stub throws Exception
+func makeExecutable override stub throws Exception
 
 func stat override as FileInfo
 {
@@ -229,9 +229,17 @@ func stat override as FileInfo
 	}}}
 	if isFile() {
 		v.type = FileInfo.FILE_TYPE_FILE
+		v.exists = true
 	}
 	else if isDirectory() {
 		v.type = FileInfo.FILE_TYPE_DIR
+		v.exists = true
+	}
+	else if isLink() {
+		v.exists = true
+	}
+	else {
+		v.exists = false
 	}
 	return v
 }
@@ -271,7 +279,7 @@ func getMyWriter(truncate as bool) private as MyWriter
 	return v
 }
 
-func read override as FileReader:
+func read override throws Exception as FileReader:
 	return getMyReader()
 
 func exists override as bool:
@@ -304,22 +312,29 @@ func isDirectory override as bool
 	return isdir
 }
 
-func createDirectory override as bool:
-	return lang "objc" as bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
+func createDirectory override throws Exception
+{
+	var v = lang "objc" as bool {{{ [manager createDirectoryAtPath:path withIntermediateDirectories:NO attributes:nil error:nil] }}}
+	if not v:
+		Error.throw("failedToCreateDirectory", path)
+}
 
 func isLink override stub as bool
-func createDirectoryRecursive override stub as bool
-func removeDirectory override stub as bool
+func createDirectoryRecursive override stub throws Exception
+func removeDirectory override stub throws Exception as bool
 
 func getPath override as string
 {
 	if not path:
-		Error.throw("noPathForFile", this)
+		return ""
 	return path
 }
 
-func remove override as bool:
-	return lang "objc" as bool {{{ [manager removeItemAtPath:path error:nil] }}}
+func remove override throws Exception
+{
+	if not lang "objc" as bool {{{ [manager removeItemAtPath:path error:nil] }}}:
+		Error.throw("failedToRemoveFile", path)
+}
 
 func getBasename override as string:
 	return String.safeString(lang "objc" as string {{{ [manager displayNameAtPath:path] }}})
@@ -329,13 +344,3 @@ func getContentsBuffer override as buffer
 	var rr = getMyReader()
 	return rr.readAll()
 }
-
-func getContentsString(encoding as string) override as string
-{
-	var b = getContentsBuffer()
-	if b == null:
-		return null
-	return String.forBuffer(b, encoding)
-}
-
-// FIXME func lines override stub as Iterator

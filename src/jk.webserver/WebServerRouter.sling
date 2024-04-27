@@ -26,35 +26,37 @@ import jk.log
 
 class is WebServerMiddleware:
 
-var routes = new map<string,function<promise<void>,WebServerRequest,DynamicMap>>
+prop pathPrefix as string = ""
 
-ctor:
+var routes = new map<string,function<(WebServerRequest,DynamicMap) async throws Exception>>
+
+func initializeMiddleware(server as WebServer) override
+{
+	base.initializeMiddleware(server)
 	initializeRoutes()
+}
 
 func initializeRoutes virtual:
 	nop
 
-func addHealthCheckRoute:
-	addRoute("GET", "/health", func(req as WebServerRequest, vars as DynamicMap) async {
-		req.setResponseStatus(200)
-		await req.endResponse()
-	})
-
 func deleteAllRoutes:
 	Map.clear(routes)
 
-func addRoute(method as string, pattern as string, handler as function<promise<void>,WebServerRequest,DynamicMap>)
+func addRoute(method as string, pattern as string, handler as function<(WebServerRequest,DynamicMap) async throws Exception>)
 {
 	assert String.isNotEmpty(method)
 	assert String.isNotEmpty(pattern)
-	var id = String.toUpperCase(method) .. pattern
+	var id = String.toUpperCase(method) .. pathPrefix .. pattern
 	routes[id] = handler
 }
 
-func addEndpoint(method as string, pattern as string, handler as function<promise<dynamic>,WebServerRequest,DynamicMap>):
-	addRoute(method, pattern, func(request as WebServerRequest, params as DynamicMap) async => await request.sendResponse(await handler(request, params)))
+func addEndpoint(method as string, pattern as string, handler as function<(WebServerRequest,DynamicMap) async throws Exception as dynamic?>):
+	addRoute(method, pattern, func(request as WebServerRequest, params as DynamicMap) async throws Exception => await request.sendResponse(await handler(request, params)))
 
-func handleRequest(request as WebServerRequest, next as function<promise<void>>) async override
+func onMatchingRequest(request as WebServerRequest, matchedRoute as string) virtual throws Exception:
+	nop
+
+func handleRequest(request as WebServerRequest, next as function<() async throws Exception>) async override throws Exception
 {
 	var match as string?
 	var matchVars as DynamicMap?
@@ -107,6 +109,7 @@ func handleRequest(request as WebServerRequest, next as function<promise<void>>)
 			break
 	}
 	if match {
+		onMatchingRequest(request, match)
 		var handler = Map.getValue(routes, match)
 		if handler {
 			if not matchVars:
@@ -115,7 +118,7 @@ func handleRequest(request as WebServerRequest, next as function<promise<void>>)
 			try {
 				await handler(request, matchVars)
 			}
-			catch e {
+			catch e as Exception {
 				if e is WebServerException && (e as! WebServerException).httpStatus == 404 {
 					wasFound = false
 				}

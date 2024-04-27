@@ -1,0 +1,94 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.task
+import jk.wsprotocol
+
+class:
+
+func messageEventToBuffer(event as dynamic?) static private async as buffer?
+{
+	if event == null:
+		return null
+	if lang "js" as bool {{{ event.data instanceof ArrayBuffer }}}:
+		return lang "js" as buffer {{{ new Uint8Array(event.data) }}}
+	if var str = event.data as string:
+		return String.toUTF8Buffer(str)
+	if lang "js" as bool {{{ event.data instanceof Blob }}}:
+		return try? await AsyncTask.runPromise<buffer>(func(resolve as function<(buffer)>, reject as function<(Exception)>) {
+			var fr = new ([magical:FileReader])()
+			fr.onload = func => resolve(lang "js" as buffer {{{ new Uint8Array(fr.result) }}})
+			fr.addEventListener!("error", func => reject(ExceptionWithError.forCode("failedToReadArrayBuffer")))
+			fr.readAsArrayBuffer!(event.data)
+		})
+	return null
+}
+
+func connect(ctx as LoggingContext, url as string, protocol as WebSocketProtocol, protocols as vector<string>?) static async throws Exception
+{
+	nop ctx
+	var socket = new ([magical:WebSocket])(url, protocols)
+	socket.addEventListener!("close", func async {
+		try {
+			// FIXME: Should use actual values from the event
+			await protocol.onConnectionClosed(1000, null)
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+	})
+	socket.addEventListener!("error", func(e as dynamic?) async {
+		var error = Error.forCode("webSocketError", null, String.asValueOrNull(e))
+		await protocol.onConnectionError(error)
+		Log.error(ctx, error.toString())
+	})
+	socket.addEventListener!("message", func(e as dynamic?) async {
+		var buffer = await messageEventToBuffer(e)
+		if buffer {
+			try {
+				await protocol.onMessageReceived(buffer)
+			}
+			catch e as Exception {
+				Log.error(ctx, e.toString())
+				socket.close!(1000, "Error")
+			}
+		}
+	})
+	protocol.sendFunction = func(data as buffer) async throws Exception {
+		if lang "js" (socket) as bool {{{ socket.readyState != socket.OPEN }}}:
+			Error.throw("webSocketStateIsNotOpen")
+		socket.send!(data)
+	}
+	protocol.closeFunction = func(status as int, reason as string?) async => socket.close!(status, reason ?? "")
+	await AsyncTask.runPromise<dynamic?>(func(resolve as function<(dynamic?)>, reject as function<(Exception)>) => socket.addEventListener!("open", func async {
+		try {
+			await protocol.onConnectionOpened()
+			resolve(null)
+		}
+		catch e as Exception {
+			reject(e)
+		}
+	}))
+}

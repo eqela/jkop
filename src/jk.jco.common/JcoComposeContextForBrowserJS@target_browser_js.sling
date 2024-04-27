@@ -1,0 +1,313 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is JcoComposeContext:
+
+interface ElementIterator
+{
+	func peek as dynamic?
+	func step
+	func insert(child as dynamic) throws Exception
+	func remove throws Exception
+}
+
+class ComponentElementIterator is ElementIterator
+{
+	prop component as JcoComponent
+	prop children as vector<dynamic>
+
+	var position = 0
+
+	func peek implement as dynamic?:
+		return Vector.getValue(children, position)
+
+	func step implement:
+		position++
+
+	func insert(child as dynamic) implement throws Exception
+	{
+		Vector.insertValue(children, child, position)
+		position++
+		component.update()
+	}
+
+	func remove implement throws Exception
+	{
+		Vector.removeIndex(children, position)
+		component.update()
+	}
+}
+
+class HtmlElementIterator is ElementIterator
+{
+	prop element as dynamic
+
+	var position = 0
+
+	func getChildAtPosition(index as int) as dynamic?
+	{
+		var children = element.childNodes
+		if not children:
+			return null
+		if index >= children.length as! int:
+			return null
+		return children[index]
+	}
+
+	func peek implement as dynamic?:
+		return getChildAtPosition(position)
+
+	func step implement:
+		position++
+
+	func insert(child as dynamic) implement throws Exception
+	{
+		var nextChild = getChildAtPosition(position)
+		if nextChild == null {
+			element.appendChild!(child)
+		}
+		else {
+			element.insertBefore!(child, nextChild)
+		}
+		position++
+	}
+
+	func remove implement throws Exception
+	{
+		var current = getChildAtPosition(position)
+		if current:
+			element.removeChild!(current)
+	}
+}
+
+var stack = new Stack<ElementIterator>()
+
+func forRoot(root as dynamic) static as this
+{
+	var v = new this()
+	v.pushContainerElement(root)
+	return v
+}
+
+func finalize throws Exception:
+	endElement()
+
+func peekNextElement as dynamic?
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return null
+	return iterator.peek()
+}
+
+func stepElement throws Exception
+{
+	var iterator = stack.peek()
+	if not iterator:
+		Error.throw("noIteratorInStack")
+	iterator.step()
+}
+
+func pushContainerElement(element as dynamic)
+{
+	if element is JcoComponent {
+		stack.push(new ComponentElementIterator() {
+			component element as! JcoComponent
+			children (element as! JcoComponent).children
+		})
+	}
+	else {
+		stack.push(new HtmlElementIterator() {
+			element element
+		})
+	}
+}
+
+func popContainerElement:
+	stack.pop()
+
+func insertChild(child as dynamic) throws Exception
+{
+	if child is vector<dynamic> {
+		foreach realChild as object in child as! vector<dynamic>:
+			insertChild(realChild)
+		return
+	}
+	var iterator = stack.peek()
+	if not iterator:
+		Error.throw("noParentElementToInsertChildTo")
+	iterator.insert(child)
+}
+
+/*[
+func skipStyleElements
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return
+	loop {
+		var element = iterator.peek()
+		if not element:
+			break
+		var tagName = String.asValueOrNull(element.tagName)
+		if not tagName:
+			break
+		tagName = String.toLowerCase(tagName)
+		if tagName == "style" || tagName == "link" {
+			iterator.step()
+		}
+		else {
+			break
+		}
+	}
+}
+
+func removeStyleElements
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return
+	loop {
+		var element = iterator.peek()
+		if not element:
+			break
+		var tagName = String.asValueOrNull(element.tagName)
+		if not tagName:
+			break
+		tagName = String.toLowerCase(tagName)
+		if tagName == "style" || tagName == "link" {
+			iterator.remove()
+		}
+		else {
+			break
+		}
+	}
+}
+]*/
+
+func removeRemainingElements throws Exception
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return
+	loop {
+		var element = iterator.peek()
+		if not element:
+			break
+		iterator.remove()
+	}
+}
+
+func insertStyleElement(style as string) throws Exception
+{
+	var element = [magical:document]!.createElement!("style") as! dynamic
+	element.textContent = style
+	insertChild(element)
+}
+
+func createElementByName(name as string) throws Exception as dynamic
+{
+	var v = [magical:document]!.createElement!(name)
+	if not v:
+		Error.throw("failedToCreateDocumentElementByName", name)
+	return v
+}
+
+func createElementByType(typename as typeinfo) throws Exception as dynamic
+{
+	var name = CustomElementManager.getRegisteredTypeName(typename)
+	return createElementByName(name)
+}
+
+func startComponent(type as typeinfo) override throws Exception as JcoComponent
+{
+	var next = peekNextElement() as JcoComponent
+	if next && Reflection.isInstanceOf(next, type) {
+		stepElement()
+		pushContainerElement(next)
+		return next
+	}
+	var v = createElementByType(type) as JcoComponent
+	if not v:
+		Error.throw("failedToFindOrCreateComponentOfType", type)
+	insertChild(v)
+	pushContainerElement(v)
+	return v
+}
+
+func endComponent override throws Exception:
+	endElement()
+
+func startElement(name as string) override throws Exception as JcoElement
+{
+	var next = peekNextElement()
+	if next && next is JcoComponent == false {
+		var tagName = String.asValueOrNull(next.tagName)
+		if tagName && String.toLowerCase(tagName) == name {
+			stepElement()
+			pushContainerElement(next)
+			return new JcoElementForBrowserJS() {
+				element next
+			}
+		}
+	}
+	var v = createElementByName(name)
+	insertChild(v)
+	pushContainerElement(v)
+	return new JcoElementForBrowserJS() {
+		element v
+	}
+}
+
+func endElement override throws Exception
+{
+	removeRemainingElements()
+	popContainerElement()
+}
+
+func addContent(content as string) override throws Exception
+{
+	var next = peekNextElement()
+	if next && lang "js" as bool {{{ next.nodeType == Node.TEXT_NODE }}} {
+		if String.equals(content, String.asValueOrNull(next.data)) {
+			stepElement()
+			return
+		}
+	}
+	var node = [magical:document]!.createTextNode!(content)
+	if not node:
+		Error.throw("failedToCreateTextNode")
+	insertChild(node)
+}
+
+func addObject(object as dynamic) override throws Exception
+{
+	var next #used = peekNextElement()
+	if lang "js" as bool {{{ next == object }}} {
+		stepElement()
+	}
+	else {
+		insertChild(object)
+	}
+}

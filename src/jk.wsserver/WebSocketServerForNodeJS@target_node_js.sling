@@ -23,65 +23,68 @@
  */
 
 import jk.log
-import jk.nodejs
+import jk.lang.js
 import jk.webserver
 
 class is WebSocketServer:
 
-depend "npm:ws:8.9.0"
-
-class WebSocketServerConnectionForNodejs is WebSocketServerConnection
-{
-	prop websocket as dynamic
-
-	func sendMessage(message as buffer) override:
-		websocket.send!(message)
-
-	func close override:
-		websocket.terminate!()
-}
+depend "npm:ws:8.16.0"
 
 var wss as dynamic?
 
-func createWSServer(server as WebServer) override
+func attachToWebServer(server as WebServer) async override throws Exception
 {
-	var nws = NodeModule.require("ws")
+	var nws = JsCommonModule.require("ws")
 	var nodeServer = server as WebServerForNodeJS
 	if not nodeServer:
 		Error.throw("webServerIsNotNodeServer", server)
 	var ss = nodeServer.getNodeServerInstance()
-	lang "js" {{{
-		this.wss = new nws.WebSocketServer({ server: ss })
-		this.wss.on('connection', (ws) => {
-			const conn = this.onNewIncomingConnection(ws)
-			ws.on('message', (message) => {
-				this.onReceiveMessage(message, conn)
-			})
-			ws.on('close', (code, reason) => {
-				conn.onConnectionClosed(code, reason.toString())
-			})
-			ws.on('error', (error) => {
-				conn.onConnectionError(error.code, error.name)
-			})
+	wss = new (nws.WebSocketServer)({
+		server ss
+	})
+	wss.on!("connection", func(ws as dynamic) async {
+		var ff = factory
+		var protocol = ff()
+		protocol.sendFunction = func(data as buffer) async throws Exception => ws.send!(data)
+		protocol.closeFunction = func(status as int, reason as string?) async {
+			if ctx.isInDebugMode():
+				Log.debug(ctx, "Close function called. Closing connection.")
+			ws.terminate!(status, reason)
+		}
+		ws.on!("message", func(message as dynamic?) async {
+			var buffer = Buffer.asValueOrNull(message)
+			if buffer {
+				try {
+					await protocol.onMessageReceived(buffer)
+				}
+				catch e as Exception {
+					Log.error(ctx, e.toString())
+					ws.terminate!(1000, "Error")
+				}
+			}
 		})
-		this.wss.on('listening', () => {
-			this.onWSServerListening()
+		ws.on!("close", func(code as dynamic?, reason as dynamic?) async {
+			var str as string?
+			if reason is buffer:
+				str = String.forUTF8Buffer(reason as! buffer)
+			if not str:
+				str = String.asValueOrNull(reason)
+			try {
+				await protocol.onConnectionClosed(Integer.asValueOrDefaultValue(code), str)
+			}
+			catch e as Exception {
+				Log.error(ctx, e.toString())
+			}
 		})
-		this.wss.on('close', () => {
-			this.onWSServerConnectionClosed()
-		})
-		this.wss.on('error', (error) => {
-			this.onWSServerConnectionError(error.name, error.message)
-		})
-	}}}
-}
-
-func onNewIncomingConnection(websocket as dynamic) private as WebSocketServerConnectionForNodejs
-{
-	var connection = new WebSocketServerConnectionForNodejs() {
-		ctx ctx
-		websocket websocket
-	}
-	onNewConnection(connection)
-	return connection
+		ws.on!("error", func(error as dynamic?) async => await protocol.onConnectionError(Error.forCode("webSocketConnectionError", null, error)))
+		try {
+			await protocol.onConnectionOpened()
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+			ws.terminate!(1000, "Error")
+		}
+	})
+	wss.on!("close", func => Log.debug(ctx, "Web socket server closed."))
+	wss.on!("error", func(error as dynamic?) => Log.error(ctx, Error.forCode("webSocketServerError", null, error).toStringWithDebug(ctx.isInDebugMode())))
 }

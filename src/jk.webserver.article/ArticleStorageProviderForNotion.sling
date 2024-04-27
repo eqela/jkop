@@ -109,7 +109,6 @@ func getRedirectPageId(properties as DynamicMap?) private as string?
 func getArticleCategories(properties as DynamicMap) private as vector<string>
 {
 	var v = new vector<string>
-	var categoryVector = new vector<string>
 	var categoriesMap = properties.getDynamicMap("categories")
 	if categoriesMap {
 		var categoriesProp = NotionClient.PageProperty.forData(categoriesMap)
@@ -125,7 +124,7 @@ func getArticleCategories(properties as DynamicMap) private as vector<string>
 	return v
 }
 
-func resolvePageLink(pageId as string) async as NotionToHtml.PageLink?
+func resolvePageLink(pageId as string) async throws Exception as NotionToHtml.PageLink?
 {
 	var pd = await notionClient.getPage(pageId)
 	assert pd.properties
@@ -135,7 +134,7 @@ func resolvePageLink(pageId as string) async as NotionToHtml.PageLink?
 	}
 }
 
-func getArticleHtmlWithAttachments(article as ArticleMetadata, htmlSettings as ArticleHtmlSettings?) async override as ArticleHtmlWithAttachments?
+func getArticleHtmlWithAttachments(article as ArticleMetadata, htmlSettings as ArticleHtmlSettings?) async override throws Exception as ArticleHtmlWithAttachments?
 {
 	var attachments = new vector<ArticleAttachment>
 	var notionId = article.backendId
@@ -159,21 +158,27 @@ func getArticleHtmlWithAttachments(article as ArticleMetadata, htmlSettings as A
 			}
 		}
 		attachmentLinkResolver func(attachmentId as string, contentUrl as string) async as string? {
-			var response = await WebClient.instance().executeQuery(ctx, "GET", contentUrl, null, null)
-			var ctype = response.getHeaderValue("content-type")
-			if ctype {
-				var id = attachmentId
-				var ext = MimeTypeRegistry.getSharedInstance().getExtension(ctype)
-				if String.isNotEmpty(ext):
-					id = attachmentId .. "." .. ext
-				attachments += new ArticleAttachment() {
-					id id
-					mimeType ctype
-					data response.body
+			try {
+				var response = await WebClient.instance().executeQuery(ctx, "GET", contentUrl, null, null)
+				var ctype = response.getHeaderValue("content-type")
+				if ctype {
+					var id = attachmentId
+					var ext = MimeTypeRegistry.getSharedInstance().getExtension(ctype)
+					if String.isNotEmpty(ext):
+						id = attachmentId .. "." .. ext
+					attachments += new ArticleAttachment() {
+						id id
+						mimeType ctype
+						data response.body
+					}
+					return id
 				}
-				return id
+				return attachmentId
 			}
-			return attachmentId
+			catch e as Exception {
+				Log.error(ctx, e.toString())
+			}
+			return null
 		}
 		imgTagMaker func(url as string) async as string? => "<div class=\"img75\"><img src=" .. HTMLString.toQuotedString(url) .. " /></div>"
 		dataTagMaker func(content as string, tag as string) async as string? {
@@ -203,7 +208,7 @@ func getArticleHtmlWithAttachments(article as ArticleMetadata, htmlSettings as A
 	}
 }
 
-func getArticleHtml(article as ArticleMetadata, htmlSettings as ArticleHtmlSettings) async override as string?
+func getArticleHtml(article as ArticleMetadata, htmlSettings as ArticleHtmlSettings) async override throws Exception as string?
 {
 	var vv = assert await getArticleHtmlWithAttachments(article, htmlSettings)
 	return vv.html
@@ -229,7 +234,7 @@ func createArticleMetadataForPage(page as NotionClient.Page) private as ArticleM
 	return v
 }
 
-func getAllArticlesMetadata async override as vector<ArticleMetadata>?
+func getAllArticlesMetadata async override throws Exception as vector<ArticleMetadata>?
 {
 	var v = new vector<ArticleMetadata>
 	var filter = new DynamicMap()
@@ -245,18 +250,9 @@ func getAllArticlesMetadata async override as vector<ArticleMetadata>?
 			v += createArticleMetadataForPage(page)
 		if articles.has_more == false:
 			break
-		filter.setObject("start_cursor", articles.next_cursor)
+		filter.setString("start_cursor", articles.next_cursor)
 	}
 	return v
-}
-
-func getArticleCategoryId(articleId as string) private as string?
-{
-	if articleId == "index":
-		return "index"
-	if String.endsWith(articleId, "-articles"):
-		return String.getSubString(articleId, 0, String.getLength(articleId) - 9)
-	return null
 }
 
 func getArticleCategoryFilterById(categoryId as string) private as DynamicMap
@@ -272,7 +268,7 @@ func getArticleCategoryFilterById(categoryId as string) private as DynamicMap
 	return filter
 }
 
-func getArticlesMetadataForCategory(categoryId as string) async override as vector<ArticleMetadata>?
+func getArticlesMetadataForCategory(categoryId as string) async override throws Exception as vector<ArticleMetadata>?
 {
 	var categoryFilter = getArticleCategoryFilterById(categoryId)
 	var infoVector = new vector<ArticleMetadata>
@@ -287,12 +283,12 @@ func getArticlesMetadataForCategory(categoryId as string) async override as vect
 		}
 		if categoryArticles.has_more == false:
 			break
-		categoryFilter.setObject("start_cursor", categoryArticles.next_cursor)
+		categoryFilter.setString("start_cursor", categoryArticles.next_cursor)
 	}
 	return infoVector
 }
 
-func getArticleMetadata(articleId as string) async override as ArticleMetadata?
+func getArticleMetadata(articleId as string) async override throws Exception as ArticleMetadata?
 {
 	var article = await notionClient.queryPageFromDatabase(notionDatabaseId, "pageId", articleId)
 	if not article:
@@ -300,7 +296,7 @@ func getArticleMetadata(articleId as string) async override as ArticleMetadata?
 	return createArticleMetadataForPage(article)
 }
 
-func getArticleAttachment(article as ArticleMetadata, attachmentId as string) async override as ArticleAttachment?
+func getArticleAttachment(article as ArticleMetadata, attachmentId as string) async override throws Exception as ArticleAttachment?
 {
 	var block = await notionClient.getBlock(attachmentId)
 	if block.type == "image" {
@@ -329,7 +325,7 @@ func getArticleAttachment(article as ArticleMetadata, attachmentId as string) as
 	return null
 }
 
-func getAllArticleAttachments(article as ArticleMetadata) async override as vector<ArticleAttachment>?
+func getAllArticleAttachments(article as ArticleMetadata) async override throws Exception as vector<ArticleAttachment>?
 {
 	var v = assert await getArticleHtmlWithAttachments(article, null)
 	return v.attachments

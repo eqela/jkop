@@ -1,0 +1,114 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.jco.common
+
+class is PopupLayer:
+
+func forDropdown(comp as JcoComponent, align as int) static as this
+{
+	var document = (comp as! dynamic).ownerDocument as! dynamic
+	var original = (comp as! dynamic).getBoundingClientRect!()
+	var element = document.createElement!("div") as! dynamic
+	element.style!.position = "absolute"
+	element.style!.top = original!.bottom
+	if align == PopupLayer.ALIGN_LEFT {
+		element.style!.left = original!.left
+	}
+	else if align == PopupLayer.ALIGN_CENTER {
+		ERROR NOT_IMPLEMENTED
+	}
+	else if align == PopupLayer.ALIGN_JUSTIFY {
+		element.style!.left = original!.left
+		element.style!.width = (original!.right as! int) - (original!.left as! int)
+	}
+	else if align == PopupLayer.ALIGN_RIGHT {
+		element.style!.right = (document.documentElement!.clientWidth as! int) - (original!.right as! int)
+	}
+	return forElements(document, element, element)
+}
+
+func forOverlay(comp as JcoComponent) static as this
+{
+	var document = (comp as! dynamic).ownerDocument as! dynamic
+	var topLevelElement = document.createElement!("div") as! dynamic
+	topLevelElement.style!.position = "absolute"
+	topLevelElement.style!.top = 0
+	topLevelElement.style!.bottom = 0
+	topLevelElement.style!.left = 0
+	topLevelElement.style!.right = 0
+	topLevelElement.style!.backgroundColor = "rgba(0, 0, 0, 0.5)"
+	topLevelElement.style!.display = "grid"
+	topLevelElement.style!.placeItems = "center"
+	return forElements(document, topLevelElement, topLevelElement)
+}
+
+func forElements(document as dynamic, topLevelElement as dynamic, composeElement as dynamic) static as this
+{
+	var v = new this() {
+		document document
+		topLevelElement topLevelElement
+		composeElement composeElement
+	}
+	v.initialize()
+	return v
+}
+
+prop document as dynamic
+prop topLevelElement as dynamic
+prop composeElement as dynamic
+
+func getBody as JcoElementForBrowserJS
+{
+	var body = document.documentElement as! dynamic
+	return new JcoElementForBrowserJS() {
+		element body
+	}
+}
+
+func initialize
+{
+	var body = getBody()
+	var tel = topLevelElement
+	body.element.appendChild!(tel)
+	body.setEventFilter("click", func(event as dynamic) as bool {
+		var path = event.composedPath!() as! vector<dynamic>?
+		if path: foreach element #used in path {
+			if lang "js" as bool {{{ element == tel }}}:
+				return false
+		}
+		close()
+		return true
+	})
+}
+
+func close override
+{
+	var body = getBody()
+	body.element.removeChild!(topLevelElement)
+	body.setEventCapturer("click", null)
+}
+
+func compose override as JcoComposeContext:
+	return JcoComposeContextForBrowserJS.forRoot(composeElement)

@@ -1,0 +1,201 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.console
+import jk.process
+import jk.actions
+import jk.actions.make
+
+class:
+
+class ProjectInformation
+{
+	prop name as string
+	prop path as File
+	prop platforms as vector<string>?
+}
+
+func forArgumentVector(av as ArgumentVector, defaultCompiler as string? = null, supportedPlatforms as string? = null) static throws Exception as this
+{
+	var slingc = defaultCompiler
+	var sps = supportedPlatforms
+	var temporaryDirectory as File?
+	var outputDirectory as File?
+	var swiftc = "swiftc"
+	var newValues = new vector<string>
+	loop {
+		if var vv = av.acceptOptionValue("slingc") {
+			slingc = vv
+		}
+		else if var vv = av.acceptOptionValue("swiftc") {
+			swiftc = vv
+		}
+		else if var vv = av.acceptOptionValue("tmpdir") {
+			temporaryDirectory = File.forPath(vv)
+		}
+		else if var vv = av.acceptOptionValue("output") {
+			outputDirectory = File.forPath(vv)
+		}
+		else if var vv = av.acceptOptionValue("platforms") {
+			sps = vv
+		}
+		else {
+			var vv = av.acceptAnyValue()
+			if not vv:
+				break
+			newValues += vv
+		}
+	}
+	av.setValues(newValues)
+	if String.isEmpty(slingc):
+		Error.throw("noSlingCompilerDefined", null)
+	var spv as vector<string>?
+	if String.isNotEmpty(sps):
+		spv = String.split(sps, ' ')
+	if Vector.isEmpty(spv):
+		spv = SlingCompilerTask.getSupportedPlatformsForCompiler(slingc)
+	if Vector.isEmpty(spv):
+		Error.throw("noTargetPlatforms", sps)
+	if not temporaryDirectory:
+		temporaryDirectory = CurrentProcess.getExecutableDirectoryOrThrowError().entry(".tmp")
+	if not outputDirectory:
+		outputDirectory = CurrentProcess.getExecutableDirectoryOrThrowError().entry("dist")
+	return new this() {
+		slingc slingc
+		temporaryDirectory temporaryDirectory
+		outputDirectory outputDirectory
+		allPlatforms spv
+		swiftc swiftc
+	}
+}
+
+prop slingc as string
+prop temporaryDirectory as File
+prop outputDirectory as File
+prop allPlatforms as vector<string>
+prop swiftc as string
+
+var projects = new vector<ProjectInformation>
+
+func createProjectBuildTask(ctx as LoggingContext, name as string, path as File, platform as string, buildGeneratedCode as bool) private as function<() async throws Exception>
+{
+	var output = outputDirectory.entry(name).entry(platform)
+	var slingBuild = SlingCompilerTask.createBuildTask(ctx, new SlingCompilerTask.BuildTaskProperties() {
+		compiler slingc
+		name name
+		outputDirectory output
+		temporaryDirectory temporaryDirectory
+		source path
+		targetPlatform platform
+	})
+	if buildGeneratedCode == false:
+		return slingBuild
+	if platform == "swift" {
+		var makeBuild = MakeBuilderTask.createBuildTask(ctx, new MakeBuilderTask.BuildTaskProperties() {
+			directory output
+			parameters new map<string,string> {
+				SWIFTC swiftc
+			}
+		})
+		return func async throws Exception {
+			await slingBuild()
+			await makeBuild()
+		}
+	}
+	return slingBuild
+}
+
+func addProject(name as string, path as File, platforms as vector<string>? = null):
+	projects += new ProjectInformation() {
+		name name
+		path path
+		platforms platforms
+	}
+
+func addToContext(ctx as LoggingContext, actions as ActionsContext)
+{
+	actions.setTask("clean", CommonTask.createCleanTask(ctx, [
+		temporaryDirectory
+		outputDirectory
+	]))
+	var paths = new vector<File>
+	var pivs = new map<string,vector<ProjectInformation>>
+	var generateAll = new vector<function<() async throws Exception>>
+	var buildAll = new vector<function<() async throws Exception>>
+	foreach project in projects {
+		paths += project.path
+		var plats = project.platforms
+		if Vector.isEmpty(plats):
+			plats = allPlatforms
+		foreach plat in plats {
+			var piv = Map.getValue(pivs, plat)
+			if not piv {
+				piv = new vector<ProjectInformation>
+				Map.setValue(pivs, plat, piv)
+			}
+			piv += project
+			actions.setTask("generate-" .. project.name .. "-" .. plat, func async throws Exception => await createProjectBuildTask(ctx, project.name, project.path, plat, false)())
+			actions.setTask("build-" .. project.name .. "-" .. plat, func async throws Exception => await createProjectBuildTask(ctx, project.name, project.path, plat, true)())
+		}
+		var generateProject = func async throws Exception {
+			foreach plat in plats:
+				await createProjectBuildTask(ctx, project.name, project.path, plat, false)()
+		}
+		var buildProject = func async throws Exception {
+			foreach plat in plats:
+				await createProjectBuildTask(ctx, project.name, project.path, plat, true)()
+		}
+		actions.setTask("generate-" .. project.name, generateProject)
+		actions.setTask("build-" .. project.name, buildProject)
+		generateAll += generateProject
+		buildAll += buildProject
+	}
+	foreach plat in Map.getKeys(pivs) {
+		var pivs = Map.getValue(pivs, plat)
+		if pivs {
+			actions.setTask("generate-all-" .. plat, func async throws Exception {
+				foreach piv in pivs:
+					await createProjectBuildTask(ctx, piv.name, piv.path, plat, false)()
+			})
+			actions.setTask("build-all-" .. plat, func async throws Exception {
+				foreach piv in pivs:
+					await createProjectBuildTask(ctx, piv.name, piv.path, plat, true)()
+			})
+		}
+	}
+	actions.setTask("generate-all", func async throws Exception {
+		foreach bf in generateAll:
+			await bf()
+	})
+	actions.setTask("build-all", func async throws Exception {
+		foreach bf in buildAll:
+			await bf()
+	})
+	actions.setTask("brush", SlingCompilerTask.createBrushTask(ctx, new SlingCompilerTask.BrushTaskProperties() {
+		compiler slingc
+		files paths
+	}))
+}

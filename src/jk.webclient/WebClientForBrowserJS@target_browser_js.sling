@@ -23,6 +23,7 @@
  */
 
 import jk.log
+import jk.task
 
 class is WebClient:
 
@@ -50,7 +51,7 @@ func getXMLHttpRequestObject as [magical:XMLHttpRequest]
 	return lang "js" as [magical:XMLHttpRequest] {{{ new XMLHttpRequest() }}}
 }
 
-func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override as Response
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override throws Exception as Response
 {
 	var xhr = getXMLHttpRequestObject()
 	var hdrs = new KeyValueListForStrings()
@@ -60,50 +61,55 @@ func executeQuery(ctx as LoggingContext, method as string, url as string, header
 		headers hdrs
 		body Buffer.allocate(0)
 	}
-	return new promise<Response> {
-		lang "js" {{{
-			xhr.open(method, url, true)
-			xhr.timeout = 30000
-			xhr.responseType = "arraybuffer"
+	return await AsyncTask.runPromise<Response>(func(resolve as function<(Response)>, reject as function<(Exception)>) {
+		lang "js" (xhr, r) {{{
+			xhr.open(method, url, true);
+			xhr.timeout = 30000;
+			xhr.responseType = "arraybuffer";
 			xhr.onload = () => {
-				r.setStatusCodePropertyValue("" + xhr.status)
-				r.setStatusMessagePropertyValue("" + xhr.statusText)
+				r.setStatusCodePropertyValue("" + xhr.status);
+				r.setStatusMessagePropertyValue("" + xhr.statusText);
 				if(xhr.headers) {
 					for(var key in xhr.headers) {
 						hdrs.add(key, xhr.headers[key]);
 					}
 				}
 				r.setHeadersPropertyValue(hdrs);
-				r.setBodyPropertyValue(new Uint8Array(xhr.response))
-				resolve(r)
-			}
+				r.setBodyPropertyValue(new Uint8Array(xhr.response));
+				resolve(r);
+			};
 			xhr.onerror = () => {
 				reject({
 					status: xhr.status,
 					statusText: xhr.statusText
-				})
-			}
+				});
+			};
 		}}}
 		if headers {
 			var itr = headers.iterate()
 			while itr.hasNext() {
-				var next = itr.next()
-				var key = next.key
-				var value = next.value
-				lang "js" {{{
-					xhr.setRequestHeader(key, value)
-				}}}
+				try {
+					var next = itr.next()
+					var key = next.key
+					var value = next.value
+					lang "js" (xhr, key, value) {{{
+						xhr.setRequestHeader(key, value);
+					}}}
+				}
+				catch e as Exception {
+					reject(e)
+				}
 			}
 		}
 		if body {
-			lang "js" {{{
-				xhr.send(new Uint8Array(body))
+			lang "js" (xhr, body) {{{
+				xhr.send(new Uint8Array(body));
 			}}}
 		}
 		else {
-			lang "js" {{{
-				xhr.send(null)
+			lang "js" (xhr) {{{
+				xhr.send(null);
 			}}}
 		}
-	}
+	})
 }

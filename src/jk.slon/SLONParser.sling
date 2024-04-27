@@ -30,7 +30,7 @@ class NullObject public
 {
 }
 
-class ParseError is Exception is StringObject public
+class ParseError is Exception public
 {
 	prop iterator as CharacterIterator
 	prop expected as string
@@ -86,7 +86,7 @@ class ParseError is Exception is StringObject public
 		iterator.setCurrentPosition(opos)
 	}
 
-	func toString as string
+	func toString override as string
 	{
 		if not lineString:
 			computeData()
@@ -98,7 +98,7 @@ class ParseError is Exception is StringObject public
 	}
 }
 
-func parse(data as dynamic?) static as object
+func parse(data as dynamic?) static throws Exception throws Exception as object
 {
 	var dataBuffer = data as buffer
 	if dataBuffer:
@@ -112,13 +112,13 @@ func parse(data as dynamic?) static as object
 	Error.throw("unsupportedDataObjectForSlonParser", data)
 }
 
-func parseBuffer(buffer as buffer) static as object:
+func parseBuffer(buffer as buffer) static throws Exception as object:
 	return forBuffer(buffer).expectObject()
 
-func parseString(str as string) static as object:
+func parseString(str as string) static throws Exception as object:
 	return forString(str).expectObject()
 
-func parseFile(file as File) static as object:
+func parseFile(file as File) static throws Exception throws Exception as object:
 	return forFile(file).expectObject()
 
 func forString(str as string) static as this
@@ -135,14 +135,17 @@ func forBuffer(buffer as buffer) static as this
 	return v
 }
 
-func forFile(file as File) static as this
+func forFile(file as File) static throws Exception as this
 {
 	var v = new this()
 	v.setDataString(file.getContentsUTF8())
 	return v
 }
 
-var iterator as CharacterIterator = CharacterIteratorForString.forString("")
+var iterator as CharacterIterator
+
+ctor:
+	iterator = CharacterIteratorForString.forString("")
 
 func setDataString(str as string)
 {
@@ -156,8 +159,8 @@ func setDataBuffer(buffer as buffer)
 	iterator.moveToNextChar()
 }
 
-func throwExpectationError(expected as string) #throws:
-	throw new ParseError() {
+func createExpectationError(expected as string) as ParseError:
+	return new ParseError() {
 		iterator iterator
 		expected expected
 	}
@@ -304,6 +307,7 @@ func acceptBoolean private as BooleanObject?
 func acceptNumber private as object?
 {
 	skipSpaces()
+	var opos = iterator.getCurrentPosition()
 	var ss = iterator.getCurrentChar()
 	if ss != '-' && ss != '+' && ss != '.' && (ss < '0' || ss > '9'):
 		return null
@@ -316,12 +320,22 @@ func acceptNumber private as object?
 		sb.appendCharacter(c)
 	}
 	var s = sb.toString()
-	if String.getIndexOfCharacter(s, '.') > -1:
-		return Double.asObject(Double.asValueOrThrowError(s))
-	var value = LongInteger.asValueOrThrowError(s)
-	if value >= -2147483648L && value <= 2147483647L:
-		return Integer.asObject(value as! int)
-	return LongInteger.asObject(value)
+	if String.getIndexOfCharacter(s, '.') > -1 {
+		var dvalue = Double.asValueOrNull(s)
+		if dvalue == null {
+			iterator.setCurrentPosition(opos)
+			return null
+		}
+		return Double.asObject(dvalue)
+	}
+	var ivalue = LongInteger.asValueOrNull(s)
+	if ivalue == null {
+		iterator.setCurrentPosition(opos)
+		return null
+	}
+	if ivalue >= -2147483648L && ivalue <= 2147483647L:
+		return Integer.asObject(ivalue as! int)
+	return LongInteger.asObject(ivalue)
 }
 
 func acceptNull private as NullObject?
@@ -397,19 +411,19 @@ func acceptIdentifier private as string?
 	return null
 }
 
-func expectIdentifier private as string
+func expectIdentifier private throws Exception as string
 {
 	var v = acceptIdentifier()
 	if not v:
-		throwExpectationError("identifier")
+		throw createExpectationError("identifier")
 	return v
 }
 
-func expectObject private as object
+func expectObject private throws Exception as object
 {
 	var v = acceptObject()
 	if not v:
-		throwExpectationError("object")
+		throw createExpectationError("object")
 	return v
 }
 
@@ -460,7 +474,7 @@ func stripLongStringIndentation(str as string) private as string
 	return sb.toString()
 }
 
-func parseLongString private as string
+func parseLongString private throws Exception as string
 {
 	var sb = new StringBuilder()
 	if iterator.getCurrentChar() == '\n':
@@ -469,7 +483,7 @@ func parseLongString private as string
 		var c = iterator.getCurrentChar()
 		iterator.moveToNextChar()
 		if Character.isEOF(c):
-			throwExpectationError("]]")
+			throw createExpectationError("]]")
 		if c == ']' {
 			c = iterator.getCurrentChar()
 			if c == ']' {
@@ -484,11 +498,11 @@ func parseLongString private as string
 	return stripLongStringIndentation(sb.toString())
 }
 
-func acceptObject as object?
+func acceptObject throws Exception as object?
 {
 	if acceptChar('[') {
 		if acceptImmediateChar('['):
-			return parseLongString()
+			return String.wrapValue(parseLongString())
 		var v = new DynamicVector()
 		loop {
 			if acceptChar(']'):
@@ -515,7 +529,7 @@ func acceptObject as object?
 	}
 	var s = acceptDoubleQuotedString()
 	if s:
-		return s
+		return String.wrapValue(s)
 	var b = acceptBoolean()
 	if b:
 		return b

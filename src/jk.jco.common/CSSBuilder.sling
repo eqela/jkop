@@ -1,0 +1,105 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+class is StringObject:
+
+class Rule public
+{
+	prop selector as string
+	prop attributes as map<string,string>?
+	prop sheet as parent?
+
+	func set(key as string, value as string)
+	{
+		var attrs = attributes
+		if not attrs {
+			attrs = new map<string,string>
+			attributes = attrs
+		}
+		Map.set(attrs, key, value)
+	}
+
+	func remove(key as string)
+	{
+		var attrs = attributes
+		if attrs:
+			Map.remove(attrs, key)
+	}
+}
+
+prop rules as vector<Rule> = new vector<Rule>
+
+func define(selector as string, attributes as map<string,string>? = null) as Rule
+{
+	foreach rule in rules {
+		if rule.selector == selector {
+			if attributes: foreach key in Map.getKeys(attributes):
+				rule.set(key, attributes[key])
+			return rule
+		}
+	}
+	var rr = attributes
+	if not rr:
+		rr = new map<string,string>
+	var v = new Rule() {
+		selector selector
+		attributes rr
+	}
+	rules += v
+	return v
+}
+
+func nest(selector as string) as this
+{
+	var sheet = new this()
+	var v = new Rule() {
+		selector selector
+		sheet sheet
+	}
+	rules += v
+	return sheet
+}
+
+func toString implement as string
+{
+	var sb = new StringBuilder()
+	foreach rule in rules {
+		sb.appendString(rule.selector)
+		sb.appendString("{")
+		var nestedSheet = rule.sheet
+		if nestedSheet:
+			sb.appendString(nestedSheet.toString())
+		var attrs = rule.attributes
+		if attrs: foreach key in Map.getKeys(attrs) {
+			sb.appendString(key)
+			sb.appendString(":")
+			var val = Map.getValue(attrs, key)
+			if val:
+				sb.appendString(val)
+			sb.appendString(";")
+		}
+		sb.appendString("}")
+	}
+	return sb.toString()
+}

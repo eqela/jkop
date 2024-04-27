@@ -1,0 +1,195 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.task
+import jk.base64
+
+class is Image:
+
+func forUrl(url as string) static async throws Exception as this:
+	return await AsyncTask.runPromise<this>(func(resolve as function<(this)>, reject as function<(Exception)>) {
+		var imo = [magical:document]!.createElement!("img") as! [magical:HTMLImageElement]
+		imo.onload = func {
+			try {
+				resolve(forImageElement(imo))
+			}
+			catch e as Exception {
+				reject(e)
+			}
+		}
+		imo.onerror = func => reject(ExceptionWithError.forCode("failedtoCreateImageElement"))
+		imo.src = url
+	})
+
+func forBuffer(buffer as buffer, mimeType as string) static async throws Exception as this
+{
+	var b64str = Base64Encoder.encode(buffer)
+	var url = "data:" .. mimeType .. ";base64," .. b64str
+	return await forUrl(url)
+}
+
+func forImageElement(image as [magical:HTMLImageElement]) static throws Exception as this
+{
+	var width = image.width as! int
+	var height = image.height as! int
+	var canvas = [magical:document]!.createElement!("canvas") as! [magical:HTMLCanvasElement]
+	canvas.width = width
+	canvas.height = height
+	var ctx = canvas.getContext!("2d")
+	if not ctx:
+		Error.throw("failedToGet2dContextForHtmlCanvas")
+	ctx.drawImage!(image, 0, 0)
+	var data = ctx.getImageData!(0, 0, width, height) as! [magical:ImageData]?
+	if data == null:
+		Error.throw("failedToGetScaledImageData")
+	return forImageData(data)
+}
+
+func forCanvasElement(canvas as [magical:HTMLCanvasElement]) static throws Exception as this
+{
+	var ctx = canvas.getContext!("2d")
+	if not ctx:
+		Error.throw("failedToGet2dContextForHtmlCanvas")
+	var data = ctx.getImageData!(0, 0, canvas.width, canvas.height) as! [magical:ImageData]?
+	if data == null:
+		Error.throw("failedToGetScaledImageData")
+	return forImageData(data)
+}
+
+func forImageData(imageData as [magical:ImageData]) static as this:
+	return new this() {
+		imageData imageData
+	}
+
+prop imageData as [magical:ImageData]?
+prop imageCanvas as [magical:HTMLCanvasElement]?
+
+func getPixelWidth override as int
+{
+	if imageData == null:
+		return 0
+	var v = imageData.width
+	if v == null:
+		return 0
+	return v as! int
+}
+
+func getPixelHeight override as int
+{
+	if imageData == null:
+		return 0
+	var v = imageData.height
+	if v == null:
+		return 0
+	return v as! int
+}
+
+func toCanvas throws Exception as [magical:HTMLCanvasElement]
+{
+	var v = imageCanvas
+	if v:
+		return v
+	var canvas = [magical:document]!.createElement!("canvas") as! [magical:HTMLCanvasElement]
+	var width = getPixelWidth()
+	var height = getPixelHeight()
+	if width > 0 && height > 0 {
+		canvas.width = width
+		canvas.height = height
+		var ctx = canvas.getContext!("2d")
+		if not ctx:
+			Error.throw("failedToGet2dContextForHtmlCanvas")
+		var imgd = imageData
+		if imgd:
+			ctx.putImageData!(imgd, 0, 0)
+	}
+	imageCanvas = canvas
+	return canvas
+}
+
+func scaleToSize(w as int, h as int) override throws Exception as Image
+{
+	var orig = toCanvas()
+	var canvas = [magical:document]!.createElement!("canvas") as! [magical:HTMLCanvasElement]
+	canvas.width = w
+	canvas.height = h
+	var ctx = canvas.getContext!("2d")
+	if not ctx:
+		Error.throw("failedToGet2dContextForHtmlCanvas")
+	ctx.drawImage!(orig, 0, 0, w, h)
+	var data = ctx.getImageData!(0, 0, w, h) as! [magical:ImageData]?
+	if data == null:
+		Error.throw("failedToGetScaledImageData")
+	return forImageData(data)
+}
+
+func crop(x as int, y as int, w as int, h as int) override throws Exception as Image
+{
+	var orig = toCanvas()
+	var canvas = [magical:document]!.createElement!("canvas") as! [magical:HTMLCanvasElement]
+	canvas.width = w
+	canvas.height = h
+	var ctx = canvas.getContext!("2d")
+	if not ctx:
+		Error.throw("failedToGet2dContextForHtmlCanvas")
+	ctx.drawImage!(orig, x, y, w, h, 0, 0, w, h)
+	var data = ctx.getImageData!(0, 0, w, h) as! [magical:ImageData]?
+	if data == null:
+		Error.throw("failedToGetScaledImageData")
+	return forImageData(data)
+}
+
+func toJPGDataUrl throws Exception as string
+{
+	var canvas = toCanvas()
+	return String.asValueOrThrowError(canvas.toDataURL!("image/jpeg"))
+}
+
+func toPNGDataUrl throws Exception as string
+{
+	var canvas = toCanvas()
+	return String.asValueOrThrowError(canvas.toDataURL!("image/png"))
+}
+
+func getBase64Buffer(data as string) private throws Exception as buffer
+{
+	var simc = String.getIndexOfString(data, ";base64,")
+	if simc < 0:
+		Error.throw("invalidBase64Buffer", data)
+	var nsrc = String.getEndOfString(data, simc + 8)
+	if String.isEmpty(nsrc):
+		Error.throw("emptyDataInString", data)
+	return Base64Decoder.decode(nsrc)
+}
+
+func toJPGData override throws Exception as buffer:
+	return getBase64Buffer(toJPGDataUrl())
+
+func toPNGData override throws Exception as buffer:
+	return getBase64Buffer(toPNGDataUrl())
+
+func toRGBAData override throws Exception as buffer:
+	ERROR NOT_IMPLEMENTED
+
+func releaseImage override:
+	imageData = null

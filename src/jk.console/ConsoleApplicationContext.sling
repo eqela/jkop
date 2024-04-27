@@ -29,7 +29,7 @@ import jk.log
 import jk.env
 import jk.process
 
-class is ApplicationContext:
+class is LoggingContext is ApplicationContext:
 
 description [[
 	An implementation of ApplicationContext that represents a command line
@@ -57,10 +57,6 @@ pvar currentPrefix as string?
 
 var lastStatus = false
 var lastStatusLength = 0
-var errorCounter = 0
-var warningCounter = 0
-var infoCounter = 0
-var debugCounter = 0
 var stdout as PrintWriter?
 
 ctor
@@ -71,14 +67,14 @@ ctor
 		enableColor = false
 	var logColor = EnvironmentVariable.get("CONSOLE_LOG_COLOR")
 	if logColor:
-		enableColor = Boolean.asValueOrThrowError(logColor)
+		enableColor = Boolean.asValueOrDefaultValue(logColor, false)
 	var logDebug = EnvironmentVariable.get("CONSOLE_LOG_DEBUG")
 	if not logDebug:
 		logDebug = EnvironmentVariable.get("CONSOLE_DEBUG")
 	if not logDebug:
 		logDebug = EnvironmentVariable.get("EQELA_DEBUG")
 	if logDebug:
-		setEnableDebugMessages(Boolean.asValueOrThrowError(logDebug))
+		showDebug = Boolean.asValueOrDefaultValue(logDebug, false)
 }
 
 IFDEF "target_android"
@@ -87,7 +83,7 @@ IFDEF "target_android"
 		return null
 }
 
-func isInDebugMode override as bool:
+func isInDebugMode implement as bool:
 	return showDebug
 
 func setEnableDebugMessages(v as bool) as this
@@ -100,58 +96,36 @@ func useApplicationNameAsPrefix
 {
 	currentPrefix = applicationName
 	if String.isEmpty(currentPrefix):
-		currentPrefix = CurrentProcess.getProcessName()
+		currentPrefix = try? CurrentProcess.getProcessNameOrThrowError()
+	if String.isEmpty(currentPrefix):
+		currentPrefix = "application"
 }
 
-func resetCounters override
-{
-	errorCounter = 0
-	warningCounter = 0
-	infoCounter = 0
-	debugCounter = 0
-}
-
-func getErrorCount override as int:
-	return errorCounter
-
-func getWarningCount override as int:
-	return warningCounter
-
-func getInfoCount override as int:
-	return infoCounter
-
-func getDebugCount override as int:
-	return debugCounter
-
-func logError(message as string) override
+func logError(message as string) implement
 {
 	if showError && enableOutput:
 		doPrintLine("ERROR", 91, currentPrefix, message)
-	errorCounter++
 }
 
-func logWarning(message as string) override
+func logWarning(message as string) implement
 {
 	if showWarning && enableOutput:
 		doPrintLine("WARNING", 95, currentPrefix, message)
-	warningCounter++
 }
 
-func logInfo(message as string) override
+func logInfo(message as string) implement
 {
 	if showInfo && enableOutput:
 		doPrintLine("INFO", -1, currentPrefix, message)
-	infoCounter++
 }
 
-func logDebug(message as string) override
+func logDebug(message as string) implement
 {
 	if showDebug && enableOutput:
 		doPrintLine("DEBUG", 96, currentPrefix, message)
-	debugCounter++
 }
 
-func logStatus(message as string?) override
+func logStatus(message as string?) implement
 {
 	if enableOutput && enableStatus {
 		if currentPrefix && message {
@@ -163,18 +137,16 @@ func logStatus(message as string?) override
 	}
 }
 
-func getApplicationDataDirectory override as File?:
+func getApplicationDataDirectory implement throws Exception as File?:
 	return getApplicationDataDirectoryForAppId(applicationName)
 
-func getApplicationDataDirectoryForAppId(appId as string? = null) as File?
+func getApplicationDataDirectoryForAppId(appId as string? = null) throws Exception as File?
 {
 	var applicationName = appId
 	if String.isEmpty(applicationName):
-		applicationName = CurrentProcess.getProcessName()
-	if String.isEmpty(applicationName):
-		return null
+		applicationName = CurrentProcess.getProcessNameOrThrowError()
 	var v as File?
-	var hd = CommonPath.getHomeDirectory()
+	var hd = CommonPath.getHomeDirectoryOrNull()
 	if hd:
 		v = File.forRelativePath("." .. applicationName, hd)
 	return v
@@ -213,7 +185,7 @@ func doPrintLine(type as string? #preserve, color as int #preserve, prefix as st
 		sb.appendString(message)
 	sb.appendCharacter('\n')
 	if stdout:
-		stdout.print(sb.toString())
+		try stdout.print(sb.toString())
 	lastStatus = false
 }
 
@@ -227,7 +199,7 @@ func doPrintStatus(m as string? #preserve) private
 		if m == null:
 			return
 		if stdout:
-			stdout.print(m .. "\n")
+			try stdout.print(m .. "\n")
 		return
 	}
 	if lastStatusLength < 1 && m == null:
@@ -245,7 +217,7 @@ func doPrintStatus(m as string? #preserve) private
 		sb.appendString(rm)
 	}
 	if stdout:
-		stdout.print(sb.toString())
+		try stdout.print(sb.toString())
 	if m && rm {
 		lastStatusLength = String.getLength(rm)
 	}

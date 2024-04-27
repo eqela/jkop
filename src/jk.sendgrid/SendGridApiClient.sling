@@ -80,45 +80,46 @@ func forApiKey(ctx as LoggingContext, sendGridApiKey as string, sender as EmailU
 	}
 
 ctor:
-	baseUrl = "https://api.sendgrid.com"
+	#post {
+		baseUrl = "https://api.sendgrid.com"
+	}
 
 prop sendGridApiKey as string
 prop sandboxMode as bool = false
 prop sender as EmailUser
 
-func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailContent>, subject as string, attachments as vector<Attachment>? = null) async
+func sendEmailContent(recipients as vector<EmailUser>, content as vector<EmailContent>, subject as string, attachments as vector<Attachment>? = null) async throws Exception
 {
 	var body = new EmailBody()
 	body.from = sender
 	foreach cnt in content:
-		body.addObjectToVectorField("content", cnt)
+		body.addToContent(cnt)
 	body.subject = subject
 	if attachments: foreach attachment in attachments:
-		body.addObjectToVectorField("attachments", attachment)
+		body.addToAttachments(attachment)
 	var vrecipients = groupRecipients(recipients)
 	foreach rctps in vrecipients {
 		var personalizations = new Personalization()
 		foreach rctp in rctps:
-			personalizations.addObjectToVectorField("to", rctp)
-		body.addObjectToVectorField("personalizations", personalizations)
+			personalizations.addToTo(rctp)
+		body.addToPersonalizations(personalizations)
 		await doSendEmail(body)
 		body.personalizations = null
 	}
 }
 
-func sendEmailTemplate(recipients as vector<EmailUser>, templateName as string, parameters as DynamicMap) async
+func sendEmailTemplate(recipients as vector<EmailUser>, templateName as string, parameters as DynamicMap) async throws Exception
 {
 	var body = new EmailBody()
 	body.from = sender
 	body.template_id = templateName
-	var counter = 0
 	var vrecipients = groupRecipients(recipients)
 	foreach rctps in vrecipients {
 		var personalizations = new Personalization()
 		foreach rctp in rctps:
-			personalizations.addObjectToVectorField("to", rctp)
-		personalizations.addObjectToVectorField("dynamic_template_data", parameters)
-		body.addObjectToVectorField("personalizations", personalizations)
+			personalizations.addToTo(rctp)
+		personalizations.dynamic_template_data = parameters
+		body.addToPersonalizations(personalizations)
 		await doSendEmail(body)
 		body.personalizations = null
 	}
@@ -126,7 +127,6 @@ func sendEmailTemplate(recipients as vector<EmailUser>, templateName as string, 
 
 func groupRecipients(recipients as vector<EmailUser>) as vector<vector<EmailUser>>
 {
-	var counter = 0
 	var vrecipients = new vector<vector<EmailUser>>
 	var recipientsItem = new vector<EmailUser>
 	var itr = Vector.iterate(recipients)
@@ -136,15 +136,17 @@ func groupRecipients(recipients as vector<EmailUser>) as vector<vector<EmailUser
 				vrecipients += recipientsItem
 			break
 		}
-		var it = itr.next()
-		if counter == 1000:
+		var it = try! itr.next()
+		if Vector.getSize(recipientsItem) == 1000 {
 			vrecipients += recipientsItem
+			recipientsItem = new vector<EmailUser>
+		}
 		recipientsItem += it
 	}
 	return vrecipients
 }
 
-func doSendEmail(body as EmailBody) async
+func doSendEmail(body as EmailBody) async throws Exception
 {
 	if sandboxMode {
 		var esetting = new EmailSetting()

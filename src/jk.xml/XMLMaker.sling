@@ -26,14 +26,14 @@ class is StringObject:
 
 class CData is StringObject public
 {
-	pvar text as string?
-	pvar simple = false
-	pvar singleLine = false
+	prop text as string?
+	prop simple = false
+	prop singleLine = false
 
 	ctor(t as string):
 		text = t
 
-	func toString as string
+	func toString implement as string
 	{
 		var sb = new StringBuilder()
 		if simple {
@@ -52,30 +52,29 @@ class CData is StringObject public
 
 class Element is StartElement public
 {
-	ctor(name as string)
-	{
-		base(name)
-		setSingle(true)
-	}
+	ctor(name as string):
+		#post {
+			single = true
+		}
 }
 
 class EndElement is StringObject public
 {
-	pvar name as string?
+	prop name as string?
 
 	ctor(n as string):
 		name = n
 
-	func toString as string:
-		return "</" .. getName() .. ">"
+	func toString implement as string:
+		return "</" .. name .. ">"
 }
 
 class StartElement is StringObject public
 {
-	pvar name as string?
-	pvar attributes = new map<string,string>
-	pvar single = false
-	pvar singleLine = false
+	prop name as string?
+	prop attributes = new map<string,string>
+	prop single = false
+	prop singleLine = false
 
 	ctor(n as string):
 		name = n
@@ -111,7 +110,7 @@ class StartElement is StringObject public
 		return sb.toString()
 	}
 
-	func toString as string
+	func toString implement as string
 	{
 		var sb = new StringBuilder()
 		sb.appendCharacter('<')
@@ -138,31 +137,34 @@ class StartElement is StringObject public
 
 class CustomXML public
 {
-	pvar string as string?
+	prop string as string?
 
 	ctor(s as string):
 		string = s
 }
 
-pvar elements = new vector<dynamic>
-pvar customHeader as string?
-pvar singleLine = false
-pvar header as string?
-pvar indentWithTab = false
+prop elements = new vector<dynamic>
+prop customHeader as string?
+prop singleLine = false
+prop header as string?
+prop indentWithTab = false
 
 ctor:
 	header = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
 
 func start(element as string, singleLine as bool = false) as this
 {
-	add(new StartElement(element).setSingleLine(singleLine))
+	add(new StartElement(element) {
+		singleLine singleLine
+	})
 	return this
 }
 
 func startWithAttribute(element as string, k1 as string, v1 as string, singleLine as bool = false) as this
 {
-	var v = new StartElement(element)
-	v.setSingleLine(singleLine)
+	var v = new StartElement(element) {
+		singleLine singleLine
+	}
 	v.attribute(k1, v1)
 	add(v)
 	return this
@@ -170,8 +172,9 @@ func startWithAttribute(element as string, k1 as string, v1 as string, singleLin
 
 func startWithAttributeMap(element as string, attrs as map<string,string>?, singleLine as bool = false) as this
 {
-	var v = new StartElement(element)
-	v.setSingleLine(singleLine)
+	var v = new StartElement(element) {
+		singleLine singleLine
+	}
 	if attrs: foreach key in Map.getKeys(attrs):
 		v.attribute(key, attrs[key])
 	add(v)
@@ -214,8 +217,9 @@ func cdata(element as string) as this
 
 func textElement(element as string, text as string, attrs as map<string,string>? = null) as this
 {
-	var se = new StartElement(element)
-	se.setSingleLine(true)
+	var se = new StartElement(element) {
+		singleLine true
+	}
 	if attrs: foreach key in Map.getKeys(attrs):
 		se.attribute(key, attrs[key])
 	add(se)
@@ -224,7 +228,7 @@ func textElement(element as string, text as string, attrs as map<string,string>?
 	return this
 }
 
-func add(o as object?) as this
+func add(o as dynamic?) as this
 {
 	if o:
 		Vector.appendValue(elements, o)
@@ -276,7 +280,7 @@ func escapeString(str as string) private as string
 	return sb.toString()
 }
 
-func toString as string
+func toString implement as string
 {
 	var sb = new StringBuilder()
 	var level = 0
@@ -290,9 +294,9 @@ func toString as string
 			append(sb, level, (o as! Element).toString(), singleLine, singleLine)
 		}
 		else if o is StartElement {
-			singleLine = (o as! StartElement).getSingleLine()
+			singleLine = (o as! StartElement).singleLine
 			append(sb, level, (o as! StartElement).toString(), false, singleLine)
-			if (o as! StartElement).getSingle() == false:
+			if (o as! StartElement).single == false:
 				level++
 		}
 		else if o is EndElement {
@@ -301,13 +305,13 @@ func toString as string
 			singleLine = false
 		}
 		else if o is CustomXML {
-			append(sb, level, String.safeString((o as! CustomXML).getString()), singleLine, singleLine)
+			append(sb, level, String.safeString((o as! CustomXML).string), singleLine, singleLine)
 		}
 		else if o is string {
 			append(sb, level, escapeString(o as! string), singleLine, singleLine)
 		}
 		else if o is CData {
-			append(sb, level, (o as! CData).toString(), singleLine, (o as! CData).getSingleLine())
+			append(sb, level, (o as! CData).toString(), singleLine, (o as! CData).singleLine)
 		}
 	}
 	return sb.toString()

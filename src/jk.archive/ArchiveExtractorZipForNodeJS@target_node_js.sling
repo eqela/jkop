@@ -24,7 +24,7 @@
 
 import jk.fs
 import jk.env
-import jk.nodejs
+import jk.lang.js
 
 class is ArchiveExtractor:
 
@@ -43,17 +43,19 @@ func forBuffer(buffer as buffer) static as this:
 prop file as File?
 prop buffer as buffer?
 
-func extractFileToDirectory(srcFile as File, destDir as File, listener as function<void,File>) private async
+func extractFileToDirectory(srcFile as File, destDir as File, listener as function<(File)>?) private async
 {
-	var extract = NodeModule.require("extract-zip")
+	var extract = JsCommonModule.require("extract-zip")
 	var srcPath = srcFile.getPath()
 	var dstPath = destDir.getPath()
-	lang "js" {{{
-		await extract(srcPath, { dir: dstPath })
+	lang "js" (extract, srcPath, dstPath) {{{
+		await extract(srcPath, { dir: dstPath });
 	}}}
+	if listener:
+		listener(destDir)
 }
 
-func extractBufferToDirectory(srcBuffer as buffer, destDir as File, listener as function<void,File>) private async
+func extractBufferToDirectory(srcBuffer as buffer, destDir as File, listener as function<(File)>?) private async throws Exception
 {
 	var dd = TemporaryDirectory.create()
 	var ff = dd.entry("archive.zip")
@@ -61,14 +63,14 @@ func extractBufferToDirectory(srcBuffer as buffer, destDir as File, listener as 
 		ff.setContentsBuffer(srcBuffer)
 		await extractFileToDirectory(ff, destDir, listener)
 	}
-	catch e {
+	catch e as Exception {
 		dd.removeRecursive()
 		throw e
 	}
 	dd.removeRecursive()
 }
 
-func extractToDirectory(destDir as File, listener as function<void,File>) override async
+func extractToDirectory(destDir as File, listener as function<(File)>?) override async throws Exception
 {
 	if var file = this.file {
 		await extractFileToDirectory(file, destDir, listener)

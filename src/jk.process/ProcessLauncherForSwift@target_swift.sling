@@ -1,0 +1,137 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.env
+import jk.time
+
+class:
+
+class MyProcess is Process
+{
+	prop process as [magical:Foundation.Process]
+
+	func getId implement as string
+	{
+		var pid = lang "swift" as int32 {{{ process.processIdentifier }}}
+		return String.forInteger(pid as! int)
+	}
+
+	func isRunning implement as bool:
+		return lang "swift" as bool {{{ process.isRunning }}}
+
+	func getExitStatus implement as int:
+		return lang "swift" as int32 {{{ process.terminationStatus }}} as! int
+
+	func sendInterrupt implement:
+		lang "swift" {{{
+			process.interrupt()
+		}}}
+
+	func killRequest implement:
+		lang "swift" {{{
+			process.terminate()
+		}}}
+
+	func killForce implement:
+		lang "swift" {{{
+			process.terminate()
+		}}}
+
+	func kill(timeout as int) implement
+	{
+		killRequest()
+		var start = SystemClock.asSeconds()
+		loop {
+			if isRunning() == false:
+				break
+			if SystemClock.asSeconds() - start >= timeout {
+				killForce()
+				break
+			}
+			lang "swift" {{{
+				Foundation.Thread.sleep(forTimeInterval: 1.0)
+			}}}
+		}
+	}
+
+	func waitForExit implement as int
+	{
+		lang "swift" {{{
+			process.waitUntilExit()
+		}}}
+		return getExitStatus()
+	}
+}
+
+func startProcess(launcher as ProcessLauncher, wait as bool, pipeHandler as BufferDataReceiver?) static throws Exception as Process
+{
+	var ff = launcher.file
+	var params = launcher.params
+	var cwd = launcher.cwd
+	var env = launcher.env
+	if launcher.inheritEnvironmentVariables {
+		var cenv = EnvironmentVariable.getAll()
+		foreach key in Map.getKeys(cenv):
+			Map.setValue(env, key, Map.getValue(cenv, key) ?? "")
+	}
+	var task = lang "swift" as [magical:Foundation.Process] {{{ Foundation.Process() }}}
+	lang "swift" (ff, params, env, cwd) {{{
+		task.executableURL = URL(fileURLWithPath: ff.getPath())
+		task.arguments = params.data
+		task.environment = env.data
+		if(cwd != nil) {
+			task.currentDirectoryURL = URL(fileURLWithPath: cwd!.getPath())
+		}
+		let outputPipe = Pipe()
+		let errorPipe = Pipe()
+	}}}
+	if pipeHandler {
+		lang "swift" {{{
+			task.standardOutput = outputPipe
+			task.standardError = errorPipe
+		}}}
+	}
+	try {
+		lang "swift" {{{
+			try task.run()
+		}}}
+	}
+	catch e {
+		Error.throw("failedToStartChildProcess", ff.getPath(), e)
+	}
+	if wait {
+		lang "swift" {{{
+			task.waitUntilExit()
+		}}}
+		if pipeHandler {
+			var stdoutData = lang "swift" as buffer {{{ BufferValue.forData(outputPipe.fileHandleForReading.readDataToEndOfFile()) }}}
+			var stderrData = lang "swift" as buffer {{{ BufferValue.forData(errorPipe.fileHandleForReading.readDataToEndOfFile()) }}}
+			pipeHandler.onBufferData(stdoutData, Buffer.getSize(stdoutData))
+			pipeHandler.onBufferData(stderrData, Buffer.getSize(stderrData))
+		}
+	}
+	return new MyProcess() {
+		process task
+	}
+}

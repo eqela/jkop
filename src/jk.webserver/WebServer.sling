@@ -27,11 +27,11 @@ import jk.log
 class abstract:
 
 prop ctx as LoggingContext
-prop errorHandler as function<void,WebServerRequest,dynamic>?
+prop errorHandler as function<(WebServerRequest,dynamic) async throws Exception>?
 
 var middlewares = new vector<WebServerMiddleware>
 
-func instance(ctx as LoggingContext) static as this
+func instance(ctx as LoggingContext) static throws Exception as this
 {
 	IFDEF "target_node_js" {
 		var v = new WebServerForNodeJS() {
@@ -40,25 +40,37 @@ func instance(ctx as LoggingContext) static as this
 		v.initialize()
 		return v
 	}
+	ELSE IFDEF "target_gui" {
+		nop ctx
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func waitForServers(ctx as LoggingContext, servers as vector<this>) async static
+func waitForServers(ctx as LoggingContext, servers as vector<this>) async static throws Exception
 {
 	IFDEF "target_node_js" {
 		await WebServerForNodeJS.waitForServers(ctx, servers)
 	}
+	ELSE IFDEF "target_gui" {
+		nop ctx
+		nop servers
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		nop servers
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func initialize virtual:
+func initialize virtual throws Exception:
 	nop
 
-func useFunction(function as function<promise<void>,WebServerRequest,function<promise<void>>>):
+func useFunction(function as function<(WebServerRequest,function<() async throws Exception>) async>):
 	use(new WebServerMiddleware() {
 		handler function
 	})
@@ -73,16 +85,19 @@ func asHttpErrorCode(error as dynamic?) as int
 	return wse.httpStatus
 }
 
-func handleError(req as WebServerRequest, error as dynamic) virtual
+func handleError(req as WebServerRequest, error as dynamic) async virtual
 {
-	var handler = errorHandler
-	if handler {
-		handler(req, error)
+	try {
+		var handler = errorHandler
+		if handler {
+			await handler(req, error)
+			return
+		}
 	}
-	else {
-		Log.error(ctx, String.asValueOrEmptyString(error))
+	Log.error(ctx, String.asValueOrEmptyString(error))
+	try {
 		req.setResponseStatus(asHttpErrorCode(error))
-		req.endResponse()
+		await req.endResponse()
 	}
 }
 
@@ -94,9 +109,9 @@ class HandleRequestState private
 func handleRequest(req as WebServerRequest) async virtual
 {
 	var state = new HandleRequestState()
-	var nextf as function<promise<void>> = func async {
+	var nextf = func async throws Exception {
 	}
-	nextf = func async {
+	nextf = func async throws Exception {
 		var mw = Vector.getValue(middlewares, state.index)
 		if mw {
 			state.index = state.index + 1
@@ -110,7 +125,7 @@ func handleRequest(req as WebServerRequest) async virtual
 		await nextf()
 	}
 	catch e {
-		handleError(req, e)
+		await handleError(req, e)
 	}
 }
 
@@ -121,6 +136,6 @@ func use(middleware as WebServerMiddleware) virtual
 	middleware.initializeMiddleware(this)
 }
 
-func start(port as int) async abstract
-func execute(port as int) async abstract
-func stop async abstract
+func start(port as int) async abstract throws Exception
+func execute(port as int) async abstract throws Exception
+func stop abstract throws Exception

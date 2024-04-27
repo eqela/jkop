@@ -52,27 +52,21 @@ class MyProcessLauncher
 
 	func addToParams(param as string)
 	{
-		// FIXME
-		ERROR "notImplemented"
+		nop param
+		ERROR NOT_IMPLEMENTED
 	}
 
-	func executeSilent as int
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func executeSilent as int:
+		ERROR NOT_IMPLEMENTED
 
-	func executeToString as string
-	{
-		// FIXME
-		ERROR "notImplemented"
-	}
+	func executeToString as string:
+		ERROR NOT_IMPLEMENTED
 }
 
 class MyFileReader is FileReader is StreamReaderForDotnetCS
 {
 	func initialize(fileName as string):
-		lang "cs" {{{
+		lang "cs" (fileName) {{{
 			setStream(System.IO.File.OpenRead(fileName));
 		}}}
 }
@@ -83,7 +77,7 @@ class MyFileWriter is FileWriter is StreamWriterForDotnetCS
 
 	func initialize(fileName as string)
 	{
-		lang "cs" {{{
+		lang "cs" (fileName) {{{
 			if(append) {
 				setStream(System.IO.File.Open(fileName, System.IO.FileMode.Append));
 			}
@@ -147,7 +141,7 @@ func setCompletePath(v as string)
 func getPath override as string
 {
 	if not completePath:
-		Error.throw("noPathForFile", this)
+		return ""
 	return completePath
 }
 
@@ -209,7 +203,7 @@ class MyIterator is Iterator<File>
 		return v
 	}
 
-	func next as File
+	func next implement as File
 	{
 		if current {
 			var vv = current
@@ -222,7 +216,7 @@ class MyIterator is Iterator<File>
 		return v
 	}
 
-	func hasNext as bool
+	func hasNext implement as bool
 	{
 		if current:
 			return true
@@ -235,7 +229,7 @@ class MyIterator is Iterator<File>
 	}
 }
 
-func entries override as Iterator<File>
+func entries override throws Exception as Iterator<File>
 {
 	var v = new MyIterator()
 	v.setFile(this)
@@ -249,7 +243,7 @@ func entries override as Iterator<File>
 	return v
 }
 
-func move(dest as File, replace as bool) override
+func move(dest as File, replace as bool) override throws Exception
 {
 	if dest.exists() {
 		if not replace:
@@ -258,7 +252,7 @@ func move(dest as File, replace as bool) override
 	}
 	var path = getPath()
 	var destf = assert dest as this
-	lang "cs" {{{
+	lang "cs" (path, destf) {{{
 		if(System.IO.Directory.Exists(path)) {
 			System.IO.Directory.Move(path, destf.getPath());
 		}
@@ -268,10 +262,10 @@ func move(dest as File, replace as bool) override
 	}}}
 }
 
-func touch override
+func touch override throws Exception
 {
 	var path = getPath()
-	lang "cs" {{{
+	lang "cs" (path) {{{
 		var fi = new System.IO.FileInfo(path);
 		if(fi.Exists) {
 			System.IO.File.SetLastWriteTime(path, System.DateTime.Now);
@@ -289,10 +283,10 @@ func getMyReader private as MyFileReader
 	return v
 }
 
-func read override as FileReader:
+func read override throws Exception as FileReader:
 	return getMyReader()
 
-func write override as FileWriter
+func write override throws Exception as FileWriter
 {
 	var v = new MyFileWriter() {
 		append false
@@ -301,7 +295,7 @@ func write override as FileWriter
 	return v
 }
 
-func append override as FileWriter
+func append override throws Exception as FileWriter
 {
 	var v = new MyFileWriter() {
 		append true
@@ -310,7 +304,7 @@ func append override as FileWriter
 	return v
 }
 
-func makeExecutable override
+func makeExecutable override throws Exception
 {
 	var path = getPath()
 	if OS.isLinux() || OS.isMacOS() {
@@ -321,11 +315,11 @@ func makeExecutable override
 			Error.throw("failedToExecuteCommand", "chmod")
 	}
 	else {
-		ERROR "notSupported"
+		ERROR NOT_SUPPORTED
 	}
 }
 
-func setMode(mode as int) override
+func setMode(mode as int) override throws Exception
 {
 	var path = getPath()
 	if OS.isLinux() || OS.isMacOS() {
@@ -336,11 +330,11 @@ func setMode(mode as int) override
 			Error.throw("failedToExecuteCommand", "chmod")
 	}
 	else {
-		ERROR "notSupported"
+		Error.throw("notSupported")
 	}
 }
 
-func setOwnerUser(uid as int) override
+func setOwnerUser(uid as int) override throws Exception
 {
 	var path = getPath()
 	if OS.isLinux() || OS.isMacOS() {
@@ -351,11 +345,11 @@ func setOwnerUser(uid as int) override
 			Error.throw("failedToExecuteCommand", "chown")
 	}
 	else {
-		ERROR "notSupported"
+		Error.throw("notSupported")
 	}
 }
 
-func setOwnerGroup(gid as int) override
+func setOwnerGroup(gid as int) override throws Exception
 {
 	var path = getPath()
 	if OS.isLinux() || OS.isMacOS() {
@@ -366,7 +360,7 @@ func setOwnerGroup(gid as int) override
 			Error.throw("failedToExecuteCommand", "chgrp")
 	}
 	else {
-		ERROR "notSupported"
+		Error.throw("notSupported")
 	}
 }
 
@@ -375,16 +369,26 @@ func stat override as FileInfo
 	var link = false
 	var type = FileInfo.FILE_TYPE_UNKNOWN
 	var path = getPath()
-	lang "cs" {{{
-		var attrs = System.IO.File.GetAttributes(path);
-		if(attrs.HasFlag(System.IO.FileAttributes.Directory)) {
-			type = FileInfo.FILE_TYPE_DIR;
-			if(attrs.HasFlag(System.IO.FileAttributes.ReparsePoint)) {
-				link = true;
+	var exists = false
+	lang "cs" (link, type, path, exists) {{{
+		try {
+			var attrs = System.IO.File.GetAttributes(path);
+			if(attrs.HasFlag(System.IO.FileAttributes.Directory)) {
+				type = FileInfo.FILE_TYPE_DIR;
+				if(attrs.HasFlag(System.IO.FileAttributes.ReparsePoint)) {
+					link = true;
+				}
 			}
+			else {
+				type = FileInfo.FILE_TYPE_FILE;
+			}
+			exists = true
 		}
-		else {
-			type = FileInfo.FILE_TYPE_FILE;
+		catch(System.IO.FileNotFoundException e) {
+			exists = false
+		}
+		catch(System.IO.DirectoryNotFoundException e) {
+			exists = false
 		}
 	}}}
 	var size = 0
@@ -441,28 +445,29 @@ func stat override as FileInfo
 		ownerUser ownerUser
 		ownerGroup ownerGroup
 		executable executable
+		exists exists
 	}
 }
 
-func createDirectory override
+func createDirectory override throws Exception
 {
 	var path = getPath()
-	lang "cs" {{{
+	lang "cs" (path) {{{
 		System.IO.Directory.CreateDirectory(path);
 	}}}
 }
 
-func createDirectoryRecursive override:
+func createDirectoryRecursive override throws Exception:
 	createDirectory()
 
-func remove override
+func remove override throws Exception
 {
 	var path = getPath()
 	if OS.isWindows() {
 		var v = true
 		var ec as int
 		var ff as string?
-		lang "cs" {{{
+		lang "cs" (ff, v, ec) {{{
 			ff = @"\\?\" + path; //"
 			v = DeleteFileW(ff);
 			if(v == false) {
@@ -473,20 +478,20 @@ func remove override
 			Error.throw("DeleteFileW", String.forInteger(ec))
 	}
 	else {
-		lang "cs" {{{
+		lang "cs" (path) {{{
 			System.IO.File.Delete(path);
 		}}}
 	}
 }
 
-func removeDirectory override
+func removeDirectory override throws Exception
 {
 	var path = getPath()
 	if OS.isWindows() {
 		var ff as string?
 		var ec as int
 		var v = true
-		lang "cs" {{{
+		lang "cs" (ff, v, ec) {{{
 			ff = @"\\?\" + path; //"
 			v = RemoveDirectoryW(ff);
 			if(v == false) {
@@ -497,7 +502,7 @@ func removeDirectory override
 			Error.throw("RemoveDirectoryW", String.forInteger(ec))
 	}
 	else {
-		lang "cs" {{{
+		lang "cs" (path) {{{
 			System.IO.Directory.Delete(path);
 		}}}
 	}
@@ -518,58 +523,16 @@ func getBasename override as string
 func getContentsBuffer override as buffer
 {
 	var path = getPath()
-	return lang "cs" as buffer {{{ System.IO.File.ReadAllBytes(path) }}}
-}
-
-func getContentsString(encoding as string) override as string
-{
-	var path = getPath()
-	if encoding == "UTF-8" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8) }}}
-	}
-	else if encoding == "ASCII" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.ASCII) }}}
-	}
-	else if encoding == "UCS2" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.Unicode) }}}
-	}
-	else if encoding == "UTF-7" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF7) }}}
-	}
-	else if encoding == "UTF-32" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.UTF32) }}}
-	}
-	else if encoding == "ANSI" {
-		return lang "cs" as string {{{ System.IO.File.ReadAllText(path, System.Text.Encoding.Default) }}}
-	}
-	return lang "cs" as string {{{ System.IO.File.ReadAllText(path) }}}
+	return lang "cs" (path) as buffer {{{ System.IO.File.ReadAllBytes(path) }}}
 }
 
 func setContentsBuffer(buf as buffer) override
 {
 	var path = getPath()
-	lang "cs" {{{
+	lang "cs" (path, buf) {{{
 		System.IO.File.WriteAllBytes(path, buf);
 	}}}
 }
 
-func setContentsString(str as string, encoding as string) override
-{
-	var ee as [magical:System.Text.Encoding]?
-	if encoding == "UTF-8" || encoding == "UTF8" {
-		ee = lang "cs" as [magical:System.Text.Encoding] {{{ new System.Text.UTF8Encoding(false) }}}
-	}
-	else if encoding == "ASCII" {
-		ee = lang "cs" as [magical:System.Text.Encoding] {{{ System.Text.Encoding.ASCII }}}
-	}
-	else if encoding == "UCS-2" || encoding == "UCS2" {
-		ee = lang "cs" as [magical:System.Text.Encoding] {{{ new System.Text.UnicodeEncoding(false, false) }}}
-	}
-	else {
-		Error.throw("unsupportedEncoding", encoding)
-	}
-	var path = getPath()
-	lang "cs" {{{
-		System.IO.File.WriteAllText(path, str, ee);
-	}}}
-}
+func createFifo override throws Exception:
+	ERROR NOT_IMPLEMENTED

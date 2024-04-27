@@ -92,15 +92,6 @@ ctor
 	}
 }
 
-ctor(seed as int)
-{
-	description [[
-		Creates a new random number generator, and uses the given integer "seed" as the
-		seed for the generator, if applicable.
-	]]
-	setSeed(seed)
-}
-
 func setSeed(seed as int)
 {
 	description [[
@@ -109,17 +100,20 @@ func setSeed(seed as int)
 		utilize a seed at all.
 	]]
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (seed) {{{
 			random = new System.Random((System.Int32)seed);
 		}}}
 	}
 	ELSE IFDEF "target_java" {
-		lang "java" {{{
+		lang "java" (seed) {{{
 			random.setSeed(seed);
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		random = lang "lua" as object {{{ _util:create_random_number_generator(seed) }}}
+		random = lang "lua" (seed) as object {{{ _util:create_random_number_generator(seed) }}}
+	}
+	ELSE {
+		nop seed
 	}
 }
 
@@ -134,8 +128,8 @@ func nextBoolean as bool
 	ELSE {
 		if nextInteger() % 2 == 0:
 			return false
+		return true
 	}
-	return true
 }
 
 func nextInteger as int
@@ -160,14 +154,14 @@ func nextInteger as int
 		return lang "kotlin" as int {{{ kotlin.random.Random.nextInt() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ Int32.random(in : Int32.min ..< Int32.max) }}}
+		return lang "swift" as int {{{ Int.random(in : Int.min ..< Int.max) }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		var random = getSushiRandom()
 		return lang "lua" as int {{{ _util:create_random_number(random) }}}
 	}
 	ELSE {
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -177,22 +171,22 @@ func nextIntegerWithMaximum(n as int) as int
 		Used to retrieve integer values from 0 (inclusive) and "n" (exclusive)
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ random.Next(n) }}}
+		return lang "cs" (n) as int {{{ random.Next(n) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ random.nextInt(n) }}}
+		return lang "java" (random, n) as int {{{ random.nextInt(n) }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ Math.floor((Math.random() * n) + 1) }}}
+		return lang "js" (n) as int {{{ Math.floor((Math.random() * n) + 1) }}}
 	}
 	ELSE IFDEF "target_objc" {
 		return nextIntegerBetween(0, n)
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ kotlin.random.Random.nextInt(n) }}}
+		return lang "kotlin" (n) as int {{{ kotlin.random.Random.nextInt(n) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ Int32.random(in : 0 ..< n) }}}
+		return lang "swift" (n) as int {{{ Int.random(in : 0 ..< n) }}}
 	}
 	ELSE {
 		return nextInteger() % n
@@ -205,22 +199,22 @@ func nextIntegerBetween(s as int, e as int) as int
 		Used to retrieve integer values between "s" (inclusive) and "e" (exclusive)
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as int {{{ random.Next(s, e) }}}
+		return lang "cs" (s, e) as int {{{ random.Next(s, e) }}}
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as int {{{ random.nextInt(e - s + 1) + s }}}
+		return lang "java" (random, s, e) as int {{{ random.nextInt(e - s + 1) + s }}}
 	}
 	ELSE IFDEF "target_js" {
-		return lang "js" as int {{{ Math.floor(Math.random() * (e - s) + s) }}}
+		return lang "js" (s, e) as int {{{ Math.floor(Math.random() * (e - s) + s) }}}
 	}
 	ELSE IFDEF "target_objc" {
-		return lang "objc" as int {{{ s + arc4random_uniform(e-s) }}}
+		return lang "objc" (s, e) as int {{{ s + arc4random_uniform(e-s) }}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		return lang "kotlin" as int {{{ kotlin.random.Random.nextInt(e - s + 1) + s }}}
+		return lang "kotlin" (s, e) as int {{{ kotlin.random.Random.nextInt(e - s + 1) + s }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as int {{{ Int32.random(in : s ..< e) }}}
+		return lang "swift" (s, e) as int {{{ Int.random(in : s ..< e) }}}
 	}
 	ELSE {
 		return s + nextInteger() % (e - s)
@@ -234,17 +228,17 @@ func nextBytes(buf as array<int8>)
 	]]
 	// FIXME: This should be buf as buffer
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (buf) {{{
 			random.NextBytes((byte[])(System.Array)buf);
 		}}}
 	}
 	ELSE IFDEF "target_java" {
-		lang "java" {{{
+		lang "java" (buf) {{{
 			random.nextBytes(buf);
 		}}}
 	}
 	ELSE IFDEF "target_kotlin" {
-		lang "kotlin" {{{
+		lang "kotlin" (buf) {{{
 			var buff = buf
 			var random = java.security.SecureRandom()
 			random.nextBytes(buff)
@@ -276,7 +270,7 @@ func nextDouble as double
 		return lang "kotlin" as double {{{ kotlin.random.Random.nextDouble() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as double {{{ Double.random(in : Double.leastNormalMagnitude ..< Double.greatestFiniteMagnitude) }}}
+		return lang "swift" as double {{{ Swift.Double.random(in : Swift.Double.leastNormalMagnitude ..< Swift.Double.greatestFiniteMagnitude) }}}
 	}
 	ELSE {
 		var n = nextIntegerWithMaximum(2147483647) as! double
@@ -303,7 +297,7 @@ func nextFloat as float
 		return lang "kotlin" as float {{{ kotlin.random.Random.nextFloat() }}}
 	}
 	ELSE IFDEF "target_swift" {
-		return lang "swift" as float {{{ Float.random(in : Float.leastNormalMagnitude  ..< Float.greatestFiniteMagnitude) }}}
+		return lang "swift" as float {{{ Swift.Float.random(in : Swift.Float.leastNormalMagnitude  ..< Swift.Float.greatestFiniteMagnitude) }}}
 	}
 	ELSE {
 		var n = nextIntegerWithMaximum(2147483647) as! float

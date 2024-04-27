@@ -27,14 +27,14 @@ import jk.random
 
 class is BCryptEncoder:
 
-func generateSaltWithRoundsAndVersion(logRounds as int, bCryptVersion as string) override as string:
-	return BCrypt.gensaltWithRounds(ctx, logRounds)
+func generateSaltWithRoundsAndVersion(logRounds as int, bCryptVersion as string) override throws Exception as string:
+	return BCrypt.gensaltWithRounds(logRounds)
 
-func hashPassword(password as string, salt as string) override as string:
-	return BCrypt.hashpw(ctx, password, salt)
+func hashPassword(password as string, salt as string) override throws Exception as string:
+	return BCrypt.hashpw(password, salt)
 
-func checkPassword(password as string, hash as string) override as bool:
-	return BCrypt.checkpw(ctx, password, hash)
+func checkPassword(password as string, hash as string) override throws Exception as bool:
+	return BCrypt.checkpw(password, hash)
 
 class BCrypt
 {
@@ -363,7 +363,7 @@ class BCrypt
 		return index64
 	}
 
-	func hashpw(ctx as LoggingContext, password as string, salt as string) static as string
+	func hashpw(password as string, salt as string) static throws Exception as string
 	{
 		var inputBytes as buffer?
 		var minor = '0'
@@ -414,7 +414,7 @@ class BCrypt
 		return sb.toString()
 	}
 
-	func gensaltWithRounds(ctx as LoggingContext, logRounds as int) static as string
+	func gensaltWithRounds(logRounds as int) static throws Exception as string
 	{
 		if logRounds < 4 || logRounds > 31:
 			throw ExceptionWithString.forString("Bcrypt log rounds exceeds maximum (30)", true)
@@ -432,11 +432,11 @@ class BCrypt
 		return rs.toString()
 	}
 
-	func checkpw(ctx as LoggingContext, plaintext as string, hashed as string) static as bool
+	func checkpw(plaintext as string, hashed as string) static throws Exception as bool
 	{
 		var hashedBytes as buffer?
 		var tryBytes as buffer?
-		var tryPw = hashpw(ctx, plaintext, hashed)
+		var tryPw = hashpw(plaintext, hashed)
 		hashedBytes = String.toUTF8Buffer(hashed)
 		tryBytes = String.toUTF8Buffer(tryPw)
 		if Buffer.getSize(hashedBytes) != Buffer.getSize(tryBytes):
@@ -447,7 +447,7 @@ class BCrypt
 		return ret == 0
 	}
 
-	func encodeBase64(data as buffer, len as long) static as string
+	func encodeBase64(data as buffer, len as long) static throws Exception as string
 	{
 		if len <= 0 || len > Buffer.getSize(data):
 			throw ExceptionWithString.forString("bcrypt encoder: Invalid length", true)
@@ -477,7 +477,7 @@ class BCrypt
 		return sb.toString()
 	}
 
-	func decodeBase64(str as string, maxLen as int) static as buffer
+	func decodeBase64(str as string, maxLen as int) static throws Exception as buffer
 	{
 		var off = 0
 		var slen = String.getLength(str)
@@ -531,7 +531,7 @@ class BCrypt
 		return getIndex64()[x as! int]
 	}
 
-	func encipher(lr as array<uint>, off as int)
+	func encipher(lr as array<uint>, off as int) throws Exception
 	{
 		if not p:
 			Error.throw("encipherNotInitialized", "p")
@@ -543,15 +543,15 @@ class BCrypt
 		l = (l ^ p[0] as! uint32) as! uint32
 		while i <= BLOWFISH_NUM_ROUNDS - 2 {
 			var n = (s[(l >> 24) & 0xFF]) as! uint32
-			n += (s[0x100 | ((l >> 16) & 0xFF)]) as! uint32
-			n = (n ^ s[0x200 | ((l >> 8) & 0xFF)] as! uint32) as! uint32
-			n += (s[0x300 | (l & 0xFF)]) as! uint32
+			n += (s[0x100 as! uint32 | ((l >> 16) & 0xFF)]) as! uint32
+			n = (n ^ s[0x200 as! uint32 | ((l >> 8) & 0xFF)] as! uint32) as! uint32
+			n += (s[0x300 as! uint32 | (l & 0xFF)]) as! uint32
 			i++
 			r = (r ^ n ^ p[i] as! uint32) as! uint32
 			n = (s[(r >> 24) & 0xFF]) as! uint32
-			n += (s[0x100 | ((r >> 16) & 0xFF)]) as! uint32
-			n = (n ^ s[0x200 | ((r >> 8) & 0xFF)] as! uint32) as! uint32
-			n += (s[0x300 | (r & 0xFF)]) as! uint32
+			n += (s[0x100 as! uint32 | ((r >> 16) & 0xFF)]) as! uint32
+			n = (n ^ s[0x200 as! uint32 | ((r >> 8) & 0xFF)] as! uint32) as! uint32
+			n += (s[0x300 as! uint32 | (r & 0xFF)]) as! uint32
 			i++
 			l = (l ^ n ^ (p[i] as! uint32)) as! uint32
 		}
@@ -578,7 +578,7 @@ class BCrypt
 		s = sOrig
 	}
 
-	func key(key as buffer)
+	func key(key as buffer) throws Exception
 	{
 		if not p:
 			Error.throw("encipherNotInitialized", "p")
@@ -603,7 +603,7 @@ class BCrypt
 		}
 	}
 
-	func ekskey(data as buffer, key as buffer)
+	func ekskey(data as buffer, key as buffer) throws Exception
 	{
 		if not p:
 			Error.throw("encipherNotInitialized", "p")
@@ -633,7 +633,7 @@ class BCrypt
 		}
 	}
 
-	func cryptRaw(password as buffer, salt as buffer, logRounds as int, cdata as array<uint>) as buffer
+	func cryptRaw(password as buffer, salt as buffer, logRounds as int, cdata as array<uint>) throws Exception as buffer
 	{
 		var i as int
 		var j as int

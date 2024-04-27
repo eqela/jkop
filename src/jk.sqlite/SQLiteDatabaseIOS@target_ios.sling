@@ -38,7 +38,7 @@ IFDEF "target_objc"
 }
 ELSE IFDEF "target_swift"
 {
-	depend "swift-import:SQLite3"
+	import [magical:SQLite3]
 
 	var db as [magical:OpaquePointer]?
 }
@@ -245,7 +245,7 @@ class Statement is SQLStatement
 	func setParamBlob(name as string, val as buffer) override:
 		addParamBlob(val)
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		assert compiledStmt
 		IFDEF "target_objc" {
@@ -343,7 +343,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
 		assert compiledStmt
 		var n as DynamicMap?
@@ -353,16 +353,15 @@ class ResultSet is SQLResultSetIterator
 		columnNames = getColumnNames()
 		var cnCount = Vector.getSize(columnNames)
 		for(var i = 0 ; i < cnCount ; i++) {
-			var s = getColumnObject(i)
+			var s = getColumnValue(i)
 			var cn = Vector.getValue(columnNames, i)
 			n.setObject(cn, s)
 		}
 		return n
 	}
 
-	func nextValues(values as vector<object>) override as bool
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
-		assert values
 		assert compiledStmt
 		assert step()
 		Vector.clear(values)
@@ -390,7 +389,7 @@ class ResultSet is SQLResultSetIterator
 		return true
 	}
 
-	func step override as bool
+	func step override throws Exception
 	{
 		if hasNextRecord {
 			hasNextRecord = false
@@ -420,7 +419,7 @@ class ResultSet is SQLResultSetIterator
 		return b
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
 		assert compiledStmt
 		var count as int
@@ -437,7 +436,7 @@ class ResultSet is SQLResultSetIterator
 		return count
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
 		var name as string?
 		assert compiledStmt
@@ -460,7 +459,7 @@ class ResultSet is SQLResultSetIterator
 		return name
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
 		if not columnNames {
 			columnNames = new vector<string>
@@ -474,7 +473,7 @@ class ResultSet is SQLResultSetIterator
 		return columnNames
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
 		assert compiledStmt
 		var type as int
@@ -515,10 +514,10 @@ class ResultSet is SQLResultSetIterator
 		}
 		if type == 4:
 			return Buffer.wrapValue(getColumnBuffer(n))
-		return ""
+		return null
 	}
 
-	func getColumnInt(n as int) override as int
+	func getColumnInt(n as int) override throws Exception as int
 	{
 		assert compiledStmt
 		var v as int
@@ -535,9 +534,9 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnLong(n as int) stub override as long
+	func getColumnLong(n as int) stub override throws Exception as long
 
-	func getColumnDouble(n as int) override as double
+	func getColumnDouble(n as int) override throws Exception as double
 	{
 		assert compiledStmt
 		var v as double
@@ -554,7 +553,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnBuffer(n as int) override as buffer
+	func getColumnBuffer(n as int) override throws Exception as buffer
 	{
 		assert compiledStmt
 		var v as buffer?
@@ -578,7 +577,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func close override:
+	func close override throws Exception:
 		compiledStmt = null
 
 	func hasNext override as bool
@@ -594,7 +593,7 @@ class ResultSet is SQLResultSetIterator
 	}
 }
 
-func initialize(file as File, create as bool) override as bool
+func initialize(file as File, create as bool) override throws Exception as bool
 {
 	assert file
 	if create == false && file.isFile() == false {
@@ -637,7 +636,7 @@ func initialize(file as File, create as bool) override as bool
 	return v
 }
 
-func closeConnection async override
+func closeConnection async override throws Exception
 {
 	assert this.db
 	IFDEF "target_objc" {
@@ -657,7 +656,7 @@ func closeConnection async override
 	this.db = null
 }
 
-func prepareStatement(sql as string) async override as SQLStatement
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
 {
 	assert sql
 	var v = new Statement()
@@ -665,7 +664,7 @@ func prepareStatement(sql as string) async override as SQLStatement
 	return v
 }
 
-func executeStatement(stmt as SQLStatement) override as bool
+func executeStatement(stmt as SQLStatement) override throws Exception as bool
 {
 	assert stmt
 	var ss = stmt as Statement
@@ -674,7 +673,7 @@ func executeStatement(stmt as SQLStatement) override as bool
 	return b
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var v = 0
 	if executeStatement(stmt) {
@@ -696,7 +695,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	return v
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var v as SQLResultSetIterator?
 	assert stmt

@@ -38,12 +38,18 @@ func executeMain(app as this?, args as array<string>?) static as int
 	return app.executeWithArgumentArray(args)
 }
 
-var stdout public = Stdout.getIfAvailable()
-var stdin public = Stdin.getIfAvailable()
+var stdout public as PrintWriter?
+var stdin public as PrintReader?
 var ctx public = new ConsoleApplicationContext()
 var args public as vector<CommandLineArgument>?
 var verbosityLevel = 3
 var terminal as Terminal?
+
+ctor
+{
+	stdout = Stdout.getIfAvailable()
+	stdin = Stdin.getIfAvailable()
+}
 
 func setCtx(v as ConsoleApplicationContext) as this
 {
@@ -64,13 +70,13 @@ func getTerminal as Terminal?
 func print(value as string)
 {
 	if stdout:
-		stdout.print(value)
+		try stdout.print(value)
 }
 
 func println(value as string)
 {
 	if stdout:
-		stdout.println(value)
+		try stdout.println(value)
 }
 
 func readLine as string?
@@ -91,7 +97,7 @@ func readLineWithoutEcho as string?
 	return readLine()
 }
 
-func initialize virtual as bool:
+func initialize virtual throws Exception as bool:
 	return true
 
 func getVerbosityLevel as int:
@@ -166,12 +172,18 @@ func executeWithArgumentVector(args as vector<string>?) virtual as int
 {
 	if args:
 		this.args = ConsoleApplicationUtil.parseCommandLineArguments(args)
-	if not initialize():
+	try {
+		if not initialize():
+			return 1
+		var r = execute()
+		Log.status(ctx, null)
+		if r:
+			return 0
 		return 1
-	var r = execute()
-	Log.status(ctx, null)
-	if r:
-		return 0
+	}
+	catch e as Exception {
+		Log.error(ctx, e.toString())
+	}
 	return 1
 }
 
@@ -189,11 +201,17 @@ func executeWithArgumentArray(args as array<string>?) virtual as int
 func executeWithParsedArguments(args as vector<CommandLineArgument>?) as bool
 {
 	this.args = args
-	if not initialize():
-		return false
-	var r = execute()
-	Log.status(ctx, null)
-	return r
+	try {
+		if not initialize():
+			return false
+		var r = execute()
+		Log.status(ctx, null)
+		return r
+	}
+	catch e as Exception {
+		Log.error(ctx, e.toString())
+	}
+	return false
 }
 
-func execute virtual abstract as bool
+func execute abstract throws Exception as bool

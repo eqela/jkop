@@ -1,0 +1,67 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.process
+
+class:
+
+class BuildTaskProperties public
+{
+	prop directory as File
+	prop makefile as File?
+	prop makeExecutable as File?
+	prop target as string?
+	prop parameters as map<string,string>?
+}
+
+func createBuildTask(ctx as LoggingContext #used, properties as BuildTaskProperties) static as function<() async throws Exception>:
+	return func async throws Exception {
+		var pl as ProcessLauncher?
+		var exe = properties.makeExecutable
+		if exe:
+			pl = ProcessLauncher.forFile(exe)
+		if not pl:
+			pl = ProcessLauncher.forCommand("make")
+		pl.cwd = properties.directory
+		var mf = properties.makefile
+		if mf {
+			pl.addToParams("-f")
+			pl.addToParams(mf.getPath())
+		}
+		var target = properties.target
+		if String.isNotEmpty(target):
+			pl.addToParams(target)
+		var params = properties.parameters
+		if params: foreach key in Map.getKeys(params) {
+			var val = Map.getValue(params, key)
+			if not val:
+				val = ""
+			pl.addToParams(key .. "=" .. val)
+		}
+		var r = pl.execute()
+		if r != 0:
+			Error.throw("makeBuildFailed", String.forInteger(r))
+	}

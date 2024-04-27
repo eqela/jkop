@@ -28,7 +28,7 @@ import jk.fs
 
 class is ConnectedSocket abstract:
 
-func createInstance(ctx as LoggingContext, cSocket as ConnectedSocket, serverAddress as string? = null, certFile as File? = null, keyFile as File? = null, isServer as bool = false, acceptInvalidCertificate as bool = false, passphrase as string? = null) static as this
+func createInstance(ctx as LoggingContext, cSocket as ConnectedSocket, serverAddress as string? = null, certFile as File? = null, keyFile as File? = null, isServer as bool = false, acceptInvalidCertificate as bool = false, passphrase as string? = null) static throws Exception as this
 {
 	IFDEF "target_dotnet_cs" {
 		var v = new SSLSocketForDotnetCS() {
@@ -74,25 +74,31 @@ func createInstance(ctx as LoggingContext, cSocket as ConnectedSocket, serverAdd
 			Error.throw("failedToCreateSslSocketForConnectedSocket", cSocket)
 		return v
 	}
-	ELSE IFDEF "target_node_js" {
-		var v = new SSLSocketForNodeJS() {
-			ctx ctx
-			acceptInvalidCertificate acceptInvalidCertificate
-			requireClientCertificate false
-			serverAddress serverAddress
-		}
-		v.open(cSocket, certFile, keyFile, isServer, passphrase)
-		return v
-	}
 	ELSE {
-		ERROR "notImplemented"
+		nop ctx
+		nop cSocket
+		nop serverAddress
+		nop certFile
+		nop keyFile
+		nop isServer
+		nop acceptInvalidCertificate
+		nop passphrase
+		IFDEF "target_node_js" {
+			ERROR NOT_SUPPORTED
+		}
+		ELSE IFDEF "target_browser" {
+			ERROR NOT_SUPPORTED
+		}
+		ELSE {
+			ERROR NOT_IMPLEMENTED
+		}
 	}
 }
 
-func forClient(ctx as LoggingContext, cSocket as ConnectedSocket, hostAddress as string?, acceptInvalidCertificate as bool = false, passphrase as string? = null) static as this:
+func forClient(ctx as LoggingContext, cSocket as ConnectedSocket, hostAddress as string?, acceptInvalidCertificate as bool = false, passphrase as string? = null) static throws Exception as this:
 	return createInstance(ctx, cSocket, hostAddress, null, null, false, acceptInvalidCertificate, passphrase)
 
-func forServer(ctx as LoggingContext, cSocket as ConnectedSocket, certFile as File? = null, keyFile as File? = null, acceptInvalidCertificate as bool = false, passphrase as string? = null) static as this:
+func forServer(ctx as LoggingContext, cSocket as ConnectedSocket, certFile as File? = null, keyFile as File? = null, acceptInvalidCertificate as bool = false, passphrase as string? = null) static throws Exception as this:
 	return createInstance(ctx, cSocket, null, certFile, keyFile, true, acceptInvalidCertificate, passphrase)
 
 prop ctx as LoggingContext
@@ -100,8 +106,8 @@ prop acceptInvalidCertificate as bool = false
 prop requireClientCertificate as bool = false
 prop serverAddress as string?
 
-func close abstract
-func read(buffer as buffer) abstract as int
-func readWithTimeout(buffer as buffer, timeout as int) abstract as int
-func write(buffer as buffer, size as int) abstract as int
-func getSocket abstract as ConnectedSocket
+func close implement abstract
+func read(buffer as buffer) implement abstract throws Exception as int
+func readWithTimeout(buffer as buffer, timeout as int) abstract throws Exception as int
+func write(buffer as buffer, size as int) implement abstract throws Exception as int
+func getSocket abstract throws Exception as ConnectedSocket

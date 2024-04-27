@@ -53,13 +53,19 @@ func getAll static as map<string,string>
 		var v = new map<string,string>
 		lang "js" {{{
 			for(const key in process.env) {
-				v.set(key, process.env[key])
+				v.set(key, process.env[key]);
 			}
 		}}}
 		return v
 	}
+	ELSE IFDEF "target_browser" {
+		return new map<string,string>
+	}
+	ELSE IFDEF "target_swift" {
+		return lang "swift" as map<string,string> {{{ MapValue.forData(ProcessInfo.processInfo.environment) }}}
+	}
 	ELSE {
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
@@ -67,66 +73,62 @@ func get(key as string) static as string?
 {
 	IFDEF "target_dotnet_cs" {
 		var v as string?
-		lang "cs" {{{
+		lang "cs" (key) {{{
 			v = System.Environment.GetEnvironmentVariable(key);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_java" {
 		var v as string?
-		lang "java" {{{
+		lang "java" (key) {{{
 			v = java.lang.System.getenv(key);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_objc" {
 		var v as string?
-		lang "objc" {{{
+		lang "objc" (key) {{{
 			v = [[[NSProcessInfo processInfo] environment] objectForKey:key];
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_node_js" {
 		var v as string?
-		lang "js" {{{
+		lang "js" (key) {{{
 			v = process.env[key];
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_kotlin" {
 		var v as string?
-		lang "kotlin" {{{
+		lang "kotlin" (key) {{{
 			v = java.lang.System.getenv(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_stdlua" {
 		var v as string?
-		lang "lua" {{{
+		lang "lua" (key) {{{
 			v = os.getenv(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_sushi" {
 		var v as string?
-		lang "lua" {{{
+		lang "lua" (key) {{{
 			v = _os:get_environment_variable(key)
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as string?
-		lang "swift" {{{
-			v = ProcessInfo.processInfo.environment[key]
-		}}}
-		return v
+		return lang "swift" (key) as string? {{{ ProcessInfo.processInfo.environment[key] }}}
 	}
 	ELSE {
 		return Map.getValue(getAll(), key)
 	}
 }
 
-func require(key as string) static as string
+func require(key as string) static throws Exception as string
 {
 	var v = get(key)
 	if not v:
@@ -137,33 +139,55 @@ func require(key as string) static as string
 func set(key as string, val as string?) static
 {
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (key, val) {{{
 			System.Environment.SetEnvironmentVariable(key, val);
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
-		lang "lua" {{{
+		lang "lua" (key, val) {{{
 			_os:set_environment_variable(key, val)
 		}}}
 	}
 	ELSE IFDEF "target_node_js" {
-		lang "js" {{{
-			process.env[key] = val
+		lang "js" (key, val) {{{
+			process.env[key] = val;
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" (key, val) {{{
+			setenv(key, val ?? "", 1)
+		}}}
+	}
+	ELSE IFDEF "target_browser" {
+		nop key
+		nop val
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop key
+		nop val
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func unset(key as string) static
 {
 	IFDEF "target_node_js" {
-		lang "js" {{{
+		lang "js" (key) {{{
 			delete process.env[key];
 		}}}
 	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" (key) {{{
+			unsetenv(key)
+		}}}
+	}
+	ELSE IFDEF "target_browser" {
+		nop key
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop key
+		ERROR NOT_IMPLEMENTED
 	}
 }

@@ -226,7 +226,7 @@ class MyResponseParser
 					}
 					var sz = Buffer.getSize(r.data) as! int
 					dataCounter += sz
-					onBodyDataReceived(r.data, sz)
+					onBodyDataReceived(r.data)
 				}
 				else {
 					reset()
@@ -243,7 +243,7 @@ class MyResponseParser
 				var v = receivedData
 				receivedData = null
 				dataCounter += sz
-				onBodyDataReceived(v, sz)
+				onBodyDataReceived(v)
 			}
 		}
 		else if contentLength > 0 && receivedData {
@@ -253,14 +253,14 @@ class MyResponseParser
 					var v = receivedData
 					receivedData = null
 					dataCounter += rsz
-					onBodyDataReceived(v, rsz)
+					onBodyDataReceived(v)
 				}
 				else {
 					var vsz = contentLength - dataCounter
 					var v = Buffer.getSubBuffer(receivedData, 0, vsz)
 					receivedData = Buffer.getSubBuffer(receivedData, vsz, rsz - vsz)
 					dataCounter += vsz
-					onBodyDataReceived(v, vsz)
+					onBodyDataReceived(v)
 				}
 			}
 			if dataCounter >= contentLength {
@@ -282,7 +282,7 @@ class MyResponseParser
 		}
 	}
 
-	func onBodyDataReceived(buffer as buffer?, size as long)
+	func onBodyDataReceived(buffer as buffer?)
 	{
 		if listener && listener.onDataReceived(buffer ?? Buffer.allocate(0)) == false {
 			listener.onAborted()
@@ -315,17 +315,15 @@ pvar acceptInvalidCertificate = false
 ctor:
 	receiveBuffer = Buffer.allocate(64 * 1024)
 
-func openConnectionWithDetails(protocol as string?, address as string?, aport as int, listener as HTTPClientListener?) as bool
+func openConnectionWithDetails(protocol as string?, address as string?, aport as int, listener as HTTPClientListener?) throws Exception as bool
 {
 	closeConnection(listener)
 	if String.isEmpty(address) {
-		if listener:
-			listener.onError("No server address")
+		Error.throw("noServerAddress")
 		return false
 	}
 	if protocol != "http" && protocol != "https" {
-		if listener:
-			listener.onError("Protocol is invalid: `" .. protocol .. "'. Must be http or https")
+		Error.throw("invalidProtocol", protocol)
 		return false
 	}
 	var port = aport
@@ -351,11 +349,10 @@ func openConnectionWithDetails(protocol as string?, address as string?, aport as
 	return true
 }
 
-func openConnection(request as HTTPClientRequest?, listener as HTTPClientListener?) as bool
+func openConnection(request as HTTPClientRequest?, listener as HTTPClientListener?) throws Exception as bool
 {
 	if request == null {
-		if listener:
-			listener.onError("No request")
+		Error.throw("noRequest")
 		return false
 	}
 	return openConnectionWithDetails(request.getProtocol(), request.getServerAddress(), request.getServerPort(), listener)
@@ -376,11 +373,10 @@ func closeConnection(listener as HTTPClientListener?)
 		listener.onStatus(null)
 }
 
-func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) as bool
+func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) throws Exception as bool
 {
 	if request == null {
-		if listener:
-			listener.onError("No request")
+		Error.throw("noRequest")
 		return false
 	}
 	if listener && listener.onStartRequest(request) == false:
@@ -396,15 +392,15 @@ func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?)
 		listener.onStatus("Sending request headers ..")
 	var rqs = request.toStringWithUserAgent(defaultUserAgent)
 	var pww = PrintWriterWrapper.forWriter(openSocket)
-	var whr = pww.print(rqs)
+	try {
+		pww.print(rqs)
+	}
+	catch e as ExceptionWithError {
+		closeConnection(listener)
+		throw e
+	}
 	if listener:
 		listener.onStatus(null)
-	if whr == false {
-		if listener:
-			listener.onError("Failed to send HTTP request headers")
-		closeConnection(listener)
-		return false
-	}
 	var body = request.getBody()
 	if body {
 		if listener:
@@ -417,8 +413,7 @@ func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?)
 				break
 			var bw = openSocket.write(bf, r)
 			if bw < r {
-				if listener:
-					listener.onError("Failed to send request body (wrote " .. String.forInteger(bw) .. " bytes out of a " .. String.forInteger(r) .. " byte packet)")
+				Error.throw("failedToSendRequestBody")
 				closeConnection(listener)
 				rv = false
 				break
@@ -434,11 +429,10 @@ func sendRequest(request as HTTPClientRequest?, listener as HTTPClientListener?)
 	return true
 }
 
-func readResponse(listener as HTTPClientListener?, timeout as int) as bool
+func readResponse(listener as HTTPClientListener?, timeout as int) throws Exception as bool
 {
 	if openSocket == null {
-		if listener:
-			listener.onError("No open socket")
+		Error.throw("noOpenSocket")
 		return false
 	}
 	assert parser
@@ -494,7 +488,7 @@ func readResponse(listener as HTTPClientListener?, timeout as int) as bool
 	return rv
 }
 
-func executeRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) override
+func executeRequest(request as HTTPClientRequest?, listener as HTTPClientListener?) override throws Exception
 {
 	assert sendRequest(request, listener)
 	assert readResponse(listener, 30000)

@@ -32,7 +32,7 @@ IFDEF "target_dotnet_cs"
 	{
 		pvar thread as [magical:System.Threading.Thread]?
 
-		func isAlive as bool
+		func isAlive implement as bool
 		{
 			assert thread
 			return lang "cs" as bool {{{ thread.IsAlive }}}
@@ -111,7 +111,7 @@ IFDEF "target_java"
 	{
 		pvar thread as [magical:java.lang.Thread]?
 
-		func isAlive as bool
+		func isAlive implement as bool
 		{
 			assert thread
 			return lang "java" as bool {{{ thread.isAlive() }}}
@@ -139,7 +139,7 @@ IFDEF "target_objc"
 	{
 		pvar thread as [magical:NSThread]?
 
-		func isAlive as bool
+		func isAlive implement as bool
 		{
 			assert thread
 			return lang "objc" as bool {{{ [thread isExecuting] }}}
@@ -160,11 +160,13 @@ IFDEF "target_swift"
 
 		func main override
 		{
-			lang "swift" {{{
-				if runnable != nil {
-					runnable.run()
-				}
-			}}}
+			try {
+				lang "swift" {{{
+					if runnable != nil {
+						try runnable!.run()
+					}
+				}}}
+			}
 		}
 	}
 
@@ -172,10 +174,10 @@ IFDEF "target_swift"
 	{
 		pvar thread as [magical:Foundation.Thread]?
 
-		func isAlive as bool
+		func isAlive implement as bool
 		{
 			assert thread
-			return lang "swift" as bool {{{ thread.isExecuting }}}
+			return lang "swift" as bool {{{ thread!.isExecuting }}}
 		}
 	}
 }
@@ -186,7 +188,7 @@ IFDEF "target_kotlin"
 	{
 		pvar thread as [magical:java.lang.Thread]?
 
-		func isAlive as bool
+		func isAlive implement as bool
 		{
 			assert thread
 			return lang "kotlin" as bool {{{ thread.isAlive() }}}
@@ -207,13 +209,13 @@ func setLocalValue(id as string, value as object) static
 		thread.
 	]]
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (id, value) {{{
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), value);
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			Thread.current.threadDictionary.setObject(value, forKey: id as! NSCopying)
+		lang "swift" (id, value) {{{
+			Foundation.Thread.current.threadDictionary.setObject(value, forKey: id)
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
@@ -221,7 +223,9 @@ func setLocalValue(id as string, value as object) static
 			localValues[id] = value
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop id
+		nop value
+		ERROR NOT_SUPPORTED
 	}
 }
 
@@ -233,12 +237,10 @@ func getLocalValueIfExists(id as string) static as object?
 		setLocalValue in the same thread where this method is called.
 	]]
 	IFDEF "target_dotnet_cs" {
-		return lang "cs" as object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
+		return lang "cs" (id) as object {{{ System.Threading.Thread.GetData(System.Threading.Thread.GetNamedDataSlot(id)) }}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			return Thread.current.threadDictionary.value(forKey: id) as AnyObject
-		}}}
+		return lang "swift" (id) as object? {{{ Foundation.Thread.current.threadDictionary.value(forKey: id) as? AnyObject }}}
 	}
 	ELSE IFDEF "target_sushi" {
 		if Map.containsValue(localValues, id) == false:
@@ -246,11 +248,12 @@ func getLocalValueIfExists(id as string) static as object?
 		return Map.getValue(localValues, id)
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop id
+		ERROR NOT_SUPPORTED
 	}
 }
 
-func getLocalValue(id as string) static as object
+func getLocalValue(id as string) static throws Exception as object
 {
 	var v = getLocalValueIfExists(id)
 	if not v:
@@ -266,13 +269,13 @@ func removeLocalValue(id as string) static
 		call to setLocalValue in the same thread where this method is called.
 	]]
 	IFDEF "target_dotnet_cs" {
-		lang "cs" {{{
+		lang "cs" (id) {{{
 			System.Threading.Thread.SetData(System.Threading.Thread.GetNamedDataSlot(id), null);
 		}}}
 	}
 	ELSE IFDEF "target_swift" {
-		lang "swift" {{{
-			Thread.current.threadDictionary.removeObject(forKey: id)
+		lang "swift" (id) {{{
+			Foundation.Thread.current.threadDictionary.removeObject(forKey: id)
 		}}}
 	}
 	ELSE IFDEF "target_sushi" {
@@ -280,18 +283,16 @@ func removeLocalValue(id as string) static
 			Map.remove(localValues, id)
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop id
+		ERROR NOT_SUPPORTED
 	}
 }
 
 func start(runnable as Runnable) static as RunningThread
 {
-	IFDEF "target_uwp" {
-		ERROR "notImplemented"
-	}
-	ELSE IFDEF "target_dotnet_cs" {
+	IFDEF "target_dotnet_cs" {
 		var th as [magical:System.Threading.Thread]?
-		lang "cs" {{{
+		lang "cs" (runnable) {{{
 			th = new System.Threading.Thread(new System.Threading.ThreadStart(runnable.run));
 			th.Start();
 		}}}
@@ -301,7 +302,7 @@ func start(runnable as Runnable) static as RunningThread
 	}
 	ELSE IFDEF "target_java" {
 		var th as [magical:java.lang.Thread]?
-		lang "java" {{{
+		lang "java" (runnable) {{{
 			th = new java.lang.Thread(new ThreadRunnable(runnable));
 			th.start();
 		}}}
@@ -312,7 +313,7 @@ func start(runnable as Runnable) static as RunningThread
 	ELSE IFDEF "target_objc" {
 		var thread = new MyThread()
 		thread.setRunnable(runnable)
-		lang "objc" {{{
+		lang "objc" (thread) {{{
 			[thread start];
 		}}}
 		var rt = new MyRunningThread()
@@ -322,7 +323,7 @@ func start(runnable as Runnable) static as RunningThread
 	ELSE IFDEF "target_swift" {
 		var thread = new MyThread()
 		thread.setRunnable(runnable)
-		lang "swift" {{{
+		lang "swift" (thread) {{{
 			thread.start()
 		}}}
 		var rt = new MyRunningThread()
@@ -331,7 +332,7 @@ func start(runnable as Runnable) static as RunningThread
 	}
 	ELSE IFDEF "target_kotlin" {
 		var th as [magical:java.lang.Thread]?
-		lang "kotlin" {{{
+		lang "kotlin" (th, runnable) {{{
 			try {
 				th = kotlin.concurrent.thread() {
 				runnable!!.run()
@@ -345,6 +346,7 @@ func start(runnable as Runnable) static as RunningThread
 		return thread
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop runnable
+		ERROR NOT_SUPPORTED
 	}
 }

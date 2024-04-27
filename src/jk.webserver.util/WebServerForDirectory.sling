@@ -1,0 +1,71 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.posix
+import jk.actions
+import jk.webserver
+import jk.webserver.proxy
+
+class:
+
+class ProxySettings public
+{
+	prop path as string
+	prop target as string
+}
+
+func execute(ctx as LoggingContext, serverPort as int, directory as File, proxies as vector<ProxySettings>?) async static throws Exception
+{
+	var server = WebServer.instance(ctx)
+	if proxies: foreach proxy in proxies:
+		server.use(new WebServerProxyMiddleware() {
+			pathPrefix proxy.path
+			originUrl proxy.target
+			forwardAuthorization true
+		})
+	var fs = new WebServerStaticFilesMiddleware() {
+		directory directory
+		listDirectories false
+		indexFiles [ "index.html" ]
+	}
+	server.use(fs)
+	Log.info(ctx, "HTTP server listening on port `" .. String.forInteger(serverPort) .. "'")
+	var handler = func {
+		Log.debug(ctx, "Received a termination signal, stopping HTTP server.")
+		try {
+			server.stop()
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+	}
+	PosixSignal.setSignalHandler(PosixSignal.SIGINT, handler)
+	PosixSignal.setSignalHandler(PosixSignal.SIGTERM, handler)
+	await server.execute(serverPort)
+	Log.info(ctx, "HTTP server execution ended.")
+	PosixSignal.setSignalHandler(PosixSignal.SIGINT, null)
+	PosixSignal.setSignalHandler(PosixSignal.SIGTERM, null)
+}

@@ -22,8 +22,6 @@
  * SOFTWARE.
  */
 
-import jk.lang
-
 class:
 
 description [[
@@ -31,7 +29,7 @@ description [[
 ]]
 
 func getCurrentPlatformName static as string:
-	return VALUE "target_platform"
+	return VALUE "targetPlatformName"
 
 IFDEF "target_android"
 {
@@ -318,44 +316,46 @@ func isSystemType(ida as string) static as bool
 	return false
 }
 
-func isDirectory(path as string) private static as bool
+func isDirectory(path as string) private static as bool #used
 {
 	assert String.isNotEmpty(path)
 	IFDEF "target_dotnet_cs" {
 		var v as bool
-		lang "cs" {{{
-			try {
-				var attrs = System.IO.File.GetAttributes(path);
-				v = attrs.HasFlag(System.IO.FileAttributes.Directory);
-			}
-			catch(System.Exception e) {
-				System.Console.WriteLine(e.ToString());
-			}
+		lang "cs" (path) {{{
+			var attrs = System.IO.File.GetAttributes(path);
+			v = attrs.HasFlag(System.IO.FileAttributes.Directory);
 		}}}
 		return v
 	}
 	ELSE IFDEF "target_swift" {
-		var v as bool
-		var d as bool
+		var v as bool #mutated
+		var dir as bool #mutated
 		lang "swift" {{{
-			var manager: FileManager = FileManager.default
-			var isDir : ObjCBool = false
-			v = manager?.fileExists(atPath:(path as NSString?)?.standardizingPath!, isDirectory:&isDir) ?? false
-			d = isDir.boolValue
+			var isDir: ObjCBool = false
+			v = FileManager.default.fileExists(atPath:path, isDirectory:&isDir)
+			dir = isDir.boolValue
 		}}}
 		if not v:
 			return false
-		return d
+		return dir
 	}
 	ELSE IFDEF "target_java" {
-		return lang "java" as bool {{{ new java.io.File(path).isDirectory() }}}
+		return lang "java" (path) as bool {{{ new java.io.File(path).isDirectory() }}}
+	}
+	ELSE IFDEF "target_node_js" {
+		return lang "js" (path) as bool {{{ require("fs").statSync(path).isDirectory() }}}
+	}
+	ELSE IFDEF "target_browser" {
+		nop path
+		ERROR NOT_SUPPORTED
 	}
 	ELSE {
-		ERROR "notImplemented"
+		nop path
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
-func isFile(path as string) private static as bool
+func isFile(path as string) private static as bool #used
 {
 	assert String.isNotEmpty(path)
 	IFDEF "target_dotnet_cs" {
@@ -372,6 +372,7 @@ func isFile(path as string) private static as bool
 		return v
 	}
 	ELSE IFDEF "target_swift" {
+		/*[
 		var v as bool
 		var d as bool
 		lang "swift" {{{
@@ -383,11 +384,22 @@ func isFile(path as string) private static as bool
 		if not v:
 			return false
 		return d
+		]*/
+
+		ERROR NOT_IMPLEMENTED
 	}
 	ELSE IFDEF "target_java" {
 		return lang "java" as bool {{{ new java.io.File(path).isFile() }}}
 	}
+	ELSE IFDEF "target_node_js" {
+		return lang "js" (path) as bool {{{ require("fs").statSync(path).isFile() }}}
+	}
+	ELSE IFDEF "target_browser" {
+		nop path
+		ERROR NOT_SUPPORTED
+	}
 	ELSE {
-		ERROR "notImplemented"
+		nop path
+		ERROR NOT_IMPLEMENTED
 	}
 }

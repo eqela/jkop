@@ -24,11 +24,10 @@
 
 import jk.os
 import jk.fs
-import jk.env
 
 class:
 
-func getTemporaryDirectory static as File?
+func getTemporaryDirectoryOrNull static as File?
 {
 	IFDEF "target_dotnet_cs" {
 		return File.forPath(lang "cs" as string {{{ System.IO.Path.GetTempPath() }}})
@@ -48,26 +47,20 @@ func getTemporaryDirectory static as File?
 				tempDir = EnvironmentVariable.get("TMP")
 			if String.isNotEmpty(tempDir):
 				return File.forPath(tempDir)
-			Error.throw("missingEnvironmentVariable", "TEMP/TMP")
-			return null
 		}
-		ERROR "notImplemented"
+		return null
 	}
-
-	/*
-	 * FIXME: Android implementation
-	 * func forTemporaryDirectory(context as native<android.content.Context>) static as File
-	 * {
-	 * var v = new this()
-	 * lang "java" {{{
-	 * v.path = context.getCacheDir().getPath();
-	 * }}}
-	 * return v
-	 * }
-	 */
 }
 
-func getHomeDirectory static as File?
+func getTemporaryDirectoryOrThrowError static throws Exception as File
+{
+	var v = getTemporaryDirectoryOrNull()
+	if not v:
+		Error.throw("failedToFindTemporaryDirectory")
+	return v
+}
+
+func getHomeDirectoryOrNull static as File?
 {
 	IFDEF "target_dotnet_cs" {
 		var v as string? = null
@@ -104,56 +97,14 @@ func getHomeDirectory static as File?
 			return File.forPath(dirname)
 		return null
 	}
-
-	/*
-	 * FIXME: Android implementation
-	 * func forHomeDirectory(context as native<android.content.Context>) static as File
-	 * {
-	 * var v = new this()
-	 * lang "java" {{{
-	 * v.path = context.getFilesDir().getPath();
-	 * }}}
-	 * return v
-	 * }
-	 */
 }
 
-func getAppDirectory static as File?
+func getHomeDirectoryOrThrowError static throws Exception as File
 {
-	IFDEF "target_sushi" {
-		var program = lang "lua" as string {{{ _vm:get_program_path() }}}
-		assert String.isNotEmpty(program)
-		var pf = assert File.forPath(program)
-		return pf.getParent()
-	}
-	ELSE {
-		ERROR "notImplemented"
-	}
-}
-
-func getCodeFileForObject(oo as object) static as File?
-{
-	IFDEF "target_dotnet_cs" {
-		var path as string?
-		lang "cs" {{{
-			var type = oo.GetType();
-			if(type != null) {
-				var assembly = type.Assembly;
-				if(assembly != null) {
-					path = assembly.Location;
-				}
-			}
-		}}}
-		if path:
-			return File.forPath(path)
-		return null
-	}
-	ELSE IFDEF "target_sushi" {
-		return null
-	}
-	ELSE {
-		ERROR "notImplemented"
-	}
+	var v = getHomeDirectoryOrNull()
+	if not v:
+		Error.throw("failedToFindHomeDirectory")
+	return v
 }
 
 func getProgramFilesDirectory static as File?:

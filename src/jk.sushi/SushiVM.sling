@@ -37,7 +37,7 @@ func getCurrentVMFile static as File?
 	return null
 }
 
-func getVMCodeSizeForFile(file as File) static as long
+func getVMCodeSizeForFile(file as File) static throws Exception as long
 {
 	var reader = file.read()
 	var size = reader.getSize()
@@ -66,7 +66,7 @@ func getVMCodeSizeForFile(file as File) static as long
 	return Buffer.getInt32BE(buffer, 0) as! long
 }
 
-func readSushiVMCodeFromFile(file as File) static as buffer
+func readSushiVMCodeFromFile(file as File) static throws Exception as buffer
 {
 	var sz = getVMCodeSizeForFile(file) as! int
 	if sz < 1:
@@ -86,17 +86,20 @@ func compressIfNecessaryAndPossible(code as buffer) static as buffer?
 		if code[0] != 0x00 && code[1] != 0x64 && code[2] != 0x65 && code[3] != 0x66:
 			return lang "lua" as buffer {{{ _util:deflate(code) }}}
 	}
+	ELSE {
+		nop code
+	}
 	return null
 }
 
-func wrapCodeFileToVMFile(ctx as LoggingContext, vm as File, program as File, target as File) static as bool
+func wrapCodeFileToVMFile(ctx as LoggingContext, vm as File, program as File, target as File) static throws Exception as bool
 {
 	var code = program.getContentsBuffer()
 	var sushi = readSushiVMCodeFromFile(vm)
 	return wrapCodeBufferToVMBuffer(ctx, sushi, code, target)
 }
 
-func wrapCodeBufferToVMBuffer(ctx as LoggingContext, sushi as buffer, code as buffer, target as File) static as bool
+func wrapCodeBufferToVMBuffer(ctx as LoggingContext, sushi as buffer, code as buffer, target as File) static throws Exception as bool
 {
 	var tdir = target.getParent()
 	if not tdir.exists():
@@ -106,7 +109,8 @@ func wrapCodeBufferToVMBuffer(ctx as LoggingContext, sushi as buffer, code as bu
 		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
 		writer.close()
 	}
-	var ccode = compressIfNecessaryAndPossible(code)
+	var wcode = code
+	var ccode = compressIfNecessaryAndPossible(wcode)
 	if ccode {
 		var cmagic = Buffer.allocate(4)
 		Buffer.setByte(cmagic, 0, 0x00)
@@ -117,9 +121,9 @@ func wrapCodeBufferToVMBuffer(ctx as LoggingContext, sushi as buffer, code as bu
 			Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
 			writer.close()
 		}
-		code = ccode
+		wcode = ccode
 	}
-	assert writer.write(code, -1) > 0 {
+	assert writer.write(wcode, -1) > 0 {
 		Log.error(ctx, "Failed while writing to file: `" .. target.getPath() .. "'")
 		writer.close()
 	}

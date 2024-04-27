@@ -1,0 +1,90 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.log
+import jk.task
+import jk.lang.js
+import jk.wsprotocol
+
+class:
+
+depend "npm:ws:8.16.0"
+
+func connect(ctx as LoggingContext, url as string, protocol as WebSocketProtocol, protocols as vector<string>?) static async throws Exception
+{
+	var nws = JsCommonModule.require("ws")
+	var socket = new (nws.WebSocket)(url, {})
+	socket.on!("close", func(code as dynamic?, reason as dynamic?) async {
+		var str as string?
+		if reason is buffer:
+			str = String.forUTF8Buffer(reason as! buffer)
+		if not str:
+			str = String.asValueOrNull(reason)
+		try {
+			await protocol.onConnectionClosed(Integer.asValueOrDefaultValue(code, 1000), str)
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+	})
+	socket.on!("message", func(message as dynamic?) async {
+		var buffer = Buffer.asValueOrNull(message)
+		if buffer {
+			try {
+				await protocol.onMessageReceived(buffer)
+			}
+			catch e as Exception {
+				Log.error(ctx, e.toString())
+				socket.close!(1000, "Error")
+			}
+		}
+	})
+	protocol.sendFunction = func(data as buffer) async throws Exception {
+		if lang "js" (socket) as bool {{{ socket.readyState != socket.OPEN }}}:
+			Error.throw("webSocketStateIsNotOpen")
+		socket.send!(data)
+	}
+	protocol.closeFunction = func(status as int, reason as string?) async {
+		if ctx.isInDebugMode():
+			Log.debug(ctx, "Close function called. Closing connection.")
+		socket.close!(status, reason ?? "")
+	}
+	socket.on!("error", func(e as dynamic?) async {
+		if lang "js" (socket) as bool {{{ socket.readyState == socket.CONNECTING }}} {
+			Log.error(ctx, Error.forCode("webSocketError", null, String.asValueOrNull(e)).toString())
+		}
+		else {
+			await protocol.onConnectionError(Error.forCode("webSocketError", null, String.asValueOrNull(e)))
+		}
+	})
+	await AsyncTask.runPromise<dynamic?>(func(resolve as function<(dynamic?)>, reject as function<(Exception)>) => socket.on!("open", func async {
+		try {
+			await protocol.onConnectionOpened()
+			resolve(null)
+		}
+		catch e as Exception {
+			reject(e)
+		}
+	}))
+}

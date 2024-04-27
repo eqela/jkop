@@ -269,7 +269,7 @@ class Statement is SQLStatement
 	func setParamBlob(name as string, val as buffer) override:
 		addParamBlob(val)
 
-	func resetStatement override
+	func resetStatement override throws Exception
 	{
 		if sqlstatement:
 			clear()
@@ -382,39 +382,32 @@ class Statement is SQLStatement
 
 class ResultSet is SQLResultSetIterator
 {
-	var sqlcursor as [magical:android.database.Cursor]?
+	var sqlcursor as [magical:android.database.Cursor]
 
 	ctor(stmt as Statement):
 		sqlcursor = stmt.getResult()
 
-	func next override as DynamicMap
+	func next override throws Exception as DynamicMap
 	{
-		assert sqlcursor
-		var data as DynamicMap?
-		if not step():
-			return data
+		step()
+		var data = new DynamicMap()
 		var cols = getColumnNames()
-		data = new DynamicMap()
 		for(var i = 0 ; i < Vector.getSize(cols) ; i++):
-			data.setObject(Vector.getValue(cols, i), getColumnObject(i))
+			data.setDynamic(Vector.getValue(cols, i), getColumnValue(i))
 		return data
 	}
 
-	func nextValues(values as vector<object>) override as bool
+	func nextValues(values as vector<dynamic?>) override throws Exception
 	{
-		assert values
-		if not step():
-			return false
+		step()
 		Vector.clear(values)
 		var cols = getColumnCount()
 		for(var i = 0 ; i < cols ; i++):
-			values += getColumnObject(i)
-		return true
+			values += getColumnValue(i)
 	}
 
-	func step override as bool
+	func step override throws Exception
 	{
-		assert sqlcursor
 		var v as bool
 		IFDEF "target_java" {
 			v = lang "java" as bool {{{ sqlcursor.moveToNext() }}}
@@ -422,12 +415,12 @@ class ResultSet is SQLResultSetIterator
 		ELSE IFDEF "target_kotlin" {
 			v = lang "kotlin" as bool {{{ sqlcursor!!.moveToNext() }}}
 		}
-		return v
+		if not v:
+			Error.throw("noMoreRecords", this)
 	}
 
-	func getColumnCount override as int
+	func getColumnCount override throws Exception as int
 	{
-		assert sqlcursor
 		var v as int
 		IFDEF "target_java" {
 			v = lang "java" as int {{{ sqlcursor.getColumnCount() }}}
@@ -438,9 +431,8 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnName(n as int) override as string
+	func getColumnName(n as int) override throws Exception as string
 	{
-		assert sqlcursor
 		var v as string?
 		IFDEF "target_java" {
 			v = lang "java" as string {{{ sqlcursor.getColumnName(n) }}}
@@ -451,9 +443,8 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnNames override as vector<string>
+	func getColumnNames override throws Exception as vector<string>
 	{
-		assert sqlcursor
 		var v = new vector<string>
 		IFDEF "target_java" {
 			lang "java" {{{
@@ -473,9 +464,8 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnObject(n as int) override as object
+	func getColumnValue(n as int) override throws Exception as dynamic?
 	{
-		assert sqlcursor
 		var type as int
 		IFDEF "target_java" {
 			type = lang "java" as int {{{ sqlcursor.getType(n) }}}
@@ -499,12 +489,11 @@ class ResultSet is SQLResultSetIterator
 		}
 		if type == 4:
 			return Buffer.wrapValue(getColumnBuffer(n))
-		return ""
+		return null
 	}
 
-	func getColumnInt(n as int) override as int
+	func getColumnInt(n as int) override throws Exception as int
 	{
-		assert sqlcursor
 		var v as int
 		IFDEF "target_java" {
 			v = lang "java" as int {{{ sqlcursor.getInt(n) }}}
@@ -515,9 +504,8 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnDouble(n as int) override as double
+	func getColumnDouble(n as int) override throws Exception as double
 	{
-		assert sqlcursor
 		var v as double
 		IFDEF "target_java" {
 			v = lang "java" as double {{{ sqlcursor.getDouble(n) }}}
@@ -528,9 +516,8 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnBuffer(n as int) override as buffer
+	func getColumnBuffer(n as int) override throws Exception as buffer
 	{
-		assert sqlcursor
 		var v as buffer?
 		IFDEF "target_java" {
 			v = lang "java" as buffer {{{ sqlcursor.getBlob(n) }}}
@@ -541,7 +528,7 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func close override
+	func close override throws Exception
 	{
 		if sqlcursor {
 			IFDEF "target_java" {
@@ -584,10 +571,10 @@ class ResultSet is SQLResultSetIterator
 		return v
 	}
 
-	func getColumnLong(n as int) stub override as long
+	func getColumnLong(n as int) stub override throws Exception as long
 }
 
-func initialize(file as File, openCreate as bool) override as bool
+func initialize(file as File, openCreate as bool) override throws Exception as bool
 {
 	assert file
 	if openCreate == false && file.isFile() == false {
@@ -629,7 +616,7 @@ func initialize(file as File, openCreate as bool) override as bool
 	return v
 }
 
-func prepareStatement(sql as string) async override as SQLStatement
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
 {
 	var stmt = new Statement()
 	if not stmt.create(sqldatabase, sql):
@@ -637,7 +624,7 @@ func prepareStatement(sql as string) async override as SQLStatement
 	return stmt
 }
 
-func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetIterator
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
 {
 	var ss = stmt as Statement
 	if not ss {
@@ -647,7 +634,7 @@ func executeQueryStatement(stmt as SQLStatement) override async as SQLResultSetI
 	return new ResultSet(ss)
 }
 
-func executeStatement(stmt as SQLStatement) override async as bool
+func executeStatement(stmt as SQLStatement) override async throws Exception as bool
 {
 	assert stmt
 	var v as bool
@@ -657,7 +644,7 @@ func executeStatement(stmt as SQLStatement) override async as bool
 	return v
 }
 
-func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
 {
 	var v = 0
 	var ss = stmt as Statement
@@ -666,7 +653,7 @@ func executeUpdateDeleteStatement(stmt as SQLStatement) override async as int
 	return v
 }
 
-func closeConnection async override
+func closeConnection async override throws Exception
 {
 	IFDEF "target_java" {
 		lang "java" {{{

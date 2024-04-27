@@ -45,7 +45,7 @@ prop ctx as LoggingContext
 prop issuerBaseUrl as string?
 prop jwksUrl as string?
 
-func getFinalJwksUrl async as string
+func getFinalJwksUrl async throws Exception as string
 {
 	var url = jwksUrl
 	if String.isNotEmpty(url):
@@ -66,17 +66,17 @@ func getFinalJwksUrl async as string
 
 IFDEF "target_node_js"
 {
-	import jk.nodejs
+	import jk.lang.js
 
 	depend "npm:jsonwebtoken:9.0.0"
 	depend "npm:jwks-rsa:3.0.1"
 
 	var jwksClient as dynamic?
 
-	func getJwksClient(uri as string) as dynamic
+	func getJwksClient(uri as string) throws Exception as dynamic
 	{
 		if not jwksClient {
-			var jwksRsa = NodeModule.require("jwks-rsa")
+			var jwksRsa = JsCommonModule.require("jwks-rsa")
 			jwksClient = jwksRsa({
 				jwksUri uri
 			})
@@ -87,7 +87,7 @@ IFDEF "target_node_js"
 	}
 }
 
-func validateSignatureOrThrowError(token as string) async
+func validateSignatureOrThrowError(token as string) async throws Exception
 {
 	var comps = String.split(token, '.', 3)
 	var hdrEncoded = Vector.getValue(comps, 0)
@@ -98,27 +98,27 @@ func validateSignatureOrThrowError(token as string) async
 	var kid = header.getString("kid")
 	if String.isEmpty(kid):
 		Error.throw("jwtTokenHasNoKid", token)
-	var jwksUri = await getFinalJwksUrl()
 	IFDEF "target_node_js" {
+		var jwksUri = await getFinalJwksUrl()
 		var jwksClient = getJwksClient(jwksUri)
 		var key = await jwksClient.getSigningKey!(kid)
 		if key == null:
 			Error.throw("cannotGetJwksSigningKey", kid)
 		var pkey = key.getPublicKey!()
-		var jwtVerifier = NodeModule.require("jsonwebtoken")
+		var jwtVerifier = JsCommonModule.require("jsonwebtoken")
 		jwtVerifier.verify!(token, pkey, {
 			clockTolerance 300
 		})
 	}
 	ELSE {
-		ERROR "notImplemented"
+		ERROR NOT_IMPLEMENTED
 	}
 }
 
 func validateSignatureOrReturnFalse(ctx as LoggingContext, token as string) async as bool
 {
 	try {
-		validateSignatureOrThrowError(token)
+		await validateSignatureOrThrowError(token)
 		return true
 	}
 	catch e {

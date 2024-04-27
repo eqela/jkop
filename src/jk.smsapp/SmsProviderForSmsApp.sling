@@ -24,233 +24,100 @@
 
 import jk.log
 import jk.md5
+import jk.sms
 import jk.json
 import jk.time
 import jk.random
-import jk.sms
-import jk.serverconfig
 import jk.webserver
+import jk.wsprotocol
 import jk.wsserver
 
 class is SmsProvider:
 
-class MyWebSocketConnectionHandler
+class SmsAppServerProtocol is WebSocketProtocol
 {
+	prop secretKey as string
+	prop parent as parent
 	prop authenticated as bool = false
-	prop connection as WebSocketServerConnection
 
-	func sendMessage(message as buffer)
+	func onConnectionOpened async override throws Exception
 	{
-		if authenticated:
-			connection.sendMessage(message)
+		await base.onConnectionOpened()
+		parent.onConnectionOpened(this)
 	}
 
-	func close:
-		connection.close()
-}
-
-class MyWebSocketConnectionManager
-{
-	var connections as vector<MyWebSocketConnectionHandler>?
-
-	func add(connection as MyWebSocketConnectionHandler)
+	func onConnectionClosed(code as int, reason as string?) async override throws Exception
 	{
-		if not connections:
-			connections = new vector<MyWebSocketConnectionHandler>
-		connections += connection
+		await base.onConnectionClosed(code, reason)
+		parent.onConnectionClosed(this)
 	}
 
-	func getConnectionHandler(connection as WebSocketServerConnection) as MyWebSocketConnectionHandler?
+	func authenticateConnection(data as buffer) async throws Exception
 	{
-		assert connections
-		var handler as MyWebSocketConnectionHandler?
-		foreach cc in connections {
-			var ch = cc.connection
-			if ch == connection {
-				handler = cc
-				break
-			}
+		var cred = try? JSONParser.parseBufferAsMap(data)
+		if cred == null || not String.equals(secretKey, cred.getString("auth")) {
+			Log.error(ctx, "Invalid secret key received when authenticating the connection")
+			await closeConnection()
+			return
 		}
-		return handler
-	}
-
-	func sendBroadcastMessage(message as buffer)
-	{
-		assert connections
-		foreach cc in connections:
-			cc.sendMessage(message)
-	}
-}
-
-class MyWebSocketServerEventHandler is WebSocketServerEventHandler
-{
-	var manager as MyWebSocketConnectionManager?
-	var ctx as LoggingContext?
-
-	ctor(ctx as LoggingContext):
-		this.ctx = ctx
-
-	prop secretKey:secretKeyValue as string
-	{
-		get {
-			if not secretKeyValue:
-				secretKeyValue = ServerConfig.require("SMS_SECRET_KEY")
-			return secretKeyValue
-		}
-	}
-
-	func sendBroadcastMessage(message as buffer)
-	{
-		assert manager
-		manager.sendBroadcastMessage(message)
-	}
-
-	func onNewConnection(connection as WebSocketServerConnection)
-	{
-		Log.debug(ctx, "Incomming new connection")
-		if not manager:
-			manager = new MyWebSocketConnectionManager()
-		var handler = new MyWebSocketConnectionHandler() {
-			connection connection
-		}
-		manager.add(handler)
-	}
-
-	func onReceiveMessage(message as buffer, connection as WebSocketServerConnection)
-	{
-		assert manager
-		var handler = assert manager.getConnectionHandler(connection)
-		if not handler.authenticated:
-			authenticateConnection(message, handler)
-	}
-
-	func authenticateConnection(data as buffer, connection as MyWebSocketConnectionHandler)
-	{
-		var cred = JSONParser.parseBufferAsMap(data)
-		if not String.equals(secretKey, cred.getString("auth")) {
-			Log.error(ctx, "Failed to authenticate connection")
-			connection.close()
-		}
-		connection.authenticated = true
+		authenticated = true
 		var v = new DynamicMap()
 		v.setInteger("type", 2)
 		v.setString("command", "authentication_acknowledged")
-		connection.sendMessage(String.toUTF8Buffer(JSONEncoder.toString(v)))
+		await sendMessage(String.toUTF8Buffer(JSONEncoder.toString(v)))
 	}
 
-	func onWSServerConnectionClosed:
-		Log.debug(ctx, "On Connection closed")
-
-	func onWSServerConnectionError(code as string, message as string):
-		Log.error(ctx, "ERROR: " .. code .. ": " .. message)
-
-	func onWSServerListening:
-		Log.debug(ctx, "Web-Socket server listening...")
+	func onMessageReceived(message as buffer) async override throws Exception
+	{
+		if not authenticated:
+			await authenticateConnection(message)
+	}
 }
 
-class SMSAppMessage
+func forWebServer(ctx as LoggingContext, server as WebServer, secretKey as string) static async throws Exception as this
 {
-	const UNKNOWN_TYPE = 0
-	const DATA_TYPE = 1
-
-	func forDataBuffer(data as buffer) static as this
-	{
-		var v = new this().setDataBuffer(data)
-		v.initialize()
-		return v
+	var v = new this() {
+		ctx ctx
+		secretKey secretKey
 	}
-
-	func forDataMap(dataMap as DynamicMap) static as this
-	{
-		var v = new this().setDataMap(dataMap)
-		v.initialize()
-		return v
-	}
-
-	pvar smsId as string?
-	pvar recipients as DynamicVector?
-	pvar message as string?
-	pvar priority as int
-
-	var timestamp as long
-	var data as buffer?
-	var dataMap as DynamicMap?
-	var type as int
-
-	func generateId as string
-	{
-		var sb = new StringBuilder()
-		sb.appendInteger(new Random().nextInteger())
-		sb.appendLong(SystemClock.asSeconds())
-		return "SMS-" .. MD5Encoder.encodeString(sb.toString())
-	}
-
-	func initialize
-	{
-		if not data:
-			Error.throw("noData", this)
-		dataMap = JSONParser.parseBufferAsMap(data)
-		timestamp = SystemClock.asSeconds()
-		smsId = generateId()
-		recipients = dataMap.getDynamicVector("recipients")
-		message = dataMap.getString("message")
-		type = dataMap.getInteger("type")
-		priority = dataMap.getInteger("priority")
-	}
-
-	func setDataBuffer(data as buffer) as this
-	{
-		this.data = data
-		return this
-	}
-
-	func setDataMap(data as DynamicMap) as this
-	{
-		this.data = String.toUTF8Buffer(JSONEncoder.toString(data))
-		return this
-	}
-
-	func getType as int:
-		return type
-
-	func toBuffer as buffer
-	{
-		if not dataMap:
-			dataMap = new DynamicMap()
-		dataMap.setString("smsId", smsId)
-		dataMap.setObject("recipients", recipients)
-		dataMap.setLongInteger("timestamp", timestamp)
-		dataMap.setInteger("type", type)
-		dataMap.setInteger("priority", priority)
-		return String.toUTF8Buffer(JSONEncoder.toString(dataMap))
-	}
+	var wsServer = WebSocketServer.forConnectionFactory(ctx, func as WebSocketProtocol => new SmsAppServerProtocol() {
+		ctx ctx
+		secretKey secretKey
+		parent v
+	})
+	await wsServer.attachToWebServer(server)
+	return v
 }
 
-var ctx as LoggingContext?
-var engine as MyWebSocketServerEventHandler?
+prop ctx as LoggingContext
+prop secretKey as string
 
-ctor(ctx as LoggingContext, server as WebServer)
+var connections = new vector<SmsAppServerProtocol>
+
+func onConnectionOpened(connection as SmsAppServerProtocol) private throws Exception:
+	connections += connection
+
+func onConnectionClosed(connection as SmsAppServerProtocol) private throws Exception:
+	Vector.removeValue(connections, connection)
+
+func sendBroadcastMessage(message as buffer) async private throws Exception
 {
-	this.ctx = ctx
-	var handler = new MyWebSocketServerEventHandler(ctx)
-	this.engine = handler
-	var smsWSServer = WebSocketServer.instance(ctx, handler)
-	smsWSServer.createWSServer(server)
+	foreach cc in connections:
+		await cc.sendMessage(message)
 }
 
-func sendSmsContent(recipientNumber as string, messageText as string) override async
+func sendSmsContent(recipientNumber as string, messageText as string) override async throws Exception
 {
 	var smsdata = new DynamicMap()
 	smsdata.setInteger("type", 1)
 	smsdata.setInteger("priority", 1)
 	smsdata.setString("message", messageText)
 	smsdata.setObject("recipients", new DynamicVector().appendString(recipientNumber))
-	Log.debug(ctx, "Sending message data `" .. JSONEncoder.toString(smsdata) .. "'")
-	var message = SMSAppMessage.forDataMap(smsdata)
-	if not engine:
-		Error.throw("noEngine", this)
-	engine.sendBroadcastMessage(message.toBuffer())
+	var str = JSONEncoder.toString(smsdata)
+	if ctx.isInDebugMode():
+		Log.debug(ctx, "Sending message data `" .. str .. "'")
+	await sendBroadcastMessage(String.toUTF8Buffer(str))
 }
 
-func sendSmsTemplate(recipientNumber as string, templateName as string, language as string, parameters as DynamicMap) override async:
-	ERROR "notImplemented"
+func sendSmsTemplate(recipientNumber as string, templateName as string, language as string, parameters as DynamicMap) override async throws Exception:
+	ERROR NOT_IMPLEMENTED
