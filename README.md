@@ -22,20 +22,33 @@ To see the available targets and build options:
 ./actions.sling
 ```
 
-For example, to compile for Node.JS:
+To compile for Node.JS:
 
 ```
 ./actions.sling build-all-node
 ```
 
-Or to compile for browser:
+To compile for browser:
 
 ```
 ./actions.sling build-all-browser
 ```
 
-These commands perform full builds of all modules of Jkop, and produce Javascript code as
-their output. The compiled versions of the library are then found in the "dist" subdirectory.
+To compile for iOS:
+
+```
+./actions.sling build-all-ios
+```
+
+To compile for all supported platforms:
+
+```
+./actions.sling build-all
+```
+
+These commands perform full builds of all modules of Jkop, and produce output code in the
+target language as their output. The compiled versions of the library are then found in the
+"dist" subdirectory.
 
 More information:
 

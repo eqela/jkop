@@ -22,78 +22,68 @@
  * SOFTWARE.
  */
 
-import jk.gfx
 import jk.jco.common
 
-class is JcoComponent abstract #jco #component:
+class is JcoComponent #jco #component:
 
-func getWidth virtual as string?:
-	return null
-
-func getHeight virtual as string?:
-	return null
-
-func getImage virtual throws Exception as Image?:
-	return null
-
-func getUrl virtual as string?:
-	return getSource()
-
-func getSource virtual as string?:
-	return null
+prop childX as string = "0" #content
+prop childY as string = "0" #content
+prop childWidth as string? #content
+prop childHeight as string? #content
+prop alignment as string = "left" #content
 
 IFDEF "target_browser_js"
 {
-	func getAspectRatioValue virtual as string?:
-		return null
-
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
 		base.addCssRules(sheet)
-		var theme = new JcoThemeProcessor() {
-			component this
-		}
-		var img = sheet.define("img", new map<string,string> {
-			margin "0"
-			display "block"
-			"object-fit" "contain"
-		})
-		if var asratio = getAspectRatioValue():
-			img.set("aspect-ratio", asratio)
-		if var width = getWidth():
-			img.set("width", lengthToHtml(theme.getValue(width)))
-		if var height = getHeight():
-			img.set("height", lengthToHtml(theme.getValue(height)))
+		// FIXME
 	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
 
-	compose
+	func layoutSubviews override #magical
 	{
-		{
-			if var source = getSource() {
-				var theme = JcoThemeProcessor.forComponent(this)
-				var src = theme.getValue(source)
-				if String.isNotEmpty(src) {
-					compose {
-						<img src=@{src} />
-					}
-					return
+		var x = Double.forString(childX)
+		var y = Double.forString(childY)
+		var fixedWidth = 0.0
+		var fixedHeight = 0.0
+		if var childWidth = childWidth:
+			fixedWidth = Double.forString(childWidth)
+		if var childHeight = childHeight:
+			fixedHeight = Double.forString(childHeight)
+		lang "swift" (x, y) {{{
+			let csize = self.bounds.size
+			let rsz = CGSizeMake(csize.width, csize.height)
+			for subview in subviews {
+				let sframe = subview.sizeThatFits(rsz)
+				var szw = sframe.width
+				var szh = sframe.height
+				if fixedWidth > 0.0 {
+					szw = fixedWidth
+				}
+				if fixedHeight > 0.0 {
+					szh = fixedHeight
+				}
+				if alignment == "left" {
+					subview.frame = CGRectMake(x, y, szw, szh)
+				}
+				else if alignment == "right" {
+					subview.frame = CGRectMake(x - sframe.width, y, szw, szh)
+				}
+				else if alignment == "center" {
+					subview.frame = CGRectMake(x - sframe.width / 2, y, szw, szh)
 				}
 			}
-			if var jsimg = getImage() as ImageForBrowserJS {
-				compose {
-					<img src=@{jsimg.toPNGDataUrl()} />
-				}
-				return
-			}
-			if var url = getUrl() {
-				compose {
-					<img src=@{url} />
-				}
-				return
-			}
-			compose {
-				<img src="#" />
-			}
-		}
+		}}}
+	}
+}
+
+compose
+{
+	{
+		composeChildren(context)
 	}
 }

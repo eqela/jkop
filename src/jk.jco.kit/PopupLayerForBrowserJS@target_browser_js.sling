@@ -26,71 +26,34 @@ import jk.jco.common
 
 class is PopupLayer:
 
-func forDropdown(comp as JcoComponent, align as int) static as this
+class MyRootWidget is LayerWidget #jco #component
 {
-	var document = (comp as! dynamic).ownerDocument as! dynamic
-	var original = (comp as! dynamic).getBoundingClientRect!()
-	var element = document.createElement!("div") as! dynamic
-	element.style!.position = "absolute"
-	element.style!.top = original!.bottom
-	if align == PopupLayer.ALIGN_LEFT {
-		element.style!.left = original!.left
+	prop composer as function<(JcoComposeContext) throws Exception>?
+
+	func composeComponent(context as JcoComposeContext) override throws Exception
+	{
+		var cc = composer
+		if cc:
+			cc(context)
 	}
-	else if align == PopupLayer.ALIGN_CENTER {
-		ERROR NOT_IMPLEMENTED
-	}
-	else if align == PopupLayer.ALIGN_JUSTIFY {
-		element.style!.left = original!.left
-		element.style!.width = (original!.right as! int) - (original!.left as! int)
-	}
-	else if align == PopupLayer.ALIGN_RIGHT {
-		element.style!.right = (document.documentElement!.clientWidth as! int) - (original!.right as! int)
-	}
-	return forElements(document, element, element)
 }
 
-func forOverlay(comp as JcoComponent) static as this
+func getBody as JcoHtmlElementForBrowserJS
 {
-	var document = (comp as! dynamic).ownerDocument as! dynamic
-	var topLevelElement = document.createElement!("div") as! dynamic
-	topLevelElement.style!.position = "absolute"
-	topLevelElement.style!.top = 0
-	topLevelElement.style!.bottom = 0
-	topLevelElement.style!.left = 0
-	topLevelElement.style!.right = 0
-	topLevelElement.style!.backgroundColor = "rgba(0, 0, 0, 0.5)"
-	topLevelElement.style!.display = "grid"
-	topLevelElement.style!.placeItems = "center"
-	return forElements(document, topLevelElement, topLevelElement)
-}
-
-func forElements(document as dynamic, topLevelElement as dynamic, composeElement as dynamic) static as this
-{
-	var v = new this() {
-		document document
-		topLevelElement topLevelElement
-		composeElement composeElement
-	}
-	v.initialize()
-	return v
-}
-
-prop document as dynamic
-prop topLevelElement as dynamic
-prop composeElement as dynamic
-
-func getBody as JcoElementForBrowserJS
-{
-	var body = document.documentElement as! dynamic
-	return new JcoElementForBrowserJS() {
+	var body = lang "js" as dynamic {{{ document.documentElement }}}
+	return new JcoHtmlElementForBrowserJS() {
 		element body
 	}
 }
 
-func initialize
+var topLevelElement as dynamic?
+
+func show(element as dynamic) private throws Exception
 {
+	if topLevelElement:
+		hide()
 	var body = getBody()
-	var tel = topLevelElement
+	var tel = element
 	body.element.appendChild!(tel)
 	body.setEventFilter("click", func(event as dynamic) as bool {
 		var path = event.composedPath!() as! vector<dynamic>?
@@ -98,17 +61,68 @@ func initialize
 			if lang "js" as bool {{{ element == tel }}}:
 				return false
 		}
-		close()
+		try {
+			hide()
+		}
 		return true
 	})
+	this.topLevelElement = element
 }
 
-func close override
+func showAsLayer(reference as JcoComponent, composer as function<(JcoComposeContext) throws Exception>) override throws Exception
 {
-	var body = getBody()
-	body.element.removeChild!(topLevelElement)
-	body.setEventCapturer("click", null)
+	var element = CustomElementManager.createElementForType(typeinfo MyRootWidget) as MyRootWidget
+	if not element:
+		Error.throw("failedToCreatePopupBaseWidget")
+	element.composer = composer
+	lang "js" {{{
+		element.style.position = "absolute";
+		element.style.top = 0;
+		element.style.bottom = 0;
+		element.style.left = 0;
+		element.style.right = 0;
+	}}}
+	show(element)
 }
 
-func compose override as JcoComposeContext:
-	return JcoComposeContextForBrowserJS.forRoot(composeElement)
+func showWithComponent(reference as JcoComponent, align as int, composer as function<(JcoComposeContext) throws Exception>) override throws Exception
+{
+	var original = (reference as! dynamic).getBoundingClientRect!()
+	var element = CustomElementManager.createElementForType(typeinfo MyRootWidget) as MyRootWidget
+	if not element:
+		Error.throw("failedToCreatePopupBaseWidget")
+	element.composer = composer
+	lang "js" (element, original) {{{
+		element.style.position = "absolute";
+		element.style.top = original.bottom;
+	}}}
+	if align == PopupLayer.ALIGN_LEFT {
+		lang "js" (element, original) {{{
+			element.style.left = original.left;
+		}}}
+	}
+	else if align == PopupLayer.ALIGN_CENTER {
+		ERROR NOT_IMPLEMENTED
+	}
+	else if align == PopupLayer.ALIGN_JUSTIFY {
+		lang "js" (element, original) {{{
+			element.style.left = original.left;
+			element.style.width = original.right - original.left;
+		}}}
+	}
+	else if align == PopupLayer.ALIGN_RIGHT {
+		lang "js" (element, original) {{{
+			element.style.right = document.documentElement.clientWidth - original.right;
+		}}}
+	}
+	show(element)
+}
+
+func hide override throws Exception
+{
+	if topLevelElement {
+		var body = getBody()
+		body.element.removeChild!(topLevelElement)
+		body.setEventCapturer("click", null)
+	}
+}

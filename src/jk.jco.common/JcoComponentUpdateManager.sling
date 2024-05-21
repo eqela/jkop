@@ -22,11 +22,54 @@
  * SOFTWARE.
  */
 
-interface:
+import jk.log
 
-func onFCMTokenReceived(fcmToken as string)
+class:
+
+var updateComponents static as vector<JcoComponent>?
+var updating static = false
+
+func scheduleUpdate static private
 {
-	description [[
-		Handles a received FCM token.
-	]]
+	var handler #used = func {
+		updating = true
+		while updateComponents {
+			var components = updateComponents
+			updateComponents = null
+			foreach component in components {
+				try {
+					component.executeUpdate()
+				}
+				catch e as Exception {
+					Log.error(component.ctx, e.toString())
+				}
+			}
+		}
+		updating = false
+	}
+	IFDEF "target_browser_js" {
+		lang "js" {{{
+			setTimeout(handler, 0);
+		}}}
+	}
+	ELSE IFDEF "target_ios_swift" {
+		lang "swift" {{{
+			RunLoop.main.perform(handler)
+		}}}
+	}
+	ELSE {
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
+func setNeedsUpdate(component as JcoComponent) static
+{
+	var cc = updateComponents
+	if not cc {
+		cc = new vector<JcoComponent>
+		updateComponents = cc
+		if not updating:
+			scheduleUpdate()
+	}
+	cc += component
 }

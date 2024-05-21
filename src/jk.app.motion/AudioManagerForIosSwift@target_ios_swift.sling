@@ -22,32 +22,35 @@
  * SOFTWARE.
  */
 
+import jk.log
 import jk.app
 import jk.thread
-import jk.log
+import [magical:AVFoundation]
 
 class is AudioManager:
-
-depend "objc-header-m:<AVFoundation/AVFoundation.h>"
-depend "objc-framework:AVFoundation"
 
 class MyAudioClip is AudioClip is Runnable
 {
 	pvar clipId as string?
 
-	func run
+	func run implement throws Exception
 	{
-		lang "objc" {{{
-			NSURL* pp = [[NSBundle mainBundle] URLForResource:clipId withExtension:@"mp3"];
-			NSError* err;
-			AVAudioPlayer* avap = [[AVAudioPlayer alloc] initWithContentsOfURL:pp error:&err];
-			[avap play];
-			[NSThread sleepForTimeInterval:[avap duration]];
-			[avap stop];
+		lang "swift" {{{
+			let pp = Bundle.main.url(forResource: clipId, withExtension:"mp3")
+			var avap : AVAudioPlayer? = nil
+			do {
+				avap = try AVAudioPlayer(contentsOf: pp!)
+			}
+			catch {
+				print("Error in AudioPlayer: " + error.localizedDescription)
+			}
+			avap!.play()
+			Thread.sleep(forTimeInterval: avap!.duration)
+			avap!.stop()
 		}}}
 	}
 
-	func play as bool
+	func play implement as bool
 	{
 		Thread.start(this)
 		return true
@@ -56,125 +59,126 @@ class MyAudioClip is AudioClip is Runnable
 
 class MyAudioStream is AudioStream
 {
-	pvar context as GuiApplicationContextForIOS?
+	pvar context as GuiApplicationContextForIosSwift?
 
 	var avap as [magical:AVAudioPlayer]?
 
 	func initialize(path as string) as bool
 	{
-		assert path
-		var pp as [magical:NSURL]?
+		var pp as [magical:URL]? #mutated
 		if String.startsWith(path, "/") {
-			lang "objc" {{{
-				pp = [NSURL URLWithString:path];
+			lang "swift" (pp) {{{
+				pp = URL(string: path!)
 			}}}
 		}
 		else {
-			lang "objc" {{{
-				pp = [[NSBundle mainBundle] URLForResource:path withExtension:@"mp3"];
+			lang "swift" (pp) {{{
+				pp = Bundle.main.url(forResource: path, withExtension:"mp3")
 			}}}
 		}
-		lang "objc" {{{
-			NSError* err;
-			avap = [[AVAudioPlayer alloc] initWithContentsOfURL:pp error:&err];
-			if(err) {
-				NSLog(@"Error in AudioPlayer: %@", [err localizedDescription]);
-				return(NO);
+		lang "swift" (pp) {{{
+			var avap : AVAudioPlayer? = nil
+			do {
+				avap = try AVAudioPlayer(contentsOf: pp!)
+			}
+			catch {
+				print("Error in AudioPlayer: " + error.localizedDescription)
 			}
 		}}}
 		assert avap:
 			Log.error(context, "Failed to initialize audio player for `" .. path .. "'")
-		lang "objc" {{{
-			[avap prepareToPlay];
+		lang "swift" {{{
+			avap!.prepareToPlay()
 		}}}
 		Log.debug(context, "Initialized audio player for `" .. path .. "'")
 		return true
 	}
 
-	func play as bool
+	func play implement as bool
 	{
 		assert avap
-		lang "objc" {{{
-			[avap play];
+		lang "swift" {{{
+			avap.play()
 		}}}
 		return true
 	}
 
-	func pause as bool
+	func pause implement as bool
 	{
 		assert avap
-		lang "objc" {{{
-			[avap pause];
+		lang "swift" {{{
+			avap.pause()
 		}}}
 		return true
 	}
 
-	func stop as bool
+	func stop implement as bool
 	{
 		assert avap
-		lang "objc" {{{
-			[avap stop];
+		lang "swift" {{{
+			avap.stop()
 		}}}
 		return true
 	}
 
-	func seek(sec as int) as bool
+	func seek(sec as int) implement as bool
 	{
 		assert avap
-		lang "objc" {{{
-			[avap setCurrentTime:sec];
+		lang "swift" (sec) {{{
+			avap.currentTime = TimeInterval(sec)
 		}}}
 		return true
 	}
 
-	func getCurrentTime as int
+	func getCurrentTime implement as int
 	{
 		assert avap
-		return lang "objc" as int {{{ [avap currentTime] }}}
+		return lang "swift" as int {{{ Int(avap.currentTime) }}}
 	}
 
-	func getDuration as int
+	func getDuration implement as int
 	{
 		assert avap
-		return lang "objc" as int {{{ [avap duration] }}}
+		return lang "swift" as int {{{ Int(avap.duration) }}}
 	}
 
-	func setLooping(v as bool) as bool
+	func setLooping(v as bool) implement as bool
 	{
 		assert avap
 		if v {
-			lang "objc" {{{
-				[avap setNumberOfLoops:-1];
+			lang "swift" {{{
+				avap.numberOfLoops = -1
 			}}}
 		}
 		else {
-			lang "objc" {{{
-				[avap setNumberOfLoops:0];
+			lang "swift" {{{
+				avap.numberOfLoops = 0
 			}}}
 		}
 		return true
 	}
 
-	func setVolume(v as double) as bool
+	func setVolume(v as double) implement as bool
 	{
 		assert avap
-		lang "objc" {{{
-			[avap setVolume:v];
+		lang "swift" (v) {{{
+			avap.volume = Float(v)
 		}}}
 		return true
 	}
 }
 
-func forApplication(context as ApplicationContext) static as this
+func forApplicationContext(context as ApplicationContext) static throws Exception as this
 {
-	var ctx = assert context as GuiApplicationContextForIOS:
-		Log.error(context, "Context given to " .. VALUE "__THIS__" .. " is not an iOS context")
+	var ctx = context as GuiApplicationContextForIosSwift
+	if not ctx:
+		Error.throw("unsupportedApplicationContext", context)
 	var v = new this()
 	v.setContext(ctx)
 	return v
 }
 
-pvar context as GuiApplicationContextForIOS?
+pvar context as GuiApplicationContextForIosSwift?
 
 func getClipForResource(id as string) override as AudioClip?
 {

@@ -42,9 +42,7 @@ IFDEF "target_browser_js"
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
 		base.addCssRules(sheet)
-		var theme = new JcoThemeProcessor() {
-			component this
-		}
+		var theme = getThemeProcessor()
 		var host = sheet.define(":host", new map<string,string> {
 			display "block"
 		})
@@ -81,5 +79,51 @@ IFDEF "target_browser_js"
 			sb.appendString(")")
 			host.set("background-image", sb.toString())
 		}
+	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	func getUikitBackgroundColor(theme as JcoThemeProcessor) as [magical:UIColor]?
+	{
+		if var bgc = backgroundColor:
+			return colorToUiColor(theme.getValue(bgc))
+		return null
+	}
+
+	func getUikitCornerRadius(theme as JcoThemeProcessor) as double
+	{
+		if var rr = rounding:
+			return asPoints(theme.getValue(rr))
+		return 0.0
+	}
+
+	func getUikitBorderWidth(theme as JcoThemeProcessor) as double
+	{
+		var width = outlineWidth
+		if String.isEmpty(width):
+			return 0.0
+		return asPoints(theme.getValue(width))
+	}
+
+	func getUikitBorderColor(theme as JcoThemeProcessor) as [magical:CGColor]?
+	{
+		if var olc = outlineColor:
+			return lang "swift" (theme) as [magical:CGColor] {{{ colorToUiColor(theme.getValue(olc!)).cgColor }}}
+		return null
+	}
+
+	func composeComponent(context as JcoComposeContext) override throws Exception
+	{
+		var theme = getThemeProcessor()
+		lang "swift" (theme) {{{
+			self.backgroundColor = getUikitBackgroundColor(theme)
+			self.layer.masksToBounds = true
+			self.layer.cornerRadius = getUikitCornerRadius(theme)
+			self.layer.borderWidth = getUikitBorderWidth(theme)
+			self.layer.borderColor = getUikitBorderColor(theme)
+		}}}
+		// FIXME: Gradient support
 	}
 }

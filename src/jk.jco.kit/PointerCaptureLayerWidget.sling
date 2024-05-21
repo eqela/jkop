@@ -37,6 +37,12 @@ func onClicked virtual throws Exception
 		ch()
 }
 
+func onPressed virtual throws Exception:
+	nop
+
+func onReleased virtual throws Exception:
+	nop
+
 func onPointerEnter virtual throws Exception
 {
 	var ch = pointerEnterHandler
@@ -55,6 +61,12 @@ section private
 {
 	func handleOnClicked:
 		executeAndHandleExceptions(func throws Exception => onClicked())
+
+	func handleOnPressed:
+		executeAndHandleExceptions(func throws Exception => onPressed())
+
+	func handleOnReleased:
+		executeAndHandleExceptions(func throws Exception => onReleased())
 
 	func handleOnPointerEnter:
 		executeAndHandleExceptions(func throws Exception => onPointerEnter())
@@ -91,6 +103,48 @@ IFDEF "target_browser_js"
 		element.setEventObserver("mouseenter", null)
 		element.setEventObserver("mouseleave", null)
 	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	func onMounted override throws Exception
+	{
+		base.onMounted()
+		lang "swift" {{{
+			self.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(self.onTapGesture(_:))))
+		}}}
+	}
+
+	func onUnmounted override throws Exception
+	{
+		base.onUnmounted()
+		lang "swift" {{{
+			if let recs = self.gestureRecognizers {
+				for rec in recs {
+					self.removeGestureRecognizer(rec)
+				}
+			}
+		}}}
+	}
+
+	lang "swift" (handleOnClicked, handleOnPressed, handleOnReleased) {{{
+		@objc func onTapGesture(_ sender: UITapGestureRecognizer? = nil) {
+			self.handleOnClicked()
+		}
+
+		public override func touchesBegan(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
+			handleOnPressed()
+		}
+
+		public override func touchesEnded(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
+			handleOnReleased()
+		}
+
+		public override func touchesCancelled(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
+			handleOnReleased()
+		}
+	}}}
 }
 
 compose

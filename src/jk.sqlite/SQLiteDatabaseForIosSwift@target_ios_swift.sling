@@ -1,0 +1,366 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.sql
+import jk.log
+import [magical:SQLite3]
+
+class is SQLiteDatabase:
+
+class Statement is SQLStatement
+{
+	func create(db as [magical:OpaquePointer], sql as string) static throws Exception as this
+	{
+		var error as string? #mutated
+		var compiledStatement as [magical:OpaquePointer]?
+		lang "swift" (error, db) {{{
+			if(sqlite3_prepare_v2(db, (sql as NSString).utf8String, -1, &compiledStatement, nil) != SQLITE_OK) {
+				let errMsg = sqlite3_errmsg(db)
+				error = Swift.String(cString: errMsg!)
+			}
+		}}}
+		if error:
+			Error.throw("unableToCreateSqliteStatement", error)
+		if not compiledStatement:
+			Error.throw("failedToCreateSqliteStatement")
+		return new this() {
+			sql sql
+			compiledStmt compiledStatement
+		}
+	}
+
+	prop sql as string
+	prop compiledStmt as [magical:OpaquePointer]
+
+	var paramCounter = 1
+
+	dtor:
+		lang "swift" {{{
+			sqlite3_finalize(compiledStmt)
+		}}}
+
+	func addParamString(val as string) override
+	{
+		lang "swift" (compiledStmt, paramCounter, val) {{{
+			let SQLITE_STATIC = unsafeBitCast(0, to: sqlite3_destructor_type.self)
+			if (sqlite3_bind_text(compiledStmt, Swift.Int32(paramCounter), (val as NSString).utf8String, -1, SQLITE_STATIC) == SQLITE_OK) {
+				paramCounter += 1
+			}
+		}}}
+	}
+
+	func addParamInteger(val as int) override
+	{
+		lang "swift" (compiledStmt, paramCounter, val) {{{
+			if (sqlite3_bind_int(compiledStmt, Int32(paramCounter), Int32(val)) == SQLITE_OK) {
+				paramCounter += 1
+			}
+		}}}
+	}
+
+	func addParamLongInteger(val as long) override:
+		addParamInteger(val as! int)
+
+	func addParamDouble(val as double) override
+	{
+		lang "swift" (compiledStmt, paramCounter, val) {{{
+			if (sqlite3_bind_double(compiledStmt, Swift.Int32(paramCounter), val) == SQLITE_OK) {
+				paramCounter += 1
+			}
+		}}}
+	}
+
+	func addParamBlob(val as buffer) override
+	{
+		var size = Buffer.getSize(val)
+		lang "swift" (compiledStmt, paramCounter, val, size) {{{
+			let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+			val.data.withUnsafeMutableBytes({ (ptr: UnsafeMutableRawBufferPointer) -> Void in
+				if (sqlite3_bind_blob(compiledStmt, Swift.Int32(paramCounter), ptr, Swift.Int32(size), SQLITE_TRANSIENT) == SQLITE_OK) {
+					paramCounter += 1
+				}
+			})
+		}}}
+	}
+
+	func setParamString(name as string, val as string) override:
+		addParamString(val)
+
+	func setParamInteger(name as string, val as int) override:
+		addParamInteger(val)
+
+	func setParamLongInteger(name as string, val as long) override:
+		addParamLongInteger(val)
+
+	func setParamDouble(name as string, val as double) override:
+		addParamDouble(val)
+
+	func setParamBlob(name as string, val as buffer) override:
+		addParamBlob(val)
+
+	func resetStatement override throws Exception
+	{
+		lang "swift" (compiledStmt, paramCounter) {{{
+			sqlite3_clear_bindings(compiledStmt)
+			sqlite3_reset(compiledStmt)
+			paramCounter = 1
+		}}}
+	}
+
+	func execute throws Exception
+	{
+		lang "swift" (compiledStmt) {{{
+			if (sqlite3_step(compiledStmt) == SQLITE_DONE) {
+				return
+			}
+		}}}
+		Error.throw("failedToExecuteSqliteStatement", this)
+	}
+
+	func getCompiledStmt as [magical:OpaquePointer]:
+		return compiledStmt
+}
+
+class ResultSet is SQLResultSetIterator
+{
+	prop compiledStmt as [magical:OpaquePointer]
+
+	var columnNames as vector<string>?
+	var stepped = false
+
+	dtor
+	{
+		try {
+			close()
+		}
+	}
+
+	func create(stmt as Statement) static as this:
+		return new this() {
+			compiledStmt stmt.getCompiledStmt()
+		}
+
+	func hasNext override as bool
+	{
+		if stepped:
+			return true
+		try {
+			step()
+		}
+		catch {
+			return false
+		}
+		stepped = true
+		return true
+	}
+
+	func step override throws Exception
+	{
+		if stepped {
+			stepped = false
+			return
+		}
+		var b = false
+		lang "swift" {{{
+			if(sqlite3_step(compiledStmt) == SQLITE_ROW) {
+				b = true
+			}
+		}}}
+		if not b:
+			Error.throw("noMoreRecords")
+	}
+
+	func next override throws Exception as DynamicMap
+	{
+		step()
+		var v = new DynamicMap()
+		var names = getColumnNames()
+		var count = Vector.getSize(names)
+		for(var i = 0 ; i < count ; i++) {
+			var name = Vector.getValue(names, i)
+			if not name:
+				Error.throw("noNameForColumn", String.forInteger(i))
+			v.setDynamic(name, getColumnValue(i))
+		}
+		return v
+	}
+
+	func nextValues(values as vector<dynamic?>) override throws Exception
+	{
+		step()
+		Vector.clear(values)
+		var cols = getColumnCount()
+		for(var i = 0 ; i < cols ; i++) {
+			var s as string?
+			lang "swift" {{{
+				var ss = sqlite3_column_text(compiledStmt, Swift.Int32(i))
+				if(ss != nil) {
+					s = Swift.String(cString: ss!)
+				}
+			}}}
+			values += s
+		}
+	}
+
+	func getColumnCount override throws Exception as int:
+		return lang "swift" (compiledStmt) as int {{{ Swift.Int(sqlite3_column_count(compiledStmt)) }}}
+
+	func getColumnName(n as int) override throws Exception as string
+	{
+		var name as string?
+		lang "swift" {{{
+			var nn = sqlite3_column_name(compiledStmt, Swift.Int32(n))
+			if (nn != nil) {
+				name = Swift.String(cString: nn!)
+			}
+		}}}
+		if not name:
+			Error.throw("failedtoGetColumnName", String.forInteger(n))
+		return name
+	}
+
+	func getColumnNames override throws Exception as vector<string>
+	{
+		if not columnNames {
+			columnNames = new vector<string>
+			for(var i = 0 ; i < getColumnCount() ; i++):
+				columnNames += getColumnName(i)
+		}
+		return columnNames
+	}
+
+	func getColumnValue(n as int) override throws Exception as dynamic?
+	{
+		var type = lang "swift" (compiledStmt, n) as int {{{ Swift.Int(sqlite3_column_type(compiledStmt, Swift.Int32(n))) }}}
+		if type == 1:
+			return getColumnInt(n)
+		if type == 2:
+			return getColumnDouble(n)
+		if type == 3 {
+			var s as string?
+			lang "swift" {{{
+				var ss = sqlite3_column_text(compiledStmt, Swift.Int32(n))
+				if (ss != nil) {
+					s = Swift.String(cString: ss!)
+				}
+			}}}
+			return s
+		}
+		if type == 4:
+			return getColumnBuffer(n)
+		Error.throw("unsupportedColumnType", String.forInteger(type))
+		return null
+	}
+
+	func getColumnInt(n as int) override throws Exception as int:
+		return lang "swift" (compiledStmt, n) as int {{{ Swift.Int(sqlite3_column_int(compiledStmt, Swift.Int32(n))) }}}
+
+	func getColumnLong(n as int) stub override throws Exception as long
+
+	func getColumnDouble(n as int) override throws Exception as double:
+		return lang "swift" (compiledStmt, n) as double {{{ sqlite3_column_double(compiledStmt, Swift.Int32(n)) }}}
+
+	func getColumnBuffer(n as int) override throws Exception as buffer
+	{
+		var v as buffer?
+		lang "swift" (compiledStmt, n) {{{
+			var data = sqlite3_column_blob(compiledStmt, Swift.Int32(n))
+			var dataLength = sqlite3_column_bytes(compiledStmt, Swift.Int32(n))
+			if (data != nil) {
+				v = BufferValue.forData(Foundation.Data(bytes: data!, count: Swift.Int(dataLength)))
+			}
+		}}}
+		if not v:
+			Error.throw("failedToGetColumnBufferData", String.forInteger(n))
+		return v
+	}
+
+	func close override throws Exception:
+		nop
+}
+
+var db as [magical:OpaquePointer]?
+
+func initialize(file as File, create as bool) override throws Exception
+{
+	if create == false && file.isFile() == false:
+		Error.throw("databaseDoesNotExist", file)
+	var nativePath = file.getPath()
+	if String.isEmpty(nativePath):
+		Error.throw("fileHasNoNativePath", file)
+	var v = false
+	var dbp as [magical:OpaquePointer]?
+	lang "swift" {{{
+		if(sqlite3_open((nativePath! as NSString).utf8String, &dbp) == SQLITE_OK) {
+			v = true
+		}
+	}}}
+	if not v:
+		Error.throw("failedToOpenSqliteDatabaseFile", file)
+	db = dbp
+	if ctx.isInDebugMode():
+		Log.debug(ctx, "Opened Sqlite database: `" .. file.getPath() .. "'")
+}
+
+func closeConnection async override throws Exception
+{
+	if db {
+		lang "swift" {{{
+			sqlite3_close(db)
+		}}}
+		db = null
+	}
+}
+
+func prepareStatement(sql as string) async override throws Exception as SQLStatement
+{
+	if not db:
+		Error.throw("noOpenDatabase")
+	return Statement.create(db, sql)
+}
+
+func executeStatement(stmt as SQLStatement) override async throws Exception
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("unsupportedSqlStatement", stmt)
+	ss.execute()
+}
+
+func executeUpdateDeleteStatement(stmt as SQLStatement) override async throws Exception as int
+{
+	if not db:
+		Error.throw("noOpenDatabase")
+	await executeStatement(stmt)
+	return lang "swift" (db) as int {{{ Swift.Int(sqlite3_changes(db!)) }}}
+}
+
+func executeQueryStatement(stmt as SQLStatement) override async throws Exception as SQLResultSetIterator
+{
+	var ss = stmt as Statement
+	if not ss:
+		Error.throw("unsupportedSqlStatement", stmt)
+	return ResultSet.create(ss)
+}

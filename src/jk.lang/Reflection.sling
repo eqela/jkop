@@ -24,7 +24,7 @@
 
 class:
 
-func createClassInstanceByName(qualifiedName as string) static throws Exception as dynamic
+func createClassInstanceByName(qualifiedName as string) static throws Exception as object
 {
 	IFDEF "target_sushi" {
 		var code = " return _g." .. qualifiedName .. "._construct0(_g." .. qualifiedName .. "._create())"
@@ -36,7 +36,7 @@ func createClassInstanceByName(qualifiedName as string) static throws Exception 
 		var length = String.getLength(qualifiedName)
 		var className = String.getSubString(qualifiedName, lin, length - lin)
 		var module = String.getSubString(qualifiedName, 0, lin)
-		var ff as dynamic?
+		var ff as object?
 		lang "js" (className, module) {{{
 			const ev = "require(\'./" + module + "\')" + className + ".NEW()";
 			ff = eval(ev);
@@ -55,7 +55,7 @@ func createClassInstanceByName(qualifiedName as string) static throws Exception 
 	}
 }
 
-func createClassInstanceByTypeinfo(typeinfo as typeinfo) static throws Exception as dynamic
+func createClassInstanceByTypeinfo(typeinfo as typeinfo) static throws Exception as object
 {
 	IFDEF "target_sushi" {
 		var typename = lang "lua" (@typeinfo) as string {{{ typeinfo }}}
@@ -64,7 +64,7 @@ func createClassInstanceByTypeinfo(typeinfo as typeinfo) static throws Exception
 		return createClassInstanceByName(typename)
 	}
 	ELSE IFDEF "target_node_js" {
-		var ff as dynamic?
+		var ff as object?
 		lang "js" (@typeinfo) {{{
 			ff = typeinfo.NEW();
 		}}}
@@ -73,7 +73,15 @@ func createClassInstanceByTypeinfo(typeinfo as typeinfo) static throws Exception
 		return ff
 	}
 	ELSE IFDEF "target_browser_js" {
-		return lang "js" (@typeinfo) as dynamic {{{ typeinfo.NEW() }}}
+		return lang "js" (@typeinfo) as object {{{ typeinfo.NEW() }}}
+	}
+	ELSE IFDEF "target_swift" {
+		lang "swift" {{{
+			if let otyp = typeinfo as? NSObject.Type {
+				return otyp.init()
+			}
+		}}}
+		Error.throw("unableToCreateClassInstanceForType", @typeinfo)
 	}
 	ELSE {
 		nop @typeinfo
@@ -158,7 +166,10 @@ func isInstanceOf(objectInstance as dynamic, typeinfo as typeinfo) static as boo
 		var oo = objectInstance as object
 		if not oo:
 			return false
-		return lang "swift" (objectInstance, @typeinfo) as bool {{{ type(of: oo) == typeinfo }}}
+		var oti = lang "swift" (@typeinfo) as typeinfo? {{{ typeinfo as? AnyClass }}}
+		if not oti:
+			return false
+		return lang "swift" (oo, oti) as bool {{{ oo!.isKind(of: oti!) }}}
 	}
 	ELSE {
 		nop objectInstance

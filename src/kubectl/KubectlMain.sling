@@ -1,0 +1,209 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.log
+import jk.json
+import jk.slon
+import jk.console
+import jk.k8s
+
+class:
+
+var apiServerUrl as string?
+var apiServerToken as string?
+var namespace as string?
+var outputFormat = "slon"
+
+func processCommonOptions(av as ArgumentVector) private as ArgumentVector
+{
+	var args = new vector<string>
+	while av.hasMore() {
+		if av.acceptOption("n") || av.acceptOption("namespace") {
+			namespace = av.getOptionValue()
+		}
+		else if av.acceptOption("s") || av.acceptOption("server") {
+			apiServerUrl = av.getOptionValue()
+		}
+		else if av.acceptOption("token") {
+			apiServerToken = av.getOptionValue()
+		}
+		else if av.acceptOption("o") || av.acceptOption("output") {
+			outputFormat = String.safeString(av.getOptionValue())
+		}
+		else {
+			var vv = av.acceptAnyValue()
+			if vv:
+				args += vv
+		}
+	}
+	return ArgumentVector.forStringVector(args)
+}
+
+func requireNamespace throws Exception as string
+{
+	if String.isEmpty(namespace):
+		Error.throw("optionMissing", "namespace")
+	return namespace
+}
+
+func outputObject(object as object) throws Exception
+{
+	var dm = DynamicMap.asValueOrThrowError(object)
+	if outputFormat == "json" {
+		println JSONEncoder.toString(dm)
+	}
+	else if outputFormat == "slon" {
+		println SLONEncoder.toString(dm)
+	}
+	else {
+		Error.throw("unsupportedOutputFormat", outputFormat)
+	}
+}
+
+func executeMain(ctx as ConsoleApplicationContext, args as ArgumentVector) async throws Exception
+{
+	var av = processCommonOptions(args)
+	if String.isEmpty(apiServerUrl):
+		Error.throw("parameterMissing", "apiServerUrl")
+	var client = KubernetesClient.forApiServer(ctx, apiServerUrl, apiServerToken)
+	// get
+	if av.acceptValue("get") {
+		if av.acceptValue("namespaces") || av.acceptValue("namespace") {
+			var nsname = av.acceptParameter()
+			if String.isNotEmpty(nsname) {
+				outputObject(await client.getNamespace(nsname))
+			}
+			else {
+				outputObject(await client.getNamespaces())
+			}
+		}
+		else if av.acceptValue("deployments") || av.acceptValue("deployment") {
+			var ns = requireNamespace()
+			var name = av.acceptParameter()
+			if String.isNotEmpty(name) {
+				outputObject(await client.getDeployment(ns, name))
+			}
+			else {
+				outputObject(await client.getDeployments(ns))
+			}
+		}
+		else if av.acceptValue("services") || av.acceptValue("service") {
+			var ns = requireNamespace()
+			var name = av.acceptParameter()
+			if String.isNotEmpty(name) {
+				outputObject(await client.getService(ns, name))
+			}
+			else {
+				outputObject(await client.getServices(ns))
+			}
+		}
+		else if av.acceptValue("jobs") || av.acceptValue("job") {
+			var ns = requireNamespace()
+			var name = av.acceptParameter()
+			if String.isNotEmpty(name) {
+				outputObject(await client.getJob(ns, name))
+			}
+			else {
+				outputObject(await client.getJobs(ns))
+			}
+		}
+		else if av.acceptValue("pods") || av.acceptValue("pod") {
+			var ns = requireNamespace()
+			var name = av.acceptParameter()
+			if String.isNotEmpty(name) {
+				outputObject(await client.getPod(ns, name))
+			}
+			else {
+				outputObject(await client.getPods(ns))
+			}
+		}
+		else if av.acceptValue("secrets") || av.acceptValue("secret") {
+			var ns = requireNamespace()
+			var name = av.acceptParameter()
+			if String.isNotEmpty(name) {
+				outputObject(await client.getSecret(ns, name))
+			}
+			else {
+				outputObject(await client.getSecrets(ns))
+			}
+		}
+		else {
+			Error.throw("invalidObjectType", av.getCurrent())
+		}
+	}
+	// delete
+	else if av.acceptValue("delete") {
+		if av.acceptValue("namespaces") || av.acceptValue("namespace") {
+			var name = av.requireParameter("name")
+			await client.deleteNamespace(name)
+		}
+		else if av.acceptValue("deployments") || av.acceptValue("deployment") {
+			var ns = requireNamespace()
+			var name = av.requireParameter("name")
+			await client.deleteDeployment(ns, name)
+		}
+		else if av.acceptValue("services") || av.acceptValue("service") {
+			var ns = requireNamespace()
+			var name = av.requireParameter("name")
+			await client.deleteService(ns, name)
+		}
+		else if av.acceptValue("jobs") || av.acceptValue("job") {
+			var ns = requireNamespace()
+			var name = av.requireParameter("name")
+			await client.deleteJob(ns, name)
+		}
+		else if av.acceptValue("pods") || av.acceptValue("pod") {
+			var ns = requireNamespace()
+			var name = av.requireParameter("name")
+			await client.deletePod(ns, name)
+		}
+		else if av.acceptValue("secrets") || av.acceptValue("secret") {
+			var ns = requireNamespace()
+			var name = av.requireParameter("name")
+			await client.deleteSecret(ns, name)
+		}
+		else {
+			Error.throw("invalidObjectType", av.getCurrent())
+		}
+	}
+	// apply
+	else if av.acceptValue("apply") {
+		var file as string?
+		if av.acceptOption("f"):
+			file = av.getOptionValue()
+		if String.isEmpty(file):
+			Error.throw("parameterMissing", "file")
+		var data = SLONParser.parseFile(File.forPath(file)) as DynamicMap
+		if not data:
+			Error.throw("failedToReadFile", file)
+		outputObject(await client.applyObject(data))
+	}
+	else {
+		Error.throw("invalidCommand", av.getCurrent())
+	}
+}
+
+main:
+	return await ConsoleApplication.executeMain(args, func(ctx as ConsoleApplicationContext, av as ArgumentVector) async throws Exception => await new this().executeMain(ctx, av))

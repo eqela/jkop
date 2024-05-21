@@ -22,20 +22,12 @@
  * SOFTWARE.
  */
 
-import jk.process
 import jk.fs
+import jk.gfx
+import jk.process
+import [magical:UIKit]
 
 class is GuiApplicationContext:
-
-IFDEF "target_ios_swift"
-{
-	import [magical:UIKit]
-}
-ELSE IFDEF "target_ios_objc"
-{
-	depend "objc-header-m:<UIKit/UIKit.h>"
-	depend "objc-header-m:<sys/utsname.h>"
-}
 
 func getApplicationDataDirectory override throws Exception as File?:
 	ERROR NOT_IMPLEMENTED
@@ -43,14 +35,15 @@ func getApplicationDataDirectory override throws Exception as File?:
 func getResourceImage(id as string) override throws Exception as Image
 {
 	if String.isEmpty(id):
-		return null
-	var cp = assert CurrentProcess.getExecutableFileOrThrowError()
-	var bundleDir = assert cp.getParent()
+		Error.throw("emptyIdForResourceImage")
+	var cp = CurrentProcess.getExecutableFileOrThrowError()
+	var bundleDir = cp.getParent()
 	var f = bundleDir.entry(id .. ".png")
 	if f.isFile() == false:
 		f = bundleDir.entry(id .. ".jpg")
-	assert f.isFile()
-	return ImageForIOS.forFile(f)
+	if not f.isFile():
+		Error.throw("notFile", f)
+	return ImageForIosSwift.forFile(f)
 }
 
 class MyAlertDelegate implements [magical:UIAlertViewDelegate]
@@ -81,24 +74,12 @@ class MyAlertDelegate implements [magical:UIAlertViewDelegate]
 			callback()
 	}
 
-	IFDEF "target_ios_objc"
-	{
-		lang "objc" {{{
-			- (void)alertView:(UIAlertView *)alertView didDismissWithButtonIndex:(NSInteger)buttonIndex
-			{
-				[self onDismissed:buttonIndex];
-			}
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift"
-	{
-		lang "swift" {{{
-			func alertView(_ alertView: UIAlertView, didDismissWithButtonIndex buttonIndex: Int)
-			{
-				self.onDismissed(buttonIndex)
-			}
-		}}}
-	}
+	lang "swift" {{{
+		func alertView(_ alertView: UIAlertView, didDismissWithButtonIndex buttonIndex: Int)
+		{
+			self.onDismissed(buttonIndex)
+		}
+	}}}
 }
 
 var myDelegate as MyAlertDelegate?
@@ -117,22 +98,10 @@ func showMessageDialog(title as string, message as string, callback as function<
 		dg = getMyAlertDelegate()
 		dg.setCallback(callback)
 	}
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			UIAlertView* alert = [[UIAlertView alloc]
-				initWithTitle:title
-				message:message
-				delegate:dg
-				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
-			[alert show];
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			let alert = UIAlertView(title: title!, message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
-			alert.show()
-		}}}
-	}
+	lang "swift" {{{
+		let alert = UIAlertView(title: title, message: message, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+		alert.show()
+	}}}
 }
 
 func showConfirmDialog(title as string, message as string, okcallback as function<void>?, cancelcallback as function<void>?) override
@@ -143,22 +112,10 @@ func showConfirmDialog(title as string, message as string, okcallback as functio
 		dg.setOkCallback(okcallback)
 		dg.setCancelCallback(cancelcallback)
 	}
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			UIAlertView* alert = [[UIAlertView alloc]
-				initWithTitle:title
-				message:message
-				delegate:dg
-				cancelButtonTitle:nil otherButtonTitles:@"No", @"Yes", nil];
-			[alert show];
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			let alert = UIAlertView(title: title!, message: message!, delegate:dg, cancelButtonTitle: nil, otherButtonTitles:"No", "Yes")
-			alert.show()
-		}}}
-	}
+	lang "swift" {{{
+		let alert = UIAlertView(title: title, message: message, delegate:dg, cancelButtonTitle: nil, otherButtonTitles:"No", "Yes")
+		alert.show()
+	}}}
 }
 
 func showErrorDialog(message as string, callback as function<void>? = null) override
@@ -168,67 +125,39 @@ func showErrorDialog(message as string, callback as function<void>? = null) over
 		dg = getMyAlertDelegate()
 		dg.setCallback(callback)
 	}
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			UIAlertView* alert = [[UIAlertView alloc]
-				initWithTitle:@"ERROR"
-				message:message
-				delegate:dg
-				cancelButtonTitle:nil otherButtonTitles:@"OK",nil];
-			[alert show];
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			let alert = UIAlertView(title: "ERROR", message: message!, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
-			alert.show()
-		}}}
-	}
+	lang "swift" {{{
+		let alert = UIAlertView(title: "ERROR", message: message, delegate: dg, cancelButtonTitle: nil, otherButtonTitles:"OK")
+		alert.show()
+	}}}
 }
 
 func getScreenTopMargin override as int
 {
-	var v as int
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			CGSize statusBarSize = [[UIApplication sharedApplication] statusBarFrame].size;
-			v = MIN(statusBarSize.width, statusBarSize.height);
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			let statusBarSize = UIApplication.shared.statusBarFrame.size
-			v = Int(min(statusBarSize.width, statusBarSize.height))
-		}}}
-	}
+	var v as int #mutated = 0
+	lang "swift" {{{
+		let statusBarSize = UIApplication.shared.statusBarFrame.size
+		v = Int(min(statusBarSize.width, statusBarSize.height))
+	}}}
 	return v
 }
 
 func getScreenWidth override as int:
-	return getDeviceInfo().getScreenWidth()
+	return getDeviceInfo().screenWidth
 
 func getScreenHeight override as int:
-	return getDeviceInfo().getScreenHeight()
+	return getDeviceInfo().screenHeight
 
 func getMachineName as string
 {
 	var v as string?
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			struct utsname si;
-			if(uname(&si) >= 0) {
-				v = [NSString stringWithCString:si.machine encoding:NSUTF8StringEncoding];
-			}
-		}}}
-	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			var si = utsname()
-			if(uname(&si) >= 0) {
-				v = NSString(bytes: &si.machine, length: Int(_SYS_NAMELEN), encoding: String.Encoding.utf8.rawValue) as? String
-			}
-		}}}
-	}
+	lang "swift" {{{
+		var si = utsname()
+		if(uname(&si) >= 0) {
+			v = NSString(bytes: &si.machine, length: Int(_SYS_NAMELEN), encoding: Swift.String.Encoding.utf8.rawValue) as? Swift.String
+		}
+	}}}
+	if not v:
+		v = "unknown"
 	return v
 }
 
@@ -236,10 +165,7 @@ func detectDeviceInfo private as IOSDeviceInfo
 {
 	// Source of information: https://en.wikipedia.org/wiki/List_of_iOS_devices
 	var name = getMachineName()
-	if name == null {
-		nop
-	}
-	else if String.startsWith(name, "iPhone") {
+	if String.startsWith(name, "iPhone") {
 		if name == "iPhone8,1" {
 			return IOSDeviceInfo.forDetails(name, "iPhone 6S", 326)
 		}
@@ -413,31 +339,22 @@ func getDeviceInfo as IOSDeviceInfo
 {
 	if deviceInfo == null {
 		deviceInfo = detectDeviceInfo()
-		var width as int
-		var height as int
-		var scale as double
-		IFDEF "target_ios_objc" {
-			lang "objc" {{{
-				width = [[UIScreen mainScreen] bounds].size.width;
-				height = [[UIScreen mainScreen] bounds].size.height;
-				scale = [[UIScreen mainScreen] nativeScale];
-			}}}
-		}
-		ELSE IFDEF "target_ios_swift" {
-			lang "swift" {{{
-				width = Int(UIScreen.main.bounds.size.width)
-				height = Int(UIScreen.main.bounds.size.height)
-				scale = Double(UIScreen.main.nativeScale)
-			}}}
-		}
-		deviceInfo.setScreenWidth(width)
-		deviceInfo.setScreenHeight(height)
-		deviceInfo.setScale(scale)
-		if deviceInfo.getDpi() < 1 {
+		var width as int #mutated
+		var height as int #mutated
+		var scale as double #mutated
+		lang "swift" {{{
+			width = Swift.Int(UIScreen.main.bounds.size.width)
+			height = Swift.Int(UIScreen.main.bounds.size.height)
+			scale = Swift.Double(UIScreen.main.nativeScale)
+		}}}
+		deviceInfo.screenWidth = width
+		deviceInfo.screenHeight = height
+		deviceInfo.scale = scale
+		if deviceInfo.dpi < 1 {
 			var ss = 163 * scale as! int
 			if ss > 400:
 				ss = 401
-			deviceInfo.setDpi(ss)
+			deviceInfo.dpi = ss
 		}
 		logDebug("Device detected: " .. deviceInfo.toString())
 	}
@@ -445,10 +362,10 @@ func getDeviceInfo as IOSDeviceInfo
 }
 
 func getScreenDensity override as int:
-	return getDeviceInfo().getDpi() / getScreenScaleFactor()
+	return getDeviceInfo().dpi / getScreenScaleFactor()
 
 func getScreenScaleFactor as double:
-	return getDeviceInfo().getScale()
+	return getDeviceInfo().scale
 
 func getHeightValue(spec as string) override as int:
 	return jk.gfx.Length.asPixels(spec, getScreenDensity())
@@ -456,42 +373,39 @@ func getHeightValue(spec as string) override as int:
 func getWidthValue(spec as string) override as int:
 	return jk.gfx.Length.asPixels(spec, getScreenDensity())
 
+class MyTimerObject is GuiApplicationContext.TimerObject
+{
+	prop timer as [magical:@[Foundation.Timer]]
+
+	func cancel implement:
+		lang "swift" {{{
+			timer.invalidate()
+		}}}
+}
+
 func startTimer(timeout as long, callback as function<void>) override as GuiApplicationContext.TimerObject
 {
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			dispatch_time_t dtt = dispatch_time(DISPATCH_TIME_NOW, timeout * 1000000);
-			dispatch_after(dtt, dispatch_get_main_queue(), ^(void) {
-				callback();
-			});
-		}}}
+	var timer = lang "swift" (timeout, callback) as [magical:@[Foundation.Timer]] {{{
+		Timer.scheduledTimer(withTimeInterval: Swift.Double(timeout) / 1000.0, repeats: false) { _ in
+			callback()
+		}
+	}}}
+	return new MyTimerObject() {
+		timer timer
 	}
-	ELSE IFDEF "target_ios_swift" {
-		lang "swift" {{{
-			let dtt = DispatchTime.now() +  DispatchTimeInterval.milliseconds(Int(timeout * 1000))
-			DispatchQueue.main.asyncAfter(deadline: dtt) {
-				callback!()
-			}
-		}}}
-	}
-	// FIXME no actual implementation for the return value
-	return null
 }
+
+func executeAsyncDelay(timeout as long) async override throws Exception:
+	lang "swift" {{{
+		try await _Concurrency.Task.sleep(for: .milliseconds(timeout))
+	}}}
 
 func enableKeepAwakeMode override
 {
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			[UIApplication sharedApplication].idleTimerDisabled = YES;
-		}}}
-	}
+	// FIXME: [UIApplication sharedApplication].idleTimerDisabled = YES;
 }
 
 func disableKeepAwakeMode override
 {
-	IFDEF "target_ios_objc" {
-		lang "objc" {{{
-			[UIApplication sharedApplication].idleTimerDisabled = NO;
-		}}}
-	}
+	// FIXME: [UIApplication sharedApplication].idleTimerDisabled = NO;
 }

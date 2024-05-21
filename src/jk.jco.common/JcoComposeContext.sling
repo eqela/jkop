@@ -24,9 +24,146 @@
 
 class abstract:
 
-func startComponent(type as typeinfo) abstract throws Exception as JcoComponent
-func endComponent abstract throws Exception
-func startElement(name as string) abstract throws Exception as JcoElement
-func endElement abstract throws Exception
-func addContent(content as string) abstract throws Exception
-func addObject(object as dynamic) abstract throws Exception
+class JcoComponentChildIterator is JcoChildIterator
+{
+	func forComponent(component as JcoComponent) static as this:
+		return new this() {
+			component component
+			children component.children
+		}
+
+	prop component as JcoComponent
+	prop children as vector<object>
+
+	var position = 0
+
+	func peek implement as object?:
+		return Vector.getValue(children, position)
+
+	func step implement:
+		position++
+
+	func insert(child as object) implement throws Exception
+	{
+		Vector.insertValue(children, child, position)
+		position++
+		component.update()
+	}
+
+	func remove implement throws Exception
+	{
+		Vector.removeIndex(children, position)
+		component.update()
+	}
+}
+
+var stack = new Stack<JcoChildIterator>()
+
+func finalize virtual throws Exception:
+	endChild()
+
+func peekNextChild virtual as object?
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return null
+	return iterator.peek()
+}
+
+func stepChild virtual throws Exception
+{
+	var iterator = stack.peek()
+	if not iterator:
+		Error.throw("noIteratorInStack")
+	iterator.step()
+}
+
+func getChildIterator(container as object) virtual as JcoChildIterator?
+{
+	if container is JcoComponent:
+		return JcoComponentChildIterator.forComponent(container as! JcoComponent)
+	return null
+}
+
+func pushContainer(container as object) throws Exception
+{
+	var iterator = getChildIterator(container)
+	if not iterator:
+		Error.throw("noChildIteratorForContainer", container)
+	stack.push(iterator)
+}
+
+func popContainer:
+	stack.pop()
+
+func insertChild(child as object) throws Exception
+{
+	if child is vector<object> {
+		foreach realChild as object in child as! vector<object>:
+			insertChild(realChild)
+		return
+	}
+	var iterator = stack.peek()
+	if not iterator:
+		Error.throw("noParentElementToInsertChildTo")
+	iterator.insert(child)
+}
+
+func removeRemainingChildren throws Exception
+{
+	var iterator = stack.peek()
+	if not iterator:
+		return
+	loop {
+		var child = iterator.peek()
+		if not child:
+			break
+		iterator.remove()
+	}
+}
+
+func createCustomElement(type as typeinfo) virtual throws Exception as object:
+	return Reflection.createClassInstanceByTypeinfo(type)
+
+func startCustomElement(type as typeinfo) virtual throws Exception as object
+{
+	var next = peekNextChild()
+	if next && Reflection.isInstanceOf(next, type) {
+		stepChild()
+		pushContainer(next)
+		return next
+	}
+	var v = createCustomElement(type)
+	insertChild(v)
+	pushContainer(v)
+	return v
+}
+
+func endComponent virtual throws Exception:
+	endChild()
+
+func startHtmlElement(name as string) virtual throws Exception as JcoHtmlElement:
+	Error.throw("htmlElementsAreNotSupported", name)
+
+func endHtmlElement virtual throws Exception:
+	endChild()
+
+func endChild virtual throws Exception
+{
+	removeRemainingChildren()
+	popContainer()
+}
+
+func addContent(content as string) virtual throws Exception:
+	Error.throw("elementContentIsNotSupported", content)
+
+func addObject(object as object) virtual throws Exception
+{
+	var next = peekNextChild()
+	if next == object {
+		stepChild()
+	}
+	else {
+		insertChild(object)
+	}
+}

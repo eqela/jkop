@@ -25,29 +25,159 @@
 import jk.gfx
 import jk.jco.common
 
-class is ImageComponent #jco #component:
+class is JcoComponent #jco #component:
 
 prop source as string? #content
-prop url as string? #content
 prop image as Image? #content
-prop generator as function<() throws Exception as Image>? #content
+prop generator as function<(string?) throws Exception as Image>?
 
-func getWidth override as string?:
-	return width
+var cachedImage as Image?
+var cachedImageSource as string?
 
-func getHeight override as string?:
-	return height
-
-func getImage override throws Exception as Image?
+func loadImageFromSource(source as string) private throws Exception as Image
 {
-	var gg = generator
-	if gg:
-		return gg()
-	return image
+	IFDEF "target_ios_swift" {
+		return ImageForIosSwift.forResource(source)
+	}
+	ELSE {
+		nop source
+		ERROR NOT_IMPLEMENTED
+	}
 }
 
-func getUrl override as string?:
-	return url
+func getImage throws Exception as Image?
+{
+	if image:
+		return image
+	if cachedImage {
+		if cachedImageSource == source:
+			return cachedImage
+	}
+	if var gg = generator {
+		cachedImage = gg(source)
+		cachedImageSource = source
+	}
+	else if var source = source {
+		cachedImage = loadImageFromSource(JcoThemeProcessor.forComponent(this).getValue(source))
+		cachedImageSource = source
+	}
+	else {
+		cachedImage = null
+		cachedImageSource = null
+	}
+	return cachedImage
+}
 
-func getSource override as string?:
-	return source
+IFDEF "target_browser_js"
+{
+	func getAspectRatioValue virtual as string?:
+		return null
+
+	func addCssRules(sheet as CSSBuilder) override throws Exception
+	{
+		base.addCssRules(sheet)
+		var theme = getThemeProcessor()
+		var img = sheet.define("img", new map<string,string> {
+			margin "0"
+			display "block"
+			"object-fit" "contain"
+		})
+		if var asratio = getAspectRatioValue():
+			img.set("aspect-ratio", asratio)
+		if var ww = width:
+			img.set("width", lengthToHtml(theme.getValue(ww)))
+		if var hh = height:
+			img.set("height", lengthToHtml(theme.getValue(hh)))
+	}
+
+	compose
+	{
+		{
+			if generator {
+				if var jsimg = getImage() as ImageForBrowserJS {
+					compose {
+						<img src=@{jsimg.toPNGDataUrl()} />
+					}
+					return
+				}
+			}
+			if var source = this.source {
+				var theme = JcoThemeProcessor.forComponent(this)
+				var src = theme.getValue(source)
+				if String.isNotEmpty(src) {
+					compose {
+						<img src=@{src} />
+					}
+					return
+				}
+			}
+			if var jsimg = getImage() as ImageForBrowserJS {
+				compose {
+					<img src=@{jsimg.toPNGDataUrl()} />
+				}
+				return
+			}
+			compose {
+				<img src="#" />
+			}
+		}
+	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	func getUiImage throws Exception as [magical:UIImage]
+	{
+		var img = getImage()
+		if not img:
+			Error.throw("noImage")
+		var iosimg = img as ImageForIosSwift
+		if not iosimg:
+			Error.throw("unsupportedImage", img)
+		return iosimg.uiImage
+	}
+
+	func computeSizeThatFits(cw as double, ch as double) override as Size
+	{
+		var img = try? getImage()
+		if not img:
+			return new Size() {
+				width 0
+				height 0
+			}
+		var iw = img.getPixelWidth()
+		if iw < 1 || img.getPixelHeight() < 1:
+			return new Size() {
+				width 0
+				height 0
+			}
+		if iw > cw {
+			if cw == 0 {
+				iw = 0
+			}
+			else {
+				iw = cw
+			}
+		}
+		var ih = iw * img.getPixelHeight() / img.getPixelWidth()
+		if ih > ch {
+			if ch == 0 {
+				ih = 0
+			}
+			else {
+				ih = ch
+			}
+			iw = ih * img.getPixelWidth() / img.getPixelHeight()
+		}
+		return new Size() {
+			width iw
+			height ih
+		}
+	}
+
+	compose
+	{
+		<[magical:UIImageView] image=@{getUiImage()} />
+	}
+}

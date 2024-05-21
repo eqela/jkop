@@ -22,6 +22,8 @@
  * SOFTWARE.
  */
 
+import jk.gfx
+
 class is RenderingContext:
 
 import [magical:UIKit]
@@ -29,41 +31,26 @@ import [magical:CoreGraphics]
 
 class ColorStop
 {
-	ctor(stop as double, color as Color)
-	{
-		this.stop = stop as! float
-		this.color = color
-	}
-
-	var stop public as float
-	var color public as Color?
+	prop stop as float
+	prop color as Color
 }
 
 class GradientObject abstract
 {
-	var colorStops protected as vector<ColorStop>?
+	var colorStops = new vector<ColorStop>
 
-	func addColorStop(stop as double, color as Color?)
-	{
-		if not colorStops:
-			colorStops = new vector<ColorStop>
-		colorStops += new ColorStop(stop, color)
-	}
-
-	func getColors protected as array<Color>
-	{
-		var size = sizeof colorStops
-		var colors = new Color[size]
-		for(var i = 0 ; i < size ; i++) {
-			var colorStop = colorStops[i]
-			if not colorStop.color {
-				colors[i] = lang "swift" as [magical:CGColor] {{{ JkGfxColor.black().toUIColor()?.cgColor }}}
-			}
-			else {
-				colors[i] = lang "swift" as [magical:CGColor] {{{ colorStop.color.toUIColor()?.cgColor }}}
-			}
+	func addColorStop(stop as double, color as Color):
+		colorStops += new ColorStop() {
+			stop stop
+			color color
 		}
-		return colors
+
+	func getCgColors protected as vector<[magical:CGColor]>
+	{
+		var v = new vector<[magical:CGColor]>
+		foreach colorStop in colorStops:
+			v += lang "swift" (colorStop) as [magical:CGColor] {{{ colorStop.color.toUIColor().cgColor }}}
+		return v
 	}
 
 	func createGradient abstract
@@ -91,7 +78,7 @@ class LinearGradientObject is GradientObject
 		lang "swift" {{{
 			let start = CGPoint(x: x0, y: y0)
 			let end = CGPoint(x: x1, y: y1)
-			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getColors(), locations: nil)
+			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getCgColors().data, locations: nil)
 			cgContext.drawLinearGradient(gradient!, start: start, end: end, options: CGGradientDrawingOptions.drawsBeforeStartLocation)
 		}}}
 	}
@@ -123,7 +110,7 @@ class RadialGradientObject is GradientObject
 		lang "swift" {{{
 			let startCenter = CGPoint(x: x0, y: y0)
 			let endCenter = CGPoint(x: x1, y: y1)
-			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getColors(), locations: nil)
+			let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: getCgColors().data, locations: nil)
 			cgContext.drawRadialGradient(gradient!, startCenter: startCenter, startRadius: CGFloat(r0), endCenter: endCenter, endRadius: CGFloat(r1), options: CGGradientDrawingOptions.drawsBeforeStartLocation)
 		}}}
 	}
@@ -148,16 +135,12 @@ class PatternObject
 		}}}
 }
 
-func forContext(context as GuiApplicationContext?, cgContext as [magical:CGContext]) static as this
-{
-	var v = new this()
-	v.setCgContext(cgContext)
-	v.setContext(context)
-	return v
-}
+func forContext(cgContext as [magical:CGContext]) static as this:
+	return new this() {
+		cgContext cgContext
+	}
 
-pvar context as GuiApplicationContext?
-pvar cgContext as [magical:CGContext]?
+prop cgContext as [magical:CGContext]
 
 var rectObject as [magical:CGRect]?
 var pathObject as [magical:UIBezierPath]?
@@ -205,15 +188,10 @@ func setStrokeStyle(style as dynamic?) override
 	}
 }
 
-func setShadowColor(color as Color?) override
-{
-	assert offsetX
-	assert offsetY
-	assert shadowBlur
+func setShadowColor(color as Color?) override:
 	lang "swift" {{{
 		cgContext.setShadow(offset: CGSize(width: offsetX, height: offsetY), blur: CGFloat(shadowBlur), color: color.toUIColor().cgColor) 
 	}}}
-}
 
 func setShadowBlur(blur as double) override:
 	shadowBlur = blur
@@ -224,36 +202,37 @@ func setShadowOffsetX(offset as double) override:
 func setShadowOffsetY(offset as double) override:
 	offsetY = offset
 
-func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object
-{
-	assert cgContext
+func createLinearGradient(x0 as double, y0 as double, x1 as double, y1 as double) override as object:
 	return new LinearGradientObject(cgContext, x0, y0, x1, y1)
+
+func asIosImage(img as Image) private throws Exception as ImageForIosSwift
+{
+	var image = img as ImageForIosSwift
+	if not image:
+		Error.throw("unsupportedImageObject", img)
+	return image
 }
 
-func createPattern(img as Image, repeat as int) override as object
+func createPattern(img as Image, repeat as int) override throws Exception as object
 {
-	assert rectObject
-	var image = assert img as ImageForIOS
-	var simg = assert image.getBitmap()
-	return new PatternObject(simg, repeat, rectObject)
+	if not rectObject:
+		Error.throw("noRectangleObject")
+	var image = asIosImage(img)
+	return new PatternObject(image.getBitmap(), repeat, rectObject)
 }
 
-func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object
-{
-	assert cgContext
+func createRadialGradient(x0 as double, y0 as double, r0 as double, x1 as double, y1 as double, r1 as double) override as object:
 	return new RadialGradientObject(cgContext, x0, y0, r0, x1, y1, r1)
-}
 
-func addColorStop(gradient as object, index as double, color as Color?) override
+func addColorStop(gradient as object, index as double, color as Color) override
 {
-	var gradientObject = assert gradient as GradientObject
-	assert color
-	gradientObject.addColorStop(index, color)
+	var gradientObject = gradient as GradientObject
+	if gradientObject:
+		gradientObject.addColorStop(index, color)
 }
 
 func setLineCap(cap as int) override
 {
-	assert cgContext
 	lang "swift" {{{
 		var lineCap: CGLineCap! = nil
 		if cap == JkRenderRenderingContext.LINE_CAP_BUTT {
@@ -271,7 +250,6 @@ func setLineCap(cap as int) override
 
 func setLineJoin(join as int) override
 {
-	assert cgContext
 	lang "swift" {{{
 		var lineJoin: CGLineJoin! = nil
 		if join == JkRenderRenderingContext.LINE_JOIN_MITER {
@@ -289,29 +267,24 @@ func setLineJoin(join as int) override
 
 func setLineWidth(width as double) override
 {
-	assert cgContext
 	lineWidth = width as! float
 	lang "swift" {{{
 		cgContext.setLineWidth(CGFloat(width)) 
 	}}}
 }
 
-func setMiterLimit(limit as double) override
-{
-	assert cgContext
+func setMiterLimit(limit as double) override:
 	lang "swift" {{{
 		cgContext.setMiterLimit(CGFloat(limit)) 
 	}}}
-}
 
 func rect(x as double, y as double, width as double, height as double) override
 {
-	assert cgContext
 	var xx = x as! int
 	var yy = y as! int
 	var ww = xx + width as! int
 	var hh = yy + height as! int
-	lang "swift" {{{
+	lang "swift" (ww, hh) {{{
 		rectObject = CGRect(x: xx, y: yy, width: ww, height: hh)
 		cgContext.addRect(rectObject)
 	}}}
@@ -319,7 +292,6 @@ func rect(x as double, y as double, width as double, height as double) override
 
 func fillRect(x as double, y as double, width as double, height as double) override
 {
-	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.addRect(rect)
@@ -329,7 +301,6 @@ func fillRect(x as double, y as double, width as double, height as double) overr
 
 func strokeRect(x as double, y as double, width as double, height as double) override
 {
-	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.addRect(rect)
@@ -339,141 +310,96 @@ func strokeRect(x as double, y as double, width as double, height as double) ove
 
 func clearRect(x as double, y as double, width as double, height as double) override
 {
-	assert cgContext
 	lang "swift" {{{
 		let rect = CGRect(x: x, y: y, width: width, height: height)
 		cgContext.clear(rect)
 	}}}
 }
 
-func fill override
-{
-	assert cgContext
+func fill override:
 	lang "swift" {{{
 		cgContext.fillPath() 
 	}}}
-}
 
-func stroke override
-{
-	assert cgContext
+func stroke override:
 	lang "swift" {{{
 		cgContext.strokePath() 
 	}}}
-}
 
 func beginPath override
 {
-	assert cgContext
 	lang "swift" {{{
 		pathObject = UIBezierPath()
 		cgContext.addPath(pathObject.cgPath)
 	}}}
 }
 
-func moveTo(x as double, y as double) override
-{
-	assert cgContext
+func moveTo(x as double, y as double) override:
 	lang "swift" {{{
 		cgContext.move(to: CGPoint(x: x, y: y)) 
 	}}}
-}
 
-func closePath override
-{
-	assert cgContext
+func closePath override:
 	lang "swift" {{{
 		cgContext.closePath() 
 	}}}
-}
 
-func lineTo(x as double, y as double) override
-{
-	assert cgContext
+func lineTo(x as double, y as double) override:
 	lang "swift" {{{
 		cgContext.addLine(to: CGPoint(x: x, y: y)) 
 	}}}
-}
 
-func clip override
-{
-	assert cgContext
+func clip override:
 	lang "swift" {{{
 		cgContext.clip() 
 	}}}
-}
 
-func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override
-{
-	assert cgContext
+func quadraticCurveTo(cpx as double, cpy as double, x as double, y as double) override:
 	lang "swift" {{{
 		cgContext.addQuadCurve(to: CGPoint(x: cpx, y: cpy), control: CGPoint(x: x, y: y)) 
 	}}}
-}
 
-func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override
-{
-	assert cgContext
+func bezierCurveTo(cp1x as double, cp1y as double, cp2x as double, cp2y as double, x as double, y as double) override:
 	lang "swift" {{{
 		cgContext.addCurve(to: CGPoint(x: x, y: y), control1: CGPoint(x: cp1x, y: cp1y), control2: CGPoint(x: cp2x, y: cp2y)) 
 	}}}
-}
 
-func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override
-{
-	assert cgContext
+func arc(x as double, y as double, r as double, sAngle as double, eAngle as double, counterclockwise as bool) override:
 	lang "swift" {{{
 		cgContext.addArc(center: CGPoint(x: x, y: y), radius: CGFloat(r), startAngle: CGFloat(sAngle), endAngle: CGFloat(eAngle), clockwise: counterclockwise) 
 	}}}
-}
 
-func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) override
-{
-	assert cgContext
+func arcTo(x1 as double, y1 as double, x2 as double, y2 as double, r as double) override:
 	lang "swift" {{{
 		cgContext.addArc(tangent1End: CGPoint(x: x1, y: y1), tangent2End: CGPoint(x: x2, y: y2), radius: CGFloat(r)) 
 	}}}
-}
 
 func isPointInPath(x as double, y as double) override as bool
 {
-	assert pathObject
-	lang "swift" {{{
-		return pathObject.contains(CGPoint(x: x, y: y)) 
-	}}}
+	if not pathObject:
+		return false
+	return lang "swift" (pathObject) as bool {{{ pathObject!.contains(CGPoint(x: x, y: y)) }}}
 }
 
-func scale(scalewidth as double, scaleheight as double) override
-{
-	assert cgContext
+func scale(scalewidth as double, scaleheight as double) override:
 	lang "swift" {{{
 		cgContext.scaleBy(x: CGFloat(scalewidth), y: CGFloat(scaleheight)) 
 	}}}
-}
 
-func rotate(angle as double) override
-{
-	assert cgContext
+func rotate(angle as double) override:
 	lang "swift" {{{
 		cgContext.rotate(by: CGFloat(angle)) 
 	}}}
-}
 
-func translate(x as double, y as double) override
-{
-	assert cgContext
+func translate(x as double, y as double) override:
 	lang "swift" {{{
 		cgContext.translateBy(x: CGFloat(x), y: CGFloat(y)) 
 	}}}
-}
 
-func transform(a as double, b as double, c as double, d as double, e as double, f as double) override
-{
-	assert cgContext
+func transform(a as double, b as double, c as double, d as double, e as double, f as double) override:
 	lang "swift" {{{
 		cgContext.concatenate(_: CGAffineTransform(a: CGFloat(a), b: CGFloat(b), c: CGFloat(c), d: CGFloat(d), tx: CGFloat(e), ty: CGFloat(f))) 
 	}}}
-}
 
 func setTransform(a as double, b as double, c as double, d as double, e as double, f as double) stub override
 
@@ -511,119 +437,111 @@ func strokeText(text as string, x as double, y as double, maxWidth as double) ov
 	}}}
 }
 
-func measureTextHeight(text as string) override as double
+func measureText(text as string) override as Size
 {
+	var w #mutated = 0.0
+	var h #mutated = 0.0
 	lang "swift" {{{
 		let font = UIFont.systemFont(ofSize: UIFont.systemFontSize)
 		let attributes = NSDictionary(object: font, forKey:NSAttributedString.Key.font as NSCopying)
 		let size = text.size(withAttributes: attributes as! [NSAttributedString.Key : Any] as! [NSAttributedString.Key : Any])
-		return Swift.Double(size.height)
+		w = size.width
+		h = size.height
 	}}}
+	return new Size() {
+		width w
+		height h
+	}
 }
 
-func measureTextWidth(text as string) override as double
-{
-	lang "swift" {{{
-		let font = UIFont.systemFont(ofSize: UIFont.systemFontSize)
-		let attributes = NSDictionary(object: font, forKey:NSAttributedString.Key.font as NSCopying)
-		let size = text.size(withAttributes: attributes as! [NSAttributedString.Key : Any] as! [NSAttributedString.Key : Any])
-		return Swift.Double(size.width)
-	}}}
-}
+func measureTextHeight(text as string) override as double:
+	return measureText(text).height
 
-func drawImage(img as Image, x as double, y as double) override
+func measureTextWidth(text as string) override as double:
+	return measureText(text).width
+
+func drawImage(img as Image, x as double, y as double) override throws Exception
 {
-	var image = assert img as ImageForIOS
-	var simg = assert image.getBitmap()
-	lang "swift" {{{
+	var image = asIosImage(img)
+	var simg = image.getBitmap()
+	lang "swift" (simg) {{{
 		simg.draw(at: CGPoint(x: x, y: y)) 
 	}}}
 }
 
-func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override
+func drawAndScaleImage(img as Image, x as double, y as double, width as double, height as double) override throws Exception
 {
-	var image = assert img as ImageForIOS
-	var simg = assert image.getBitmap()
-	lang "swift" {{{
+	var image = asIosImage(img)
+	var simg = image.getBitmap()
+	lang "swift" (simg) {{{
 		simg.draw(in: CGRect(x: x, y: y, width: width, height: height)) 
 	}}}
 }
 
-func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) override
+func drawAndProcessImage(img as Image, sx as double, sy as double, swidth as double, sheight as double, x as double, y as double, width as double, height as double) override throws Exception
 {
-	assert img
-	var croped = assert img.crop(sx as! int, sy as! int, swidth as! int, sheight as! int)
-	var scaled = assert croped.scaleToSize(width as! int, height as! int)
-	var aimage = assert scaled as ImageForIOS
-	var image = assert aimage.getBitmap()
-	lang "swift" {{{
+	var croped = img.crop(sx as! int, sy as! int, swidth as! int, sheight as! int)
+	var scaled = croped.scaleToSize(width as! int, height as! int)
+	var aimage = asIosImage(scaled)
+	var image = aimage.getBitmap()
+	lang "swift" (image) {{{
 		image.draw(at: CGPoint(x: x, y: y)) 
 	}}}
 }
 
-func setGlobalAlpha(alpha as double) override
-{
-	assert cgContext
+func setGlobalAlpha(alpha as double) override:
 	lang "swift" {{{
 		cgContext.setAlpha(CGFloat(alpha)) 
 	}}}
-}
 
-func save override
-{
-	assert cgContext
+func save override:
 	lang "swift" {{{
 		cgContext.saveGState() 
 	}}}
-}
 
-func restore override
-{
-	assert cgContext
+func restore override:
 	lang "swift" {{{
 		cgContext.restoreGState() 
 	}}}
-}
 
-func getFontDescription(size as [magical:CGFloat]) private as [magical:UIFont]
+func getFontDescription(size as [magical:CGFloat]) private as [magical:UIFont] #used
 {
-	var font as [magical:UIFont]?
+	var font as [magical:UIFont]? #mutated
 	if fontDescription {
 		var bold = fontDescription.bold
 		var italic = fontDescription.italic
+		if bold:
+			font = lang "swift" (size) as [magical:UIFont] {{{ UIFont.boldSystemFont(ofSize: size) }}}
+		if italic:
+			font = lang "swift" (size) as [magical:UIFont] {{{ UIFont.italicSystemFont(ofSize: size) }}}
+	}
+	if not font:
+		font = lang "swift" (size) as [magical:UIFont] {{{ UIFont.systemFont(ofSize: size) }}}
+	return font
+}
+
+func getTextAlignment private as [magical:NSMutableParagraphStyle] #used
+{
+	var v = lang "swift" as [magical:NSMutableParagraphStyle] {{{ NSMutableParagraphStyle() }}}
+	if textAlign == RenderingContext.ALIGN_START || textAlign == RenderingContext.ALIGN_LEFT {
 		lang "swift" {{{
-			if(bold) {
-				font = UIFont.boldSystemFont(ofSize: size)
-			}
-			if(italic) {
-				font = UIFont.italicSystemFont(ofSize: size)
-			}
+			v.alignment = .left
+		}}}
+	}
+	else if textAlign == RenderingContext.ALIGN_END || textAlign == RenderingContext.ALIGN_RIGHT {
+		lang "swift" {{{
+			v.alignment = .right
+		}}}
+	}
+	else if textAlign == RenderingContext.ALIGN_CENTER {
+		lang "swift" {{{
+			v.alignment = .center
 		}}}
 	}
 	else {
 		lang "swift" {{{
-			font = UIFont.systemFont(ofSize: size) 
+			v.alignment = .left
 		}}}
 	}
-	return font
-}
-
-func getTextAlignment private as [magical:NSMutableParagraphStyle]
-{
-	lang "swift" {{{
-		let paragraphStyle = NSMutableParagraphStyle()
-		if textAlign == JkRenderRenderingContext.ALIGN_START || textAlign == JkRenderRenderingContext.ALIGN_LEFT {
-			paragraphStyle.alignment = .left
-		}
-		else if textAlign == JkRenderRenderingContext.ALIGN_END || textAlign == JkRenderRenderingContext.ALIGN_RIGHT {
-			paragraphStyle.alignment = .right
-		}
-		else if textAlign == JkRenderRenderingContext.ALIGN_CENTER {
-			paragraphStyle.alignment = .center
-		}
-		else {
-			paragraphStyle.alignment = .left
-		}
-		return paragraphStyle
-	}}}
+	return v
 }

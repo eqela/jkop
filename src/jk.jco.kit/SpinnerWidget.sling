@@ -22,6 +22,7 @@
  * SOFTWARE.
  */
 
+import jk.gfx
 import jk.jco.common
 
 class is JcoComponent #jco #component:
@@ -91,6 +92,107 @@ IFDEF "target_browser_js"
 			else {
 				compose {
 					<div class="circle" />
+				}
+			}
+		}
+	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	class CircleView is JcoComponent #jco #component
+	{
+		prop color as [magical:UIColor]?
+		prop size as string = ""
+
+		init:
+			#post {
+				lang "swift" {{{
+					self.backgroundColor = UIColor(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0)
+				}}}
+			}
+
+		func computeSizeThatFits(cw as double, ch as double) override as Size
+		{
+			var sz = asPoints(JcoThemeProcessor.forComponent(this).getValue(size))
+			var max = cw
+			if ch < max:
+				max = ch
+			if sz > max:
+				sz = max
+			return new Size() {
+				width sz
+				height sz
+			}
+		}
+
+		func draw(rect as [magical:CGRect]) override #magical
+		{
+			lang "swift" {{{
+				let ctx = UIGraphicsGetCurrentContext()
+				if ctx != nil && color != nil {
+					ctx!.addEllipse(in: rect)
+					ctx!.setFillColor(color!.cgColor)
+					ctx!.fillPath()
+				}
+			}}}
+		}
+	}
+
+	var animationKey = "spinner-animation"
+
+	func startAnimating(view as [magical:UIView]) private
+	{
+		lang "swift" {{{
+			let layer = view.layer
+			if layer.animation(forKey: animationKey) == nil {
+				let rotationAnimation = CABasicAnimation(keyPath: "transform.rotation.y")
+				rotationAnimation.fromValue = 0.0
+				rotationAnimation.toValue = 2 * Swift.Double.pi
+				rotationAnimation.duration = 1.0
+				rotationAnimation.repeatCount = Float.infinity
+				layer.add(rotationAnimation, forKey: animationKey)
+			}
+		}}}
+	}
+
+	func stopAnimating(view as [magical:UIView]) private
+	{
+		lang "swift" {{{
+			let layer = view.layer
+			if layer.animation(forKey: animationKey) != nil {
+				layer.removeAnimation(forKey: animationKey)
+			}
+		}}}
+	}
+
+	func onComposed override throws Exception
+	{
+		base.onComposed()
+		startAnimating(this)
+	}
+
+	func onUnmounted override throws Exception
+	{
+		base.onUnmounted()
+		stopAnimating(this)
+	}
+
+	compose
+	{
+		{
+			var theme = JcoThemeProcessor.forComponent(this)
+			var img = theme.getValue(image)
+			if String.isNotEmpty(img) {
+				compose {
+					<ImageWidget source=@{img} height=@{size} />
+				}
+			}
+			else {
+				var color = colorToUiColor(theme.getValue(color))
+				compose {
+					<CircleView size=@{size} color=@{color} />
 				}
 			}
 		}

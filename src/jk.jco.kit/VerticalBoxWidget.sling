@@ -35,6 +35,13 @@ prop spacing as string #content = "0"
 prop padding as string #content = "0"
 prop alignment as string #content = ALIGN_STRETCH
 
+compose
+{
+	{
+		composeChildren(context)
+	}
+}
+
 IFDEF "target_browser_js"
 {
 	func getAlignItemsValue as string
@@ -53,9 +60,7 @@ IFDEF "target_browser_js"
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
 		base.addCssRules(sheet)
-		var theme = new JcoThemeProcessor() {
-			component this
-		}
+		var theme = getThemeProcessor()
 		sheet.define(":host", new map<string,string> {
 			display "flex"
 			padding lengthToHtml(theme.getValue(padding))
@@ -67,11 +72,146 @@ IFDEF "target_browser_js"
 			"margin-top" lengthToHtml(theme.getValue(spacing))
 		})
 	}
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import jk.gfx
+	import [magical:UIKit]
 
-	compose
+	func getWeight(view as [magical:UIView]) as int
 	{
-		{
-			composeChildren(context)
+		var ww = view as WeightWidget
+		if not ww:
+			return -1
+		return Integer.forStringOrDefaultValue(ww.weight, 0)
+	}
+
+	func computeSizeThatFits(cw as double, ch as double) override as Size
+	{
+		var theme = getThemeProcessor()
+		var spacing = asPoints(theme.getValue(spacing))
+		var padding = asPoints(theme.getValue(padding))
+		var w #mutated = 0.0
+		var h #mutated = padding + padding
+		lang "swift" (spacing, padding, w, h) {{{
+			var spaces = subviews.count - 1
+			if spaces < 0 {
+				spaces = 0
+			}
+			h += Swift.Double(spaces) * spacing
+			var hh = ch - padding - padding - Swift.Double(spaces) * spacing
+			let rw = cw - padding - padding
+			var totalWeight = 0
+			for subview in subviews {
+				let weight = getWeight(subview)
+				if weight >= 0 {
+					totalWeight += weight
+					continue
+				}
+				let cgsz = subview.sizeThatFits(CGSizeMake(rw, hh))
+				var nh = cgsz.height
+				if nh > hh {
+					nh = hh
+				}
+				if nh > 0 {
+					let nw = cgsz.width + padding + padding
+					if nw > w {
+						w = nw
+					}
+					h += nh
+					hh -= nh
+				}
+			}
+			for subview in subviews {
+				let weight = getWeight(subview)
+				if weight >= 0 {
+					var nh = hh * Swift.Double(weight) / Swift.Double(totalWeight)
+					if nh > 0 {
+						let cgsz = subview.sizeThatFits(CGSizeMake(rw, nh))
+						let nw = cgsz.width + padding + padding
+						if nw > w {
+							w = nw
+						}
+					}
+				}
+			}
+		}}}
+		return new Size() {
+			width w
+			height h
 		}
+	}
+
+	func layoutSubviews override #magical
+	{
+		var theme = getThemeProcessor()
+		var spacing = asPoints(theme.getValue(spacing))
+		var padding = asPoints(theme.getValue(padding))
+		var mw = lang "swift" as double {{{ self.bounds.size.width }}} - padding - padding
+		var mh #mutated = lang "swift" as double {{{ self.bounds.size.height }}} - padding - padding
+		lang "swift" (spacing, padding, mw, mh) {{{
+			var spaces = subviews.count - 1
+			if spaces < 0 {
+				spaces = 0
+			}
+			mh -= Swift.Double(spaces) * spacing
+			var totalWeight = 0
+			var totalHeight = 0.0
+			var sizes: Swift.Array<CGSize> = []
+			for subview in subviews {
+				let cgsz = subview.sizeThatFits(CGSizeMake(mw, mh - totalHeight))
+				let h = cgsz.height
+				var w = cgsz.width
+				if w > mw {
+					w = mw
+				}
+				else if alignment == VerticalBoxWidget.ALIGN_STRETCH {
+					w = mw
+				}
+				sizes.append(CGSizeMake(w,h))
+				let weight = getWeight(subview)
+				if weight >= 0 {
+					totalWeight += weight
+				}
+				else {
+					totalHeight += h
+				}
+			}
+			let remainingHeight = mh - totalHeight
+			var y = padding
+			var n = 0
+			for subview in subviews {
+				var size = sizes[n]
+				n += 1
+				let weight = getWeight(subview)
+				if weight >= 0 {
+					var nh = remainingHeight * Swift.Double(weight) / Swift.Double(totalWeight)
+					if nh < 0 {
+						nh = 0
+					}
+					size = CGSizeMake(size.width, nh)
+				}
+				let w = size.width
+				let h = size.height
+				if h > 0 && y > padding {
+					y += spacing
+				}
+				var x = padding
+				if alignment == VerticalBoxWidget.ALIGN_LEFT {
+					x = padding
+				}
+				else if alignment == VerticalBoxWidget.ALIGN_CENTER {
+					x = padding + mw / 2 - w / 2
+				}
+				else if alignment == VerticalBoxWidget.ALIGN_RIGHT {
+					x = mw + padding - w
+				}
+				else if alignment == VerticalBoxWidget.ALIGN_STRETCH {
+					x = padding
+				}
+				subview.frame = CGRectMake(x, y, w, h)
+				y += h
+			}
+		}}}
 	}
 }

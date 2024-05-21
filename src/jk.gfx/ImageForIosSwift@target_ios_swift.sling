@@ -1,0 +1,152 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+
+class is Image:
+
+import [magical:UIKit]
+import [magical:CoreGraphics]
+import [magical:ImageIO]
+
+func forUIImage(uiImage as [magical:UIImage]) static as this:
+	return new this() {
+		uiImage uiImage
+	}
+
+func forFile(file as File) static throws Exception as this
+{
+	var pp = file.getPath()
+	var img = lang "swift" (pp) as [magical:UIImage]? {{{ UIImage(contentsOfFile: pp) }}}
+	if not img:
+		Error.throw("failedToReadImageFromFile", file)
+	return new this() {
+		uiImage img
+	}
+}
+
+func forResource(name as string) static throws Exception as this
+{
+	var v = lang "swift" (name) as [magical:UIImage]? {{{ UIImage(named: name) }}}
+	if not v:
+		Error.throw("failedToReadImageResource", name)
+	return new this() {
+		uiImage v
+	}
+}
+
+func forBuffer(data as buffer) static throws Exception as this
+{
+	var img = lang "swift" (data) as [magical:UIImage]? {{{ UIImage(data: data.data) }}}
+	if not img:
+		Error.throw("failedToInitializeImageForBuffer")
+	return new this() {
+		uiImage img
+	}
+}
+
+prop uiImage as [magical:UIImage]
+
+func getPixelWidth override as int:
+	return lang "swift" (uiImage) as int {{{ Int(uiImage.size.width) }}}
+
+func getPixelHeight override as int:
+	return lang "swift" (uiImage) as int {{{ Int(uiImage.size.height) }}}
+
+func scaleToSize(w as int, h as int) override throws Exception as Image
+{
+	if w < 0 || h < 0:
+		Error.throw("invalidDimensionsForScaleToSize", String.forInteger(w) .. "x" .. String.forInteger(h))
+	var imageData = toPNGData()
+	var img as [magical:UIImage]? #mutated
+	var maxSize = w
+	if maxSize < h:
+		maxSize = h
+	lang "swift" (imageData, img) {{{
+		let cgImageSrcRef = CGImageSourceCreateWithData(imageData.data as CFData, nil)
+		let options = [
+			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceThumbnailMaxPixelSize: maxSize] as? CFDictionary?
+		let cgImageRefInput = CGImageSourceCreateThumbnailAtIndex(cgImageSrcRef!, 0, options!)!
+		let cgSize = CGSize(width: w, height: h)
+		let cgContextRef = CGContext(data: nil, width: Int(cgSize.width), height: Int(cgSize.height), bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+		let cgRect = CGRect(x: 0, y: 0, width: w, height: h)
+		cgContextRef?.draw(cgImageRefInput, in: cgRect)
+		let cgImageRefOutput = cgContextRef!.makeImage()
+		img = UIImage(cgImage: cgImageRefOutput!)
+	}}}
+	if not img:
+		Error.throw("failedToScaleToSize", String.forInteger(w) .. "x" .. String.forInteger(h))
+	return forUIImage(img)
+}
+
+func crop(x as int, y as int, w as int, h as int) override throws Exception as Image
+{
+	var img as [magical:UIImage]? #mutated
+	lang "swift" (img) {{{
+		var rect = CGRect(x: x, y: y, width: w, height: h)
+		var imageRef = uiImage.cgImage?.cropping(to: rect)
+		img = UIImage(cgImage: imageRef!)
+	}}}
+	if not img:
+		Error.throw("failedToCropImage")
+	return forUIImage(img)
+}
+
+func toRGBAData override stub throws Exception as buffer
+
+func toJPGData override throws Exception as buffer
+{
+	var data = lang "swift" (uiImage) as [magical:Foundation.Data]? {{{ uiImage.jpegData(compressionQuality: 1.0) }}}
+	if not data:
+		Error.throw("failedToCreateJpegData")
+	return lang "swift" (data) as buffer {{{ BufferValue.forData(data!) }}}
+}
+
+func toPNGData override throws Exception as buffer
+{
+	var data as [magical:Foundation.Data]? #mutated
+	lang "swift" (data) {{{
+		var img: UIImage? = uiImage
+		if(!(img!.imageOrientation == UIImage.Orientation.up || img!.imageOrientation == UIImage.Orientation.upMirrored))
+		{
+			let imgsize = img!.size
+			UIGraphicsBeginImageContext(imgsize)
+			img!.draw(in: CGRect(x: 0.0, y: 0.0, width: imgsize.width, height: imgsize.height))
+			img = UIGraphicsGetImageFromCurrentImageContext()
+			UIGraphicsEndImageContext()
+		}
+		data = img?.pngData()
+	}}}
+	if not data:
+		Error.throw("failedToCreatePngData")
+	return lang "swift" (data) as buffer {{{ BufferValue.forData(data!) }}}
+}
+
+func releaseImage override:
+	nop
+
+func getBitmap as [magical:UIImage]:
+	return uiImage

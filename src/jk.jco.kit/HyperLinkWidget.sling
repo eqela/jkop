@@ -27,10 +27,11 @@ import jk.jco.common
 class is JcoComponent #jco #component:
 
 prop text as string #content = ""
+prop font as string #content = "{hyperlinkFont|Arial 16px}"
 prop textColor as string #content = "{hyperlinkColor|blue}"
 prop textHoverColor as string #content = "{hyperlinkHoverColor|#CCCCFF}"
 prop textUnderline as string #content = "{hyperlinkUnderline|true}"
-prop handler as function<void>?
+prop handler as function<() throws Exception>?
 
 func onClicked virtual throws Exception
 {
@@ -50,9 +51,7 @@ IFDEF "target_browser_js"
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
 		base.addCssRules(sheet)
-		var theme = new JcoThemeProcessor() {
-			component this
-		}
+		var theme = getThemeProcessor()
 		var a = sheet.define("a", new map<string,string> {
 			color colorToHtml(theme.getValue(textColor))
 		})
@@ -81,5 +80,59 @@ IFDEF "target_browser_js"
 		var link = this.link
 		if link:
 			link.setEventCapturer("click", func(event as dynamic) => handleOnClicked())
+	}
+}
+ELSE {
+	class LinkDisplayWidget is PointerCaptureLayerWidget #jco #component
+	{
+		prop text as string #content = ""
+		prop font as string #content = ""
+		prop textColor as string #content = ""
+		prop textHoverColor as string #content = ""
+		prop textUnderline as string #content = ""
+
+		var hovered = false
+
+		func onPointerEnter override throws Exception
+		{
+			base.onPointerEnter()
+			hovered = true
+			update()
+		}
+
+		func onPointerLeave override throws Exception
+		{
+			base.onPointerLeave()
+			hovered = false
+			update()
+		}
+
+		compose
+		{
+			<VerticalBoxWidget spacing="2px">
+				<LabelWidget
+					text=@{text}
+					font=@{font}
+					color=@{hovered ? textHoverColor : textColor}
+					wrapping="false" />
+				{
+					if textUnderline == "true":
+						compose {
+							<CanvasWidget backgroundColor=@{hovered ? textHoverColor : textColor} height="1px" />
+						}
+				}
+			</VerticalBoxWidget>
+		}
+	}
+
+	compose
+	{
+		<LinkDisplayWidget
+			text=@{text}
+			font=@{font}
+			textColor=@{textColor}
+			textHoverColor=@{textHoverColor}
+			textUnderline=@{textUnderline}
+			clickHandler=@{func throws Exception => handleOnClicked()} />
 	}
 }

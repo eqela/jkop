@@ -22,32 +22,50 @@
  * SOFTWARE.
  */
 
-class implements [magical:NSApplicationDelegate]:
+class <T>:
 
-depend "objc-header-h:<AppKit/AppKit.h>"
-
-var ctx protected as GuiApplicationContextForMacOS?
-var window as [magical:@[NSWindow*]]?
-
-ctor:
-	ctx = createContext()
-
-func createContext virtual as GuiApplicationContextForMacOS:
-	return new GuiApplicationContextForMacOS()
-
-func createMainWindow(ctx as GuiApplicationContextForMacOS) virtual as [magical:@[NSWindow*]]:
-	return null
-
-func applicationDidFinishLaunching(aNotification as [magical:NSNotification])
+class Listener
 {
-	window = createMainWindow(ctx)
-	if window {
-		lang "objc" {{{
-			[window makeKeyAndOrderFront:nil];
-			[window setAcceptsMouseMovedEvents:YES];
-		}}}
+	prop target as object
+	prop handler as function<void>
+}
+
+prop value:valueData as T?
+{
+	get:
+		return valueData
+	set(newValue) {
+		valueData = newValue
+		onValueChanged()
 	}
 }
 
-func applicationShouldTerminateAfterLastWindowClosed(theApplication as [magical:NSApplication]) as bool:
-	return true
+var listeners = new vector<Listener>
+
+func onValueChanged
+{
+	foreach listener in listeners {
+		var hh = listener.handler
+		hh()
+	}
+}
+
+func addListener(target as object, handler as function<void>):
+	listeners += new Listener() {
+		target target
+		handler handler
+	}
+
+func removeListener(target as object)
+{
+	var n = 0
+	while n < Vector.getSize(listeners) {
+		var c = listeners[n]
+		if c.target == target {
+			Vector.removeIndex(listeners, n)
+		}
+		else {
+			n++
+		}
+	}
+}

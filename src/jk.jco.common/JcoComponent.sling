@@ -22,16 +22,17 @@
  * SOFTWARE.
  */
 
-import jk.gfx
 import jk.log
+import jk.gui
+import jk.gfx
 
 class #jco:
 
-prop children:childrenValue as vector<dynamic>
+prop children:childrenValue as vector<object>
 {
 	get {
 		if not childrenValue:
-			childrenValue = new vector<dynamic>
+			childrenValue = new vector<object>
 		return childrenValue
 	}
 }
@@ -45,12 +46,20 @@ prop minHeight as string? #content
 prop maxHeight as string? #content
 prop heightRequest as string? #content
 prop customData as DynamicMap?
+prop context as GuiApplicationContext?
+
+prop ctx as LoggingContext
+{
+	get {
+		var gax = try? getGuiApplicationContext()
+		if gax:
+			return gax
+		return new SimpleLoggingContext()
+	}
+}
 
 var application as JcoApplication?
-
-ctor
-{
-}
+var isMounted = false
 
 func getApplicationOrNull as JcoApplication?:
 	return application
@@ -63,12 +72,16 @@ func getApplication throws Exception as JcoApplication
 	return v
 }
 
-func getLoggingContext as LoggingContext
+func getGuiApplicationContext throws Exception as GuiApplicationContext
 {
-	var ctx = findAncestorOfType(typeinfo LoggingContext) as LoggingContext
-	if not ctx:
-		ctx = new SimpleLoggingContext()
-	return ctx
+	if context:
+		return context
+	foreach ppc in iterateParentComponents() {
+		var v = ppc.context
+		if v:
+			return v
+	}
+	Error.throw("noGuiApplicationContext", this)
 }
 
 func executeAndHandleExceptions(operation as function<() throws Exception>)
@@ -77,30 +90,14 @@ func executeAndHandleExceptions(operation as function<() throws Exception>)
 		operation()
 	}
 	catch e as Exception {
-		Log.error(getLoggingContext(), e.toString())
+		Log.error(ctx, e.toString())
 	}
 }
 
 func update
 {
-	IFDEF "target_browser_js" {
-		if not isMounted:
-			return
-		if not updateScheduled {
-			updateScheduled = true
-			var handler #used = func {
-				try {
-					executeUpdate()
-				}
-				catch e as Exception {
-					Log.error(getLoggingContext(), e.toString())
-				}
-			}
-			lang "js" {{{
-				setTimeout(handler, 0);
-			}}}
-		}
-	}
+	if isMounted:
+		JcoComponentUpdateManager.setNeedsUpdate(this)
 }
 
 func composeComponent(context as JcoComposeContext) virtual throws Exception:
@@ -110,7 +107,7 @@ func onCreated
 {
 	try {
 		IFDEF "target_browser_js" {
-			shadow = lang "js" as dynamic {{{ this.attachShadow({ mode: 'open' }) }}}
+			shadow = lang "js" as object {{{ this.attachShadow({ mode: 'open' }) }}}
 		}
 	}
 	catch e {
@@ -143,9 +140,6 @@ func onUnmounted virtual throws Exception
 	}
 }
 
-func getPpi as double:
-	return 96.0
-
 func composeChildren(context as JcoComposeContext) throws Exception
 {
 	foreach child in children:
@@ -170,6 +164,17 @@ func getParentComponents as vector<this>
 		}
 		return v
 	}
+	ELSE IFDEF "target_ios_swift" {
+		var v = new vector<this>
+		var view as [magical:UIView]? = lang "swift" as [magical:UIView]? {{{ self.superview }}}
+		while view {
+			var comp = view as this
+			if comp:
+				v += comp
+			view = lang "swift" as [magical:UIView]? {{{ view!.superview }}}
+		}
+		return v
+	}
 	ELSE IFDEF "target_headless" {
 		ERROR NOT_SUPPORTED
 	}
@@ -181,7 +186,7 @@ func getParentComponents as vector<this>
 func iterateParentComponents as Iterator<this>:
 	return Vector.iterate(getParentComponents())
 
-func findAncestorOfType(type as typeinfo) as dynamic?
+func findAncestorOfType(type as typeinfo) as object?
 {
 	foreach v in iterateParentComponents() {
 		if Reflection.isInstanceOf(v, type):
@@ -190,17 +195,66 @@ func findAncestorOfType(type as typeinfo) as dynamic?
 	return null
 }
 
+func executeUpdate throws Exception
+{
+	IFDEF "target_browser_js" {
+		var shadowRoot = this.shadow
+		if not shadowRoot:
+			Error.throw("noShadowRoot")
+		var context = JcoComposeContextForBrowserJS.forRoot(shadowRoot)
+		var css = getCssString()
+		if String.isNotEmpty(css):
+			compose to context {
+				<style>@{css}</style>
+			}
+		try {
+			composeComponent(context)
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+		context.finalize()
+		onComposed()
+	}
+	ELSE IFDEF "target_ios_swift" {
+		var pfs0 = getPreferredSize()
+		var context = JcoComposeContextForIos.forRoot(this)
+		try {
+			composeComponent(context)
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+		context.finalize()
+		onComposed()
+		var pfs1 = getPreferredSize()
+		if lang "swift" (pfs0, pfs1) as bool {{{ pfs0.width != pfs1.width || pfs0.height != pfs1.height }}} {
+			lang "swift" {{{
+				var v: UIView? = self
+				while v != nil {
+					v!.setNeedsLayout()
+					v = v!.superview
+				}
+			}}}
+		}
+	}
+	ELSE {
+		ERROR NOT_IMPLEMENTED
+	}
+}
+
 IFDEF "target_browser_js"
 {
 	extend [magical:HTMLElement]
 
-	var shadow as dynamic?
-	var updateScheduled = false
+	var shadow as object?
 	var mutationObserver as [magical:MutationObserver]?
-	var isMounted = false
 
-	func asElement as JcoElement:
-		return new JcoElementForBrowserJS() {
+	ctor:
+		nop
+
+	func asElement as JcoHtmlElement:
+		return new JcoHtmlElementForBrowserJS() {
 			element this
 		}
 
@@ -227,17 +281,17 @@ IFDEF "target_browser_js"
 		return FontDescription.parse(font).toCssCompatibleString(getPpi())
 	}
 
-	func getParentElement(element as dynamic) as dynamic?
+	func getParentElement(element as object) as object?
 	{
-		var shadow = element.getRootNode!()
+		var shadow = lang "js" (element) as object? {{{ element.getRootNode() }}}
 		if not shadow:
 			return null
-		if lang "js" as bool {{{ !shadow }}}:
+		if lang "js" (shadow) as bool {{{ !shadow }}}:
 			return null
-		var host = shadow.host
+		var host = lang "js" (shadow) as object? {{{ shadow.host }}}
 		if not host:
 			return null
-		if lang "js" as bool {{{ !host }}}:
+		if lang "js" (host) as bool {{{ !host }}}:
 			return null
 		return host
 	}
@@ -281,7 +335,7 @@ IFDEF "target_browser_js"
 			onMounted()
 		}
 		catch e as Exception {
-			Log.error(getLoggingContext(), e.toString())
+			Log.error(ctx, e.toString())
 		}
 	}
 
@@ -293,7 +347,7 @@ IFDEF "target_browser_js"
 			onUnmounted()
 		}
 		catch e as Exception {
-			Log.error(getLoggingContext(), e.toString())
+			Log.error(ctx, e.toString())
 		}
 		shutdownMutationObserver()
 	}
@@ -336,44 +390,255 @@ IFDEF "target_browser_js"
 			return sheet.toString()
 		}
 		catch e as Exception {
-			Log.error(getLoggingContext(), e.toString())
+			Log.error(ctx, e.toString())
 		}
 		return null
 	}
 
-	func executeUpdate private throws Exception #used
+	func getPpi as double:
+		return 96.0
+}
+ELSE IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	extend [magical:UIView]
+
+	ctor:
+		lang "swift" {{{
+			super.init(frame: CGRectMake(0,0,0,0))
+		}}}
+
+	ctor(aDecoder label coder as [magical:NSCoder]) nullable required:
+		lang "swift" (aDecoder) {{{
+			super.init(coder: aDecoder)
+		}}}
+
+	func getViewController as [magical:UIViewController]?
 	{
-		updateScheduled = false
-		var shadowRoot = this.shadow
-		if not shadowRoot:
-			Error.throw("noShadowRoot")
-		var context = JcoComposeContextForBrowserJS.forRoot(shadowRoot)
-		var css = getCssString()
-		if String.isNotEmpty(css):
-			compose to context {
-				<style>@{css}</style>
+		lang "swift" {{{
+			var responder = self.next
+			while responder != nil {
+				if responder is UIViewController {
+					return responder as! UIViewController
+				}
+				responder = responder!.next
 			}
-		try {
-			composeComponent(context)
-		}
-		catch e as Exception {
-			Log.error(getLoggingContext(), e.toString())
-		}
-		context.finalize()
-		onComposed()
+		}}}
+		return null
 	}
 
-	/*[
-	func getParentElementObject as JcoElement
+	func isConnectedToViewController as bool
 	{
-		var ee = getParentElement(this)
-		if not ee:
-			Error.throw("cannotFindParentElement", this)
-		return new JcoElementForBrowserJS() {
-			element ee
+		if getViewController() == null:
+			return false
+		return true
+	}
+
+	func updateChildMountedStatuses throws Exception
+	{
+		lang "swift" {{{
+			for subview in subviews {
+				if let subcomp = subview as? JcoComponent {
+					try subcomp.updateMountedStatus()
+				}
+			}
+		}}}
+	}
+
+	func updateMountedStatus throws Exception
+	{
+		if isConnectedToViewController() {
+			if isMounted == false {
+				isMounted = true
+				updateChildMountedStatuses()
+				onMounted()
+			}
+		}
+		else if isMounted {
+			isMounted = false
+			updateChildMountedStatuses()
+			onUnmounted()
 		}
 	}
-	]*/
+
+	func didMoveToSuperview override #magical
+	{
+		lang "swift" {{{
+			super.didMoveToSuperview()
+		}}}
+		try {
+			updateMountedStatus()
+		}
+		catch e as Exception {
+			Log.error(ctx, e.toString())
+		}
+	}
+
+	func getPreferredSize as [magical:CGSize]:
+		return lang "swift" as [magical:CGSize] {{{ sizeThatFits(CGSizeMake(CGFloat.greatestFiniteMagnitude, CGFloat.greatestFiniteMagnitude)) }}}
+
+	func layoutSubviews override #magical
+	{
+		lang "swift" {{{
+			for subview in subviews {
+				subview.frame = self.bounds
+			}
+		}}}
+	}
+
+	func computeSizeThatFits(cw as double, ch as double) virtual as Size
+	{
+		var w #mutated = 0.0
+		var h #mutated = 0.0
+		lang "swift" {{{
+			for subview in subviews {
+				let cgsz = subview.sizeThatFits(CGSizeMake(cw, ch))
+				if cgsz.width > w {
+					w = cgsz.width
+				}
+				if cgsz.height > h {
+					h = cgsz.height
+				}
+			}
+		}}}
+		return new Size() {
+			width w
+			height h
+		}
+	}
+
+	func sizeThatFits(size as [magical:CGSize]) override as [magical:CGSize] #magical
+	{
+		var theme = JcoThemeProcessor.forComponent(this)
+		var w = 0.0
+		var h = 0.0
+		var wp = 0.0
+		var ws = width
+		if ws:
+			wp = asPoints(theme.getValue(ws))
+		var hp = 0.0
+		var hs = height
+		if hs:
+			hp = asPoints(theme.getValue(hs))
+		if ws && hs {
+			w = wp
+			h = hp
+		}
+		else {
+			var ctxw = lang "swift" (size) as double {{{ size.width }}}
+			var ctxh = lang "swift" (size) as double {{{ size.height }}}
+			var wrp = 0.0
+			var wrs = widthRequest
+			if wrs {
+				wrp = asPoints(theme.getValue(wrs))
+				if wrp > ctxw:
+					wrp = ctxw
+			}
+			var hrp = 0.0
+			var hrs = heightRequest
+			if hrs {
+				hrp = asPoints(theme.getValue(hrs))
+				if hrp > ctxh:
+					hrp = ctxh
+			}
+			if wrs && hrs {
+				w = wrp
+				h = hrp
+			}
+			else {
+				var szw = ctxw
+				if wrs:
+					szw = wrp
+				if ws:
+					szw = wp
+				var szh = ctxh
+				if hrs:
+					szh = hrp
+				if hs:
+					szh = hp
+				var sz = computeSizeThatFits(szw, szh)
+				w = sz.width
+				h = sz.height
+			}
+			if ws:
+				w = wp
+			if hs:
+				h = hp
+		}
+		if var minws = minWidth {
+			var minw = asPoints(theme.getValue(minws))
+			if w < minw:
+				w = minw
+		}
+		if var maxws = maxWidth {
+			var maxw = asPoints(theme.getValue(maxws))
+			if w > maxw:
+				w = maxw
+		}
+		if var minhs = minHeight {
+			var minh = asPoints(theme.getValue(minhs))
+			if h < minh:
+				h = minh
+		}
+		if var maxhs = maxHeight {
+			var maxh = asPoints(theme.getValue(maxhs))
+			if h > maxh:
+				h = maxh
+		}
+		return lang "swift" (w, h) as [magical:CGSize] {{{ CGSizeMake(w, h) }}}
+	}
+
+	func getPpi as double
+	{
+		// FIXME: Do this properly
+		return 163
+	}
+
+	func colorToUiColor(value as string) as [magical:UIColor]
+	{
+		if String.isEmpty(value):
+			return lang "swift" as [magical:UIColor] {{{ UIColor.black }}}
+		var color = Color.forString(value)
+		var red = color.getRed()
+		var green = color.getGreen()
+		var blue = color.getBlue()
+		var alpha = color.getAlpha()
+		return lang "swift" (red, green, blue, alpha) as [magical:UIColor] {{{ UIColor(red: red, green: green, blue: blue, alpha: alpha) }}}
+	}
+
+	func fontToUiFont(font as string) throws Exception as [magical:UIFont]
+	{
+		if String.isEmpty(font):
+			return lang "swift" as [magical:UIFont] {{{ UIFont.systemFont(ofSize: UIFont.systemFontSize) }}}
+		var fo = FontDescription.parse(font)
+		if fo.file != null:
+			Error.throw("fontFileNotSupported")
+		var family = fo.family
+		var size = lang "swift" as double {{{ UIFont.systemFontSize }}}
+		var sizeo = fo.size
+		if sizeo:
+			size = lengthAsPoints(sizeo)
+		if String.isEmpty(family) {
+			if fo.bold {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.boldSystemFont(ofSize: size) }}}
+			}
+			else if fo.italic {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.italicSystemFont(ofSize: size) }}}
+			}
+			else {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.systemFont(ofSize: size) }}}
+			}
+		}
+		var v = lang "swift" as [magical:UIFont]? {{{ UIFont(name: family!, size: size) }}}
+		if v:
+			return v
+		return lang "swift" as [magical:UIFont] {{{ UIFont.systemFont(ofSize: size) }}}
+	}
+}
+ELSE {
+	func getPpi as double:
+		return 96.0
 }
 
 init:
@@ -386,3 +651,14 @@ func asPixels(length as string) as int:
 
 func asPoints(length as string) as double:
 	return Length.asPoints(length, getPpi())
+
+func lengthAsPixels(length as Length) as int:
+	return length.getValueAsPixels(getPpi())
+
+func lengthAsPoints(length as Length) as double:
+	return length.getValueAsPoints(getPpi())
+
+func getThemeProcessor as JcoThemeProcessor:
+	return new JcoThemeProcessor() {
+		component this
+	}

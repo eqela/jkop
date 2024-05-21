@@ -1,0 +1,104 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import [magical:UIKit]
+
+class is JcoComposeContext:
+
+class UiViewElementIterator is JcoChildIterator
+{
+	func forView(view as [magical:UIView]) static as this:
+		return new this() {
+			view view
+		}
+
+	prop view as [magical:UIView]
+
+	var position = 0
+
+	func getSubviewCount as int:
+		return lang "swift" (view) as int {{{ view.subviews.count }}}
+
+	func peek implement as object?
+	{
+		var index = position
+		if index >= getSubviewCount():
+			return null
+		return lang "swift" (view, index) as object {{{ view.subviews[index] }}}
+	}
+
+	func step implement:
+		position++
+
+	func insert(child as object) implement throws Exception
+	{
+		var subview = child as [magical:UIView]
+		if not subview:
+			Error.throw("triedToAddNonUiViewToUiView", child)
+		var index = position
+		if index >= getSubviewCount() {
+			lang "swift" (view, subview) {{{
+				view.addSubview(subview!)
+			}}}
+		}
+		else {
+			lang "swift" (view, subview, index) {{{
+				view.insertSubview(subview!, at: index)
+			}}}
+		}
+		position++
+	}
+
+	func remove implement throws Exception
+	{
+		var index = position
+		if index < getSubviewCount():
+			lang "swift" {{{
+				view.subviews[index].removeFromSuperview()
+			}}}
+	}
+}
+
+func forRoot(root as object) static throws Exception as this
+{
+	var v = new this() {
+		root root
+	}
+	v.pushContainer(root)
+	return v
+}
+
+prop root as object
+
+func getChildIterator(container as object) override as JcoChildIterator?
+{
+	if container == root:
+		return UiViewElementIterator.forView(container as! [magical:UIView])
+	var v = base.getChildIterator(container)
+	if v:
+		return v
+	if container is [magical:UIView]:
+		return UiViewElementIterator.forView(container as! [magical:UIView])
+	return null
+}
