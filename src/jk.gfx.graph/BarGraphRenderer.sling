@@ -27,38 +27,58 @@ import jk.gfx.render
 
 class is CommonGraphRenderer:
 
-prop barFillColor as Color
-prop barOutlineColor as Color
-
-func renderGraph(ctx as RenderingContext, ox as double, ooy as double, width as double, oheight as double) override
+class Line public
 {
-	var values = getValues()
+	prop value as double
+	prop label as string?
+}
+
+prop barFillColor as Color
+prop barOutlineColor as Color?
+prop lines as vector<Line>?
+prop barFillColors as array<Color?>?
+
+func addLine(value as double, label as string?)
+{
+	if not lines:
+		lines = new vector<Line>
+	lines += new Line() {
+		value value
+		label label
+	}
+}
+
+func renderGraph(ctx as RenderingContext, oox as double, ooy as double, owidth as double, oheight as double, ppi as double) override
+{
+	var values = this.values
 	if values == null || sizeof values < 2:
 		return
-	var labels = getLabels()
+	var labels = this.labels
+	var ox = oox
 	var oy = ooy
+	var width = owidth
 	var height = oheight
 	var valueCount = sizeof values
 	var high = values[0]
 	var low = values[0]
-	var labelheight = height * 0.015
+	var labelheight = height * 0.030 * fontSizeMultiplier
 	for(var n = 0 ; n < valueCount ; n++) {
 		if values[n] < low:
 			low = values[n]
 		if values[n] > high:
 			high = values[n]
 	}
-	if low >= 0 {
+	if low >= 0:
 		low = 0
-		if labels:
-			height -= labelheight * 2
-	}
-	if high <= 0 {
+	if high <= 0:
 		high = 0
-		if labels {
-			oy += labelheight * 2
+	if labels:
+		height -= (labelheight + labelheight / 2.0)
+	if showValue != SHOW_VALUE_NONE {
+		oy += labelheight * 2
+		height -= labelheight * 2
+		if low < 0:
 			height -= labelheight * 2
-		}
 	}
 	var range = high - low
 	var baseliney as double
@@ -68,10 +88,48 @@ func renderGraph(ctx as RenderingContext, ox as double, ooy as double, width as 
 	else {
 		baseliney = height - (-low / range) * height
 	}
-	ctx.setStrokeStyle(barOutlineColor)
-	ctx.setFillStyle(barFillColor)
+	if lines {
+		var addx = 0.0
+		ctx.save()
+		ctx.setStrokeStyle(Color.forString("#686868"))
+		foreach line in lines {
+			var value = line.value
+			var label = line.label
+			var y = baseliney - (value / range) * height
+			var ax = 0.0
+			if String.isNotEmpty(label) {
+				label = label .. " "
+				var labelFont = FontDescription.forFamily(getTextFont())
+				labelFont.size = Length.forPoints(labelheight)
+				ctx.setFillStyle(getTextColor())
+				ctx.setFont(labelFont, ppi)
+				ctx.setTextAlign(RenderingContext.ALIGN_LEFT)
+				ctx.setTextBaseline(RenderingContext.BASELINE_MIDDLE)
+				var sz = ctx.measureText(label)
+				ax = sz.width
+				ctx.fillText(label, oox, oy + y, 0)
+			}
+			ctx.moveTo(ox + ax, oy + y)
+			ctx.lineTo(ox + width, oy + y)
+			ctx.stroke()
+			if ax > addx:
+				addx = ax
+		}
+		ctx.restore()
+		ox += addx
+		width -= addx
+	}
+	if barOutlineColor:
+		ctx.setStrokeStyle(barOutlineColor)
 	var blockSize = (width / valueCount)
 	for(var n = 0 ; n < valueCount ; n++) {
+		var bfc = barFillColor
+		if barFillColors && sizeof barFillColors > n + 1 {
+			var cc = barFillColors[n]
+			if cc:
+				bfc = cc
+		}
+		ctx.setFillStyle(bfc)
 		var x = (n as! double) * blockSize
 		var y as double
 		var h as double
@@ -86,25 +144,40 @@ func renderGraph(ctx as RenderingContext, ox as double, ooy as double, width as 
 		var barmargin = blockSize * 0.1
 		var barwidth = blockSize - barmargin * 2
 		ctx.fillRect(ox + x + barmargin, oy + y, barwidth, h)
-		ctx.strokeRect(ox + x + barmargin, oy + y, barwidth, h)
+		if barOutlineColor:
+			ctx.strokeRect(ox + x + barmargin, oy + y, barwidth, h)
+		var valueString = getValueDisplayString(n)
+		if String.isNotEmpty(valueString) {
+			ctx.save()
+			var labelFont = FontDescription.forFamily(getTextFont())
+			labelFont.size = Length.forPoints(labelheight)
+			ctx.setFillStyle(getTextColor())
+			ctx.setFont(labelFont, ppi)
+			ctx.setTextAlign(RenderingContext.ALIGN_CENTER)
+			ctx.setTextBaseline(RenderingContext.BASELINE_MIDDLE)
+			var lx = ox + x + barmargin + barwidth / 2
+			var ly as double
+			if values[n] >= 0 {
+				ly = oy + y - (labelheight + labelheight) / 2
+			}
+			else {
+				ly = oy + y + h + (labelheight + labelheight) / 2
+			}
+			ctx.fillText(valueString, lx, ly, 0)
+			ctx.restore()
+		}
 		if labels {
 			var label = Vector.getValue(labels, n)
 			if String.isNotEmpty(label) {
 				ctx.save()
-				var labelFont = FontDescription.forFamily("Arial")
+				var labelFont = FontDescription.forFamily(getTextFont())
 				labelFont.size = Length.forPoints(labelheight)
-				ctx.setFillStyle(Color.forString("#686868"))
-				ctx.setFont(labelFont)
+				ctx.setFillStyle(getTextColor())
+				ctx.setFont(labelFont, ppi)
 				ctx.setTextAlign(RenderingContext.ALIGN_CENTER)
 				ctx.setTextBaseline(RenderingContext.BASELINE_MIDDLE)
 				var lx = ox + x + barmargin + barwidth / 2
-				var ly as double
-				if values[n] >= 0 {
-					ly = oy + baseliney + labelheight + labelheight / 2
-				}
-				else {
-					ly = oy + baseliney - labelheight - labelheight / 2
-				}
+				var ly = ooy + oheight - (labelheight + labelheight / 2.0) / 2
 				ctx.fillText(label, lx, ly, 0)
 				ctx.restore()
 			}

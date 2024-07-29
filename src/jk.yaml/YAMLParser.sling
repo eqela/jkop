@@ -1,0 +1,277 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.json
+import jk.model
+import jk.fs
+
+class:
+
+class YamlObject public
+{
+	pvar object as DynamicMap?
+	pvar index as int?
+}
+
+const SEPARATOR_SYMBOL = ":"
+const COMMENT_SYMBOL = "#"
+const LIST_SYMBOL = "-"
+
+func parse(object as dynamic?) static throws Exception as DynamicMap
+{
+	if object is string:
+		return parseString(object as! string)
+	else if object is buffer:
+		return parseBuffer(object as! buffer)
+	Error.throw("unsupportedDataObjectForOpenApiParser", object)
+}
+
+func parseString(str as string) static throws Exception as DynamicMap
+{
+	var lines = String.split(str, '\n')
+	var result = handleParsing(lines, 0, 0)
+	if var v = result.getObject() as DynamicMap:
+		return v
+	Error.throw("parseFailed", str)
+}
+
+func parseBuffer(buff as buffer) static throws Exception as DynamicMap
+{
+	var v = String.forUTF8Buffer(buff as! buffer)
+	return parseString(v)
+}
+
+func handleParsing(lines as vector<string>, index as int, indent as int, listName as string? = null) static private throws Exception as YamlObject
+{
+	var dm = new DynamicMap()
+	var list = new DynamicVector()
+	var idx = index
+	while (idx < Vector.getSize(lines)) {
+		var currentLineIndent = getIndentCount(lines[idx])
+		if currentLineIndent != indent:
+			break
+		var line = String.strip(lines[idx])
+		if String.endsWith(line, SEPARATOR_SYMBOL) {
+			var name = removeTrailingColon(line)
+			var nxtLineIndent = getIndentCount(lines[idx + 1])
+			var obj as YamlObject?
+			if String.startsWith(String.strip(lines[idx + 1]), LIST_SYMBOL) {
+				obj = handleParsing(lines, idx + 1, nxtLineIndent, name)
+				if var o = obj.getObject():
+					dm.mergeFrom(o)
+				if var i = obj.getIndex() as int:
+					idx = i
+				continue
+			}
+			obj = handleParsing(lines, idx + 1, nxtLineIndent)
+			if var i = obj.getIndex() as int:
+				idx = i
+			dm.setDynamic(String.strip(name), obj.getObject())
+		}
+		else if String.startsWith(line, LIST_SYMBOL) {
+			var nxt = lines[idx + 1]
+			if String.startsWith(String.strip(nxt), LIST_SYMBOL) {
+				var v = parseVector(lines, idx)
+				list = Map.getValue(v, "list") as! DynamicVector
+				idx = Map.getValue(v, "index") as int + 1
+				break
+			}
+			else {
+				lines[idx] = stripLeadingDash(lines[idx])
+				var i = getIndentCount(lines[idx])
+				var obj = handleParsing(lines, idx, i)
+				list.appendDynamic(obj.getObject())
+				if var i = obj.getIndex() as int:
+					idx = i
+			}
+		}
+		else if String.startsWith(line, COMMENT_SYMBOL) {
+			idx++
+			continue
+		}
+		else {
+			var kp = parseKeyValuePair(line)
+			var key = String.asValueOrEmptyString(Map.getValue(kp, "key"))
+			var value = Map.getValue(kp, "value")
+			dm.setDynamic(key, value)
+		}
+		idx++
+	}
+	if listName && list.getSize() > 0:
+		dm.setDynamic(listName, list)
+	var obj = new YamlObject()
+	obj.setObject(dm)
+	obj.setIndex(idx - 1)
+	return obj
+}
+
+func getIndentCount(str as string) static private as int
+{
+	var count as int = 0
+	var iterator = String.iterate(str)
+	foreach i in iterator {
+		if i == ' ':
+			count++
+		else if i == '	':
+			count++
+		else:
+			break
+	}
+	return count
+}
+
+func stripLeadingDash(str as string) static private as string
+{
+	if String.startsWith(String.strip(str), "-") {
+		var sb = new StringBuilder()
+		var iterator = String.iterate(str)
+		var v as int = 0
+		foreach i in iterator {
+			sb.appendCharacter(i)
+			if v <= 1 {
+				if i == '-' {
+					sb.appendCharacter(' ')
+					v++
+				}
+			}
+		}
+		return String.getSubString(sb.toString(), 1, String.getLength(sb.toString()))
+	}
+	return str
+}
+
+func removeTrailingColon(str as string) static private as string
+{
+	if String.endsWith(str, ":"):
+		return String.getSubString(str, 0, String.getLength(str) - 1)
+	return str
+}
+
+func parseKeyValuePair(line as string) static private throws Exception as map<string, dynamic>
+{
+	var str = String.split(line, ':', 2)
+	var key = String.strip(str[0])
+	var value = getValue(String.strip(str[1]))
+	var map = new map<string, dynamic>
+	Map.set(map, "key", key)
+	if value is BooleanObject:
+		Map.set(map, "value", Boolean.asValueOrDefaultValue(value))
+	else if value is DoubleObject:
+		Map.set(map, "value", Double.asValueOrDefaultValue(value))
+	else if value is IntegerObject:
+		Map.set(map, "value", Integer.asValueOrDefaultValue(value))
+	else if value is LongIntegerObject:
+		Map.set(map, "value", LongInteger.asValueOrDefaultValue(value))
+	else if value is string:
+		Map.set(map, "value", String.asValueOrEmptyString(value))
+	else:
+		Error.throw("unsupportedValue", str)
+	return map
+}
+
+func parseVector(lines as vector<string>, index as int) static private as map
+{
+	var counter = index
+	var vector = new DynamicVector()
+	loop {
+		var line = String.strip(lines[counter])
+		if not String.startsWith(line, LIST_SYMBOL):
+			break
+		vector.appendString(String.strip(stripLeadingDash(line)))
+		counter++
+	}
+	var map = new map
+	Map.setValue(map, "list", vector)
+	Map.setValue(map, "index", counter)
+	return map
+}
+
+func getValue(str as string) static throws Exception as dynamic?
+{
+	if var b = getValueAsBoolean(str):
+		return b
+	if var n = getValueAsNumberObject(str):
+		return n
+	return str
+}
+
+func getValueAsNumberObject(str as string) static throws Exception as object?
+{
+	var iterator = String.iterate(str)
+	var fc = iterator.next()
+	if fc != '-' && fc != '+' && fc != '.' && (fc < '0' || fc > '9'):
+		return null
+	var sb = new StringBuilder()
+	sb.appendCharacter(fc)
+	loop {
+		if not iterator.hasNext():
+			break
+		var c = iterator.next()
+		if c != '.' && c != 'e' && c != 'E' && c != '-' && (c < '0' || c > '9'):
+			break
+		sb.appendCharacter(c)
+	}
+	var s = sb.toString()
+	if Vector.getSize(String.split(s, '.')) > 2:
+		return null
+	if String.getIndexOfCharacter(s, '.') > -1 {
+		var dvalue = Double.asValueOrNull(s)
+		if dvalue == null:
+			return null
+		return Double.asObject(dvalue)
+	}
+	var ivalue = LongInteger.asValueOrNull(s)
+	if ivalue == null:
+		return null
+	if ivalue >= -2147483648L && ivalue <= 2147483647L:
+		return Integer.asObject(ivalue as! int)
+	return LongInteger.asObject(ivalue)
+}
+
+func getValueAsBoolean(str as string) static throws Exception as BooleanObject?
+{
+	var iterator = String.iterate(str)
+	var fc = iterator.next()
+	if fc != 't' && fc != 'f':
+		return null
+	var sb = new StringBuilder()
+	sb.appendCharacter(fc)
+	var li = 5
+	if fc == 't':
+		li = 4
+	loop {
+		var c = iterator.next()
+		if c != 'a' && c != 'l' && c != 's' && c != 'e' && c != 'r' && c != 'u':
+			break
+		sb.appendCharacter(c)
+		if sb.count() == li:
+			break
+	}
+	var v = sb.toString()
+	if li == 4 && "true" == v:
+		return Boolean.asObject(true)
+	if li == 5 && "false" == v:
+		return Boolean.asObject(false)
+	return null
+}

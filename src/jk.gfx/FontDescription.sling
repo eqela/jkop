@@ -123,17 +123,65 @@ func toCssCompatibleString(ppi as double) as string
 		sb.appendString("bold")
 	}
 	var size = this.size
-	if size {
-		if sb.count() > 0:
-			sb.appendCharacter(' ')
-		sb.appendString(String.forInteger(size.getValueAsPixels(ppi)))
-		sb.appendString("px")
-	}
+	if not size:
+		size = Length.forMilliMeters(3.0)
+	if sb.count() > 0:
+		sb.appendCharacter(' ')
+	sb.appendString(String.forInteger(size.getValueAsPixels(ppi)))
+	sb.appendString("px")
 	var family = this.family
-	if String.isNotEmpty(family) {
-		if sb.count() > 0:
-			sb.appendCharacter(' ')
-		sb.appendString(family)
-	}
+	if String.isEmpty(family):
+		family = "Arial"
+	if sb.count() > 0:
+		sb.appendCharacter(' ')
+	sb.appendString(family)
 	return sb.toString()
+}
+
+IFDEF "target_ios_swift"
+{
+	import [magical:UIKit]
+
+	func toUiFont(ppi as double) throws Exception as [magical:UIFont]
+	{
+		var fo = this
+		if fo.file != null:
+			Error.throw("fontFileNotSupported")
+		var family = fo.family
+		var size = lang "swift" as double {{{ UIFont.systemFontSize }}}
+		var sizeo = fo.size
+		if sizeo:
+			size = sizeo.getValueAsPoints(ppi)
+		if String.isEmpty(family) {
+			if fo.bold {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.boldSystemFont(ofSize: size) }}}
+			}
+			else if fo.italic {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.italicSystemFont(ofSize: size) }}}
+			}
+			else {
+				return lang "swift" as [magical:UIFont] {{{ UIFont.systemFont(ofSize: size) }}}
+			}
+		}
+		var v = lang "swift" as [magical:UIFont]? {{{ UIFont(name: family!, size: size) }}}
+		if not v:
+			v = lang "swift" as [magical:UIFont] {{{ UIFont.systemFont(ofSize: size) }}}
+		if fo.bold {
+			lang "swift" {{{
+				let desc = v!.fontDescriptor.withSymbolicTraits(.traitBold)
+				if desc != nil {
+					v = UIFont(descriptor: desc!, size: 0.0)
+				}
+			}}}
+		}
+		if fo.italic {
+			lang "swift" {{{
+				let desc = v!.fontDescriptor.withSymbolicTraits(.traitItalic)
+				if desc != nil {
+					v = UIFont(descriptor: desc!, size: 0.0)
+				}
+			}}}
+		}
+		return v
+	}
 }

@@ -1,0 +1,217 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.fs
+import jk.env
+import jk.log
+import jk.process
+import jk.url
+
+class:
+
+prop ctx as LoggingContext
+prop sshCommand as string?
+prop sshIdentity as File?
+
+prop executable:_executable as File?
+{
+	get {
+		if not _executable:
+			_executable = ExternalCommand.getCommandInPathIfExists("git")
+		return _executable
+	}
+	set:
+		_executable = value
+}
+
+func getSshCommandString private as string?
+{
+	if String.isEmpty(sshCommand) && sshIdentity == null:
+		return null
+	var sb = new StringBuilder()
+	var cmd = sshCommand
+	if String.isEmpty(cmd):
+		cmd = "ssh"
+	sb.appendString(cmd)
+	var sshIdentity = this.sshIdentity
+	if sshIdentity {
+		sb.appendString(" -i \"")
+		sb.appendString(sshIdentity.getPath())
+		sb.appendString("\"")
+		sb.appendString(" -o IdentitiesOnly=yes")
+	}
+	return sb.toString()
+}
+
+func getProcessLauncher throws Exception as ProcessLauncher
+{
+	var gg = executable
+	if not gg:
+		Error.throw("noGitExecutable", "getProcessLauncher")
+	var v = ProcessLauncher.forFile(gg)
+	var ssh = getSshCommandString()
+	if String.isNotEmpty(ssh):
+		v.setEnvVariable("GIT_SSH_COMMAND", ssh)
+	// NOTE: Git needs to be detached from the terminal so that it will not
+	// try to ask for eg. username and password interactively.
+	v.detachFromTerminal = true
+	return v
+}
+
+func asWorkdir(dir as dynamic) throws Exception as File
+{
+	var diro = File.asValueOrThrowError(dir)
+	if not diro.entry(".git").isDirectory():
+		Error.throw("notGitWorkingDirectory", diro)
+	return diro
+}
+
+class CloneParams public
+{
+	prop depth as int = 0
+	prop recursive as bool = false
+	prop reference as string
+}
+
+func clone(repository as dynamic, targetDir as dynamic? = null, params as CloneParams? = null) throws Exception as File
+{
+	var repo = String.asValueOrThrowError(repository)
+	var tt as File?
+	if targetDir == null {
+		tt = TemporaryDirectory.create()
+	}
+	else {
+		tt = File.asValueOrThrowError(targetDir)
+		if tt.exists():
+			Error.throw("alreadyExists", tt)
+	}
+	var pl = getProcessLauncher()
+	pl.addToParams("clone")
+	if params {
+		var dd = params.depth
+		if dd > 0 {
+			pl.addToParams("--depth")
+			pl.addToParams(String.forInteger(dd))
+		}
+		if params.recursive:
+			pl.addToParams("--recursive")
+		if String.isNotEmpty(params.reference) {
+			pl.addToParams("--branch")
+			pl.addToParams(params.reference)
+		}
+	}
+	pl.addToParams(repo)
+	pl.addToParams(tt.getPath())
+	Log.debug(ctx, String.asValueOrEmptyString(pl))
+	var sb = new StringBuilder()
+	var v = pl.executeToStringBuilder(sb)
+	if v != 0 {
+		tt.removeRecursive()
+		Log.error(ctx, "Git output: `" .. sb.toString() .. "'")
+		Error.throw("failedToGitClone", repo)
+	}
+	return tt
+}
+
+func checkout(workdir as dynamic, reference as string) throws Exception
+{
+	var dir = asWorkdir(workdir)
+	var pl = getProcessLauncher()
+	pl.cwd = dir
+	pl.addToParams("checkout")
+	pl.addToParams(reference)
+	Log.debug(ctx, String.asValueOrEmptyString(pl))
+	var sb = new StringBuilder()
+	var v = pl.executeToStringBuilder(sb)
+	if v != 0 {
+		Log.error(ctx, "Git output: `" .. sb.toString() .. "'")
+		Error.throw("failedToCheckout", reference)
+	}
+}
+
+func pull(workdir as dynamic) throws Exception
+{
+	var dir = asWorkdir(workdir)
+	var pl = getProcessLauncher()
+	pl.cwd = dir
+	pl.addToParams("pull")
+	Log.debug(ctx, String.asValueOrEmptyString(pl))
+	var sb = new StringBuilder()
+	var v = pl.executeToStringBuilder(sb)
+	if v != 0 {
+		Log.error(ctx, "Git output: `" .. sb.toString() .. "'")
+		Error.throw("failedToGitPull", dir)
+	}
+}
+
+func getCurrentCommitHash(workdir as dynamic) throws Exception as string
+{
+	var dir = asWorkdir(workdir)
+	var pl = getProcessLauncher()
+	pl.cwd = dir
+	pl.addToParams("rev-parse")
+	pl.addToParams("HEAD")
+	Log.debug(ctx, String.asValueOrEmptyString(pl))
+	var sb = new StringBuilder()
+	var v = pl.executeToStringBuilder(sb)
+	var str = sb.toString()
+	if v != 0 {
+		Log.error(ctx, "Git output: `" .. str .. "'")
+		Error.throw("failedToGetCurrentCommitHash", dir)
+	}
+	str = String.strip(str)
+	if String.isEmpty(str):
+		Error.throw("emptyCommitHash", workdir)
+	return str
+}
+
+func isRepositoryUrlAccessible(repoUrl as dynamic) throws Exception as bool
+{
+	var url = String.asValueOrNull(repoUrl)
+	if String.isEmpty(url):
+		return false
+	var pl = getProcessLauncher()
+	pl.addToParams("ls-remote")
+	pl.addToParams(url)
+	pl.addToParams("HEAD")
+	var sb = new StringBuilder()
+	var v = pl.executeToStringBuilder(sb)
+	Log.debug(ctx, "isRepositoryUrlAccessible output: `" .. sb.toString() .. "'")
+	if v != 0:
+		return false
+	return true
+}
+
+func validateCredentialsForRepository(repository as dynamic, username as string?, password as string?) throws Exception as bool
+{
+	var repoUrl = String.asValueOrNull(repository)
+	if String.isEmpty(repoUrl):
+		return false
+	var url = URL.forString(repoUrl)
+	if username:
+		url.setUsername(username)
+	if password:
+		url.setPassword(password)
+	return isRepositoryUrlAccessible(url)
+}

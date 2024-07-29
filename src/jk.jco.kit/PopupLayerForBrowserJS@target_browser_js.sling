@@ -29,6 +29,19 @@ class is PopupLayer:
 class MyRootWidget is LayerWidget #jco #component
 {
 	prop composer as function<(JcoComposeContext) throws Exception>?
+	prop fillParent as bool = false
+
+	func getCssPointerEventsValue override as string?:
+		return "all"
+
+	func addCssRules(sheet as CSSBuilder) override throws Exception
+	{
+		base.addCssRules(sheet)
+		if fillParent:
+			sheet.define(":host > :not(style)", new map<string,string> {
+				width "100%"
+			})
+	}
 
 	func composeComponent(context as JcoComposeContext) override throws Exception
 	{
@@ -74,6 +87,9 @@ func showAsLayer(reference as JcoComponent, composer as function<(JcoComposeCont
 	var element = CustomElementManager.createElementForType(typeinfo MyRootWidget) as MyRootWidget
 	if not element:
 		Error.throw("failedToCreatePopupBaseWidget")
+	var app = reference.getApplicationOrNull()
+	if app:
+		element.customData = app.customData
 	element.composer = composer
 	lang "js" {{{
 		element.style.position = "absolute";
@@ -91,6 +107,9 @@ func showWithComponent(reference as JcoComponent, align as int, composer as func
 	var element = CustomElementManager.createElementForType(typeinfo MyRootWidget) as MyRootWidget
 	if not element:
 		Error.throw("failedToCreatePopupBaseWidget")
+	var app = reference.getApplicationOrNull()
+	if app:
+		element.customData = app.customData
 	element.composer = composer
 	lang "js" (element, original) {{{
 		element.style.position = "absolute";
@@ -107,8 +126,9 @@ func showWithComponent(reference as JcoComponent, align as int, composer as func
 	else if align == PopupLayer.ALIGN_JUSTIFY {
 		lang "js" (element, original) {{{
 			element.style.left = original.left;
-			element.style.width = original.right - original.left;
+			element.style.width = original.width;
 		}}}
+		element.fillParent = true
 	}
 	else if align == PopupLayer.ALIGN_RIGHT {
 		lang "js" (element, original) {{{

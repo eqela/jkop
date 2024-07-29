@@ -26,100 +26,42 @@ import jk.log
 
 class is WebClient:
 
-/*[
-depend "plist:{ \"NSAppTransportSecurity\" : { \"NSAllowsArbitraryLoads\" : \"true\" } }"
-
-class MyRequestListener extends [magical:NSObject] implements [magical:NSURLConnectionDelegate] implements [magical:NSURLConnectionDataDelegate]
-{
-	ctor override:
-		nop
-
-	pvar callback as function<(string,KeyValueList<string,string>,buffer)>?
-
-	var responseData as buffer?
-	var responseCode as string?
-	var responseHeaders as KeyValueList<string,string>?
-
-	func processNSURLResponse(response as [magical:URLResponse])
-	{
-		responseHeaders = new KeyValueList<string,string>()
-		var k as string?
-		var v as string?
-		var c as int
-		lang "swift" {{{
-			let r = response as? HTTPURLResponse
-			if r != nil && r?.responds(to: #selector(getter: HTTPURLResponse.allHeaderFields)) ?? false {
-				c = Int(r?.statusCode ?? 0)
-		}}}
-		responseCode = String.forInteger(c)
-		lang "swift" {{{
-			let d = r?.allHeaderFields
-			for (key, value) in d as! [String:String] {
-				k = String(key)
-				v = d?[String(key)] as! String
-		}}}
-		if not k:
-			k = ""
-		k = String.toLowerCase(k)
-		responseHeaders.add(k, v)
-		lang "swift" {{{
-				}
-			}
-		}}}
-	}
-
-	lang "swift" {{{
-		public func connection(_ connection: NSURLConnection, didReceive response: URLResponse) {
-			processNSURLResponse(response)
-			responseData = NSMutableData()
-		}
-
-		public func connection(_ connection: NSURLConnection, didReceive data: Data) {
-			responseData.append(data)
-		}
-
-		public func connection(_ connection: NSURLConnection, willCacheResponse cachedResponse: CachedURLResponse) -> CachedURLResponse? {
-			return nil
-		}
-
-		public func connectionDidFinishLoading(_ connection: NSURLConnection) {
-			callback!(responseCode, responseHeaders, responseData)
-		}
-
-		public func connection(_ connection: NSURLConnection, didFailWithError error: Error) {
-			callback(nil, nil, nil)
-		}
-	}}}
-}
-
-func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override as Response
+func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override throws Exception as Response
 {
 	lang "swift" {{{
 		var request = URLRequest(url: URL(string: url)!)
-		request.httpMethod = method!
+		request.httpMethod = method
 		request.timeoutInterval = 30
 	}}}
 	if headers {
 		var iter = headers.iterate()
-		loop {
+		while iter.hasNext() {
 			var nh = iter.next()
-			if nh == null:
-				break
 			var key = nh.key
 			var value = nh.value
 			lang "swift" {{{
-				request.setValue(value, forHTTPHeaderField:key!)
+				request.setValue(value, forHTTPHeaderField:key)
 			}}}
 		}
 	}
-	var requestListener = new MyRequestListener()
-	requestListener.setCallback(callback)
-	lang "swift" {{{
-		request.httpBody = body as Data?
-		let conn: NSURLConnection = NSURLConnection(request: request, delegate: requestListener)!
+	if body {
+		lang "swift" {{{
+			request.httpBody = body!.data
+		}}}
+	}
+	var status #mutated = 0
+	var hdrs = new KeyValueListForStrings()
+	lang "swift" (status, hdrs) {{{
+		let (data, response) = try await URLSession.shared.data(for: request)
+		if let httpResponse = response as? HTTPURLResponse {
+			status = httpResponse.statusCode
+		}
 	}}}
+	// FIXME: Process headers
+	return new Response() {
+		statusCode String.forInteger(status)
+		statusMessage ""
+		headers hdrs
+		body lang "swift" as buffer {{{ BufferValue.forData(data) }}}
+	}
 }
-]*/
-
-func executeQuery(ctx as LoggingContext, method as string, url as string, headers as KeyValueList<string,string>?, body as buffer?) async override throws Exception as Response:
-	ERROR NOT_IMPLEMENTED

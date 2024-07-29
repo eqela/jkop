@@ -26,8 +26,50 @@ import jk.jco.common
 
 class is JcoComponent #jco #component:
 
+class LinkDisplayWidget is PointerCaptureLayerWidget #jco #component
+{
+	prop text as string #content = ""
+	prop font as string #content = ""
+	prop textColor as string #content = ""
+	prop textHoverColor as string #content = ""
+	prop textUnderline as string #content = ""
+
+	var hovered = false
+
+	func onPointerEnter override throws Exception
+	{
+		base.onPointerEnter()
+		hovered = true
+		update()
+	}
+
+	func onPointerLeave override throws Exception
+	{
+		base.onPointerLeave()
+		hovered = false
+		update()
+	}
+
+	compose
+	{
+		<VerticalBoxWidget spacing="2px">
+			<LabelWidget
+				text=@{text}
+				font=@{font}
+				color=@{hovered ? textHoverColor : textColor}
+				wrapping="false" />
+			{
+				if textUnderline == "true":
+					compose {
+						<CanvasWidget backgroundColor=@{hovered ? textHoverColor : textColor} height="1px" />
+					}
+			}
+		</VerticalBoxWidget>
+	}
+}
+
 prop text as string #content = ""
-prop font as string #content = "{hyperlinkFont|Arial 16px}"
+prop font as string #content = "{hyperlinkFont|4mm}"
 prop textColor as string #content = "{hyperlinkColor|blue}"
 prop textHoverColor as string #content = "{hyperlinkHoverColor|#CCCCFF}"
 prop textUnderline as string #content = "{hyperlinkUnderline|true}"
@@ -40,99 +82,16 @@ func onClicked virtual throws Exception
 		oc()
 }
 
-section private
+func handleOnClicked private:
+	executeAndHandleExceptions(func throws Exception => onClicked())
+
+compose
 {
-	func handleOnClicked:
-		executeAndHandleExceptions(func throws Exception => onClicked())
-}
-
-IFDEF "target_browser_js"
-{
-	func addCssRules(sheet as CSSBuilder) override throws Exception
-	{
-		base.addCssRules(sheet)
-		var theme = getThemeProcessor()
-		var a = sheet.define("a", new map<string,string> {
-			color colorToHtml(theme.getValue(textColor))
-		})
-		if Boolean.asValueOrThrowError(theme.getValue(textUnderline)):
-			a.set("text-decoration", "underline")
-		sheet.define("a:hover", new map<string,string> {
-			color colorToHtml(theme.getValue(textHoverColor))
-		})
-	}
-
-	compose
-	{
-		<a var link href="#">
-			{
-				if String.isNotEmpty(text):
-					compose {
-						@{text}
-					}
-				composeChildren(context)
-			}
-		</a>
-	}
-
-	func onComposed override throws Exception
-	{
-		var link = this.link
-		if link:
-			link.setEventCapturer("click", func(event as dynamic) => handleOnClicked())
-	}
-}
-ELSE {
-	class LinkDisplayWidget is PointerCaptureLayerWidget #jco #component
-	{
-		prop text as string #content = ""
-		prop font as string #content = ""
-		prop textColor as string #content = ""
-		prop textHoverColor as string #content = ""
-		prop textUnderline as string #content = ""
-
-		var hovered = false
-
-		func onPointerEnter override throws Exception
-		{
-			base.onPointerEnter()
-			hovered = true
-			update()
-		}
-
-		func onPointerLeave override throws Exception
-		{
-			base.onPointerLeave()
-			hovered = false
-			update()
-		}
-
-		compose
-		{
-			<VerticalBoxWidget spacing="2px">
-				<LabelWidget
-					text=@{text}
-					font=@{font}
-					color=@{hovered ? textHoverColor : textColor}
-					wrapping="false" />
-				{
-					if textUnderline == "true":
-						compose {
-							<CanvasWidget backgroundColor=@{hovered ? textHoverColor : textColor} height="1px" />
-						}
-				}
-			</VerticalBoxWidget>
-		}
-	}
-
-	compose
-	{
-		<LinkDisplayWidget
-			text=@{text}
-			font=@{font}
-			textColor=@{textColor}
-			textHoverColor=@{textHoverColor}
-			textUnderline=@{textUnderline}
-			clickHandler=@{func throws Exception => handleOnClicked()} />
-	}
+	<LinkDisplayWidget
+		text=@{text}
+		font=@{font}
+		textColor=@{textColor}
+		textHoverColor=@{textHoverColor}
+		textUnderline=@{textUnderline}
+		clickHandler=@{func throws Exception => handleOnClicked()} />
 }

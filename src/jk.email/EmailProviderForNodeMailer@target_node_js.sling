@@ -1,0 +1,103 @@
+
+/*
+ * This file is part of Eqela Jkop
+ * Copyright (c) 2016-2024 J42 Pte Ltd
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+import jk.email
+import jk.json
+import jk.lang.js
+
+class is EmailProvider:
+
+depend "npm:nodemailer:6.9.3"
+
+prop host as string
+prop port as string
+prop username as string
+prop password as string
+prop sender as string
+
+func getApi private as dynamic:
+	return JsCommonModule.require("nodemailer")
+
+func getAllRecipientsAddress(recipients as vector<EmailUser>?) as string
+{
+	var sb = new StringBuilder()
+	if recipients {
+		if Vector.getSize(recipients) > 1 {
+			foreach r in recipients {
+				sb.appendString(r.emailAddress)
+				sb.appendCharacter(',')
+				sb.appendCharacter(' ')
+			}
+		}
+		else {
+			var v = Vector.getFirstValue(recipients)
+			if v:
+				sb.appendString(v.emailAddress)
+		}
+	}
+	return sb.toString()
+}
+
+func sendEmailContent(recipients as EmailRecipients, content as EmailContent) override async throws Exception
+{
+	var mailer = getApi()
+	var transporter = mailer.createTransport!({
+		host host
+		port port
+		secure false
+		auth {
+			user username
+			pass password
+		}
+	})
+	if not transporter:
+		Error.throw("internalError", null)
+	var mailOptions = new DynamicMap()
+	mailOptions.setString("from", sender)
+	var to = getAllRecipientsAddress(recipients.to)
+	if String.isEmpty(to):
+		Error.throw("noRecipientsDefined", null)
+	var cc = getAllRecipientsAddress(recipients.cc)
+	var bcc = getAllRecipientsAddress(recipients.bcc)
+	var text as string?
+	var html as string?
+	if content.contentType == "text" {
+		text = content.content
+	}
+	else if content.contentType == "html" {
+		html = content.content
+	}
+	await transporter.sendMail!({
+		from sender
+		to to
+		cc cc
+		bcc bcc
+		subject content.subject
+		text text
+		html html
+	})
+}
+
+func sendEmailTemplate(recipients as EmailRecipients, templateName as string, language as string, parameters as DynamicMap) override async throws Exception:
+	ERROR NOT_IMPLEMENTED

@@ -27,6 +27,7 @@ import jk.jco.common
 class is LayerWidget #jco #component:
 
 prop clickHandler as function<() throws Exception>?
+prop clickComponentHandler as function<(JcoComponent) throws Exception>?
 prop pointerEnterHandler as function<() throws Exception>?
 prop pointerLeaveHandler as function<() throws Exception>?
 
@@ -35,6 +36,9 @@ func onClicked virtual throws Exception
 	var ch = clickHandler
 	if ch:
 		ch()
+	var cch = clickComponentHandler
+	if cch:
+		cch(this)
 }
 
 func onPressed virtual throws Exception:
@@ -77,6 +81,11 @@ section private
 
 IFDEF "target_browser_js"
 {
+	var isPressed = false
+
+	func getCssPointerEventsValue override as string?:
+		return "all"
+
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
 		base.addCssRules(sheet)
@@ -91,8 +100,32 @@ IFDEF "target_browser_js"
 		base.onMounted()
 		var element = asElement()
 		element.setEventCapturer("click", func(event as dynamic) => handleOnClicked())
-		element.setEventObserver("mouseenter", func(event as dynamic) => handleOnPointerEnter())
-		element.setEventObserver("mouseleave", func(event as dynamic) => handleOnPointerLeave())
+		element.setEventObserver("pointerenter", func(event as dynamic) => handleOnPointerEnter())
+		element.setEventObserver("pointercancel", func(event as dynamic) {
+			if isPressed {
+				isPressed = false
+				handleOnReleased()
+			}
+		})
+		element.setEventObserver("pointerleave", func(event as dynamic) {
+			if isPressed {
+				isPressed = false
+				handleOnReleased()
+			}
+			handleOnPointerLeave()
+		})
+		element.setEventObserver("pointerdown", func(event as dynamic) {
+			if not isPressed {
+				isPressed = true
+				handleOnPressed()
+			}
+		})
+		element.setEventObserver("pointerup", func(event as dynamic) {
+			if isPressed {
+				isPressed = false
+				handleOnReleased()
+			}
+		})
 	}
 
 	func onUnmounted override throws Exception
@@ -100,13 +133,18 @@ IFDEF "target_browser_js"
 		base.onUnmounted()
 		var element = asElement()
 		element.setEventCapturer("click", null)
-		element.setEventObserver("mouseenter", null)
-		element.setEventObserver("mouseleave", null)
+		element.setEventObserver("pointerenter", null)
+		element.setEventObserver("pointercancel", null)
+		element.setEventObserver("pointerleave", null)
+		element.setEventObserver("pointerdown", null)
+		element.setEventObserver("pointerup", null)
 	}
 }
 ELSE IFDEF "target_ios_swift"
 {
 	import [magical:UIKit]
+
+	var isPressed #mutated = false
 
 	func onMounted override throws Exception
 	{
@@ -130,19 +168,32 @@ ELSE IFDEF "target_ios_swift"
 
 	lang "swift" (handleOnClicked, handleOnPressed, handleOnReleased) {{{
 		@objc func onTapGesture(_ sender: UITapGestureRecognizer? = nil) {
+			if isPressed {
+				isPressed = false
+				self.handleOnReleased()
+			}
 			self.handleOnClicked()
 		}
 
 		public override func touchesBegan(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
-			handleOnPressed()
+			if isPressed == false {
+				isPressed = true
+				handleOnPressed()
+			}
 		}
 
 		public override func touchesEnded(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
-			handleOnReleased()
+			if isPressed {
+				isPressed = false
+				handleOnReleased()
+			}
 		}
 
 		public override func touchesCancelled(_ touches: Swift.Set<UITouch>, with event: UIEvent?) {
-			handleOnReleased()
+			if isPressed {
+				isPressed = false
+				handleOnReleased()
+			}
 		}
 	}}}
 }

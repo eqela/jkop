@@ -23,6 +23,7 @@
  */
 
 import jk.log
+import jk.slon
 
 class is JcoComponent abstract #jco #component:
 
@@ -34,6 +35,54 @@ class Listener
 
 var navigationPath as string?
 var navigationListeners as vector<Listener>?
+
+init
+{
+	#post {
+		IFDEF "target_browser_js" {
+			context = new GuiApplicationContextForBrowserJS()
+		}
+		initializeCustomData()
+	}
+}
+
+func initializeCustomData virtual
+{
+	var values = new DynamicMap()
+	getThemeValues(values)
+	getStringValues(values)
+	customData = values
+}
+
+func getThemeValues(values as DynamicMap) virtual:
+	nop
+
+func getStringsSlon virtual as string?:
+	return null
+
+func getApplicationLanguage virtual as string:
+	return "en"
+
+func getStringValues(values as DynamicMap) virtual:
+	getStringsForLanguage(getApplicationLanguage(), values)
+
+func getStringsForLanguage(language as string, values as DynamicMap) virtual
+{
+	var data = getStringsSlon()
+	if not data:
+		return
+	var oo = try? SLONParser.parseString(data)
+	var mm = oo as DynamicMap
+	if mm {
+		foreach key in mm.getKeys() {
+			var value as string?
+			var vv = mm.getDynamicMap(key)
+			if vv:
+				value = vv.getString(language)
+			values.setString(key, value)
+		}
+	}
+}
 
 func onNavigation virtual
 {
@@ -115,6 +164,7 @@ func removeNavigationListener(target as object)
 IFDEF "target_browser_js"
 {
 	import jk.url
+	import jk.gui
 
 	func onFragmentChanged
 	{
@@ -147,7 +197,6 @@ IFDEF "target_browser_js"
 
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
-		base.addCssRules(sheet)
 		sheet.define(":host", new map<string,string> {
 			height "100%"
 			width "100%"

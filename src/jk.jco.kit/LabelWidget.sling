@@ -28,26 +28,34 @@ import jk.jco.common
 class is JcoComponent #jco #component:
 
 prop text as string #content = ""
-prop font as string #content = "{textFont|Arial 16px}"
+prop font as string #content = "{textFont|4mm}"
 prop padding as string #content = "{textPadding|0}"
 prop color as string #content = "{textColor|#000000}"
 prop wrapping as string #content = "true"
+prop alignment as string #content = "left"
 
 IFDEF "target_browser_js"
 {
 	func addCssRules(sheet as CSSBuilder) override throws Exception
 	{
-		base.addCssRules(sheet)
 		var theme = JcoThemeProcessor.forComponent(this)
 		var host = sheet.define(":host", new map<string,string> {
 			display "block"
 			color colorToHtml(theme.getValue(color))
 			padding lengthToHtml(theme.getValue(padding))
-			font fontToHtml(theme.getValue(font))
+			font fontToHtml(theme.getFontValue(font))
 			"text-overflow" "ellipsis"
+			"text-align" theme.getValue(alignment)
 		})
 		if Boolean.asValueOrThrowError(theme.getValue(wrapping)) == false:
 			host.set("white-space", "nowrap")
+	}
+
+	func initializeHtmlChildren override
+	{
+		var inner = lang "js" as string? {{{ this.innerHTML }}}
+		if String.isNotEmpty(inner):
+			text = inner
 	}
 
 	compose
@@ -104,12 +112,31 @@ ELSE IFDEF "target_ios_swift"
 		}}}
 	}
 
+	func toTextAlignment(value as string) as [magical:NSTextAlignment]
+	{
+		if value == "left":
+			return lang "swift" as [magical:NSTextAlignment] {{{ NSTextAlignment.left }}}
+		if value == "right":
+			return lang "swift" as [magical:NSTextAlignment] {{{ NSTextAlignment.right }}}
+		if value == "center":
+			return lang "swift" as [magical:NSTextAlignment] {{{ NSTextAlignment.center }}}
+		if value == "justify":
+			return lang "swift" as [magical:NSTextAlignment] {{{ NSTextAlignment.justified }}}
+		return lang "swift" as [magical:NSTextAlignment] {{{ NSTextAlignment.left }}}
+	}
+
 	compose
 	{
-		<[magical:UILabel]
-			text=@{getThemeProcessor().getValue(text)}
-			textColor=@{colorToUiColor(getThemeProcessor().getValue(color))}
-			font=@{fontToUiFont(getThemeProcessor().getValue(font))}
-			numberOfLines=@{wrapping == "true" ? 0 : 1} />
+		{
+			var theme = getThemeProcessor()
+			compose {
+				<[magical:UILabel]
+					text=@{theme.getValue(text)}
+					textColor=@{colorToUiColor(theme.getValue(color))}
+					textAlignment=@{toTextAlignment(theme.getValue(alignment))}
+					font=@{fontToUiFont(theme.getFontValue(font))}
+					numberOfLines=@{wrapping == "true" ? 0 : 1} />
+			}
+		}
 	}
 }
